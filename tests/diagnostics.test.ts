@@ -7,7 +7,7 @@ import { usePerformanceStore } from '../src/stores/performance';
 import { useSettingsStore } from '../src/stores/settings';
 import { useSyncStore } from '../src/stores/sync';
 import { useHistoryStore } from '../src/stores/history';
-import { useDiagnosticsStore } from '../src/stores/diagnostics';
+import { formatBuildTime, useDiagnosticsStore } from '../src/stores/diagnostics';
 
 async function connectMock(): Promise<MockTransport> {
   const device = useDeviceStore();
@@ -204,4 +204,24 @@ describe('diagnostics store', () => {
 
     expect(history.canUndo).toBe(false);
   }, 15000);
+
+  it('refuses a backup of another board even when that board is allowed', async () => {
+    await connectMock();
+    const diag = useDiagnosticsStore();
+    const backup = await diag.generateBackup();
+    backup.boardIdHex = '0030000A'; // Pro backup, Max connected
+
+    await expect(diag.parseAndDiffBackup(JSON.stringify(backup))).rejects.toThrow('invalid_board_mismatch:0030000A:0030000D');
+    await expect(diag.applyRestore({ payload: backup, keymapDiffCount: 1, perfDiffCount: 0, settingsDiffCount: 0 }))
+      .rejects.toThrow('invalid_board_mismatch');
+
+    backup.boardIdHex = '0030000D'; // same board, other case: accepted
+    await expect(diag.parseAndDiffBackup(JSON.stringify(backup))).resolves.toBeDefined();
+  });
+
+  it('formats the board build time', () => {
+    expect(formatBuildTime('2026101215:13:41')).toBe('2026-10-12 15:13:41');
+    expect(formatBuildTime('unknown')).toBe('unknown');
+    expect(formatBuildTime(undefined)).toBe('—');
+  });
 });

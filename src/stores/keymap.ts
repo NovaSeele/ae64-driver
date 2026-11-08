@@ -1,7 +1,7 @@
 // Per-layer keymap for the active profile (layers 0=Main, 1=Fn1, 2=Fn2, 3=Fn3).
 // Follows the per-key page pattern: load all 4 layers → edit through history + sync (SAVE_GROUP.LAYOUT) → verify by read-back.
 import { defineStore } from 'pinia';
-import { ref, shallowRef, watch } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import { FIRMWARE_ROWS, LAYER_COUNT, SAVE_GROUP, keycodeLabel } from '../protocol';
 import { BLOCKED_KEYCODES } from '../protocol/safety';
 import type { Ae64Transport, PhysicalKey } from '../protocol';
@@ -12,6 +12,34 @@ import { useSyncStore } from './sync';
 
 export const LAYER_NAMES = ['Main', 'Fn1', 'Fn2', 'Fn3'] as const;
 export type LayerIndex = 0 | 1 | 2 | 3;
+
+/** An assignment touching more keys than this needs a confirmation. */
+export const BULK_CONFIRM_KEYS = 8;
+
+/** True when an assignment changing `changed` keys needs the user's confirmation first. */
+export function needsAssignConfirm(changed: number, factoryLost: readonly FactoryKey[]): boolean {
+  return changed > BULK_CONFIRM_KEYS || factoryLost.length > 0;
+}
+
+export interface FactoryKey { layer: number; id: number; code: number }
+
+export interface DefaultDiff {
+  diffCount: number;
+  defaultCodes: Record<number, number>;
+  /** Keys whose factory default is a blocked keycode: left as they are. */
+  skipped: number;
+  /** Key ids holding a factory keycode now that the restore would overwrite for good. */
+  factoryLost: number[];
+}
+
+export interface KeycodePlan {
+  /** Layer:key tokens that would change, with the keycode they hold now / would hold after. */
+  before: Record<string, number>;
+  after: Record<string, number>;
+  fnGuarded: boolean;
+  /** Keys holding a factory keycode (Reset/Link/wireless) that the assignment would overwrite for good. */
+  factoryLost: FactoryKey[];
+}
 
 export function isFnSwitch(code: number): boolean {
   return code >= 0xf101 && code <= 0xf103;
@@ -38,7 +66,10 @@ export const useKeymapStore = defineStore('keymap', () => {
     values.value = { 0: {}, 1: {}, 2: {}, 3: {} };
     fresh.clear();
     loadedProfile.value = null;
+    fnNoticeTriggered.value = false;
   });
+  // The Fn-rule notice belongs to the profile it was triggered in.
+  device.onProfileChanged(() => { fnNoticeTriggered.value = false; });
   let loadPromise: Promise<void> | null = null;
 
   function token(layer: number, id: number): string {
@@ -176,39 +207,53 @@ export const useKeymapStore = defineStore('keymap', () => {
     }
   }
 
+  /** Keys on any layer that hold a factory keycode: this app can never write those back. */
+  const factoryKeys = computed<FactoryKey[]>(() => {
+    const list: FactoryKey[] = [];
+    for (let layer = 0; layer < LAYER_COUNT; layer++) {
+      for (const [idStr, code] of Object.entries(values.value[layer] ?? {})) {
+        if (BLOCKED_KEYCODES.has(code)) list.push({ layer, id: Number(idStr), code });
+      }
+    }
+    return list;
+  });
+
   /**
-   * Assign a keycode to multiple keys on the active layer.
+   * What assigning a keycode to keys on the active layer would change.
    * If keycode is an Fn-layer switch (F101–F103), higher layers at the same position
    * automatically receive Transparent (0x0001) per reference rule.
    */
-  function applyKeycode(ids: number[], keycode: number): { fnGuarded: boolean } {
-    if (BLOCKED_KEYCODES.has(keycode)) return { fnGuarded: false };
-    if (loadedProfile.value !== device.activeProfile || !ids.length) return { fnGuarded: false };
+  function planKeycode(ids: number[], keycode: number): KeycodePlan {
+    const plan: KeycodePlan = { before: {}, after: {}, fnGuarded: false, factoryLost: [] };
+    if (BLOCKED_KEYCODES.has(keycode)) return plan;
+    if (loadedProfile.value !== device.activeProfile || !ids.length) return plan;
     const currentL = activeLayer.value;
-    const before: Record<string, number> = {};
-    const after: Record<string, number> = {};
-    let fnGuarded = false;
-
+    const note = (layer: number, id: number, prev: number, next: number) => {
+      plan.before[token(layer, id)] = prev;
+      plan.after[token(layer, id)] = next;
+      if (BLOCKED_KEYCODES.has(prev)) plan.factoryLost.push({ layer, id, code: prev });
+    };
     for (const id of ids) {
       const prev = values.value[currentL]?.[id] ?? 0;
-      if (prev !== keycode) {
-        before[token(currentL, id)] = prev;
-        after[token(currentL, id)] = keycode;
-      }
+      if (prev !== keycode) note(currentL, id, prev, keycode);
 
       // Fn release rule: higher layers get Transparent (0x0001)
       if (isFnSwitch(keycode)) {
         for (let higher = currentL + 1; higher < LAYER_COUNT; higher++) {
           const higherPrev = values.value[higher]?.[id] ?? 0;
           if (higherPrev !== 0x0001) {
-            before[token(higher, id)] = higherPrev;
-            after[token(higher, id)] = 0x0001;
-            fnGuarded = true;
+            note(higher, id, higherPrev, 0x0001);
+            plan.fnGuarded = true;
           }
         }
       }
     }
+    return plan;
+  }
 
+  /** Assign a keycode to multiple keys on the active layer (see planKeycode). */
+  function applyKeycode(ids: number[], keycode: number): { fnGuarded: boolean } {
+    const { before, after, fnGuarded } = planKeycode(ids, keycode);
     if (!Object.keys(after).length) return { fnGuarded: false };
     if (fnGuarded) fnNoticeTriggered.value = true;
 
@@ -225,9 +270,12 @@ export const useKeymapStore = defineStore('keymap', () => {
   /**
    * Read the factory default keycodes for a layer (using current systemMode) and compute diff.
    */
-  async function computeDefaultDiff(layer = activeLayer.value): Promise<{ diffCount: number; defaultCodes: Record<number, number> }> {
+  async function computeDefaultDiff(layer = activeLayer.value): Promise<DefaultDiff> {
+    if (loadedProfile.value !== device.activeProfile) throw new Error(tr('keymap.notLoaded'));
     const defaultCodes: Record<number, number> = {};
     let diffCount = 0;
+    let skipped = 0;
+    const factoryLost: number[] = [];
     await device.withTransport(async (t) => {
       const sys = await t.getSystemMode();
       for (const row of FIRMWARE_ROWS) {
@@ -236,21 +284,26 @@ export const useKeymapStore = defineStore('keymap', () => {
           if (key.row === row) {
             const defCode = rowCodes[key.col] ?? 0;
             // Factory reset / wireless codes are never written by this app (protocol/safety.ts).
-            if (BLOCKED_KEYCODES.has(defCode)) continue;
+            if (BLOCKED_KEYCODES.has(defCode)) {
+              skipped++;
+              continue;
+            }
             defaultCodes[key.id] = defCode;
-            if (values.value[layer]?.[key.id] !== defCode) {
+            const cur = values.value[layer]?.[key.id];
+            if (cur !== defCode) {
               diffCount++;
+              if (cur !== undefined && BLOCKED_KEYCODES.has(cur)) factoryLost.push(key.id);
             }
           }
         }
       }
     });
-    return { diffCount, defaultCodes };
+    return { diffCount, defaultCodes, skipped, factoryLost };
   }
 
-  /** Apply default keymap to the layer. */
-  function applyDefault(layer: number, defaultCodes: Record<number, number>): void {
-    if (loadedProfile.value !== device.activeProfile) return;
+  /** Apply default keymap to the layer. Returns how many keys were really queued for writing. */
+  function applyDefault(layer: number, defaultCodes: Record<number, number>): number {
+    if (loadedProfile.value !== device.activeProfile) return 0;
     const before: Record<string, number> = {};
     const after: Record<string, number> = {};
     for (const [idStr, defCode] of Object.entries(defaultCodes)) {
@@ -261,17 +314,19 @@ export const useKeymapStore = defineStore('keymap', () => {
         after[token(layer, id)] = defCode;
       }
     }
-    if (!Object.keys(after).length) return;
+    const n = Object.keys(after).length;
+    if (!n) return 0;
     commit(after);
     history.push({
       label: tr('keymap.restoreDefaultTitle'),
       undo: () => commit(before),
       redo: () => commit(after),
     });
+    return n;
   }
 
   return {
     activeLayer, values, loading, loadedCount, loadError, loadedProfile, fnNoticeTriggered,
-    load, legendFor, sublabelFor, inheritedKeycode, applyKeycode, computeDefaultDiff, applyDefault,
+    factoryKeys, load, legendFor, sublabelFor, inheritedKeycode, planKeycode, applyKeycode, computeDefaultDiff, applyDefault,
   };
 });

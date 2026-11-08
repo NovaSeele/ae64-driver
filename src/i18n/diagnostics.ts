@@ -56,4 +56,12 @@ export const diagnosticsVi = {
   'diagnostics.importInvalidSchema': 'Tệp sao lưu không đúng phiên bản schema.',
   'diagnostics.importInvalidBoard': 'Bo mạch trong tệp sao lưu ({board}) không khớp với thiết bị hiện tại.',
   'diagnostics.importNoChanges': 'Tệp sao lưu có dữ liệu trùng khớp hoàn toàn với cấu hình hiện tại.',
+  'diagnostics.importWrongBoard': 'Tệp sao lưu thuộc bo mạch {board}, còn bàn phím đang kết nối là {current}. Không thể khôi phục chéo bo mạch.',
+  'diagnostics.importReadOnly': 'Bo mạch này ở chế độ chỉ đọc: không thể khôi phục cấu hình.',
+  'diagnostics.importOverwrite': 'Cấu hình trong tệp sẽ ghi đè profile đang dùng «{current}».',
+  'diagnostics.importOverwriteFrom': 'Cấu hình sao lưu của profile «{from}» sẽ ghi đè profile đang dùng «{current}».',
+  'diagnostics.importRestoring': 'Đang khôi phục…',
+  'diagnostics.copyFailed': 'Không sao chép được nhật ký vào clipboard.',
+  'diagnostics.featOn': 'Có',
+  'diagnostics.featOff': 'Không',
 } as const;

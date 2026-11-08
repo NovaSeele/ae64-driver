@@ -4,7 +4,7 @@ import { MockTransport, PHYSICAL_KEYS } from '../src/protocol';
 import { useDeviceStore } from '../src/stores/device';
 import { useSyncStore } from '../src/stores/sync';
 import { useHistoryStore } from '../src/stores/history';
-import { useKeymapStore } from '../src/stores/keymap';
+import { BULK_CONFIRM_KEYS, needsAssignConfirm, useKeymapStore } from '../src/stores/keymap';
 
 async function connectMock(): Promise<MockTransport> {
   const device = useDeviceStore();
@@ -192,5 +192,78 @@ describe('keymap store', () => {
     await sync.flush();
     expect(setKeycode.mock.calls.some(([pos, code]) => pos.row === wKey.row && pos.col === wKey.col && code === 0x0005)).toBe(true);
     expect(sync.state).toBe('saved');
+  });
+
+  it('restore-default writes only the layer captured at click time and reports the real count', async () => {
+    await connectMock();
+    const keymap = useKeymapStore();
+    const sync = useSyncStore();
+    await keymap.load(true);
+
+    const k = PHYSICAL_KEYS[1];
+    keymap.activeLayer = 1;
+    keymap.applyKeycode([k.id], 0x004c);
+    await sync.flush();
+    const diff = await keymap.computeDefaultDiff(1);
+    expect(diff.diffCount).toBeGreaterThanOrEqual(1);
+
+    // The user switches layer after the click: the diff must still go to layer 1.
+    keymap.activeLayer = 0;
+    const layer0Before = { ...keymap.values[0] };
+    const written = keymap.applyDefault(1, diff.defaultCodes);
+    expect(written).toBe(diff.diffCount);
+    expect(keymap.values[0]).toEqual(layer0Before);
+    expect(keymap.values[1][k.id]).toBe(diff.defaultCodes[k.id]);
+    await sync.flush();
+    expect((await keymap.computeDefaultDiff(1)).diffCount).toBe(0);
+  });
+
+  it('restore-default reports nothing written when the keymap is not loaded', async () => {
+    await connectMock();
+    const keymap = useKeymapStore();
+    await expect(keymap.computeDefaultDiff(0)).rejects.toThrow();
+    expect(keymap.applyDefault(0, { 0: 0x0004 })).toBe(0);
+  });
+
+  it('lists factory keys and flags assignments that would overwrite them', async () => {
+    const mock = await connectMock();
+    const esc = PHYSICAL_KEYS[0];
+    (mock as unknown as { profiles: { keymap: number[][][] }[] }).profiles[0].keymap[0][esc.row][esc.col] = 0xf200;
+    const keymap = useKeymapStore();
+    await keymap.load(true);
+
+    expect(keymap.factoryKeys).toContainEqual({ layer: 0, id: esc.id, code: 0xf200 });
+    keymap.activeLayer = 0;
+    const plan = keymap.planKeycode([esc.id], 0x0004);
+    expect(plan.factoryLost).toEqual([{ layer: 0, id: esc.id, code: 0xf200 }]);
+    expect(needsAssignConfirm(Object.keys(plan.after).length, plan.factoryLost)).toBe(true);
+    // The factory-key default is skipped by restore-default, never written.
+    const diff = await keymap.computeDefaultDiff(0);
+    expect(diff.factoryLost).toContain(esc.id);
+  });
+
+  it('asks for confirmation when an assignment touches more than 8 keys', async () => {
+    await connectMock();
+    const keymap = useKeymapStore();
+    await keymap.load(true);
+    keymap.activeLayer = 0;
+    const plan = keymap.planKeycode(PHYSICAL_KEYS.map((k) => k.id), 0x0004);
+    const changed = Object.keys(plan.after).length;
+    expect(changed).toBeGreaterThan(BULK_CONFIRM_KEYS);
+    expect(needsAssignConfirm(changed, plan.factoryLost)).toBe(true);
+    expect(needsAssignConfirm(BULK_CONFIRM_KEYS, [])).toBe(false);
+  });
+
+  it('resets the Fn-rule notice when the profile changes', async () => {
+    await connectMock();
+    const device = useDeviceStore();
+    const keymap = useKeymapStore();
+    await keymap.load(true);
+    keymap.activeLayer = 0;
+    keymap.applyKeycode([PHYSICAL_KEYS[1].id], 0xf101);
+    expect(keymap.fnNoticeTriggered).toBe(true);
+
+    await device.switchProfile(1);
+    expect(keymap.fnNoticeTriggered).toBe(false);
   });
 });

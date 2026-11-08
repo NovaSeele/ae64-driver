@@ -58,4 +58,12 @@ export const diagnosticsEn: Record<keyof typeof diagnosticsVi, string> = {
   'diagnostics.importInvalidSchema': 'Unsupported backup schema version.',
   'diagnostics.importInvalidBoard': 'Board ID in backup ({board}) does not match the connected device.',
   'diagnostics.importNoChanges': 'The backup file is identical to the current keyboard configuration.',
+  'diagnostics.importWrongBoard': 'This backup is for board {board} but the connected keyboard is {current}. Cross-board restore is refused.',
+  'diagnostics.importReadOnly': 'This board is read-only: configuration cannot be restored.',
+  'diagnostics.importOverwrite': 'The configuration in the file will overwrite the active profile «{current}».',
+  'diagnostics.importOverwriteFrom': 'The backup of profile «{from}» will overwrite the active profile «{current}».',
+  'diagnostics.importRestoring': 'Restoring…',
+  'diagnostics.copyFailed': 'Could not copy the log to the clipboard.',
+  'diagnostics.featOn': 'Yes',
+  'diagnostics.featOff': 'No',
 };

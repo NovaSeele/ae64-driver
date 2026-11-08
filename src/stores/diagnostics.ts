@@ -99,6 +99,13 @@ function validateBackupPayload(
   }
 }
 
+/** Build time as reported by the board ("YYYYMMDDHH:MM:SS") → "YYYY-MM-DD HH:MM:SS"; anything else is shown as is. */
+export function formatBuildTime(raw: string | undefined): string {
+  if (!raw) return '—';
+  const m = /^(\d{4})(\d{2})(\d{2})\s*(\d{2}:\d{2}:\d{2})$/.exec(raw.trim());
+  return m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}` : raw;
+}
+
 export interface BackupPayload {
   schemaVersion: 1;
   appName: 'ae64max';
@@ -245,8 +252,14 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     }
 
     const payload = parsed as BackupPayload;
-    if (!payload.boardIdHex || !ALLOWED_BOARDS.includes(payload.boardIdHex.toLowerCase())) {
-      throw new Error('invalid_board');
+    const fileBoard = typeof payload.boardIdHex === 'string' ? payload.boardIdHex.toLowerCase() : '';
+    if (!fileBoard || !ALLOWED_BOARDS.includes(fileBoard)) {
+      throw new Error(`invalid_board:${fileBoard.toUpperCase()}`);
+    }
+    // A backup of another allowed board (Pro onto Max) must never be written to this one.
+    const deviceBoard = device.info?.boardIdHex?.toLowerCase();
+    if (deviceBoard !== fileBoard) {
+      throw new Error(`invalid_board_mismatch:${fileBoard.toUpperCase()}:${(deviceBoard ?? '').toUpperCase()}`);
     }
 
     // Ensure stores are populated for comparison
@@ -316,9 +329,12 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
    * Only changed records are written to minimize bus traffic and wear.
    */
   async function applyRestore(diff: ImportDiff): Promise<void> {
+    const { payload } = diff;
+    if (payload.boardIdHex?.toLowerCase() !== device.info?.boardIdHex?.toLowerCase()) {
+      throw new Error(`invalid_board_mismatch:${String(payload.boardIdHex).toUpperCase()}:${(device.info?.boardIdHex ?? '').toUpperCase()}`);
+    }
     isRestoring.value = true;
     try {
-      const { payload } = diff;
       const sync = useSyncStore();
       const history = useHistoryStore();
 

@@ -12,7 +12,7 @@ import Dialog from '../components/ui/Dialog.vue';
 import Segmented from '../components/ui/Segmented.vue';
 import { useToast } from '../components/ui/toast';
 import { useDeviceStore } from '../stores/device';
-import { useDiagnosticsStore } from '../stores/diagnostics';
+import { formatBuildTime, useDiagnosticsStore } from '../stores/diagnostics';
 import type { ImportDiff } from '../stores/diagnostics';
 import type { PacketLogEntry } from '../protocol';
 import { t } from '../i18n/vi';
@@ -38,7 +38,12 @@ const filterOptions = computed(() => [
 ]);
 
 // Latency & stats
-const stats = computed(() => device.transport?.stats ?? { lastLatencyMs: 0, avgLatencyMs: 0, requests: 0, timeouts: 0 });
+// statsTick re-runs this every 250 ms: the transport's stats object itself is not reactive.
+const stats = computed(() => {
+  void device.statsTick;
+  return { lastLatencyMs: 0, avgLatencyMs: 0, requests: 0, timeouts: 0, ...device.transport?.stats };
+});
+const readOnly = computed(() => !device.boardAllowed);
 
 // Feature chips
 const features = computed(() => {
@@ -70,6 +75,7 @@ function toHex(bytes: number[]): string {
 const filteredPackets = computed<PacketLogEntry[]>(() => {
   const q = logSearch.value.trim().toLowerCase();
   const dir = logFilter.value;
+  void device.packetSeq; // the log array is not reactive: re-run on every recorded packet
   return device.packetLog
     .filter((e) => dir === 'all' || e.dir === dir)
     .filter((e) => {
@@ -96,7 +102,7 @@ async function copyLog() {
     toast.show(t('diagnostics.copied'), 'success');
     setTimeout(() => { copied.value = false; }, 2000);
   } catch {
-    // clipboard write fallback
+    toast.show(t('diagnostics.copyFailed'), 'error');
   }
 }
 
@@ -130,24 +136,33 @@ async function onFileSelected(e: Event) {
   try {
     const text = await file.text();
     const diff = await diag.parseAndDiffBackup(text);
+    if (diff.keymapDiffCount + diff.perfDiffCount + diff.settingsDiffCount === 0) {
+      toast.show(t('diagnostics.importNoChanges'), 'info');
+      return;
+    }
     activeDiff.value = diff;
     importDialogOpen.value = true;
   } catch (err) {
-    const msgKey = err instanceof Error && err.message.startsWith('invalid_')
-      ? (err.message === 'invalid_json'
-          ? 'diagnostics.importInvalidJson'
-          : err.message === 'invalid_board'
-            ? 'diagnostics.importInvalidBoard'
-            : 'diagnostics.importInvalidSchema')
-      : null;
-    toast.show(msgKey ? t(msgKey as any) : String(err), 'error');
+    const msg = err instanceof Error ? err.message : String(err);
+    const [code, a, b] = msg.split(':');
+    if (code === 'invalid_json') toast.show(t('diagnostics.importInvalidJson'), 'error');
+    else if (code === 'invalid_schema') toast.show(t('diagnostics.importInvalidSchema'), 'error');
+    else if (code === 'invalid_board') toast.show(t('diagnostics.importInvalidBoard', { board: a || '?' }), 'error');
+    else if (code === 'invalid_board_mismatch') toast.show(t('diagnostics.importWrongBoard', { board: a || '?', current: b || '?' }), 'error');
+    else toast.show(msg, 'error');
   } finally {
     if (fileInput.value) fileInput.value.value = '';
   }
 }
 
+// No closing (Esc / backdrop / X) while the restore is writing.
+function onImportOpen(v: boolean) {
+  if (!v && diag.isRestoring) return;
+  importDialogOpen.value = v;
+}
+
 async function doRestore() {
-  if (!activeDiff.value) return;
+  if (!activeDiff.value || readOnly.value) return;
   try {
     await diag.applyRestore(activeDiff.value);
     importDialogOpen.value = false;
@@ -182,7 +197,7 @@ async function doRestore() {
           </div>
           <div class="diag-meta-item">
             <dt class="micro">{{ t('diagnostics.buildTime') }}</dt>
-            <dd class="num">{{ device.info?.timestamp ?? '—' }}</dd>
+            <dd class="num">{{ formatBuildTime(device.info?.timestamp) }}</dd>
           </div>
           <div class="diag-meta-item">
             <dt class="micro">{{ t('settings.protocolVersion') }}</dt>
@@ -210,8 +225,10 @@ async function doRestore() {
             class="diag-feat-badge"
             :class="{ 'diag-feat-badge--active': feat.enabled }"
           >
-            <span class="diag-feat-badge__dot" />
+            <span class="diag-feat-badge__dot" aria-hidden="true" />
             <span class="diag-feat-badge__label">{{ feat.label }}</span>
+            <span class="diag-feat-badge__state" aria-hidden="true">{{ feat.enabled ? '✓' : '✕' }}</span>
+            <span class="sr-only">{{ feat.enabled ? t('diagnostics.featOn') : t('diagnostics.featOff') }}</span>
           </span>
         </div>
       </Card>
@@ -290,7 +307,8 @@ async function doRestore() {
         <div class="diag-backup-actions">
           <Button
             variant="primary"
-            :disabled="diag.isExporting"
+            :loading="diag.isExporting"
+            :disabled="diag.isRestoring"
             @click="exportBackup"
           >
             <IconDownload :size="16" />
@@ -298,12 +316,13 @@ async function doRestore() {
           </Button>
           <Button
             variant="secondary"
-            :disabled="diag.isRestoring"
+            :disabled="diag.isRestoring || diag.isExporting || readOnly"
             @click="triggerImport"
           >
             <IconUpload :size="16" />
             {{ t('diagnostics.importButton') }}
           </Button>
+          <p v-if="readOnly" class="diag-warn">{{ t('diagnostics.importReadOnly') }}</p>
           <input
             ref="fileInput"
             type="file"
@@ -317,7 +336,8 @@ async function doRestore() {
 
     <!-- Import Diff Confirmation Dialog -->
     <Dialog
-      v-model:open="importDialogOpen"
+      :open="importDialogOpen"
+      @update:open="onImportOpen"
       :title="t('diagnostics.importTitle')"
       :width="480"
     >
@@ -326,6 +346,11 @@ async function doRestore() {
           <span class="micro">{{ t('settings.boardId') }}: 0x{{ activeDiff.payload.boardIdHex.toUpperCase() }}</span>
           <span class="micro num">{{ new Date(activeDiff.payload.timestamp).toLocaleString() }}</span>
         </div>
+        <p class="diag-diff-overwrite">
+          {{ activeDiff.payload.profileName
+            ? t('diagnostics.importOverwriteFrom', { from: activeDiff.payload.profileName, current: device.activeProfileName })
+            : t('diagnostics.importOverwrite', { current: device.activeProfileName }) }}
+        </p>
         <div class="diag-diff-list">
           <div class="diag-diff-item">
             {{ t('diagnostics.importDiffKeymap', { n: activeDiff.keymapDiffCount }) }}
@@ -341,15 +366,16 @@ async function doRestore() {
           {{ t('diagnostics.importUnsupportedNotice') }}
         </div>
         <div class="diag-diff-actions">
-          <Button variant="ghost" @click="importDialogOpen = false">
+          <Button variant="ghost" :disabled="diag.isRestoring" @click="importDialogOpen = false">
             {{ t('diagnostics.importCancel') }}
           </Button>
           <Button
-            variant="primary"
-            :disabled="diag.isRestoring"
+            variant="danger"
+            :loading="diag.isRestoring"
+            :disabled="readOnly"
             @click="doRestore"
           >
-            {{ t('diagnostics.importConfirm') }}
+            {{ diag.isRestoring ? t('diagnostics.importRestoring') : t('diagnostics.importConfirm') }}
           </Button>
         </div>
       </div>
@@ -403,6 +429,23 @@ async function doRestore() {
   border-color: var(--line-2);
   color: var(--fg-1);
 }
+.diag-feat-badge__state {
+  font-weight: 600;
+  color: var(--fg-4);
+}
+.diag-feat-badge--active .diag-feat-badge__state {
+  color: var(--acc);
+}
+.diag-warn {
+  color: var(--warn);
+  font-size: var(--fs-label);
+  flex-basis: 100%;
+}
+.diag-diff-overwrite {
+  color: var(--warn);
+  font-size: var(--fs-body);
+  margin: 0;
+}
 .diag-feat-badge__dot {
   width: 6px;
   height: 6px;
@@ -433,7 +476,7 @@ async function doRestore() {
   color: var(--fg-1);
 }
 .diag-stat-card__val--warn {
-  color: var(--color-warn);
+  color: var(--warn);
 }
 .diag-log-toolbar {
   display: flex;
@@ -474,9 +517,9 @@ async function doRestore() {
 .diag-log-line {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 2px 10px;
   line-height: 1.4;
-  white-space: nowrap;
 }
 .diag-log-line__time {
   color: var(--fg-4);
@@ -500,6 +543,8 @@ async function doRestore() {
 .diag-log-line__hex {
   color: var(--fg-2);
   letter-spacing: 0.05em;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .diag-log-line__note {
   color: var(--fg-3);
