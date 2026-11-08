@@ -30,7 +30,8 @@ const pct = computed(() => ratio(props.modelValue) * 100);
 const band = computed(() => (props.range ? { from: ratio(props.range[0]) * 100, to: ratio(props.range[1]) * 100 } : null));
 
 function snap(v: number, step: number): number {
-  const s = Math.round((v - props.min) / step) * step + props.min;
+  // Absolute grid (0.30, 0.35…), not one anchored at `min` (0.01 → 0.06, 0.11…); clamped below.
+  const s = Math.round(v / step) * step;
   const decimals = Math.max(0, -Math.floor(Math.log10(step)) + 1);
   return Number(Math.min(props.max, Math.max(props.min, s)).toFixed(decimals));
 }
@@ -45,21 +46,40 @@ function set(v: number) {
   if (v !== props.modelValue) emit('update:modelValue', v);
 }
 
+/** Last value emitted by the current drag; the gesture always ends on it. */
+let last: number | null = null;
+
 function onDown(e: PointerEvent) {
   if (props.disabled || e.button !== 0) return;
+  // No text selection / native drag: those make the browser cancel the pointer stream mid-drag.
+  e.preventDefault();
   (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   dragging.value = true;
-  set(fromPointer(e));
+  last = fromPointer(e);
+  set(last);
   (track.value?.querySelector('.sl__thumb') as HTMLElement | null)?.focus({ preventScroll: true });
 }
 function onMove(e: PointerEvent) {
-  if (dragging.value) set(fromPointer(e));
+  if (!dragging.value) return;
+  last = fromPointer(e);
+  set(last);
 }
 function onUp(e: PointerEvent) {
   if (!dragging.value) return;
+  last = fromPointer(e);
+  finish();
+}
+/**
+ * pointercancel / lostpointercapture carry no usable position (often clientX = 0, which would map to
+ * `min`): keep the value the drag last reached instead of reading the event.
+ */
+function finish() {
+  if (!dragging.value) return;
   dragging.value = false;
-  set(fromPointer(e));
-  emit('commit', fromPointer(e));
+  const v = last ?? props.modelValue;
+  last = null;
+  set(v);
+  emit('commit', v);
 }
 
 function onKey(e: KeyboardEvent) {
@@ -90,7 +110,8 @@ function onKey(e: KeyboardEvent) {
     @pointerdown="onDown"
     @pointermove="onMove"
     @pointerup="onUp"
-    @pointercancel="onUp"
+    @pointercancel="finish"
+    @lostpointercapture="finish"
   >
     <div class="sl__rail">
       <div v-if="band" class="sl__band" :style="vertical ? { top: `${band.from}%`, height: `${band.to - band.from}%` } : { left: `${band.from}%`, width: `${band.to - band.from}%` }" />

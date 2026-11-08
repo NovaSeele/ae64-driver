@@ -80,9 +80,16 @@ function drag(e: PointerEvent, apply: (x: number, y: number) => string) {
   };
   at(e);
   const move = (ev: PointerEvent) => at(ev);
-  const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); finish(last); };
+  // pointercancel has no usable position: end on the last colour reached, like pointerup.
+  const up = () => {
+    el.removeEventListener('pointermove', move);
+    el.removeEventListener('pointerup', up);
+    el.removeEventListener('pointercancel', up);
+    finish(last);
+  };
   el.addEventListener('pointermove', move);
   el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
 }
 
 const onSquare = (e: PointerEvent) => drag(e, (x, y) => setHsv({ ...hsv.value, s: x, v: 1 - y }));

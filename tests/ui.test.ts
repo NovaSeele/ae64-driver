@@ -37,6 +37,31 @@ describe('Slider', () => {
     expect(w.emitted('update:modelValue')!.map((e) => e[0])).toEqual([1.05, 0.99, 3.3]);
     expect(w.emitted('commit')).toHaveLength(3);
   });
+
+  it('a cancelled drag keeps the value it reached instead of jumping to min, and snaps to round values', async () => {
+    const w = mount(Slider, {
+      props: { modelValue: 0.3, min: 0.01, max: 2, step: 0.05, label: 'rt', 'onUpdate:modelValue': (v: number) => w.setProps({ modelValue: v }) },
+      attachTo: document.body,
+    });
+    const track = w.find('.sl');
+    const el = track.element as HTMLElement;
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 20, right: 200, bottom: 20, x: 0, y: 0, toJSON: () => ({}) });
+    el.setPointerCapture = () => undefined;
+    // The test DOM has no PointerEvent: MouseEvent carries the same fields the slider reads.
+    const fire = async (type: string, clientX: number) => {
+      el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX, clientY: 10 }));
+      await w.vm.$nextTick();
+    };
+    await fire('pointerdown', 40);
+    await fire('pointermove', 80);
+    // Chromium cancels the stream (native drag, gesture…) with clientX 0.
+    await fire('pointercancel', 0);
+    const values = w.emitted('update:modelValue')!.map((e) => e[0]);
+    expect(values).toEqual([0.4, 0.8]); // 40/200·1.99+0.01 → 0.40, 80/200 → 0.80 (absolute 0.05 grid)
+    expect(w.emitted('commit')!.map((e) => e[0])).toEqual([0.8]);
+    expect(w.props('modelValue')).toBe(0.8);
+    w.unmount();
+  });
 });
 
 describe('ColorPicker', () => {
