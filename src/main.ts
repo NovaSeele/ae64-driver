@@ -5,5 +5,13 @@ import './styles/tokens.css';
 import './styles/base.css';
 import App from './App.vue';
 import { router } from './router';
+import { locale } from './i18n/locale';
+import { registerServiceWorker } from './update';
+
+if (typeof document !== 'undefined') {
+  document.documentElement.lang = locale.value;
+}
+
+registerServiceWorker();
 
 createApp(App).use(createPinia()).use(router).mount('#app');

@@ -1,29 +1,17 @@
 import { defineConfig } from 'vitest/config';
 import vue from '@vitejs/plugin-vue';
-import { VitePWA } from 'vite-plugin-pwa';
+import pkg from './package.json' with { type: 'json' };
+import { buildVersionString, releasePlugin } from './build/release';
+
+const appVersion = process.env.BUILD_VERSION || buildVersionString(pkg.version);
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   plugins: [
     vue(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      injectRegister: 'auto',
-      includeAssets: ['favicon.svg'],
-      manifest: {
-        name: 'AE64 Max Control',
-        short_name: 'AE64 Max',
-        description: 'Driver cục bộ cho bàn phím Everglide AE64 Max',
-        lang: 'vi',
-        theme_color: '#0c0d0f',
-        background_color: '#0c0d0f',
-        display: 'standalone',
-        icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
-      },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,woff2}'],
-        navigateFallback: 'index.html',
-      },
-    }),
+    releasePlugin({ version: appVersion }),
   ],
   server: { host: '127.0.0.1', port: 5173, strictPort: true },
   preview: { host: '127.0.0.1', port: 4173, strictPort: true },

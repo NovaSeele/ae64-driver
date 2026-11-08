@@ -3,17 +3,44 @@ import { computed, onBeforeUnmount, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { IconActivity, IconAdjustments, IconHelpCircle, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from '@tabler/icons-vue';
 import Dialog from '../ui/Dialog.vue';
+import Button from '../ui/Button.vue';
+import Segmented from '../ui/Segmented.vue';
 import { t } from '../../i18n/vi';
+import { locale, setLocale, type Locale } from '../../i18n/locale';
+import { useUpdateStore } from '../../update';
 
 const collapsed = defineModel<boolean>('collapsed', { required: true });
 const route = useRoute();
 const router = useRouter();
+const update = useUpdateStore();
 const help = ref(false);
 const lastConfig = ref('/performance');
 
 const onLive = computed(() => route.path === '/live');
 const removeHook = router.afterEach((to) => { if (to.path !== '/live') lastConfig.value = to.fullPath; });
 onBeforeUnmount(removeHook);
+
+const currentLocale = computed({
+  get: () => locale.value,
+  set: (val: Locale | null) => {
+    if (val === 'vi' || val === 'en') setLocale(val);
+  },
+});
+
+const LANG_OPTIONS = computed<{ value: Locale; label: string; title: string }[]>(() => [
+  { value: 'vi', label: 'VI', title: t('lang.vi') },
+  { value: 'en', label: 'EN', title: t('lang.en') },
+]);
+
+function formatUpdateDate(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  } catch {
+    return iso;
+  }
+}
 </script>
 
 <template>
@@ -34,9 +61,15 @@ onBeforeUnmount(removeHook);
       <span>{{ t('nav.live') }}</span>
     </button>
     <div class="rail__spacer" />
+
     <button type="button" class="rail__icon" :aria-label="collapsed ? t('nav.expand') : t('nav.collapse')" :title="collapsed ? t('nav.expand') : t('nav.collapse')" @click="collapsed = !collapsed">
       <component :is="collapsed ? IconLayoutSidebarLeftExpand : IconLayoutSidebarLeftCollapse" :size="19" stroke-width="1.5" />
     </button>
+
+    <div class="rail__lang" :title="t('lang.switch')">
+      <Segmented v-model="currentLocale" :options="LANG_OPTIONS" :label="t('lang.switch')" size="sm" />
+    </div>
+
     <button type="button" class="rail__icon" :aria-label="t('nav.help')" :title="t('nav.help')" @click="help = true">
       <IconHelpCircle :size="19" stroke-width="1.5" />
     </button>
@@ -44,6 +77,46 @@ onBeforeUnmount(removeHook);
     <Dialog v-model:open="help" :title="t('help.title')" :width="480">
       <div class="help">
         <p>{{ t('help.body') }}</p>
+
+        <div class="help__update">
+          <div class="help__version-row">
+            <span class="help__version-text">{{ t('update.version', { version: update.currentVersion }) }}</span>
+            <Button
+              v-if="update.state === 'idle' || update.state === 'upToDate'"
+              size="sm"
+              @click="update.check()"
+            >
+              {{ t('update.check') }}
+            </Button>
+          </div>
+
+          <div v-if="update.state === 'checking'" class="help__status-row">
+            <span class="micro">{{ t('update.checking') }}</span>
+          </div>
+
+          <div v-else-if="update.state === 'upToDate'" class="help__status-row help__status-row--ok">
+            <span>{{ t('update.upToDate') }}</span>
+          </div>
+
+          <div v-else-if="update.state === 'available' && update.availableInfo" class="help__status-row help__status-row--avail">
+            <span>{{ t('update.available', { version: update.availableInfo.version, date: formatUpdateDate(update.availableInfo.builtAt) }) }}</span>
+            <Button variant="primary" size="sm" @click="update.apply()">
+              {{ t('update.apply') }}
+            </Button>
+          </div>
+
+          <div v-else-if="update.state === 'downloading'" class="help__status-row">
+            <span>{{ t('update.downloading') }}</span>
+          </div>
+
+          <div v-else-if="update.state === 'error'" class="help__status-row help__status-row--err">
+            <span>{{ t('update.failed', { error: update.error || '' }) }}</span>
+            <Button size="sm" @click="update.check()">
+              {{ t('update.retry') }}
+            </Button>
+          </div>
+        </div>
+
         <h3 class="micro">{{ t('help.shortcuts') }}</h3>
         <dl>
           <dt><kbd>Ctrl</kbd>+<kbd>Z</kbd> · <kbd>Ctrl</kbd>+<kbd>Y</kbd></dt><dd>{{ t('help.shortcutUndo') }}</dd>
@@ -87,6 +160,21 @@ onBeforeUnmount(removeHook);
 .rail__btn:hover { color: var(--fg-1); background: var(--bg-3); }
 .rail__btn--on { color: var(--acc); background: var(--acc-soft); }
 .rail__spacer { flex: 1; }
+.rail__lang {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+.rail__lang :deep(.seg) {
+  padding: 2px;
+  gap: 1px;
+}
+.rail__lang :deep(.seg__opt) {
+  height: 20px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
 .rail__icon {
   display: grid;
   place-items: center;
@@ -112,4 +200,41 @@ onBeforeUnmount(removeHook);
   background: var(--bg-3);
 }
 .help__safe { color: var(--fg-3); font-size: var(--fs-label); }
+.help__update {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border-radius: var(--r-card);
+  background: var(--bg-2);
+  border: 1px solid var(--line-1);
+}
+.help__version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+.help__version-text {
+  font-weight: 600;
+  color: var(--fg-1);
+  font-size: var(--fs-body);
+}
+.help__status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  font-size: var(--fs-label);
+  color: var(--fg-2);
+}
+.help__status-row--ok {
+  color: var(--ok);
+}
+.help__status-row--avail {
+  color: var(--acc);
+}
+.help__status-row--err {
+  color: var(--danger);
+}
 </style>
