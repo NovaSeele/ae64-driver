@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Macro action rows: drag handle (reorder), index, key (restricted picker), Nhấn/Nhả, delay (1–32767 ms),
 // insert-below and delete. Emits a whole new list on every change.
-import { computed, ref } from 'vue';
-import { IconArrowDown, IconArrowUp, IconGripVertical, IconRowInsertBottom, IconTrash } from '@tabler/icons-vue';
+import { computed, nextTick, ref } from 'vue';
+import { IconArrowDown, IconArrowUp, IconChevronDown, IconChevronUp, IconGripVertical, IconRowInsertBottom, IconTrash } from '@tabler/icons-vue';
 import NumberField from '../ui/NumberField.vue';
 import IconButton from '../ui/IconButton.vue';
 import Dialog from '../ui/Dialog.vue';
@@ -21,6 +21,7 @@ const pickRow = ref<number | null>(null);
 const pickOpen = computed({ get: () => pickRow.value !== null, set: (v) => { if (!v) pickRow.value = null; } });
 const dragFrom = ref<number | null>(null);
 const dropAt = ref<number | null>(null);
+const root = ref<HTMLElement | null>(null);
 
 function patch(i: number, p: Partial<MacroAction>) {
   emit('update', props.actions.map((a, j) => (j === i ? { ...a, ...p } : a)));
@@ -40,6 +41,17 @@ function move(from: number, to: number) {
   const [a] = next.splice(from, 1);
   next.splice(to > from ? to - 1 : to, 0, a);
   emit('update', next);
+}
+/** Keyboard reorder: swap with the neighbour and keep focus on the same item's move button. */
+function step(i: number, dir: -1 | 1) {
+  const to = i + dir;
+  if (to < 0 || to >= props.actions.length) return;
+  move(i, dir < 0 ? to : to + 1);
+  void nextTick(() => {
+    const row = root.value?.querySelectorAll('.row')[to];
+    const want = row?.querySelector<HTMLButtonElement>(`[data-move="${dir}"]`);
+    (want && !want.disabled ? want : row?.querySelector<HTMLButtonElement>('[data-move]:not(:disabled)'))?.focus();
+  });
 }
 function pick(code: number) {
   patch(pickRow.value!, { keycode: code });
@@ -69,16 +81,17 @@ function endDrag() {
 </script>
 
 <template>
-  <div class="at" role="table" :aria-label="t('macro.editor')">
+  <div ref="root" class="at" role="table" :aria-label="t('macro.table')">
+    <div class="at__in">
     <div class="at__head" role="row">
-      <span />
-      <span class="micro">#</span>
-      <span class="micro">{{ t('macro.colKey') }}</span>
-      <span class="micro">{{ t('macro.colDir') }}</span>
-      <span class="micro">{{ t('macro.colDelay') }}</span>
-      <span />
+      <span role="columnheader" aria-hidden="true" />
+      <span class="micro" role="columnheader">#</span>
+      <span class="micro" role="columnheader">{{ t('macro.colKey') }}</span>
+      <span class="micro" role="columnheader">{{ t('macro.colDir') }}</span>
+      <span class="micro" role="columnheader">{{ t('macro.colDelay') }}</span>
+      <span role="columnheader" class="sr-only">{{ t('macro.insert') }} / {{ t('macro.remove') }}</span>
     </div>
-    <TransitionGroup name="row" tag="div" class="at__body">
+    <TransitionGroup name="row" tag="div" class="at__body" role="rowgroup">
       <div
         v-for="(a, i) in actions"
         :key="i"
@@ -96,6 +109,7 @@ function endDrag() {
       >
         <span
           class="row__grip"
+          role="cell"
           :draggable="!disabled"
           :title="t('macro.drag')"
           :aria-label="t('macro.drag')"
@@ -104,17 +118,17 @@ function endDrag() {
         >
           <IconGripVertical :size="16" stroke-width="1.6" />
         </span>
-        <span class="row__idx num">{{ String(i + 1).padStart(2, '0') }}</span>
-        <OutputSlot :code="a.keycode" :accent="a.down ? 'var(--acc)' : 'var(--fg-4)'" :disabled="disabled" @click="pickRow = i" />
-        <div class="dir" role="radiogroup" :aria-label="t('macro.colDir')">
+        <span class="row__idx num" role="cell">{{ String(i + 1).padStart(2, '0') }}</span>
+        <div class="cell" role="cell"><OutputSlot :code="a.keycode" :accent="a.down ? 'var(--acc)' : 'var(--fg-4)'" :disabled="disabled" @click="pickRow = i" /></div>
+        <div class="cell" role="cell"><div class="dir" role="radiogroup" :aria-label="t('macro.colDir')">
           <button type="button" role="radio" class="dir__opt" :aria-checked="a.down" :disabled="disabled" @click="patch(i, { down: true })">
             <IconArrowDown :size="13" stroke-width="2" />{{ t('macro.down') }}
           </button>
           <button type="button" role="radio" class="dir__opt" :aria-checked="!a.down" :disabled="disabled" @click="patch(i, { down: false })">
             <IconArrowUp :size="13" stroke-width="2" />{{ t('macro.up') }}
           </button>
-        </div>
-        <NumberField
+        </div></div>
+        <div class="cell" role="cell"><NumberField
           :model-value="a.delay"
           :min="MACRO_DELAY_MIN"
           :max="MACRO_DELAY_MAX"
@@ -124,13 +138,16 @@ function endDrag() {
           :label="`${t('macro.colDelay')} ${i + 1}`"
           :disabled="disabled"
           @update:model-value="patch(i, { delay: Math.round($event) })"
-        />
-        <span class="row__acts">
+        /></div>
+        <span class="row__acts" role="cell">
+          <IconButton :icon="IconChevronUp" :label="t('macro.moveUp')" size="sm" data-move="-1" :disabled="disabled || i === 0" @click="step(i, -1)" />
+          <IconButton :icon="IconChevronDown" :label="t('macro.moveDown')" size="sm" data-move="1" :disabled="disabled || i === actions.length - 1" @click="step(i, 1)" />
           <IconButton :icon="IconRowInsertBottom" :label="t('macro.insert')" size="sm" :disabled="disabled || !canInsert" @click="insertBelow(i)" />
           <IconButton :icon="IconTrash" :label="t('macro.remove')" size="sm" :disabled="disabled" @click="remove(i)" />
         </span>
       </div>
     </TransitionGroup>
+    </div>
 
     <Dialog v-model:open="pickOpen" :title="pickRow !== null ? t('macro.pickKey', { n: pickRow + 1 }) : ''" :width="620">
       <OutputPicker v-if="pickRow !== null" :groups="groups" :current="actions[pickRow]?.keycode" :note="t('macro.pickerOnly')" @pick="pick" />
@@ -139,8 +156,9 @@ function endDrag() {
 </template>
 
 <style scoped>
-.at { display: flex; flex-direction: column; }
-.at__head, .row { display: grid; grid-template-columns: 24px 32px 140px 150px 150px auto; gap: var(--s-3); align-items: center; }
+.at { overflow-x: auto; }
+.at__in { display: flex; flex-direction: column; min-width: 720px; }
+.at__head, .row { display: grid; grid-template-columns: 24px 32px 140px 150px 150px 1fr; gap: var(--s-3); align-items: center; }
 .at__head { padding: 0 var(--s-3) var(--s-2); color: var(--fg-3); border-bottom: 1px solid var(--line-1); }
 .at__body { display: flex; flex-direction: column; max-height: 460px; overflow-y: auto; padding: 4px 0; }
 .row {
@@ -168,8 +186,9 @@ function endDrag() {
 .row__idx { color: var(--fg-3); font-size: var(--fs-label); }
 .row :deep(.os) { width: 140px; height: 36px; }
 .row :deep(.nf) { width: 150px; }
-.row__acts { display: flex; gap: 2px; justify-content: flex-end; opacity: 0.5; transition: opacity var(--t-fast) var(--ease); }
-.row:hover .row__acts, .row:focus-within .row__acts { opacity: 1; }
+.row__acts { display: flex; gap: 2px; justify-content: flex-end; }
+.cell { display: flex; min-width: 0; }
+.cell > .dir { flex: 1; }
 
 .dir { display: inline-flex; padding: 2px; border-radius: var(--r-control); background: var(--bg-1); border: 1px solid var(--line-2); }
 .dir__opt {

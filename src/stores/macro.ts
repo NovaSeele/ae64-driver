@@ -84,6 +84,14 @@ export const useMacroStore = defineStore('macro', () => {
   let loadPromise: Promise<void> | null = null;
   /** Transport the slots were read from (a reconnect or demo switch reloads). */
   let loadedFor: unknown = null;
+  /** Last state read back from the keyboard per slot: what a failed or dropped write falls back to. */
+  const confirmed = new Map<number, MacroSlot>();
+
+  /** Put a slot back to what the keyboard really has (a write failed, so the optimistic copy is wrong). */
+  function restore(id: number): void {
+    const real = confirmed.get(id);
+    if (real) slots.value = slots.value.map((s) => (s.id === id ? real : s));
+  }
 
   const slotCount = computed(() => Math.max(1, Math.min(MACRO_SLOTS, space.value.count || MACRO_SLOTS)));
   const limit = computed(() => actionLimit(space.value));
@@ -112,6 +120,8 @@ export const useMacroStore = defineStore('macro', () => {
           }
         });
         slots.value = next;
+        confirmed.clear();
+        for (const s of next) confirmed.set(s.id, s);
         loaded.value = true;
         loadedFor = device.transport;
       } catch (err) {
@@ -138,10 +148,12 @@ export const useMacroStore = defineStore('macro', () => {
       },
       verify: async (t: Ae64Transport) => {
         const read = await readSlot(t, id);
+        confirmed.set(id, read);
         slots.value = slots.value.map((s) => (s.id === id ? read : s));
         return read.valid === meta.valid && read.actions.length === actions.length && read.repeatCount === meta.repeatCount
           && read.mode === meta.mode && sameActions(read.actions, actions);
       },
+      onDrop: () => restore(id),
     };
   }
 
@@ -161,20 +173,30 @@ export const useMacroStore = defineStore('macro', () => {
     history.push({ label, undo: () => commit(id, before), redo: () => commit(id, after) });
   }
 
+  /** A failed save must not look saved: the slot shows what the keyboard has, so the caller's draft stays unsaved. */
+  async function flushOrRestore(id: number): Promise<void> {
+    try {
+      await sync.flush();
+    } catch (err) {
+      restore(id);
+      throw err;
+    }
+  }
+
   /** Validate and write a slot's mode, repeat and full action list; resolves after read-back verification. */
   async function save(id: number, d: MacroDraft): Promise<void> {
     const err = validateDraft(d, limit.value);
     if (err) throw new Error(err);
     const slot = slots.value.find((s) => s.id === id)!;
     push(id, snapshot(slot), { valid: true, mode: d.mode, repeatCount: d.repeatCount, actions: d.actions }, tr('macro.histSave', { n: id }));
-    await sync.flush();
+    await flushOrRestore(id);
   }
 
   /** "Xoá dữ liệu": slot stays valid, actNum = 0, no data pages; key mappings to the slot are untouched. */
   async function clearData(id: number): Promise<void> {
     const slot = slots.value.find((s) => s.id === id)!;
     push(id, snapshot(slot), { valid: true, mode: slot.mode, repeatCount: slot.repeatCount, actions: [] }, tr('macro.histClear', { n: id }));
-    await sync.flush();
+    await flushOrRestore(id);
   }
 
   return { space, slots, slotCount, limit, loading, loadedCount, loadError, loaded, load, save, clearData };

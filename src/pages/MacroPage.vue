@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Macro — 16 slots (left) and the selected slot's editor (right): recorder, action table, playback mode and
 // repeat count. Save writes meta + pages, commits group 6 and verifies the full sequence (stores/macro.ts).
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { onBeforeRouteLeave, useRouter } from 'vue-router';
 import {
   IconAlertTriangle, IconEraser, IconKeyboard, IconPlayerRecordFilled, IconPlayerStopFilled, IconPlus, IconRefresh, IconRepeat,
 } from '@tabler/icons-vue';
@@ -12,10 +12,12 @@ import Button from '../components/ui/Button.vue';
 import NumberField from '../components/ui/NumberField.vue';
 import Dialog from '../components/ui/Dialog.vue';
 import ActionTable from '../components/macro/ActionTable.vue';
-import { hidUsageOf } from '../components/macro/recorder';
+import { MacroRecorder } from '../components/macro/recorder';
 import { useDeviceStore } from '../stores/device';
+import { LAYER_NAMES, useKeymapStore } from '../stores/keymap';
+import { useHistoryStore } from '../stores/history';
 import {
-  MACRO_CLICK_REPEAT_MAX, MACRO_DELAY_MAX, MACRO_DELAY_MIN, MACRO_MODES, balanceWarnings, isHoldMode, useMacroStore, validateDraft,
+  MACRO_CLICK_REPEAT_MAX, MACRO_DELAY_MIN, MACRO_MODES, balanceWarnings, isHoldMode, useMacroStore, validateDraft,
 } from '../stores/macro';
 import type { MacroDraft, MacroMode } from '../stores/macro';
 import { MACRO_ACTIONS_PER_PAGE, keycodeLabel } from '../protocol';
@@ -26,6 +28,8 @@ import type { MessageKey } from '../i18n/vi';
 
 const device = useDeviceStore();
 const macro = useMacroStore();
+const keymap = useKeymapStore();
+const history = useHistoryStore();
 const toast = useToast();
 const router = useRouter();
 
@@ -34,8 +38,13 @@ const current = ref(0);
 const drafts = reactive(new Map<number, MacroDraft>());
 const saving = ref(false);
 const confirmClear = ref(false);
+const confirmClearList = ref(false);
+const readOnly = computed(() => !device.boardAllowed);
 
-onMounted(() => void macro.load());
+onMounted(() => {
+  void macro.load();
+  void keymap.load(); // "Đang gán" looks at every layer
+});
 
 const slot = computed(() => macro.slots.find((s) => s.id === current.value) ?? null);
 function fromSlot(): MacroDraft {
@@ -56,6 +65,35 @@ const dirtyIds = computed(() => new Set([...drafts].filter(([id, d]) => {
   return s && !sameDraft(d, { mode: s.mode, repeatCount: isHoldMode(s.mode) ? 1 : s.repeatCount, actions: s.actions });
 }).map(([id]) => id)));
 const dirty = computed(() => dirtyIds.value.has(current.value));
+const anyDirty = computed(() => dirtyIds.value.size > 0);
+
+// Drafts live only on this page. Ctrl+Z would write an older saved change to the keyboard instead: off while dirty.
+let releaseHistory: (() => void) | null = null;
+watch(anyDirty, (d) => {
+  if (d && !releaseHistory) releaseHistory = history.suspend();
+  else if (!d) { releaseHistory?.(); releaseHistory = null; }
+});
+const warnLeave = (e: BeforeUnloadEvent) => {
+  if (!anyDirty.value) return;
+  e.preventDefault();
+  e.returnValue = '';
+};
+onBeforeRouteLeave(() => !anyDirty.value || window.confirm(t('macro.leaveConfirm')));
+onMounted(() => window.addEventListener('beforeunload', warnLeave));
+
+// ----- slot list (tabs)
+const slotRefs = ref<HTMLButtonElement[]>([]);
+const slotsLocked = computed(() => recording.value || saving.value);
+function onSlotKey(e: KeyboardEvent, i: number) {
+  if (slotsLocked.value) return;
+  const n = macro.slots.length;
+  const to = { ArrowDown: i + 1, ArrowRight: i + 1, ArrowUp: i - 1, ArrowLeft: i - 1, Home: 0, End: n - 1 }[e.key];
+  if (to === undefined) return;
+  e.preventDefault();
+  const next = (to + n) % n;
+  current.value = macro.slots[next].id;
+  void nextTick(() => slotRefs.value[next]?.focus());
+}
 
 // ----- playback
 const MODE_TEXT: Record<MacroMode, MessageKey> = {
@@ -73,70 +111,94 @@ const warnRows = computed(() => new Set(warn.value.early));
 const totalMs = computed(() => draft.value?.actions.reduce((s, a) => s + a.delay, 0) ?? 0);
 const pages = computed(() => Math.ceil((draft.value?.actions.length ?? 0) / MACRO_ACTIONS_PER_PAGE));
 const problem = computed(() => (draft.value ? validateDraft(draft.value, macro.limit) : null));
-const assignedKeys = computed(() => device.keys.filter((k) => device.layer0[k.id] === 0xf500 + current.value).map((k) => k.name));
+/** Keys holding this macro on any layer ("Main:Q", "Fn1:W"). */
+const assignedKeys = computed(() => {
+  const code = 0xf500 + current.value;
+  const out: string[] = [];
+  LAYER_NAMES.forEach((layer, l) => {
+    for (const k of device.keys) {
+      if ((l === 0 ? device.layer0[k.id] : keymap.values[l]?.[k.id]) === code) out.push(`${layer}:${k.name}`);
+    }
+  });
+  return out;
+});
 const full = computed(() => (draft.value?.actions.length ?? 0) >= macro.limit);
 
-// ----- recorder (keydown/keyup captured on the page, delays measured between events)
+// ----- recorder (keydown/keyup captured on the page, logic in components/macro/recorder.ts)
 const recording = ref(false);
-const pressed = new Map<string, number>();
-let lastAt = 0;
+let rec: MacroRecorder | null = null;
 
-function delaySince(now: number): number {
-  return lastAt ? Math.round(Math.min(MACRO_DELAY_MAX, Math.max(MACRO_DELAY_MIN, now - lastAt))) : MACRO_DELAY_MIN;
-}
 function onRecordKey(e: KeyboardEvent) {
-  if (!recording.value || !draft.value) return;
+  if (!recording.value || !draft.value || !rec) return;
   e.preventDefault();
   e.stopImmediatePropagation();
-  if (e.repeat) return;
-  const keycode = hidUsageOf(e.code);
-  if (!keycode) return;
-  const down = e.type === 'keydown';
-  if (down === pressed.has(e.code)) return;
-  if (draft.value.actions.length >= macro.limit) {
+  const r = rec.handle({ code: e.code, type: e.type as 'keydown' | 'keyup', repeat: e.repeat }, draft.value.actions.length, performance.now());
+  if (r.action) setDraft({ actions: [...draft.value.actions, r.action] });
+  if (r.stop) {
     stopRecording();
-    toast.show(t('macro.limitReached', { n: macro.limit }), 'warn');
-    return;
+    if (r.stop === 'limit') toast.show(t('macro.limitReached', { n: macro.limit }), 'warn');
   }
-  const now = performance.now();
-  setDraft({ actions: [...draft.value.actions, { keycode, down, delay: delaySince(now) }] });
-  if (down) pressed.set(e.code, keycode); else pressed.delete(e.code);
-  lastAt = now;
+}
+/** The keyup of a held key never arrives after Alt+Tab / Win: stop and release everything. */
+function onBlur() {
+  if (!recording.value) return;
+  stopRecording();
+  toast.show(t('macro.recStoppedBlur'), 'warn');
+}
+function onVisibility() {
+  if (document.visibilityState === 'hidden') onBlur();
 }
 function startRecording() {
-  if (recording.value) return;
-  pressed.clear();
-  lastAt = 0;
+  if (recording.value || readOnly.value) return;
+  rec = new MacroRecorder(macro.limit);
   recording.value = true;
   (document.activeElement as HTMLElement | null)?.blur();
   window.addEventListener('keydown', onRecordKey, true);
   window.addEventListener('keyup', onRecordKey, true);
+  window.addEventListener('blur', onBlur);
+  document.addEventListener('visibilitychange', onVisibility);
 }
-/** Stop and append releases for keys still held, as the reference recorder does. */
+/** Stop and append releases for keys still held, as the reference recorder does (room is always reserved). */
 function stopRecording() {
   if (!recording.value) return;
   window.removeEventListener('keydown', onRecordKey, true);
   window.removeEventListener('keyup', onRecordKey, true);
+  window.removeEventListener('blur', onBlur);
+  document.removeEventListener('visibilitychange', onVisibility);
   recording.value = false;
   const d = draft.value;
-  if (d && pressed.size) {
-    const now = performance.now();
-    const extra: MacroAction[] = [];
-    for (const keycode of pressed.values()) {
-      if (d.actions.length + extra.length >= macro.limit) break;
-      extra.push({ keycode, down: false, delay: delaySince(now) });
-      lastAt = now;
-    }
-    setDraft({ actions: [...d.actions, ...extra] });
-  }
-  pressed.clear();
+  const extra = rec?.finish(performance.now()) ?? [];
+  if (d && extra.length) setDraft({ actions: [...d.actions, ...extra] });
+  rec = null;
 }
-onBeforeUnmount(stopRecording);
-watch(current, stopRecording);
+onBeforeUnmount(() => {
+  stopRecording();
+  releaseHistory?.();
+  releaseHistory = null;
+  window.removeEventListener('beforeunload', warnLeave);
+});
+watch(current, () => { stopRecording(); removed.value = null; });
+
+// ----- list edits: deleting rows can be undone once (the draft has no other undo)
+const removed = ref<{ id: number; actions: MacroAction[] } | null>(null);
+function onActions(next: MacroAction[]) {
+  const d = draft.value;
+  if (!d) return;
+  removed.value = next.length < d.actions.length ? { id: current.value, actions: d.actions } : null;
+  setDraft({ actions: next });
+}
+function undoRemove() {
+  if (removed.value?.id === current.value) setDraft({ actions: removed.value.actions });
+  removed.value = null;
+}
+function clearList() {
+  confirmClearList.value = false;
+  onActions([]);
+}
 
 function addAction() {
   const d = draft.value;
-  if (!d || full.value) return;
+  if (!d || full.value || readOnly.value) return;
   const last = d.actions.at(-1);
   setDraft({ actions: [...d.actions, last ? { keycode: last.keycode, down: !last.down, delay: 30 } : { keycode: 4, down: true, delay: MACRO_DELAY_MIN }] });
 }
@@ -144,13 +206,15 @@ function addAction() {
 // ----- device writes
 async function save() {
   const d = draft.value;
-  if (!d || problem.value) return;
+  if (!d || problem.value || readOnly.value) return;
   stopRecording();
+  const id = current.value; // slots are locked while saving, but never trust current after an await
   saving.value = true;
   try {
-    await macro.save(current.value, d);
-    drafts.delete(current.value);
-    toast.show(t('macro.saved', { n: current.value }), 'success');
+    await macro.save(id, d);
+    drafts.delete(id);
+    removed.value = null;
+    toast.show(t('macro.saved', { n: id }), 'success');
   } catch (err) {
     toast.show(err instanceof Error ? err.message : String(err), 'error');
   } finally {
@@ -159,12 +223,15 @@ async function save() {
 }
 async function clearData() {
   confirmClear.value = false;
+  if (readOnly.value) return;
   stopRecording();
+  const id = current.value;
   saving.value = true;
   try {
-    await macro.clearData(current.value);
-    drafts.delete(current.value);
-    toast.show(t('macro.cleared', { n: current.value }), 'success');
+    await macro.clearData(id);
+    drafts.delete(id);
+    removed.value = null;
+    toast.show(t('macro.cleared', { n: id }), 'success');
   } catch (err) {
     toast.show(err instanceof Error ? err.message : String(err), 'error');
   } finally {
@@ -174,6 +241,7 @@ async function clearData() {
 function discard() {
   stopRecording();
   drafts.delete(current.value);
+  removed.value = null;
 }
 </script>
 
@@ -197,26 +265,36 @@ function discard() {
     <div v-else-if="draft && slot" class="cols">
       <!-- slot list -->
       <Card :title="t('macro.slots')" :subtitle="t('macro.capacity', { n: macro.limit })">
-        <div class="slots" role="tablist" :aria-label="t('macro.slots')">
+        <div class="slots" role="tablist" aria-orientation="vertical" :aria-label="t('macro.slots')">
           <button
-            v-for="s in macro.slots"
+            v-for="(s, i) in macro.slots"
+            :id="`macro-tab-${s.id}`"
             :key="s.id"
+            ref="slotRefs"
             type="button"
             role="tab"
             class="slot"
+            aria-controls="macro-panel"
             :aria-selected="s.id === current"
+            :tabindex="s.id === current ? 0 : -1"
             :class="{ 'slot--used': s.actions.length > 0 }"
-            :disabled="recording"
+            :disabled="slotsLocked"
             @click="current = s.id"
+            @keydown="onSlotKey($event, i)"
           >
             <span class="slot__id num">M{{ s.id }}</span>
             <span class="slot__count">{{ s.actions.length ? t('macro.actions', { n: s.actions.length }) : t('macro.empty') }}</span>
-            <span v-if="dirtyIds.has(s.id)" class="slot__dirty" :title="t('macro.dirty')" />
+            <template v-if="dirtyIds.has(s.id)">
+              <span class="slot__dirty" aria-hidden="true" :title="t('macro.dirty')" />
+              <span class="sr-only">({{ t('macro.tabDirty') }})</span>
+            </template>
           </button>
         </div>
+        <p class="note">{{ t('macro.capacityNote', { total: macro.space.capacity, slots: macro.slotCount, n: macro.limit }) }}</p>
       </Card>
 
-      <div class="main">
+      <div id="macro-panel" class="main" role="tabpanel" :aria-labelledby="`macro-tab-${current}`">
+        <p v-if="readOnly" class="warn-note" role="note">{{ t('macro.readOnly') }}</p>
         <!-- header -->
         <div class="head">
           <div>
@@ -231,33 +309,34 @@ function discard() {
             </p>
           </div>
           <div class="head__acts">
-            <Button variant="ghost" :icon="IconEraser" :disabled="saving || recording" @click="confirmClear = true">{{ t('macro.clearData') }}</Button>
+            <Button variant="ghost" :icon="IconEraser" :disabled="saving || recording || readOnly || !slot.actions.length" @click="confirmClear = true">{{ t('macro.clearData') }}</Button>
             <Button variant="secondary" :disabled="!dirty || saving" @click="discard">{{ t('macro.discard') }}</Button>
-            <Button variant="primary" :loading="saving" :disabled="!!problem || saving || recording" @click="save">{{ t('macro.save') }}</Button>
+            <Button variant="primary" :loading="saving" :disabled="!dirty || !!problem || saving || recording || readOnly" @click="save">{{ t('macro.save') }}</Button>
           </div>
         </div>
 
         <!-- sequence -->
         <Card :title="t('macro.editor')" :subtitle="recording ? undefined : t('macro.recordHint')">
           <template #actions>
-            <Button v-if="!recording" variant="secondary" size="sm" :icon="IconPlayerRecordFilled" class="rec" :disabled="full" @click="startRecording">{{ t('macro.record') }}</Button>
+            <Button v-if="!recording" variant="secondary" size="sm" :icon="IconPlayerRecordFilled" class="rec" :disabled="full || readOnly || saving" @click="startRecording">{{ t('macro.record') }}</Button>
             <Button v-else variant="danger" size="sm" :icon="IconPlayerStopFilled" @click="stopRecording">{{ t('macro.stop') }}</Button>
-            <Button variant="ghost" size="sm" :icon="IconPlus" :disabled="recording || full" @click="addAction">{{ t('macro.add') }}</Button>
-            <Button variant="ghost" size="sm" :disabled="recording || !draft.actions.length" @click="setDraft({ actions: [] })">{{ t('macro.clearList') }}</Button>
+            <Button variant="ghost" size="sm" :icon="IconPlus" :disabled="recording || full || readOnly" @click="addAction">{{ t('macro.add') }}</Button>
+            <Button variant="ghost" size="sm" :disabled="recording || readOnly || !draft.actions.length" @click="confirmClearList = true">{{ t('macro.clearList') }}</Button>
           </template>
 
           <div v-if="recording" class="recbar" role="status">
-            <span class="recbar__dot" />{{ t('macro.recording') }}
+            <span class="recbar__dot" />
+            <span>{{ t('macro.recording') }} {{ t('macro.recordStop') }}</span>
             <span class="recbar__n num">{{ draft.actions.length }}</span>
           </div>
 
           <ActionTable
             v-if="draft.actions.length"
             :actions="draft.actions"
-            :disabled="recording"
+            :disabled="recording || readOnly"
             :can-insert="!full"
             :warnings="warnRows"
-            @update="setDraft({ actions: $event })"
+            @update="onActions"
           />
           <p v-else class="none">{{ t('macro.noActions') }}</p>
 
@@ -266,6 +345,7 @@ function discard() {
             <span v-if="warn.early.length" class="warn"><IconAlertTriangle :size="14" />{{ t('macro.warnRelease', { i: warn.early[0] + 1 }) }}</span>
             <span v-else-if="warn.stuck.length" class="warn"><IconAlertTriangle :size="14" />{{ t('macro.warnStuck', { keys: warn.stuck.map((c) => keycodeLabel(c).label).join(', ') }) }}</span>
             <span v-if="problem && draft.actions.length" class="err">{{ problem }}</span>
+            <button v-if="removed?.id === current && !recording && !readOnly" type="button" class="link" @click="undoRemove">{{ t('macro.undoRemove') }}</button>
           </footer>
         </Card>
 
@@ -274,8 +354,8 @@ function discard() {
           <div class="modes">
             <div v-for="grp in [{ id: 'click', list: clickModes }, { id: 'hold', list: holdModes }]" :key="grp.id" class="modes__grp">
               <span class="micro muted">{{ grp.id === 'click' ? t('macro.click') : t('macro.hold') }}</span>
-              <div class="modes__list" role="radiogroup" :aria-label="t('macro.playback')">
-                <button v-for="m in grp.list" :key="m" type="button" role="radio" class="mode" :aria-checked="draft.mode === m" @click="setMode(m)">
+              <div class="modes__list" role="radiogroup" :aria-label="grp.id === 'click' ? t('macro.groupClick') : t('macro.groupHold')">
+                <button v-for="m in grp.list" :key="m" type="button" role="radio" class="mode" :aria-checked="draft.mode === m" :disabled="readOnly" @click="setMode(m)">
                   <span class="mode__radio" />
                   {{ t(MODE_TEXT[m]) }}
                 </button>
@@ -294,12 +374,21 @@ function discard() {
               :decimals="0"
               unit="×"
               :label="t('macro.repeat')"
+              :disabled="readOnly"
               @update:model-value="setDraft({ repeatCount: Math.round($event) })"
             />
           </div>
         </Card>
       </div>
     </div>
+
+    <Dialog v-model:open="confirmClearList" :title="t('macro.clearList')">
+      <p>{{ t('macro.clearListConfirm', { n: draft?.actions.length ?? 0 }) }}</p>
+      <template #footer>
+        <Button variant="secondary" @click="confirmClearList = false">{{ t('advanced.cancel') }}</Button>
+        <Button variant="danger" @click="clearList">{{ t('macro.clearList') }}</Button>
+      </template>
+    </Dialog>
 
     <Dialog v-model:open="confirmClear" :title="t('macro.clearData')">
       <p>{{ t('macro.clearConfirm', { n: current }) }}</p>
@@ -346,6 +435,8 @@ function discard() {
 .slot[aria-selected='true'] .slot__id { color: var(--acc); }
 .slot__count { flex: 1; font-size: var(--fs-label); color: var(--fg-3); }
 .slot--used .slot__count { color: var(--fg-2); }
+.note { margin: var(--s-3) 0 0; font-size: var(--fs-label); color: var(--fg-3); }
+.warn-note { margin: 0; padding: 10px 12px; border-radius: var(--r-control); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-label); }
 .slot__dirty { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
 
 .main { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; }
@@ -369,6 +460,7 @@ function discard() {
   color: var(--fg-1);
 }
 .recbar__dot { width: 9px; height: 9px; border-radius: 50%; background: var(--danger); animation: pulse 1.1s ease-in-out infinite; }
+.recbar__key { padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line-3); background: var(--bg-3); font-family: inherit; font-size: var(--fs-label); }
 .recbar__n { margin-left: auto; font-weight: 600; color: var(--danger); }
 @keyframes pulse { 50% { opacity: 0.3; } }
 .none { padding: var(--s-6) 0; text-align: center; color: var(--fg-3); }

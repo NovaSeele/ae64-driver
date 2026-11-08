@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { MockTransport, SAVE_GROUP } from '../src/protocol';
+import { MockTransport, SAVE_GROUP, WriteNotAllowedError } from '../src/protocol';
 import type { MacroAction } from '../src/protocol';
 import { useDeviceStore } from '../src/stores/device';
 import { useHistoryStore } from '../src/stores/history';
 import { useSyncStore } from '../src/stores/sync';
+import { MacroRecorder } from '../src/components/macro/recorder';
 import { MACRO_HOLD_REPEAT, MACRO_PROTOCOL_EVENT_LIMIT, actionLimit, balanceWarnings, useMacroStore, validateDraft } from '../src/stores/macro';
 
 async function setup() {
@@ -119,5 +120,74 @@ describe('macro store', () => {
     await useSyncStore().flush();
     expect((await mock.getMacroMeta(1)).valid).toBe(false);
     expect(macro.slots[1].valid).toBe(false);
+  });
+
+  it('a failed save rolls the slot back to what the keyboard has', async () => {
+    const { macro, mock } = await setup();
+    const before = macro.slots[3];
+    vi.spyOn(mock, 'setMacroMeta').mockRejectedValue(new Error('usb error'));
+    await expect(macro.save(3, { mode: 1, repeatCount: 2, actions: sequence(4) })).rejects.toThrow();
+    expect(macro.slots[3]).toEqual(before);
+    expect(macro.slots[3].actions).not.toHaveLength(4);
+    useSyncStore().reset();
+  });
+
+  it('a dropped write (permanent error) restores the slot through onDrop', async () => {
+    const { macro, mock } = await setup();
+    const before = macro.slots[0];
+    vi.spyOn(mock, 'setMacroMeta').mockRejectedValue(new WriteNotAllowedError());
+    await expect(macro.clearData(0)).rejects.toThrow();
+    expect(macro.slots[0]).toEqual(before);
+    expect(macro.slots[0].actions).toHaveLength(6);
+  });
+});
+
+describe('macro recorder', () => {
+  const ev = (code: string, type: 'keydown' | 'keyup', repeat = false) => ({ code, type, repeat });
+
+  /** Feed events, appending recorded actions like the page does. */
+  function run(rec: MacroRecorder, events: ReturnType<typeof ev>[], start: MacroAction[] = []) {
+    const list = [...start];
+    let stop: string | undefined;
+    let now = 100;
+    for (const e of events) {
+      const r = rec.handle(e, list.length, (now += 20));
+      if (r.action) list.push(r.action);
+      if (r.stop) { stop = r.stop; break; }
+    }
+    return { list, stop, now };
+  }
+
+  it('releases every held key when recording ends (window blur)', () => {
+    const rec = new MacroRecorder(944);
+    const { list, now } = run(rec, [ev('AltLeft', 'keydown'), ev('ControlLeft', 'keydown')]);
+    const extra = rec.finish(now + 50);
+    expect(extra.map((a) => [a.keycode, a.down])).toEqual([[226, false], [224, false]]);
+    expect(balanceWarnings([...list, ...extra])).toEqual({ early: [], stuck: [] });
+    expect(rec.finish(now + 100)).toEqual([]);
+  });
+
+  it('keeps room for the releases when the limit is reached', () => {
+    const rec = new MacroRecorder(6);
+    const { list, stop, now } = run(rec, [ev('ShiftLeft', 'keydown'), ev('AltLeft', 'keydown'), ev('KeyA', 'keydown'), ev('KeyB', 'keydown')]);
+    expect(stop).toBe('limit');
+    const all = [...list, ...rec.finish(now)];
+    expect(all.length).toBeLessThanOrEqual(6);
+    expect(balanceWarnings(all).stuck).toEqual([]);
+  });
+
+  it('keyups of held keys still fit at the limit', () => {
+    const rec = new MacroRecorder(4);
+    const { list, stop } = run(rec, [ev('KeyA', 'keydown'), ev('KeyA', 'keyup'), ev('KeyB', 'keydown'), ev('KeyB', 'keyup')]);
+    expect(stop).toBeUndefined();
+    expect(list).toHaveLength(4);
+  });
+
+  it('Esc stops and is not recorded; repeats and stray keyups are ignored', () => {
+    const rec = new MacroRecorder(944);
+    const { list, stop } = run(rec, [ev('KeyA', 'keydown'), ev('KeyA', 'keydown', true), ev('KeyB', 'keyup'), ev('Escape', 'keydown'), ev('KeyC', 'keydown')]);
+    expect(stop).toBe('escape');
+    expect(list.map((a) => a.keycode)).toEqual([4]);
+    expect(rec.heldCount).toBe(1);
   });
 });

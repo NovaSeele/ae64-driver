@@ -1,3 +1,5 @@
+import { MACRO_MAX_DELAY_MS } from '../../protocol';
+import type { MacroAction } from '../../protocol';
 // Browser KeyboardEvent.code → HID usage, ported from reference macro.js macroKeyboardEventKeycode.
 const DIRECT: Record<string, number> = {
   Enter: 40, Escape: 41, Backspace: 42, Tab: 43, Space: 44, Minus: 45, Equal: 46,
@@ -20,4 +22,61 @@ export function hidUsageOf(code: string): number | null {
   }
   if (/^Numpad[0-9]$/.test(code)) return code === 'Numpad0' ? 98 : 88 + Number(code.slice(6));
   return DIRECT[code] ?? null;
+}
+
+/** Browser code that stops the recorder (it is not recorded; add Esc by hand with the key picker). */
+export const RECORD_STOP_CODE = 'Escape';
+
+export interface RecordEvent { code: string; type: 'keydown' | 'keyup'; repeat: boolean }
+export interface RecordResult {
+  /** Action to append to the sequence. */
+  action?: MacroAction;
+  /** The recorder must stop now (the caller then appends finish()). */
+  stop?: 'escape' | 'limit';
+}
+
+/**
+ * Pure recorder state: which keys are held, delays between events and the action limit.
+ * Room for one release per held key is always kept, so stopping can never leave a key (e.g. Alt) pressed.
+ */
+export class MacroRecorder {
+  private held = new Map<string, number>();
+  private lastAt = 0;
+
+  constructor(readonly limit: number) {}
+
+  get heldCount(): number {
+    return this.held.size;
+  }
+
+  private delaySince(now: number): number {
+    return this.lastAt ? Math.round(Math.min(MACRO_MAX_DELAY_MS, Math.max(1, now - this.lastAt))) : 1;
+  }
+
+  /** `count` = actions already in the sequence. */
+  handle(e: RecordEvent, count: number, now: number): RecordResult {
+    if (e.code === RECORD_STOP_CODE && e.type === 'keydown') return { stop: 'escape' };
+    if (e.repeat) return {};
+    const keycode = hidUsageOf(e.code);
+    if (!keycode) return {};
+    const down = e.type === 'keydown';
+    if (down === this.held.has(e.code)) return {};
+    // A press needs room for itself plus the releases of everything held (including itself).
+    if (down && count + 2 + this.held.size > this.limit) return { stop: 'limit' };
+    const action: MacroAction = { keycode, down, delay: this.delaySince(now) };
+    if (down) this.held.set(e.code, keycode); else this.held.delete(e.code);
+    this.lastAt = now;
+    return { action };
+  }
+
+  /** Releases for every key still held (window blur, Stop, limit); empties the held set. */
+  finish(now: number): MacroAction[] {
+    const out: MacroAction[] = [];
+    for (const keycode of this.held.values()) {
+      out.push({ keycode, down: false, delay: this.delaySince(now) });
+      this.lastAt = now;
+    }
+    this.held.clear();
+    return out;
+  }
 }
