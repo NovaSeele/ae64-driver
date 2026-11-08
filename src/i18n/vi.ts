@@ -1,6 +1,15 @@
 // All UI strings (Vietnamese, technical terms kept in English). Access through t().
+// Page areas keep their strings in their own file (./keymap.ts, ./live.ts, …), merged below.
+import { keymapVi } from './keymap';
+import { settingsVi } from './settings';
+import { diagnosticsVi } from './diagnostics';
+import { advancedVi } from './advanced';
+import { macroVi } from './macro';
+import { lightingVi } from './lighting';
+import { liveVi } from './live';
+import { calibrationVi } from './calibration';
 
-export const vi = {
+const base = {
   'app.name': 'AE64 Max Control',
   'app.tagline': 'Driver cục bộ cho Everglide AE64 Max',
 
@@ -135,6 +144,18 @@ export const vi = {
   'help.shortcutUndo': 'Hoàn tác / Làm lại',
   'help.shortcutSelect': 'Bỏ chọn phím',
   'help.safety': 'Ứng dụng không bao giờ gửi lệnh firmware (family 08) hay khôi phục cài đặt gốc.',
+} as const;
+
+export const vi = {
+  ...base,
+  ...keymapVi,
+  ...settingsVi,
+  ...diagnosticsVi,
+  ...advancedVi,
+  ...macroVi,
+  ...lightingVi,
+  ...liveVi,
+  ...calibrationVi,
 } as const;
 
 export type MessageKey = keyof typeof vi;
