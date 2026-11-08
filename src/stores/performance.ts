@@ -2,7 +2,7 @@
 // pattern (docs/ARCHITECTURE.md): load all keys → edit through history + sync → verify by reading back.
 import { defineStore } from 'pinia';
 import { ref, shallowRef } from 'vue';
-import { SAVE_GROUP } from '../protocol';
+import { SAVE_GROUP, isRtMode } from '../protocol';
 import type { Ae64Transport, Performance, PhysicalKey } from '../protocol';
 import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
@@ -43,7 +43,7 @@ export function pickEdit(p: Performance): PerfEdit {
 
 /** The actuation point the firmware uses for this key's mode. */
 export function actuationOf(p: Performance): number {
-  return p.mode === 1 ? p.rtFirstTouch : p.normalPress;
+  return isRtMode(p.mode) ? p.rtFirstTouch : p.normalPress;
 }
 
 export function rangeMm(p: Performance | undefined): number {
@@ -116,7 +116,8 @@ export const usePerformanceStore = defineStore('performance', () => {
     const max = rangeMm(p);
     const c = (v: number, lo: number, hi: number) => round(Math.min(hi, Math.max(lo, v)));
     return {
-      mode: e.mode === 1 ? 1 : 0,
+      // Keep the mode as is (0, 1 or 2); anything else stays unchanged and the write guard refuses it.
+      mode: e.mode,
       normalPress: c(e.normalPress, LIMITS.actuationMin, max),
       normalRelease: e.normalRelease,
       rtFirstTouch: c(e.rtFirstTouch, LIMITS.actuationMin, max),

@@ -18,6 +18,7 @@ import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
 import { DEFAULT_RANGE_MM, rangeMm, usePerformanceStore } from '../stores/performance';
 import { settingsFrom, useLiveStore } from '../stores/live';
+import { isRtMode } from '../protocol';
 import type { MockTransport, PhysicalKey } from '../protocol';
 import { t } from '../i18n/vi';
 
@@ -50,7 +51,13 @@ const focusPerf = computed(() => (live.focusId === null ? undefined : perf.value
 const settings = computed(() => (focusPerf.value ? settingsFrom(focusPerf.value) : null));
 const range = computed(() => (focusPerf.value ? rangeMm(focusPerf.value) : DEFAULT_RANGE_MM));
 const keyName = computed(() => (focusKey.value ? device.legend(focusKey.value) : '—'));
-const modeLabel = computed(() => (settings.value ? (settings.value.mode === 1 ? t('perf.modeRt') : t('perf.modeStandard')) : ''));
+const modeLabel = computed(() => {
+  const s = settings.value;
+  if (!s) return '';
+  if (!isRtMode(s.mode)) return t('perf.modeStandard');
+  // Mode 2 = Rapid Trigger without Continuous RT.
+  return s.mode === 1 ? `${t('perf.modeRt')} · ${t('perf.continuous')}` : t('perf.modeRt');
+});
 
 function editKey() {
   if (live.focusId === null) return;

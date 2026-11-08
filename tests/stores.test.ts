@@ -118,6 +118,34 @@ describe('sync store', () => {
     expect(perf.values[W.id].rtPress).toBe(0.123);
     await useSyncStore().flush();
   });
+
+  it('turns Continuous RT off (mode 2) and keeps mode 2 through later edits', async () => {
+    const mock = await connectMock(); // snapshot protocol 1.3.0.0
+    const perf = usePerformanceStore();
+    await perf.load();
+    perf.apply([W.id], () => ({ mode: 2 }), 'continuous');
+    await useSyncStore().flush();
+    expect(useSyncStore().state).toBe('saved');
+    expect((await mock.getPerformance(W)).mode).toBe(2);
+
+    // An unrelated edit (dead zone) must not touch the mode.
+    perf.apply([W.id], () => ({ pressDeadStroke: 0.2 }), 'dz');
+    await useSyncStore().flush();
+    const read = await mock.getPerformance(W);
+    expect(read).toMatchObject({ mode: 2, pressDeadStroke: 0.2 });
+  });
+
+  it('refuses mode 2 on firmware older than protocol 1.3.0.0', async () => {
+    const mock = await connectMock();
+    const perf = usePerformanceStore();
+    await perf.load();
+    // Pretend the keyboard reported protocol 1.2.0.0 on this connection.
+    vi.spyOn(mock as unknown as { request: () => Promise<Uint8Array> }, 'request').mockImplementationOnce(async () => Uint8Array.from([1, 1, 1, 2, 0, 0, ...new Array(58).fill(0)]));
+    await mock.getProtocolVersion();
+    perf.apply([W.id], () => ({ mode: 2 }), 'continuous');
+    await expect(useSyncStore().flush()).rejects.toThrow(/1\.3\.0\.0/);
+    expect((await mock.getPerformance(W)).mode).toBe(1);
+  });
 });
 
 describe('history store', () => {

@@ -89,6 +89,21 @@ describe('performance', () => {
     const reply = pad([0x04, 0x01, 2, 2, ...c.encodePerformance({ row: 2, col: 2 }, snapshot).slice(4)]);
     expect(c.decodePerformance(reply)).toEqual(snapshot);
   });
+
+  it('keeps mode 2 (RT without Continuous RT) as read instead of collapsing it to standard', () => {
+    const interval = { ...snapshot, mode: 2 as const };
+    const reply = pad([0x04, 0x01, 2, 2, ...c.encodePerformance({ row: 2, col: 2 }, interval).slice(4)]);
+    expect(c.decodePerformance(reply).mode).toBe(2);
+    expect(c.isRtMode(2)).toBe(true);
+    expect(c.isRtMode(0)).toBe(false);
+  });
+
+  it('Continuous RT can be turned off from protocol 1.3.0.0 (factory driver gate)', () => {
+    expect(c.supportsIntervalRt({ main: 1, sub: 3, hardware: 0, software: 0 })).toBe(true); // AE64 Max snapshot
+    expect(c.supportsIntervalRt({ main: 1, sub: 2, hardware: 9, software: 9 })).toBe(false);
+    expect(c.supportsIntervalRt({ main: 2, sub: 0, hardware: 0, software: 0 })).toBe(true);
+    expect(c.supportsIntervalRt(null)).toBe(false);
+  });
 });
 
 describe('layout + keymap', () => {

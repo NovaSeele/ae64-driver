@@ -13,6 +13,8 @@ const STD: ActuationSettings = {
   pressDeadStroke: 0, releaseDeadStroke: 0, range: 3.31,
 };
 const RT: ActuationSettings = { ...STD, mode: 1, rtFirstTouch: 1, rtPress: 0.3, rtRelease: 0.2 };
+/** Rapid Trigger without Continuous RT (factory driver IntervalRT). */
+const RT2: ActuationSettings = { ...RT, mode: 2 };
 
 /** Feed a travel sequence; returns the events as 'P@mm' / 'R@mm'. */
 function run(m: ActuationModel, seq: number[]): string[] {
@@ -86,8 +88,8 @@ describe('ActuationModel — Rapid Trigger', () => {
     expect(m.peak).toBe(2.1);
   });
 
-  it('rising above rtFirstTouch fully resets (released and disarmed)', () => {
-    const m = new ActuationModel(RT);
+  it('without Continuous RT, rising above rtFirstTouch fully resets (released and disarmed)', () => {
+    const m = new ActuationModel(RT2);
     run(m, [1.5, 3.0]);
     expect(run(m, [0.9])).toEqual(['R@0.9']);
     expect(m.armed).toBe(false);
@@ -97,18 +99,40 @@ describe('ActuationModel — Rapid Trigger', () => {
     expect(run(m, [1.0])).toEqual(['P@1']);
   });
 
-  it('release while released-but-armed above first touch does not emit twice', () => {
-    const m = new ActuationModel(RT);
+  it('without Continuous RT, a release while released-but-armed above first touch does not emit twice', () => {
+    const m = new ActuationModel(RT2);
     run(m, [2.0, 1.7]); // P, R
     expect(run(m, [1.5, 0.5])).toEqual([]);
     expect(m.armed).toBe(false);
   });
 
-  it('reset line never goes above the first-touch point', () => {
-    const m = new ActuationModel({ ...RT, rtRelease: 0.5 });
+  it('without Continuous RT, the reset line never goes above the first-touch point', () => {
+    const m = new ActuationModel({ ...RT2, rtRelease: 0.5 });
     run(m, [1.2]);
     expect(m.resetAt).toBe(1); // peak − rtRelease = 0.7, but rising above 1.0 releases first
     expect(run(m, [1.0, 0.99])).toEqual(['R@0.99']);
+  });
+
+  it('Continuous RT keeps tracking above the first actuation point until the key is fully up', () => {
+    const m = new ActuationModel(RT);
+    expect(run(m, [0.5, 1.0])).toEqual(['P@1']); // first actuation still at rtFirstTouch
+    expect(run(m, [2.0, 1.8])).toEqual(['R@1.8']); // 2.0 − 0.2
+    expect(run(m, [0.6, 0.4])).toEqual([]); // above rtFirstTouch: still armed, trough follows
+    expect(m.armed).toBe(true);
+    expect(m.reactuateAt).toBeCloseTo(0.7);
+    expect(run(m, [0.7])).toEqual(['P@0.7']); // re-actuates 0.3 below the trough, above rtFirstTouch
+    expect(m.resetAt).toBeCloseTo(0.5); // peak 0.7 − 0.2, not clamped to rtFirstTouch
+    expect(run(m, [0])).toEqual(['R@0']); // fully up: released and disarmed
+    expect(m.armed).toBe(false);
+    expect(run(m, [0.5, 0.9])).toEqual([]); // the next press needs rtFirstTouch again
+    expect(run(m, [1.0])).toEqual(['P@1']);
+  });
+
+  it('Continuous RT resets inside the top dead zone', () => {
+    const m = new ActuationModel({ ...RT, pressDeadStroke: 0.2 });
+    run(m, [1.5, 1.2]); // P, R
+    expect(run(m, [0.15])).toEqual([]);
+    expect(m.armed).toBe(false);
   });
 
   it('holding at the bottom dead zone does not release on noise', () => {

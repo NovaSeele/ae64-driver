@@ -28,6 +28,7 @@ describe('checkFrame allow-list', () => {
     ok([0x03, 0x04, 0, 1, 0, 0x04, 0x00]);
     ok([0x04, 0x02, 3, 2, 1]);
     ok([0x04, 0x03, 1, 5]);
+    ok([0x04, 0x02, 3, 2, 2]); // mode 2 frame; gated by protocol version in checkPerformanceWrite
     ok([0x05, 0x04, 0, 8]);
     ok([0x06, 0x02, 3, 1, 6, 3, 3]);
     ok([0x07, 0x04, 15, 0]);
@@ -42,7 +43,7 @@ describe('checkFrame allow-list', () => {
     blocked([0x03, 0x04, 4, 1, 0]); // layer 4
     blocked([0x03, 0x04, 0, 0, 0]); // row 0
     blocked([0x03, 0x04, 0, 1, 21]); // col 21
-    blocked([0x04, 0x02, 1, 0, 2]); // performance mode 2
+    blocked([0x04, 0x02, 1, 0, 3]); // performance mode 3 (unknown)
     blocked([0x05, 0x02, 2, 0]); // area 2
     blocked([0x06, 0x02, 1, 0, 3]); // advanced type 3 (MT etc. are read-only here)
     blocked([0x06, 0x02, 1, 0, 6, 0, 0]); // SOCD partner row 0
@@ -101,6 +102,16 @@ describe('checkPerformanceWrite', () => {
     expect(checkPerformanceWrite({ ...base, normalPress: Number.NaN }, [base])).toMatch(/normalPress/);
     expect(checkPerformanceWrite({ ...base, normalPress: 0 }, [base])).toMatch(/actuation/);
     expect(checkPerformanceWrite({ ...base, mode: 1, rtPress: 0 }, [base])).toMatch(/Rapid Trigger/);
+  });
+
+  it('writes mode 2 (RT without Continuous RT) only on protocol ≥ 1.3.0.0 or when the key already reported it', () => {
+    const rt = { ...base, mode: 1 as const };
+    expect(checkPerformanceWrite({ ...rt, mode: 2 }, [rt])).toMatch(/1\.3\.0\.0/);
+    expect(checkPerformanceWrite({ ...rt, mode: 2 }, [rt], { intervalRt: true })).toBeNull();
+    const interval = { ...base, mode: 2 as const };
+    expect(checkPerformanceWrite({ ...interval, rtPress: 0.5 }, [interval])).toBeNull();
+    expect(checkPerformanceWrite({ ...interval, rtPress: 0 }, [interval], { intervalRt: true })).toMatch(/Rapid Trigger/);
+    expect(checkPerformanceWrite({ ...base, mode: 3 as never }, [base], { intervalRt: true })).toMatch(/mode 3/);
   });
 
   it('lets unchanged values through even if unusual', () => {

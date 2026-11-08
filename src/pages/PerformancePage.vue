@@ -12,12 +12,14 @@ import Button from '../components/ui/Button.vue';
 import IconButton from '../components/ui/IconButton.vue';
 import Segmented from '../components/ui/Segmented.vue';
 import Slider from '../components/ui/Slider.vue';
+import Switch from '../components/ui/Switch.vue';
 import NumberField from '../components/ui/NumberField.vue';
 import AnimatedNumber from '../components/ui/AnimatedNumber.vue';
 import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
 import { LIMITS, PRESETS, actuationOf, rangeMm, usePerformanceStore } from '../stores/performance';
 import type { PerfEdit } from '../stores/performance';
+import { isRtMode, supportsIntervalRt } from '../protocol';
 import type { Performance, PerfMode, PhysicalKey } from '../protocol';
 import { useToast } from '../components/ui/toast';
 import { t } from '../i18n/vi';
@@ -64,15 +66,15 @@ function sublabel(k: PhysicalKey): string | undefined {
   if (!p) return undefined;
   switch (metric.value) {
     case 'actuation': return fmt(actuationOf(p));
-    case 'rtPress': return p.mode === 1 ? fmt(p.rtPress) : '—';
-    case 'rtRelease': return p.mode === 1 ? fmt(p.rtRelease) : '—';
+    case 'rtPress': return isRtMode(p.mode) ? fmt(p.rtPress) : '—';
+    case 'rtRelease': return isRtMode(p.mode) ? fmt(p.rtRelease) : '—';
     case 'deadzone': return `${fmt(p.pressDeadStroke)}·${fmt(p.releaseDeadStroke)}`;
   }
 }
 /** Rapid Trigger keys also show press/release sensitivity, like the factory driver's keycaps. */
 function badge(k: PhysicalKey): string | undefined {
   const p = perf.values[k.id];
-  if (!p || p.mode !== 1 || metric.value !== 'actuation') return undefined;
+  if (!p || !isRtMode(p.mode) || metric.value !== 'actuation') return undefined;
   const short = (v: number) => fmt(v).replace(/^0(?=\.)/, '');
   return `${short(p.rtPress)}/${short(p.rtRelease)}`;
 }
@@ -93,12 +95,20 @@ function summary(get: (p: Performance) => number): { value: number | null; range
   const hi = Math.max(...vs);
   return { value: hi - lo < 0.0005 ? lo : null, range: [lo, hi] };
 }
+/** Standard (0) or Rapid Trigger (1, either flavour) for the Segmented control. */
 const mode = computed<PerfMode | null>(() => {
-  const m = new Set(recs.value.map((p) => p.mode));
+  const m = new Set(recs.value.map((p): PerfMode => (isRtMode(p.mode) ? 1 : 0)));
   return m.size === 1 ? [...m][0] : null;
 });
-const anyRt = computed(() => recs.value.some((p) => p.mode === 1));
-const allRt = computed(() => recs.value.length > 0 && recs.value.every((p) => p.mode === 1));
+const anyRt = computed(() => recs.value.some((p) => isRtMode(p.mode)));
+const allRt = computed(() => recs.value.length > 0 && recs.value.every((p) => isRtMode(p.mode)));
+/** Continuous RT can be turned off on protocol ≥ 1.3.0.0 (factory driver rule), or where a key already is in mode 2. */
+const intervalRt = computed(() => supportsIntervalRt(device.version) || recs.value.some((p) => p.mode === 2));
+/** Continuous RT across the selected RT keys: true (all mode 1), false (all mode 2), null (mixed / none). */
+const continuous = computed<boolean | null>(() => {
+  const m = new Set(recs.value.filter((p) => isRtMode(p.mode)).map((p) => p.mode));
+  return m.size === 1 ? m.has(1) : null;
+});
 const maxTravel = computed(() => (recs.value.length ? Math.min(...recs.value.map(rangeMm)) : 3.31));
 const act = computed(() => summary(actuationOf));
 const rtPress = computed(() => summary((p) => p.rtPress));
@@ -113,14 +123,18 @@ const deadFields = computed(() => [
 // ----- edits (every edit goes through perf.apply → history + sync)
 function setMode(m: PerfMode | null) {
   if (m === null) return;
-  perf.apply(ids.value, () => ({ mode: m }), t('perf.mode'));
+  // Turning RT on keeps a key's Continuous setting if it is already RT; new RT keys start continuous (mode 1).
+  perf.apply(ids.value, (p) => ({ mode: m === 0 ? 0 : isRtMode(p.mode) ? p.mode : 1 }), t('perf.mode'));
+}
+function setContinuous(on: boolean) {
+  perf.apply(ids.value.filter((id) => isRtMode(perf.values[id].mode)), () => ({ mode: on ? 1 : 2 }), t('perf.continuous'));
 }
 function setActuation(v: number, gesture = true) {
-  perf.apply(ids.value, (p) => (p.mode === 1 ? { rtFirstTouch: v } : { normalPress: v }), t('perf.actuation'), gesture ? 'act' : undefined);
+  perf.apply(ids.value, (p) => (isRtMode(p.mode) ? { rtFirstTouch: v } : { normalPress: v }), t('perf.actuation'), gesture ? 'act' : undefined);
 }
 function setRt(which: 'rtPress' | 'rtRelease', v: number, gesture = true) {
   const patch: Partial<PerfEdit> = rtLinked.value ? { rtPress: v, rtRelease: v } : { [which]: v };
-  perf.apply(ids.value.filter((id) => perf.values[id].mode === 1), () => patch, t('perf.rt'), gesture ? `rt-${which}` : undefined);
+  perf.apply(ids.value.filter((id) => isRtMode(perf.values[id].mode)), () => patch, t('perf.rt'), gesture ? `rt-${which}` : undefined);
 }
 function setDead(which: 'pressDeadStroke' | 'releaseDeadStroke', v: number, gesture = true) {
   perf.apply(ids.value, () => ({ [which]: v }), t('perf.deadzones'), gesture ? `dz-${which}` : undefined);
@@ -128,7 +142,8 @@ function setDead(which: 'pressDeadStroke' | 'releaseDeadStroke', v: number, gest
 function applyPreset(id: (typeof PRESETS)[number]['id']) {
   const preset = PRESETS.find((p) => p.id === id)!;
   const name = t(PRESET_TEXT[id][0]);
-  perf.apply(ids.value, () => preset.values, name);
+  // An RT preset keeps a key's Continuous RT setting (mode 2 stays 2).
+  perf.apply(ids.value, (p) => ({ ...preset.values, mode: preset.values.mode !== 0 && p.mode === 2 ? 2 : preset.values.mode }), name);
   toast.show(t('perf.presetApplied', { name, n: ids.value.length }), 'success');
 }
 function tryNow() {
@@ -237,6 +252,14 @@ const modeOptions = computed(() => [
         <p class="hint">
           {{ mode === null ? t('perf.modeMixed') : mode === 1 ? t('perf.modeHintRt') : t('perf.modeHintStandard') }}
         </p>
+        <div v-if="anyRt && intervalRt" class="continuous">
+          <Switch
+            :model-value="continuous ?? false"
+            :label="continuous === null ? `${t('perf.continuous')} (${t('perf.mixed')})` : t('perf.continuous')"
+            @update:model-value="setContinuous"
+          />
+          <p class="hint">{{ continuous === false ? t('perf.continuousOffHint') : t('perf.continuousOnHint') }}</p>
+        </div>
       </Card>
 
       <Card :title="t('perf.rt')">
@@ -406,6 +429,7 @@ const modeOptions = computed(() => [
 .act__readout :deep(.nf) { width: 150px; }
 
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
+.continuous { display: grid; gap: var(--s-2); margin-top: var(--s-4); padding-top: var(--s-4); border-top: 1px solid var(--line-1); }
 .field { display: flex; flex-direction: column; gap: var(--s-2); transition: opacity var(--t-fast) var(--ease); }
 .field--off { opacity: 0.45; }
 .field__row { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); }

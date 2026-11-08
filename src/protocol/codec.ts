@@ -4,7 +4,7 @@
 
 import type {
   AdvancedRecord, AxisRow, Bytes, DeviceInfo, FeatureBitmap, KeyPos, LedRecord, LightingAreas, LightingBase,
-  MacroAction, MacroMeta, PaletteEntry, Performance, ProtocolVersion,
+  MacroAction, MacroMeta, PaletteEntry, Performance, PerfMode, ProtocolVersion,
 } from './types';
 import {
   FAMILY, LED_RECORDS_PER_PACKET, MACRO_ACTIONS_PER_PAGE, MACRO_MAX_DELAY_MS,
@@ -163,9 +163,24 @@ export function encodePerformance(p: KeyPos, s: Performance): number[] {
   ];
 }
 
+/** Rapid Trigger, continuous (1) or not (2). */
+export function isRtMode(mode: number): boolean {
+  return mode === 1 || mode === 2;
+}
+
+/** Protocol version a.b.c.d ≥ 1.3.0.0: the firmware accepts mode 2 (Rapid Trigger without Continuous RT). */
+export function supportsIntervalRt(v: ProtocolVersion | null | undefined): boolean {
+  if (!v) return false;
+  const a = [v.main, v.sub, v.hardware, v.software];
+  const b = [1, 3, 0, 0];
+  for (let i = 0; i < 4; i++) if (a[i] !== b[i]) return a[i] > b[i];
+  return true;
+}
+
 export function decodePerformance(d: Bytes): Performance {
   return {
-    mode: d[4] === 1 ? 1 : 0,
+    // Raw byte (0 standard, 1 RT continuous, 2 RT non-continuous); never collapsed, so a write-back keeps it.
+    mode: d[4] as PerfMode,
     normalPress: umToMm(read16(d, 5)),
     normalRelease: umToMm(read16(d, 7)),
     rtFirstTouch: umToMm(read16(d, 9)),

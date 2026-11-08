@@ -14,7 +14,7 @@ export { createMockTransport, MockTransport } from './mock';
 export { KEYCODE_GROUPS, keycodeLabel, COMBO_MODIFIERS, comboKeycode, decodeCombo, isComboTrigger } from './keycodes';
 export type { KeycodeEntry, KeycodeGroup } from './keycodes';
 export { BaseTransport, TransportTimeoutError, WriteNotAllowedError } from './client';
-export { mmToUm, umToMm } from './codec';
+export { mmToUm, umToMm, isRtMode, supportsIntervalRt } from './codec';
 
 // Compile-time check that this module satisfies the pinned ProtocolModule contract.
 const _contract: ProtocolModule = {

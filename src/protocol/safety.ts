@@ -101,7 +101,8 @@ const RULES: readonly Rule[] = [
   { prefix: [0x03, 0x06], write: false, check: (p) => range(p[2] & 15, 0, 3, 'layer') ?? range(p[3], 1, 5, 'row') },
   // 04 performance
   { prefix: [0x04, 0x01], write: false, check: (p) => keyPos(p, 2) },
-  { prefix: [0x04, 0x02], write: true, check: (p) => keyPos(p, 2) ?? oneOf(p[4], [0, 1], 'mode') },
+  // Mode 2 (RT without Continuous RT) is further gated by protocol version in checkPerformanceWrite.
+  { prefix: [0x04, 0x02], write: true, check: (p) => keyPos(p, 2) ?? oneOf(p[4], [0, 1, 2], 'mode') },
   { prefix: [0x04, 0x03], write: false, check: (p) => range(p[2], 0, 3, 'axis data type') ?? range(p[3], 1, 5, 'row') },
   // 05 lighting
   { prefix: [0x05, 0x01], write: false, check: (p) => range(p[2], 0, 1, 'area') ?? range(p[3], 0, 1, 'kind') },
@@ -150,15 +151,24 @@ const MAX_TRAVEL_MM = 4.0;
  * Checks a performance write against the records read from the same key during this connection
  * (`seen`, newest last). Each sensor field must equal a value the device reported for it: the firmware
  * itself may change them (calibration, advanced-key assignment), and restoring an earlier value is allowed.
+ * Mode 2 (Rapid Trigger without Continuous RT) is written only when the firmware advertises it
+ * (`intervalRt`: protocol ≥ 1.3.0.0, like the factory driver) or the key itself already reported mode 2.
  * Returns a reason to refuse, or null when the write is safe.
  */
-export function checkPerformanceWrite(next: Performance, seen: readonly Performance[]): string | null {
+export function checkPerformanceWrite(
+  next: Performance,
+  seen: readonly Performance[],
+  opts: { intervalRt?: boolean } = {},
+): string | null {
   if (!seen.length) return 'performance must be read from the key before it is written';
   const current = seen[seen.length - 1];
   for (const f of PRESERVED) {
     if (!seen.some((s) => s[f] === next[f])) return `sensor field ${f} would change (${current[f]} → ${next[f]})`;
   }
-  if (next.mode !== 0 && next.mode !== 1) return `mode ${String(next.mode)} invalid`;
+  if (next.mode !== 0 && next.mode !== 1 && next.mode !== 2) return `mode ${String(next.mode)} invalid`;
+  if (next.mode === 2 && !opts.intervalRt && !seen.some((s) => s.mode === 2)) {
+    return 'mode 2 (Rapid Trigger without Continuous RT) needs protocol 1.3.0.0 or later';
+  }
   const max = current.axisRangeMax > 0 ? Math.min(current.axisRangeMax / 1000, MAX_TRAVEL_MM) : MAX_TRAVEL_MM;
   const dist: (keyof Performance)[] = ['normalPress', 'normalRelease', 'rtFirstTouch', 'rtPress', 'rtRelease', 'pressDeadStroke', 'releaseDeadStroke'];
   for (const f of dist) {
@@ -169,7 +179,7 @@ export function checkPerformanceWrite(next: Performance, seen: readonly Performa
   if (next.normalPress <= 0 && next.normalPress !== current.normalPress) return 'actuation point must be above 0 mm';
   const rtChanged = next.mode !== current.mode || next.rtFirstTouch !== current.rtFirstTouch
     || next.rtPress !== current.rtPress || next.rtRelease !== current.rtRelease;
-  if (next.mode === 1 && rtChanged && (next.rtFirstTouch <= 0 || next.rtPress <= 0 || next.rtRelease <= 0)) {
+  if ((next.mode === 1 || next.mode === 2) && rtChanged && (next.rtFirstTouch <= 0 || next.rtPress <= 0 || next.rtRelease <= 0)) {
     return 'Rapid Trigger distances must be above 0 mm';
   }
   return null;

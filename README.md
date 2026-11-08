@@ -59,6 +59,9 @@ Khác với driver của nhà sản xuất vốn tự động tải phiên bản
   trước khi tới bàn phím, bất kể trang nào tạo ra nó.
 - Ghi hành trình bị từ chối nếu chưa đọc phím đó trước, nếu làm thay đổi trường cảm biến (`axis`,
   `calibrate`, `axisV2Id`, `axisRangeMax`, `axisCoefficient`), hoặc nếu khoảng cách vượt hành trình của phím.
+- Chế độ hành trình: `0` Standard, `1` Rapid Trigger liên tục (Continuous RT), `2` Rapid Trigger không liên
+  tục (IntervalRT của driver gốc). Ứng dụng đọc nguyên giá trị từ phím và giữ nguyên khi ghi lại; chế độ `2`
+  chỉ được ghi khi phím báo protocol ≥ 1.3.0.0 (đúng điều kiện của driver gốc) hoặc phím đó vốn đang ở chế độ `2`.
 - Các keycode nguy hiểm (Factory reset F200, chuyển chế độ không dây, xoá ghép nối) không bao giờ được ghi —
   kể cả khi nhập từ file sao lưu hay khôi phục layer mặc định.
 - Cài đặt chung (OS, tắt đèn, chống rung) ghi trực tiếp như driver gốc, không commit. Đổi polling rate luôn là

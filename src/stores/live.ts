@@ -6,7 +6,7 @@
 // rarely-changing state (focus, running/paused) is reactive.
 import { defineStore } from 'pinia';
 import { markRaw, ref, watch } from 'vue';
-import { FIRMWARE_ROWS } from '../protocol';
+import { FIRMWARE_ROWS, isRtMode } from '../protocol';
 import type { AxisDataType, Performance, PhysicalKey } from '../protocol';
 import { useDeviceStore } from './device';
 import { rangeMm, usePerformanceStore } from './performance';
@@ -48,11 +48,13 @@ const EPS = 1e-6;
  * - Standard: actuates at ≥ normalPress, releases below the release point.
  * - Rapid Trigger: first actuation at rtFirstTouch; while actuated it releases once the key rises rtRelease
  *   above its deepest point (peak); while released it re-actuates once it goes rtPress below its highest
- *   point (trough). Rising above rtFirstTouch fully resets.
+ *   point (trough). With Continuous RT (mode 1) this tracking lasts until the key is fully up (inside
+ *   the top dead zone); without it (mode 2) rising above rtFirstTouch resets, like the factory driver's
+ *   IntervalRT.
  */
 export class ActuationModel {
   actuated = false;
-  /** RT: the first actuation happened and the key has not returned above rtFirstTouch since. */
+  /** RT: the first actuation happened and the key has not reset since (fully up, or above rtFirstTouch in mode 2). */
   armed = false;
   peak = 0;
   trough = 0;
@@ -77,16 +79,20 @@ export class ActuationModel {
   update(mm: number): 'press' | 'release' | null {
     const s = this.settings;
     const e = this.effective(mm);
-    if (s.mode !== 1) {
+    if (!isRtMode(s.mode)) {
       if (!this.actuated && e >= s.normalPress - EPS) return this.transition(true);
       if (this.actuated && e < releasePoint(s) - EPS) return this.transition(false);
       return null;
     }
-    if (e < s.rtFirstTouch - EPS) {
+    // Continuous RT (mode 1) stays active until the key is fully up; without it (mode 2) RT resets as
+    // soon as the key rises above the first actuation point.
+    const reset = s.mode === 1 ? e <= EPS : e < s.rtFirstTouch - EPS;
+    if (reset) {
       this.armed = false;
       return this.actuated ? this.transition(false) : null;
     }
     if (!this.armed) {
+      if (e < s.rtFirstTouch - EPS) return null;
       this.armed = true;
       this.peak = e;
       return this.transition(true);
@@ -110,13 +116,14 @@ export class ActuationModel {
   /** RT, actuated: the key releases when it rises above this depth (mm). */
   get resetAt(): number | null {
     const s = this.settings;
-    return s.mode === 1 && this.actuated ? Math.max(this.peak - s.rtRelease, s.rtFirstTouch) : null;
+    if (!isRtMode(s.mode) || !this.actuated) return null;
+    return Math.max(this.peak - s.rtRelease, s.mode === 1 ? 0 : s.rtFirstTouch);
   }
 
   /** RT, released after a first actuation: the key re-actuates when it goes below this depth (mm). */
   get reactuateAt(): number | null {
     const s = this.settings;
-    return s.mode === 1 && this.armed && !this.actuated ? Math.min(this.trough + s.rtPress, s.range) : null;
+    return isRtMode(s.mode) && this.armed && !this.actuated ? Math.min(this.trough + s.rtPress, s.range) : null;
   }
 
   /** Record a transition (public only so Pinia's unwrapped store type stays assignable). */

@@ -4,6 +4,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import type { ActuationSettings, LiveData } from '../../stores/live';
 import { releasePoint } from '../../stores/live';
+import { isRtMode } from '../../protocol';
 
 const props = defineProps<{
   data: LiveData;
@@ -96,7 +97,7 @@ function draw(now: number) {
       c.beginPath(); c.moveTo(x0, y); c.lineTo(x1, y); c.stroke();
       c.setLineDash([]);
     };
-    if (st.mode === 1) line(st.rtFirstTouch, col.acc, [5, 4]);
+    if (isRtMode(st.mode)) line(st.rtFirstTouch, col.acc, [5, 4]);
     else {
       line(st.normalPress, col.acc, [5, 4]);
       const rel = releasePoint(st);

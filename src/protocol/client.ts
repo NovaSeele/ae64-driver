@@ -128,8 +128,12 @@ export abstract class BaseTransport implements Ae64Transport {
 
   // ------------------------------------------------------------------ 01 device
 
+  /** Last protocol version read on this connection; gates performance mode 2 in the write guard. */
+  private protocol: ProtocolVersion | null = null;
+
   async getProtocolVersion(): Promise<ProtocolVersion> {
-    return c.decodeProtocolVersion(await this.request([FAMILY.DEVICE, 0x01]));
+    this.protocol = c.decodeProtocolVersion(await this.request([FAMILY.DEVICE, 0x01]));
+    return this.protocol;
   }
 
   async getDeviceInfo(): Promise<DeviceInfo> {
@@ -265,7 +269,9 @@ export abstract class BaseTransport implements Ae64Transport {
   /** Refused unless the key was read first and the sensor fields stay as the device reported them. */
   async setPerformance(pos: KeyPos, p: Performance): Promise<void> {
     const payload = c.encodePerformance(pos, p);
-    const why = checkPerformanceWrite(p, this.perfSeen.get(`${pos.row}:${pos.col}`) ?? []);
+    const why = checkPerformanceWrite(p, this.perfSeen.get(`${pos.row}:${pos.col}`) ?? [], {
+      intervalRt: c.supportsIntervalRt(this.protocol),
+    });
     if (why) throw new UnsafeCommandError(payload, why);
     await this.write(payload);
   }

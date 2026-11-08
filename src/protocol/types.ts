@@ -28,7 +28,12 @@ export interface FeatureBitmap {
   raw: number[];
 }
 
-export type PerfMode = 0 | 1; // 0 standard, 1 rapid trigger
+/**
+ * 0 standard, 1 Rapid Trigger with Continuous RT (factory driver `RT`), 2 Rapid Trigger without
+ * Continuous RT (factory driver `IntervalRT`; protocol ≥ 1.3.0.0). Decoded raw: an unknown value is
+ * kept as read so it is never silently rewritten.
+ */
+export type PerfMode = 0 | 1 | 2;
 export interface Performance {
   mode: PerfMode;
   normalPress: number; normalRelease: number;

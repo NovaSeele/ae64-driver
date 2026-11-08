@@ -4,6 +4,7 @@
 import { computed } from 'vue';
 import type { ActuationSettings } from '../../stores/live';
 import { releasePoint } from '../../stores/live';
+import { isRtMode } from '../../protocol';
 import { t } from '../../i18n/vi';
 
 const props = defineProps<{
@@ -53,7 +54,7 @@ const markers = computed<Marker[]>(() => {
   if (!s) return [];
   const f = (v: number) => v.toFixed(2);
   const out: Marker[] = [];
-  if (s.mode === 1) {
+  if (isRtMode(s.mode)) {
     out.push({ mm: s.rtFirstTouch, text: `${t('live.mFirst')} ${f(s.rtFirstTouch)}`, kind: 'act' });
     if (props.resetAt !== null) out.push({ mm: props.resetAt, text: `${t('live.mReset')} ${f(props.resetAt)}`, kind: 'reset' });
     if (props.reactuateAt !== null) out.push({ mm: props.reactuateAt, text: `${t('live.mReactuate')} ${f(props.reactuateAt)}`, kind: 'react' });

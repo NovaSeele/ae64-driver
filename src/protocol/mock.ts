@@ -162,10 +162,12 @@ export class MockTransport extends BaseTransport {
     if (p.mode === 0) {
       const release = p.normalRelease > 0 && p.normalRelease < p.normalPress ? p.normalRelease : p.normalPress;
       s.pressed = s.pressed ? t >= release : t >= p.normalPress;
-    } else if (t < p.rtFirstTouch) {
+    } else if (p.mode === 1 ? t <= 0 : t < p.rtFirstTouch) {
+      // Continuous RT (1) resets only when fully up; mode 2 resets above the first actuation point.
       s.pressed = false;
       s.rtArmed = false;
     } else if (!s.rtArmed) {
+      if (t < p.rtFirstTouch) { s.travel = t; this.live.set(keyId, s); return; }
       s.pressed = true;
       s.rtArmed = true;
       s.extreme = t;
