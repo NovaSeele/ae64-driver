@@ -54,6 +54,17 @@ Khác với driver của nhà sản xuất vốn tự động tải phiên bản
 - Chỉ ghi khi bảng mạch là `0030000D` (AE64 Max) hoặc `0030000A` (AE64 Pro); bàn phím khác được mở ở chế
   độ chỉ đọc.
 - Mỗi lần ghi hành trình đều giữ nguyên các thông số trục/calibrate đọc từ phím, rồi đọc lại để so sánh.
+- Lớp bảo vệ cuối cùng nằm trong transport (`src/protocol/safety.ts`): mọi gói tin phải nằm trong danh sách
+  lệnh được phép, kèm kiểm tra phạm vi đối số (profile, layer, hàng/cột, nhóm lưu…). Gói không khớp bị chặn
+  trước khi tới bàn phím, bất kể trang nào tạo ra nó.
+- Ghi hành trình bị từ chối nếu chưa đọc phím đó trước, nếu làm thay đổi trường cảm biến (`axis`,
+  `calibrate`, `axisV2Id`, `axisRangeMax`, `axisCoefficient`), hoặc nếu khoảng cách vượt hành trình của phím.
+- Các keycode nguy hiểm (Factory reset F200, chuyển chế độ không dây, xoá ghép nối) không bao giờ được ghi —
+  kể cả khi nhập từ file sao lưu hay khôi phục layer mặc định.
+- Cài đặt chung (OS, tắt đèn, chống rung) ghi trực tiếp như driver gốc, không commit. Đổi polling rate luôn là
+  lệnh cuối cùng của phiên (bàn phím khởi động lại cổng USB), sau đó ứng dụng tự kết nối lại; polling rate
+  không được khôi phục từ file sao lưu.
+- Nếu calibrate bị gián đoạn, ứng dụng vẫn gửi lệnh dừng calibrate (không lưu).
 - Nếu đang mở driver gốc (hub.xsyd.top) ở tab khác, hãy đóng nó trước khi kết nối.
 
 ## Tài liệu
