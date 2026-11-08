@@ -7,6 +7,7 @@ import { useHistoryStore } from '../src/stores/history';
 import { usePerformanceStore } from '../src/stores/performance';
 import { t as tr } from '../src/i18n/vi';
 import { PermanentSyncError, useSyncStore } from '../src/stores/sync';
+import { clearTuningSnapshots } from '../src/stores/tuning';
 import {
   AdvancedConflictError, KEYBOARD_CODES, assignmentsFrom, fixUnusedStage3, mptBounds, normalizeDksMask, normalizeMptDepths, pickPairKey,
   setDksCell, swapPair, useAdvancedStore, validateAssignment,
@@ -15,6 +16,7 @@ import type { DksAssignment, MptAssignment, RsAssignment, SocdAssignment } from 
 
 async function setup(profile = 0) {
   setActivePinia(createPinia());
+  clearTuningSnapshots(); // module state outlives a pinia; a real new connection clears it
   const device = useDeviceStore();
   await device.connectDemo();
   if (profile) await device.switchProfile(profile);
@@ -291,6 +293,52 @@ describe('advanced store: failed writes', () => {
     await adv.save({ ...first, depths: [0.6, 1.3, 2.1] });
     expect(await mock.getAdvanced(host)).toMatchObject({ type: 'MPT', depths: [0.6, 1.3, 2.1] });
     expect(await mock.getPerformance(host)).toEqual(before);
+  });
+
+  /** MPT on W is written (the firmware resets W's tuning), never verified, and given up. Returns W's original tuning. */
+  async function dropTouchedMpt() {
+    const ctx = await setup(1);
+    resetTuningOnAdvancedWrite(ctx.mock);
+    const host = ctx.key('W');
+    const before = await ctx.device.withTransport((t) => t.getPerformance(host));
+    const origGet = ctx.mock.getAdvanced.bind(ctx.mock);
+    const origSet = (vi.mocked(ctx.mock.setMpt).getMockImplementation() ?? ctx.mock.setMpt.bind(ctx.mock)) as unknown as (a: unknown) => Promise<unknown>;
+    let wrote = false;
+    let failing = true;
+    vi.spyOn(ctx.mock, 'setMpt').mockImplementation((async (a: unknown) => { wrote = true; return origSet(a); }) as never);
+    vi.spyOn(ctx.mock, 'getAdvanced').mockImplementation(async (pos) => {
+      if (failing && wrote) throw new Error('usb');
+      return origGet(pos);
+    });
+    const first: MptAssignment = { type: 'MPT', keys: [host.id], keycodes: [0x1a, 0x08, 0], depths: [0.5, 1.2, 2.0] };
+    await expect(ctx.adv.save(first)).rejects.toThrow();
+    expect((await ctx.mock.getPerformance(host)).mode).toBe(0); // reset by the firmware, never restored
+    failing = false;
+    return { ...ctx, host, before };
+  }
+
+  it('a touched, dropped job on W: a later SOCD on W+E still restores W\'s ORIGINAL tuning', async () => {
+    const { adv, mock, key, host, before } = await dropTouchedMpt();
+    const e = key('E');
+    const eBefore = await mock.getPerformance(e);
+    await adv.save({ type: 'SOCD', keys: [host.id, e.id], keycodes: [0x1a, 0x08], delay: 5, mode: 0 }, adv.byKey.get(host.id)!);
+    expect(await mock.getAdvanced(host)).toMatchObject({ type: 'SOCD' });
+    expect(await mock.getPerformance(host)).toEqual(before);
+    expect(await mock.getPerformance(e)).toEqual(eBefore);
+  });
+
+  it('a verified hand edit of the key clears the snapshot: a later advanced save restores the hand-edited tuning', async () => {
+    const { adv, mock, host } = await dropTouchedMpt();
+    const perf = usePerformanceStore();
+    await perf.load(true);
+    perf.apply([host.id], () => ({ normalPress: 1.0 }), 'test');
+    await useSyncStore().flush();
+    const edited = await mock.getPerformance(host);
+    expect(edited.normalPress).toBe(1);
+
+    await adv.save({ type: 'MPT', keys: [host.id], keycodes: [0x1a, 0x08, 0], depths: [0.6, 1.3, 2.1] });
+    expect(await mock.getAdvanced(host)).toMatchObject({ type: 'MPT', depths: [0.6, 1.3, 2.1] });
+    expect(await mock.getPerformance(host)).toEqual(edited);
   });
 
   it('a failure of another job does not fail a change that was saved', async () => {

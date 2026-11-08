@@ -8,6 +8,7 @@ import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
 import { useHistoryStore } from './history';
 import { useSyncStore } from './sync';
+import { deleteTuningSnapshot } from './tuning';
 
 /** Fields this app edits. Everything else (axis, calibrate, axisV2Id, axisRangeMax, axisCoefficient) is preserved. */
 export type PerfEdit = Pick<Performance, 'mode' | 'normalPress' | 'normalRelease' | 'rtFirstTouch' | 'rtPress' | 'rtRelease' | 'pressDeadStroke' | 'releaseDeadStroke'>;
@@ -171,7 +172,9 @@ export const usePerformanceStore = defineStore('performance', () => {
       verify: async (t: Ae64Transport) => {
         const read = await t.getPerformance(key);
         fresh.set(id, read);
-        return written !== null && sameEdit(pickEdit(read), written);
+        const ok = written !== null && sameEdit(pickEdit(read), written);
+        if (ok) deleteTuningSnapshot(profile, id); // the hand edit is the truth now: an old snapshot must not overwrite it
+        return ok;
       },
       // Not saved: show what the key really has (last record read from it) instead of the unsaved edit.
       onDrop: () => {

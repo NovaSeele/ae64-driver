@@ -20,6 +20,7 @@ import { useDeviceStore } from './device';
 import { useHistoryStore } from './history';
 import { MAX_ATTEMPTS, PermanentSyncError, useSyncStore } from './sync';
 import { DEFAULT_RANGE_MM, pickEdit, usePerformanceStore } from './performance';
+import { clearTuningSnapshots, deleteTuningSnapshot, getTuningSnapshot, setTuningSnapshot } from './tuning';
 
 type N4 = [number, number, number, number];
 type N3 = [number, number, number];
@@ -344,11 +345,6 @@ export const useAdvancedStore = defineStore('advanced', () => {
   let loadPromise: Promise<void> | null = null;
   /** Performance per key read for MPT limits (cleared with the profile). */
   const perfCache = new Map<number, Performance>();
-  /**
-   * Hall tuning from before the first write of a job that touched the keyboard, per job key, until a job for those
-   * keys verifies. A job that replaces an unfinished one inherits it: re-reading would capture the reset values.
-   */
-  const tuningSnapshots = new Map<string, Map<number, Performance>>();
   // Another keyboard (or the demo) was connected: nothing cached belongs to it.
   watch(() => device.connection, () => {
     records.value = {};
@@ -356,7 +352,7 @@ export const useAdvancedStore = defineStore('advanced', () => {
     loadedProfile.value = null;
     loadPromise = null; // a load of the old keyboard may still be running: a new load() must start fresh
     loading.value = false;
-    tuningSnapshots.clear();
+    clearTuningSnapshots();
   }, { flush: 'sync' });
 
   const assignments = computed(() => assignmentsFrom(records.value, device.keys));
@@ -443,7 +439,7 @@ export const useAdvancedStore = defineStore('advanced', () => {
         return other !== undefined && p.row === other.row && p.col === other.col;
       });
     };
-    // Captured once (or inherited from an unfinished job): a retried job must restore the tuning from before the first write, not the reset one.
+    // Captured once (per key: inherited from an unfinished job, see stores/tuning.ts): a retried job must restore the tuning from before the first write, not the reset one.
     let tuning: Map<number, Performance> | null = null;
     const names = involved.map((id) => device.legend(keys[id])).join(' + ');
     const jobKey = `adv:${profile}:${involved.join(',')}`;
@@ -468,16 +464,13 @@ export const useAdvancedStore = defineStore('advanced', () => {
           if (!allowedOn(id, cur)) throw new PermanentSyncError(tr('advanced.conflictDevice', { key: device.legend(keys[id]) }));
         }
         if (!tuning) {
-          tuning = tuningSnapshots.get(jobKey) ?? null;
-          if (!tuning) {
-            const snap = new Map<number, Performance>();
-            for (const id of involved) snap.set(id, await t.getPerformance(keys[id]));
-            tuning = snap;
-          }
+          const snap = new Map<number, Performance>();
+          for (const id of involved) snap.set(id, getTuningSnapshot(profile, id) ?? await t.getPerformance(keys[id]));
+          tuning = snap;
         }
         // From here on the keyboard may change, even if a packet below fails.
         pending.touched = true;
-        tuningSnapshots.set(jobKey, tuning);
+        for (const [id, p] of tuning) setTuningSnapshot(profile, id, p);
         for (const id of involved) if (!expected.has(id)) await t.clearAdvanced(keys[id]);
         const a = change.after;
         if (!a) return;
@@ -509,7 +502,7 @@ export const useAdvancedStore = defineStore('advanced', () => {
         }
         await t.commit(SAVE_GROUP.PERFORMANCE);
         pending.verified = true;
-        tuningSnapshots.delete(jobKey);
+        for (const id of involved) deleteTuningSnapshot(profile, id);
         return true;
       },
     };
