@@ -143,11 +143,42 @@ export function normalizeMptDepths(depths: readonly number[], max: number): N3 {
   return [first / 10, second / 10, third / 10];
 }
 
-/** Bounds of MPT depth `i` given its neighbours. */
-export function mptBounds(i: number, depths: N3, max: number): { min: number; max: number } {
+/**
+ * Bounds of MPT depth `i` given its neighbours. Without a stage-3 output, stage 3's depth does not limit stage 2,
+ * but stage 2 still stops one step short of full travel so the (unused) stage 3 can sit strictly past it:
+ * the firmware always receives strictly increasing depths.
+ */
+export function mptBounds(i: number, depths: N3, max: number, stage3 = true): { min: number; max: number } {
   if (i === 0) return { min: 0.1, max: r1(depths[1] - MPT_STEP) };
-  if (i === 1) return { min: r1(depths[0] + MPT_STEP), max: r1(depths[2] - MPT_STEP) };
+  if (i === 1) return { min: r1(depths[0] + MPT_STEP), max: r1((stage3 ? depths[2] : max) - MPT_STEP) };
   return { min: r1(depths[1] + MPT_STEP), max };
+}
+
+/** Without a stage-3 output its depth is meaningless: if it is not already past stage 2 and inside `max`, put it just past stage 2. */
+export function fixUnusedStage3(a: MptAssignment, max: number): MptAssignment {
+  if (a.keycodes[2] || (a.depths[2] > a.depths[1] && a.depths[2] <= max + 1e-9)) return a;
+  return { ...a, depths: [a.depths[0], a.depths[1], Math.min(max, r1(a.depths[1] + MPT_STEP))] };
+}
+
+/** Swap a pair's keys and outputs; SOCD "A priority" / "B priority" follow the key they favoured. */
+export function swapPair<T extends SocdAssignment | RsAssignment>(d: T): T {
+  const out = { ...d, keys: [d.keys[1], d.keys[0]], keycodes: [d.keycodes[1], d.keycodes[0]] } as T;
+  if (out.type === 'SOCD' && (out.mode === 1 || out.mode === 2)) out.mode = out.mode === 1 ? 2 : 1;
+  return out;
+}
+
+/**
+ * Key `id` was clicked while pair slot `slot` is being filled. Returns the new draft and slot, or null when the
+ * click changes nothing: the key already in the other slot only swaps once both slots are filled.
+ */
+export function pickPairKey<T extends SocdAssignment | RsAssignment>(d: T, slot: 0 | 1, id: number, layer0: number | undefined): { draft: T; slot: 0 | 1 } | null {
+  const other = slot === 0 ? 1 : 0;
+  if (d.keys[other] === id) return d.keys[slot] >= 0 ? { draft: swapPair(d), slot } : null;
+  const keys: [number, number] = [...d.keys];
+  const keycodes: [number, number] = [...d.keycodes];
+  keys[slot] = id;
+  keycodes[slot] = layer0 !== undefined && KEYBOARD_CODES.has(layer0) ? layer0 : 0;
+  return { draft: { ...d, keys, keycodes }, slot: slot === 0 ? 1 : slot };
 }
 
 // ----------------------------------------------------------------- validation (reference stage* rules)
@@ -172,6 +203,7 @@ export function validateAssignment(a: WritableAssignment, ctx: { firmware?: stri
       const allowed = new Set(mptGroups().flatMap((g) => g.codes));
       if (used.some((c) => !allowed.has(c))) return tr('advanced.errOutput');
       const [d1, d2, d3] = a.depths;
+      // Always strictly increasing, also with an unused stage 3 (save() moves it past stage 2 first: fixUnusedStage3).
       if (!(d1 >= 0.1 && d1 < d2 && d2 < d3 && d3 <= (ctx.mptMax ?? Infinity) + 1e-9)) return tr('advanced.errMptDepths');
       return null;
     }
@@ -179,6 +211,7 @@ export function validateAssignment(a: WritableAssignment, ctx: { firmware?: stri
     case 'RS':
       if (a.keys[0] === a.keys[1]) return tr('advanced.errPairSame');
       if (!a.keycodes[0] || !a.keycodes[1]) return tr('advanced.errPairOutput');
+      if (!KEYBOARD_CODES.has(a.keycodes[0]) || !KEYBOARD_CODES.has(a.keycodes[1])) return tr('advanced.errOutput');
       if (!Number.isInteger(a.delay) || a.delay < PAIR_DELAY.min || a.delay > PAIR_DELAY.max) return tr('advanced.errDelay');
       return null;
   }
@@ -286,6 +319,8 @@ function sameTuning(a: Performance, b: Performance): boolean {
 // ----------------------------------------------------------------- store
 
 interface Change { before: Assignment | null; after: WritableAssignment | null }
+/** One enqueued change: `verified` once the keyboard confirmed it; `cancel` makes the job a no-op and restores the records. */
+interface Pending { verified: boolean; cancelled: boolean; rollback: () => void }
 
 export const useAdvancedStore = defineStore('advanced', () => {
   const device = useDeviceStore();
@@ -360,13 +395,13 @@ export const useAdvancedStore = defineStore('advanced', () => {
       const cur = byKey.value.get(id);
       if (!cur) continue;
       if (editing && sameSlot(cur, editing)) continue;
-      if (sameSlot(cur, a)) continue;
+      if (!editing && sameSlot(cur, a)) continue; // re-saving it; while editing another one this would overwrite it silently
       return cur;
     }
     return null;
   }
 
-  function jobFor(change: Change, profile: number) {
+  function jobFor(change: Change, profile: number, pending: Pending) {
     const keys = device.keys;
     const involved = [...new Set([...(change.before?.keys ?? []), ...(change.after?.keys ?? [])])].sort((x, y) => x - y);
     const expected = change.after ? recordsOf(change.after, keys) : new Map<number, AdvancedRecord>();
@@ -391,7 +426,9 @@ export const useAdvancedStore = defineStore('advanced', () => {
       group: SAVE_GROUP.ADVANCED,
       profile,
       label: tr('advanced.jobLabel', { keys: names }),
+      onDrop: () => pending.rollback(),
       write: async (t: Ae64Transport) => {
+        if (pending.cancelled) return;
         for (const id of involved) {
           const cur = await t.getAdvanced(keys[id]);
           if (!allowedOn(id, cur)) throw new PermanentSyncError(tr('advanced.conflictDevice', { key: device.legend(keys[id]) }));
@@ -411,6 +448,7 @@ export const useAdvancedStore = defineStore('advanced', () => {
         else await t.setRappySnappyPair({ first: pos(0), second: pos(1), keycodes: [...a.keycodes], delay: a.delay });
       },
       verify: async (t: Ae64Transport) => {
+        if (pending.cancelled) return true;
         let ok = true;
         const readBack: Record<number, AdvancedRecord> = {};
         for (const id of involved) {
@@ -430,19 +468,71 @@ export const useAdvancedStore = defineStore('advanced', () => {
           if (!sameTuning(restored, desired)) throw new Error(tr('advanced.tuningFailed', { key: device.legend(keys[id]) }));
         }
         await t.commit(SAVE_GROUP.PERFORMANCE);
+        pending.verified = true;
         return true;
       },
     };
   }
 
-  function commit(change: Change): void {
+  /** Show the change at once (optimistic) and queue its write. A job that is given up puts the previous records back. */
+  function commit(change: Change): Pending {
     const profile = device.activeProfile;
-    if (profile !== loadedProfile.value) return; // stale history entry from another profile
-    const next = { ...records.value };
-    for (const id of change.before?.keys ?? []) next[id] = noneRecord(device.keys[id]);
-    if (change.after) for (const [id, r] of recordsOf(change.after, device.keys)) next[id] = r;
-    records.value = next;
-    sync.enqueue(jobFor(change, profile));
+    const pending: Pending = { verified: false, cancelled: false, rollback: () => undefined };
+    if (profile !== loadedProfile.value) { // stale history entry from another profile
+      pending.cancelled = true;
+      return pending;
+    }
+    const set = new Map<number, AdvancedRecord>();
+    for (const id of change.before?.keys ?? []) set.set(id, noneRecord(device.keys[id]));
+    if (change.after) for (const [id, r] of recordsOf(change.after, device.keys)) set.set(id, r);
+    const prev = new Map([...set.keys()].map((id) => [id, records.value[id]]));
+    records.value = { ...records.value, ...Object.fromEntries(set) };
+    pending.rollback = () => {
+      pending.cancelled = true;
+      const now = { ...records.value };
+      let changed = false;
+      // Only keys still showing this change's own record: a newer edit or a read-back is the better truth.
+      for (const [id, r] of set) {
+        if (now[id] !== r) continue;
+        const before = prev.get(id);
+        if (before) now[id] = before; else delete now[id];
+        changed = true;
+      }
+      if (changed) records.value = now;
+    };
+    sync.enqueue(jobFor(change, profile, pending));
+    return pending;
+  }
+
+  /** Flush `pending`; when it was not written, give it up, show the previous records and re-read the keys from the keyboard. */
+  async function settle(pending: Pending, change: Change): Promise<void> {
+    try {
+      await sync.flush();
+    } catch (err) {
+      if (!pending.verified) {
+        pending.rollback();
+        const ids = [...new Set([...(change.before?.keys ?? []), ...(change.after?.keys ?? [])])];
+        await refreshKeys(ids);
+      }
+      throw err;
+    }
+  }
+
+  async function refreshKeys(ids: number[]): Promise<void> {
+    const shown = ids.map((id) => records.value[id]);
+    try {
+      const fresh = await device.withTransport(async (t) => {
+        const out: AdvancedRecord[] = [];
+        for (const id of ids) out.push(await t.getAdvanced(device.keys[id]));
+        return out;
+      });
+      if (loadedProfile.value !== device.activeProfile) return;
+      const next = { ...records.value };
+      ids.forEach((id, i) => { if (next[id] === shown[i]) next[id] = fresh[i]; });
+      records.value = next;
+    } catch {
+      // the previous records stay
+    }
   }
 
   function typeName(a: Assignment): string {
@@ -456,6 +546,7 @@ export const useAdvancedStore = defineStore('advanced', () => {
   async function save(next: WritableAssignment, editing: Assignment | null = null): Promise<void> {
     if (loadedProfile.value !== device.activeProfile) throw new Error(tr('advanced.notLoaded'));
     const mptMax = next.type === 'MPT' ? mptLimit(await performanceOf(next.keys[0])) : undefined;
+    if (next.type === 'MPT') next = fixUnusedStage3(next, mptMax!);
     const invalid = validateAssignment(next, { firmware: device.info?.firmware, layer0: (id) => device.layer0[id], mptMax });
     if (invalid) throw new Error(invalid);
     const conflict = conflictFor(next, editing);
@@ -464,23 +555,35 @@ export const useAdvancedStore = defineStore('advanced', () => {
       throw new AdvancedConflictError(conflict, device.legend(device.keys[id]));
     }
     const before = editing ?? next.keys.map((id) => byKey.value.get(id)).find((a) => a && sameSlot(a, next)) ?? null;
-    if (before && before.type !== 'READONLY' && sameRecord(before, next)) return;
+    if (before && before.type !== 'READONLY' && sameRecord(before, next)) {
+      // Already shown, but maybe only optimistically (a queued or failed write): report success only once it is written.
+      if (sync.state !== 'saved') await sync.flush();
+      return;
+    }
     const change: Change = { before, after: next };
-    commit(change);
-    const keysLabel = next.keys.map((id) => device.legend(device.keys[id])).join(' + ');
-    history.push({
-      label: tr('advanced.histSave', { type: typeName(next), keys: keysLabel }),
-      undo: () => commit({ before: next, after: before && before.type !== 'READONLY' ? before : null }),
-      redo: () => commit(change),
-    });
-    await sync.flush();
+    const pending = commit(change);
+    let failure: unknown = null;
+    await settle(pending, change).catch((err) => { failure = err; });
+    if (pending.verified) {
+      const saved = next;
+      const keysLabel = saved.keys.map((id) => device.legend(device.keys[id])).join(' + ');
+      history.push({
+        label: tr('advanced.histSave', { type: typeName(saved), keys: keysLabel }),
+        undo: () => commit({ before: saved, after: before && before.type !== 'READONLY' ? before : null }),
+        redo: () => commit(change),
+      });
+    }
+    if (failure) throw failure;
   }
 
   /** Clear an assignment (both keys of a pair). Read-only kinds cannot be re-created, so they get no undo. */
   async function remove(a: Assignment): Promise<void> {
     if (loadedProfile.value !== device.activeProfile) throw new Error(tr('advanced.notLoaded'));
-    commit({ before: a, after: null });
-    if (a.type !== 'READONLY') {
+    const change: Change = { before: a, after: null };
+    const pending = commit(change);
+    let failure: unknown = null;
+    await settle(pending, change).catch((err) => { failure = err; });
+    if (pending.verified && a.type !== 'READONLY') {
       const keysLabel = a.keys.map((id) => device.legend(device.keys[id])).join(' + ');
       history.push({
         label: tr('advanced.histRemove', { type: typeName(a), keys: keysLabel }),
@@ -488,7 +591,7 @@ export const useAdvancedStore = defineStore('advanced', () => {
         redo: () => commit({ before: a, after: null }),
       });
     }
-    await sync.flush();
+    if (failure) throw failure;
   }
 
   return { records, loading, loadedCount, loadError, loadedProfile, assignments, byKey, load, performanceOf, conflictFor, save, remove, typeName };

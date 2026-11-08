@@ -5,7 +5,8 @@ import type { Performance, PhysicalKey } from '../src/protocol';
 import { useDeviceStore } from '../src/stores/device';
 import { useHistoryStore } from '../src/stores/history';
 import {
-  AdvancedConflictError, assignmentsFrom, normalizeDksMask, normalizeMptDepths, setDksCell, useAdvancedStore,
+  AdvancedConflictError, KEYBOARD_CODES, assignmentsFrom, fixUnusedStage3, mptBounds, normalizeDksMask, normalizeMptDepths, pickPairKey,
+  setDksCell, swapPair, useAdvancedStore, validateAssignment,
 } from '../src/stores/advanced';
 import type { DksAssignment, MptAssignment, RsAssignment, SocdAssignment } from '../src/stores/advanced';
 
@@ -158,9 +159,133 @@ describe('advanced store', () => {
     const host = key('G');
     await expect(adv.save({ type: 'MPT', keys: [host.id], keycodes: [4, 0, 0], depths: [0.5, 1, 1.5] })).rejects.toThrow();
     await expect(adv.save({ type: 'MPT', keys: [host.id], keycodes: [4, 4, 0], depths: [0.5, 1, 1.5] })).rejects.toThrow();
-    await expect(adv.save({ type: 'MPT', keys: [host.id], keycodes: [4, 5, 0], depths: [0.5, 1, 9] })).rejects.toThrow();
+    await expect(adv.save({ type: 'MPT', keys: [host.id], keycodes: [4, 5, 0], depths: [0.5, 9, 9] })).rejects.toThrow();
     await expect(adv.save({ type: 'MPT', keys: [host.id], keycodes: [4, 0xe7, 0], depths: [0.5, 1, 1.5] })).rejects.toThrow(); // RWin not in MPT palette
     expect(setMpt).not.toHaveBeenCalled();
+  });
+});
+
+describe('advanced store: failed writes', () => {
+  beforeEach(() => vi.useRealTimers());
+  afterEach(() => vi.restoreAllMocks());
+
+  const dksOn = (id: number): DksAssignment => ({ type: 'DKS', keys: [id], keycodes: [0x04, 0x2c, 0, 0], travels: [0xff, 0x01, 0, 0], dbs: [1.2, 2.8] });
+
+  it('a failed create is rolled back, leaves no history entry, and saving again really writes', async () => {
+    const { adv, mock, key } = await setup();
+    const host = key('K');
+    vi.spyOn(mock, 'setDks').mockRejectedValueOnce(new Error('usb'));
+    await expect(adv.save(dksOn(host.id))).rejects.toThrow();
+    expect(adv.byKey.get(host.id)).toBeUndefined();
+    expect((await mock.getAdvanced(host)).type).toBe('NONE');
+    expect(useHistoryStore().undoLabel).toBeNull();
+
+    await adv.save(dksOn(host.id));
+    expect(await mock.getAdvanced(host)).toMatchObject({ type: 'DKS', keycodes: [0x04, 0x2c, 0, 0] });
+    expect(adv.byKey.get(host.id)?.type).toBe('DKS');
+    expect(useHistoryStore().undoLabel).not.toBeNull();
+  });
+
+  it('a failed delete keeps the binding in the list', async () => {
+    const { adv, mock, key } = await setup();
+    const host = key('K');
+    await adv.save(dksOn(host.id));
+    vi.spyOn(mock, 'clearAdvanced').mockRejectedValueOnce(new Error('usb'));
+    await expect(adv.remove(adv.byKey.get(host.id)!)).rejects.toThrow();
+    expect(adv.byKey.get(host.id)?.type).toBe('DKS');
+    expect((await mock.getAdvanced(host)).type).toBe('DKS');
+  });
+
+  it('a save that matches an unwritten optimistic record flushes instead of returning early', async () => {
+    const { adv, mock, key } = await setup();
+    const [j, k] = [key('J'), key('K')];
+    const first = dksOn(j.id);
+    await adv.save(first);
+    const moved = { ...first, keys: [k.id] as [number] };
+    await adv.save(moved, adv.byKey.get(j.id)!);
+    useHistoryStore().undo(); // J's binding is shown again, its write is only queued
+    expect((await mock.getAdvanced(j)).type).toBe('NONE');
+    await adv.save(first); // same as what is shown: must still wait for the write
+    expect(await mock.getAdvanced(j)).toMatchObject({ type: 'DKS' });
+
+    useHistoryStore().undo(); // queued again (undo of the save on J … back to K)
+    vi.spyOn(mock, 'setDks').mockRejectedValueOnce(new Error('usb'));
+    await expect(adv.save(moved)).rejects.toThrow();
+  });
+
+  it('editing onto an occupied key of the same type is a conflict, not a silent overwrite', async () => {
+    const { adv, key } = await setup();
+    const [j, k] = [key('J'), key('K')];
+    await adv.save(dksOn(j.id));
+    await adv.save(dksOn(k.id));
+    const mine = adv.byKey.get(j.id)!;
+    await expect(adv.save({ ...dksOn(k.id) }, mine)).rejects.toBeInstanceOf(AdvancedConflictError);
+    expect(adv.byKey.get(j.id)?.type).toBe('DKS');
+  });
+});
+
+describe('pair picking', () => {
+  const pair = (over: Partial<SocdAssignment> = {}): SocdAssignment => ({ type: 'SOCD', keys: [-1, -1], keycodes: [0, 0], delay: 0, mode: 1, ...over });
+
+  it('fills A then B and moves to slot B', () => {
+    const a = pickPairKey(pair(), 0, 10, 0x04)!;
+    expect(a).toMatchObject({ slot: 1, draft: { keys: [10, -1], keycodes: [0x04, 0] } });
+    const b = pickPairKey(a.draft, 1, 11, 0x07)!;
+    expect(b).toMatchObject({ slot: 1, draft: { keys: [10, 11], keycodes: [0x04, 0x07] } });
+  });
+
+  it('clicking key A again while filling B changes nothing', () => {
+    const a = pickPairKey(pair(), 0, 10, 0x04)!;
+    expect(pickPairKey(a.draft, 1, 10, 0x04)).toBeNull();
+  });
+
+  it('with both slots filled the other key swaps, and the A/B priority follows the key', () => {
+    const full = pair({ keys: [10, 11], keycodes: [0x04, 0x07], mode: 1 });
+    const r = pickPairKey(full, 1, 10, 0x04)!;
+    expect(r.slot).toBe(1);
+    expect(r.draft).toMatchObject({ keys: [11, 10], keycodes: [0x07, 0x04], mode: 2 });
+    expect(swapPair(r.draft).mode).toBe(1);
+    expect(swapPair(pair({ keys: [1, 2], keycodes: [4, 5], mode: 3 })).mode).toBe(3);
+  });
+
+  it('auto-fills an output only from a keyboard code', () => {
+    expect(pickPairKey(pair(), 0, 10, 0x04)!.draft.keycodes[0]).toBe(0x04);
+    expect(pickPairKey(pair(), 0, 10, 0x1000)!.draft.keycodes[0]).toBe(0); // not a plain keyboard code
+    expect(pickPairKey(pair(), 0, 10, undefined)!.draft.keycodes[0]).toBe(0);
+  });
+
+  it('SOCD / RS outputs must be keyboard codes', () => {
+    const ctx = { layer0: () => 4 };
+    expect(KEYBOARD_CODES.has(0x04)).toBe(true);
+    expect(validateAssignment(pair({ keys: [1, 2], keycodes: [0x04, 0x05] }), ctx)).toBeNull();
+    expect(validateAssignment(pair({ keys: [1, 2], keycodes: [0x04, 0x4000] }), ctx)).not.toBeNull();
+    expect(validateAssignment({ type: 'RS', keys: [1, 2], keycodes: [0x2000, 0x05], delay: 0 }, ctx)).not.toBeNull();
+  });
+});
+
+describe('MPT without stage 3', () => {
+  it('stage 2 may use the travel up to one step short of the end while stage 3 has no output', () => {
+    expect(mptBounds(1, [0.5, 1, 1.5], 3.3, true).max).toBe(1.4);
+    expect(mptBounds(1, [0.5, 1, 1.5], 3.3, false).max).toBe(3.2);
+  });
+
+  it('validation always wants strictly increasing depths inside the travel', () => {
+    const ctx = { layer0: () => 4, mptMax: 3.3 };
+    expect(validateAssignment({ type: 'MPT', keys: [0], keycodes: [4, 5, 0], depths: [0.5, 3.2, 3.3] }, ctx)).toBeNull();
+    expect(validateAssignment({ type: 'MPT', keys: [0], keycodes: [4, 5, 0], depths: [0.5, 3.3, 3.3] }, ctx)).not.toBeNull();
+    expect(validateAssignment({ type: 'MPT', keys: [0], keycodes: [4, 5, 6], depths: [0.5, 3.3, 0.2] }, ctx)).not.toBeNull();
+    expect(validateAssignment({ type: 'MPT', keys: [0], keycodes: [4, 5, 0], depths: [0.5, 3.4, 4] }, ctx)).not.toBeNull();
+  });
+
+  it('an unused stage 3 is moved just past stage 2 when it is not already past it', () => {
+    const a: MptAssignment = { type: 'MPT', keys: [0], keycodes: [4, 5, 0], depths: [0.5, 2, 1] };
+    expect(fixUnusedStage3(a, 3.3).depths).toEqual([0.5, 2, 2.1]);
+    expect(fixUnusedStage3({ ...a, depths: [0.5, 3.2, 1] }, 3.3).depths).toEqual([0.5, 3.2, 3.3]);
+    expect(fixUnusedStage3({ ...a, depths: [0.5, 1, 9] }, 3.3).depths).toEqual([0.5, 1, 1.1]);
+    const ok = { ...a, depths: [0.5, 1, 1.5] as MptAssignment['depths'] };
+    expect(fixUnusedStage3(ok, 3.3)).toBe(ok);
+    const used = { ...a, keycodes: [4, 5, 6] as MptAssignment['keycodes'] };
+    expect(fixUnusedStage3(used, 3.3)).toBe(used);
   });
 });
 

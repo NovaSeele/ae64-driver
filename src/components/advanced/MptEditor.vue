@@ -9,7 +9,7 @@ import Dialog from '../ui/Dialog.vue';
 import Button from '../ui/Button.vue';
 import OutputSlot from './OutputSlot.vue';
 import OutputPicker from './OutputPicker.vue';
-import { MPT_STEP, mptBounds, mptGroups } from '../../stores/advanced';
+import { MPT_STEP, fixUnusedStage3, mptBounds, mptGroups } from '../../stores/advanced';
 import type { MptAssignment } from '../../stores/advanced';
 import { t } from '../../i18n/vi';
 
@@ -24,8 +24,14 @@ const pickerOpen = computed({ get: () => pickerStage.value !== null, set: (v) =>
 function update(patch: Partial<MptAssignment>) {
   emit('update:modelValue', { ...props.modelValue, ...patch });
 }
+const stage3 = computed(() => !!props.modelValue.keycodes[2]);
+const boundsOf = (i: number) => mptBounds(i, props.modelValue.depths, props.max, stage3.value);
+/** Stage 1–2 depth capped below the travel end by the next stage: the stage that causes it, else 0. */
+// Stage 2 without a stage-3 output stops one step short of the end only so stage 3 can sit past it: not a cap to explain.
+const cappedBy = (i: number) => (i < 2 && (i === 0 || stage3.value) && boundsOf(i).max < props.max - 1e-9 ? i + 2 : 0);
 function setDepth(i: number, v: number) {
-  const b = mptBounds(i, props.modelValue.depths, props.max);
+  if (i === 2 && !stage3.value) return;
+  const b = boundsOf(i);
   const depths = [...props.modelValue.depths] as MptAssignment['depths'];
   depths[i] = Math.round(Math.min(b.max, Math.max(b.min, v)) * 10) / 10;
   if (depths[i] !== props.modelValue.depths[i]) update({ depths });
@@ -33,7 +39,8 @@ function setDepth(i: number, v: number) {
 function pick(code: number) {
   const keycodes = [...props.modelValue.keycodes] as MptAssignment['keycodes'];
   keycodes[pickerStage.value!] = code;
-  update({ keycodes });
+  // Stage 3 just got an output: its depth starts past stage 2 (fixUnusedStage3 only moves it while it is unused).
+  update({ keycodes, depths: fixUnusedStage3({ ...props.modelValue, keycodes: [keycodes[0], keycodes[1], 0] }, props.max).depths });
   pickerStage.value = null;
 }
 function clearStage3() {
@@ -72,15 +79,18 @@ const pct = (v: number) => `${(v / props.max) * 100}%`;
           <span class="stage__label">{{ t('advanced.mptDepth') }}</span>
           <NumberField
             :model-value="d"
-            :min="mptBounds(i, modelValue.depths, max).min"
-            :max="mptBounds(i, modelValue.depths, max).max"
+            :min="boundsOf(i).min"
+            :max="boundsOf(i).max"
+            :disabled="i === 2 && !stage3"
             :step="MPT_STEP"
             :decimals="1"
             :label="t('advanced.mptStage', { n: i + 1 })"
             @update:model-value="setDepth(i, $event)"
           />
         </div>
-        <Slider :model-value="d" :min="0.1" :max="max" :step="MPT_STEP" :fine-step="MPT_STEP" :label="t('advanced.mptStage', { n: i + 1 })" @update:model-value="setDepth(i, $event)" />
+        <Slider :model-value="d" :min="0.1" :max="max" :step="MPT_STEP" :fine-step="MPT_STEP" :disabled="i === 2 && !stage3" :label="t('advanced.mptStage', { n: i + 1 })" @update:model-value="setDepth(i, $event)" />
+        <p v-if="i === 2 && !stage3" class="stage__cap">{{ t('advanced.mptStage3Off') }}</p>
+        <p v-else-if="cappedBy(i)" class="stage__cap num">{{ t('advanced.mptCapped', { max: boundsOf(i).max.toFixed(1), n: cappedBy(i) }) }}</p>
       </div>
     </div>
     <p class="hint num">{{ t('advanced.mptRange', { max: max.toFixed(1) }) }}</p>
@@ -91,6 +101,7 @@ const pct = (v: number) => `${(v / props.max) * 100}%`;
         :groups="groups"
         :current="modelValue.keycodes[pickerStage]"
         :disabled-codes="used"
+        :disabled-reason="t('advanced.mptUsedOutput')"
         :note="t('advanced.pickerOnly', { type: 'MPT' })"
         :clear-label="pickerStage === 2 ? t('advanced.mptClear') : undefined"
         @pick="pick"
@@ -152,6 +163,7 @@ const pct = (v: number) => `${(v / props.max) * 100}%`;
 .stage__depth { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
 .stage__row { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); }
 .stage__label { color: var(--fg-2); }
+.stage__cap { margin: 0; color: var(--fg-3); font-size: var(--fs-label); }
 .stage__row :deep(.nf) { width: 120px; }
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
 .mpt__clear { align-self: flex-start; }

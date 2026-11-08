@@ -15,7 +15,8 @@ import type { MessageKey } from '../../i18n/vi';
 const props = defineProps<{ modelValue: DksAssignment; firmware?: string }>();
 const emit = defineEmits<{ 'update:modelValue': [DksAssignment] }>();
 
-const ROW_COLORS = ['var(--acc)', 'var(--info)', 'var(--warn)', 'var(--danger)'];
+// Neutral / accent hues only: warn and danger colours would make painted cells look like errors.
+const ROW_COLORS = ['var(--acc)', 'var(--info)', 'var(--fg-1)', 'var(--fg-3)'];
 const CELL_TEXT: { label: string; title: MessageKey; span: boolean }[] = [
   { label: 'P1', title: 'advanced.dksCellP1', span: false },
   { label: 'S', title: 'advanced.dksCellS1', span: true },
@@ -51,8 +52,9 @@ function onCellEnter(e: PointerEvent, row: number, cell: number) {
   if (paint && paint.row === row && e.buttons === 1) setCell(row, cell, paint.on);
 }
 function endPaint() { paint = null; }
-window.addEventListener('pointerup', endPaint);
-onBeforeUnmount(() => window.removeEventListener('pointerup', endPaint));
+const END_EVENTS = ['pointerup', 'pointercancel', 'blur'] as const;
+for (const ev of END_EVENTS) window.addEventListener(ev, endPaint);
+onBeforeUnmount(() => { for (const ev of END_EVENTS) window.removeEventListener(ev, endPaint); });
 
 function onCellKey(e: KeyboardEvent, row: number, cell: number) {
   if (e.key !== ' ' && e.key !== 'Enter') return;
@@ -110,7 +112,7 @@ const fmt = (v: number) => v.toFixed(1);
       </div>
     </section>
 
-    <section class="tl" :aria-label="t('advanced.dksTimeline')">
+    <section class="tl" :aria-label="t('advanced.dksTimeline')" @lostpointercapture="endPaint">
       <div class="tl__phases">
         <span />
         <span class="tl__phase tl__phase--down">{{ t('advanced.dksPress') }}</span>
@@ -125,7 +127,8 @@ const fmt = (v: number) => v.toFixed(1);
           <small v-else-if="i === 2 || i === 4" class="num">{{ fmt(modelValue.dbs[1]) }} mm</small>
         </span>
       </div>
-      <div v-for="row in 4" :key="row" class="tl__row" :style="{ '--row-acc': ROW_COLORS[row - 1] }">
+      <template v-for="row in 4" :key="row">
+      <div class="tl__row" :style="{ '--row-acc': ROW_COLORS[row - 1] }">
         <OutputSlot
           :code="modelValue.keycodes[row - 1]"
           :caption="t('advanced.dksAction', { n: row })"
@@ -156,6 +159,8 @@ const fmt = (v: number) => v.toFixed(1);
           </button>
         </div>
       </div>
+      <p v-if="modelValue.keycodes[row - 1] && !modelValue.travels[row - 1]" class="tl__warn">{{ t('advanced.dksUnpainted') }}</p>
+      </template>
       <p class="tl__hint">
         <span class="legend"><i class="legend__event" />{{ t('advanced.dksEvent') }}</span>
         <span class="legend"><i class="legend__span" />{{ t('advanced.dksSpan') }}</span>
@@ -277,6 +282,7 @@ const fmt = (v: number) => v.toFixed(1);
 .cell--joinL:not(.cell--joinR):not(.cell--span) .cell__mark::after { left: calc(100% - 11px); }
 .cell--joinR:not(.cell--joinL):not(.cell--span) .cell__mark::after { left: 11px; }
 
+.tl__warn { margin: 0 0 0 124px; color: var(--warn); font-size: var(--fs-label); }
 .tl__hint { display: flex; flex-wrap: wrap; gap: var(--s-4); margin-top: var(--s-2); color: var(--fg-3); font-size: var(--fs-label); }
 .legend { display: inline-flex; align-items: center; gap: 6px; }
 .legend__event { width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid var(--fg-3); }

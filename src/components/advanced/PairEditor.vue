@@ -7,7 +7,7 @@ import NumberField from '../ui/NumberField.vue';
 import Dialog from '../ui/Dialog.vue';
 import OutputSlot from './OutputSlot.vue';
 import OutputPicker from './OutputPicker.vue';
-import { PAIR_DELAY, keyboardGroups } from '../../stores/advanced';
+import { PAIR_DELAY, keyboardGroups, swapPair } from '../../stores/advanced';
 import type { RsAssignment, SocdAssignment, SocdMode } from '../../stores/advanced';
 import { t } from '../../i18n/vi';
 import type { MessageKey } from '../../i18n/vi';
@@ -36,11 +36,7 @@ function pick(code: number) {
   pickerSide.value = null;
 }
 function swap() {
-  const [a, b] = props.modelValue.keys;
-  const [ka, kb] = props.modelValue.keycodes;
-  const patch: Partial<SocdAssignment> = { keys: [b, a], keycodes: [kb, ka] };
-  if (props.modelValue.type === 'SOCD' && (props.modelValue.mode === 1 || props.modelValue.mode === 2)) patch.mode = props.modelValue.mode === 1 ? 2 : 1;
-  update(patch);
+  emit('update:modelValue', swapPair(props.modelValue));
 }
 const sides = computed(() => [0, 1].map((i) => ({
   i: i as 0 | 1,
@@ -57,13 +53,15 @@ const sides = computed(() => [0, 1].map((i) => ({
         <button v-if="n === 1" type="button" class="pair__swap" :title="t('advanced.swap')" :aria-label="t('advanced.swap')" :disabled="modelValue.keys.some((k) => k < 0)" @click="swap">
           <IconSwitchHorizontal :size="18" stroke-width="1.6" />
         </button>
-        <div class="side" :class="{ 'side--active': slot === s.i }" role="button" tabindex="0" :aria-pressed="slot === s.i" @click="emit('update:slot', s.i)" @keydown.enter.space.prevent="emit('update:slot', s.i)">
-          <span class="side__badge">{{ s.i === 0 ? 'A' : 'B' }}</span>
-          <div class="side__body">
-            <span class="micro side__title">{{ s.title }}</span>
-            <span class="side__key" :class="{ 'side__key--empty': s.id < 0 }">{{ s.id >= 0 ? keyName(s.id) : t('advanced.notChosen') }}</span>
-          </div>
-          <OutputSlot :code="modelValue.keycodes[s.i]" :caption="s.output" :accent="s.i === 0 ? 'var(--acc)' : 'var(--info)'" :disabled="s.id < 0" @click.stop="pickerSide = s.i" />
+        <div class="side" :class="{ 'side--active': slot === s.i }">
+          <button type="button" class="side__select" :aria-pressed="slot === s.i" :aria-label="`${s.title}: ${s.id >= 0 ? keyName(s.id) : t('advanced.notChosen')}`" @click="emit('update:slot', s.i)">
+            <span class="side__badge">{{ s.i === 0 ? 'A' : 'B' }}</span>
+            <span class="side__body">
+              <span class="micro side__title">{{ s.title }}<b v-if="slot === s.i" class="side__now">{{ t('advanced.slotActive') }}</b></span>
+              <span class="side__key" :class="{ 'side__key--empty': s.id < 0 }">{{ s.id >= 0 ? keyName(s.id) : t('advanced.notChosen') }}</span>
+            </span>
+          </button>
+          <OutputSlot :code="modelValue.keycodes[s.i]" :caption="s.output" :accent="s.i === 0 ? 'var(--acc)' : 'var(--info)'" :disabled="s.id < 0" @click="pickerSide = s.i" />
         </div>
       </template>
     </div>
@@ -143,11 +141,27 @@ const sides = computed(() => [0, 1].map((i) => ({
   border-radius: var(--r-card);
   border: 1px solid var(--line-1);
   background: var(--bg-1);
-  cursor: pointer;
   transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
 .side:hover { border-color: var(--line-3); }
-.side--active { border-color: var(--acc-line); background: var(--acc-soft); box-shadow: var(--focus-ring); }
+/* "being filled" marker: accent bar + tint (the focus ring stays reserved for keyboard focus) */
+.side--active { border-color: var(--acc-line); background: var(--acc-soft); box-shadow: inset 3px 0 0 var(--acc); }
+.side__select {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--r-control);
+}
+.side__select:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.side__now { margin-left: var(--s-2); color: var(--acc); font-weight: 600; }
 .side__badge {
   width: 30px;
   height: 30px;
