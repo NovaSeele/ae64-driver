@@ -123,16 +123,15 @@ const BY_CODE = new Map<number, { entry: KeycodeEntry; group: string }>();
 for (const g of KEYCODE_GROUPS) for (const entry of g.codes) BY_CODE.set(entry.code, { entry, group: g.id });
 for (const entry of HIDDEN) if (!BY_CODE.has(entry.code)) BY_CODE.set(entry.code, { entry, group: 'other' });
 
-/** HID modifier bits for combinations (high byte). The original AE64 UI exposes the left four. */
+/**
+ * HID modifier bits for combinations (high byte). The firmware combo format has only the four left
+ * modifiers: higher bits collide with media/mouse/system keycodes (e.g. 0xF205 = switch profile).
+ */
 export const COMBO_MODIFIERS: readonly { bit: number; label: string; short: string }[] = Object.freeze([
   { bit: 0x01, label: 'Left Ctrl', short: 'Ctrl' },
   { bit: 0x02, label: 'Left Shift', short: 'Shift' },
   { bit: 0x04, label: 'Left Alt', short: 'Alt' },
   { bit: 0x08, label: 'Left Win', short: 'Win' },
-  { bit: 0x10, label: 'Right Ctrl', short: 'RCtrl' },
-  { bit: 0x20, label: 'Right Shift', short: 'RShift' },
-  { bit: 0x40, label: 'Right Alt', short: 'RAlt' },
-  { bit: 0x80, label: 'Right Win', short: 'RWin' },
 ]);
 
 /** Valid combination trigger: a standard keyboard usage (4–223) known to the catalogue. */
@@ -140,10 +139,18 @@ export function isComboTrigger(code: number): boolean {
   return code >= 4 && code < 224 && BY_CODE.has(code);
 }
 
+/** True for any code the catalogue knows (offered or decode-only). */
+export function isKnownKeycode(code: number): boolean {
+  return BY_CODE.has(code);
+}
+
+/** Builds a combo keycode; throws RangeError for anything but left modifiers + a plain keyboard key. */
 export function comboKeycode(mask: number, trigger: number): number {
-  if (!(mask & 0xff)) throw new RangeError(t('error.modifierRequired'));
+  if (!(mask & 0x0f) || mask & ~0x0f) throw new RangeError(t('error.modifierRequired'));
   if (!isComboTrigger(trigger)) throw new RangeError(t('error.comboTriggerStandard'));
-  return ((mask & 0xff) << 8) | trigger;
+  const code = (mask << 8) | trigger;
+  if (BY_CODE.has(code)) throw new RangeError(t('error.comboTriggerStandard'));
+  return code;
 }
 
 /**

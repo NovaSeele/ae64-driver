@@ -1,21 +1,47 @@
 <script setup lang="ts">
 // Keycode picker: group tabs (KEYCODE_GROUPS) + search across all groups + modifier-combo builder.
 // With modifiers selected, picking a standard key emits (mask << 8) | key, as the factory driver does.
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { IconSearch } from '@tabler/icons-vue';
 import Tabs from './Tabs.vue';
-import { COMBO_MODIFIERS, KEYCODE_GROUPS, comboKeycode, isComboTrigger, keycodeLabel } from '../../protocol';
+import { COMBO_MODIFIERS, KEYCODE_GROUPS, comboKeycode, decodeCombo, isComboTrigger, keycodeLabel } from '../../protocol';
 import type { KeycodeEntry } from '../../protocol';
 import { t } from '../../i18n/vi';
 
 const props = defineProps<{ current?: number | null }>();
 const emit = defineEmits<{ pick: [code: number] }>();
 
-const group = ref(KEYCODE_GROUPS[0].id);
-const query = ref('');
-const mask = ref(0);
+const groupOf = (code: number) => KEYCODE_GROUPS.find((g) => g.codes.some((e) => e.code === code))?.id;
+// An existing combo preselects its modifiers and shows its trigger key.
+const comboOf = (code: number | null | undefined) => (code == null ? null : decodeCombo(code));
+const initial = comboOf(props.current);
 
+const group = ref(groupOf(initial ? initial.trigger : props.current ?? -1) ?? KEYCODE_GROUPS[0].id);
+const query = ref('');
+const mask = ref(initial?.mask ?? 0);
+const searchInput = ref<HTMLInputElement | null>(null);
+let lastPicked: number | null = null;
+
+onMounted(() => searchInput.value?.focus());
+// A different key was selected (not the echo of our own pick): load its combo again.
+watch(() => props.current, (code) => {
+  if (code === lastPicked) return;
+  const c = comboOf(code);
+  mask.value = c?.mask ?? 0;
+  group.value = groupOf(c ? c.trigger : code ?? -1) ?? group.value;
+});
+
+const searching = computed(() => query.value.trim() !== '');
 const tabs = KEYCODE_GROUPS.map((g) => ({ id: g.id, label: g.label }));
+function selectGroup(id: string) {
+  query.value = '';
+  group.value = id;
+}
+function onEsc(ev: KeyboardEvent) {
+  if (!query.value) return; // nothing to clear: let the dialog close
+  ev.stopPropagation();
+  query.value = '';
+}
 const entries = computed<KeycodeEntry[]>(() => {
   const q = query.value.trim().toLowerCase();
   if (!q) return KEYCODE_GROUPS.find((g) => g.id === group.value)?.codes ?? [];
@@ -35,19 +61,28 @@ function disabled(e: KeycodeEntry) {
 }
 function pick(e: KeycodeEntry) {
   if (disabled(e)) return;
-  emit('pick', mask.value ? comboKeycode(mask.value, e.code) : e.code);
+  const code = mask.value ? comboKeycode(mask.value, e.code) : e.code;
+  lastPicked = code;
+  mask.value = 0; // modifiers apply to one pick only
+  emit('pick', code);
 }
+const isCurrent = (e: KeycodeEntry) => props.current === e.code || comboOf(props.current)?.trigger === e.code;
 </script>
 
 <template>
   <div class="kp">
-    <div class="kp__top">
-      <Tabs v-model="group" :items="tabs" :label="t('picker.search')" class="kp__tabs" />
-      <label class="kp__search">
-        <IconSearch :size="15" stroke-width="1.5" aria-hidden="true" />
-        <input v-model="query" type="search" :placeholder="t('picker.search')" :aria-label="t('picker.search')">
-      </label>
-    </div>
+    <label class="kp__search">
+      <IconSearch :size="15" stroke-width="1.5" aria-hidden="true" />
+      <input
+        ref="searchInput"
+        v-model="query"
+        type="search"
+        :placeholder="t('picker.search')"
+        :aria-label="t('picker.search')"
+        @keydown.esc="onEsc"
+      >
+    </label>
+    <Tabs :model-value="searching ? '' : group" :items="tabs" :label="t('picker.groups')" class="kp__tabs" @update:model-value="selectGroup" />
 
     <div class="kp__combo">
       <span class="micro">{{ t('picker.combo') }}</span>
@@ -74,9 +109,10 @@ function pick(e: KeycodeEntry) {
         :key="e.code"
         type="button"
         class="kp__key"
-        :class="{ 'kp__key--current': props.current === e.code }"
+        :class="{ 'kp__key--current': isCurrent(e) }"
         :disabled="disabled(e)"
-        :title="`${e.long ?? e.label} · 0x${e.code.toString(16).padStart(4, '0').toUpperCase()}`"
+        :aria-description="disabled(e) ? t('error.comboTriggerStandard') : undefined"
+        :title="`${e.long ?? e.label} · 0x${e.code.toString(16).padStart(4, '0').toUpperCase()}${disabled(e) ? ` — ${t('error.comboTriggerStandard')}` : ''}`"
         @click="pick(e)"
       >
         <span class="kp__label">{{ e.label }}</span>
@@ -92,16 +128,15 @@ function pick(e: KeycodeEntry) {
 
 <style scoped>
 .kp { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
-.kp__top { display: flex; align-items: flex-end; gap: var(--s-3); }
-.kp__tabs { flex: 1; min-width: 0; }
+.kp__tabs { min-width: 0; }
 .kp__search {
   display: flex;
   align-items: center;
   gap: 6px;
   height: 32px;
   padding: 0 10px;
-  width: 200px;
-  flex: none;
+  width: 100%;
+  box-sizing: border-box;
   border: 1px solid var(--line-2);
   border-radius: var(--r-control);
   background: var(--bg-1);

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Restricted keycode picker: only the usages a feature allows (reference palettes), grouped with search.
 // Used where the shared KeyPicker would offer codes the firmware rejects (DKS, MPT, SOCD/RS, macro actions).
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { IconSearch } from '@tabler/icons-vue';
 import Tabs from '../ui/Tabs.vue';
 import Button from '../ui/Button.vue';
@@ -14,6 +14,8 @@ const props = defineProps<{
   current?: number | null;
   /** Codes shown but not pickable (e.g. already used by another MPT stage). */
   disabledCodes?: number[];
+  /** Why `disabledCodes` are not pickable; shown as the tooltip / description of those keys. */
+  disabledReason?: string;
   note?: string;
   clearLabel?: string;
 }>();
@@ -21,6 +23,19 @@ const emit = defineEmits<{ pick: [code: number]; clear: [] }>();
 
 const group = ref(props.groups.find((g) => g.codes.includes(props.current ?? -1))?.id ?? props.groups[0]?.id ?? '');
 const query = ref('');
+const searchInput = ref<HTMLInputElement | null>(null);
+onMounted(() => searchInput.value?.focus());
+const searching = computed(() => query.value.trim() !== '');
+function selectGroup(id: string) {
+  query.value = '';
+  group.value = id;
+}
+function onEsc(ev: KeyboardEvent) {
+  if (!query.value) return; // nothing to clear: let the dialog close
+  ev.stopPropagation();
+  query.value = '';
+}
+const isDisabled = (code: number) => !!props.disabledCodes?.includes(code) && props.current !== code;
 watch(() => props.groups, (gs) => { if (!gs.some((g) => g.id === group.value)) group.value = gs[0]?.id ?? ''; });
 
 const tabs = computed(() => props.groups.map((g) => ({ id: g.id, label: `${g.label} · ${g.codes.length}` })));
@@ -36,13 +51,18 @@ const hex = (c: number) => `0x${c.toString(16).padStart(4, '0').toUpperCase()}`;
 
 <template>
   <div class="op">
-    <div class="op__top">
-      <Tabs v-model="group" :items="tabs" :label="t('advanced.pickerTitle')" class="op__tabs" />
-      <label class="op__search">
-        <IconSearch :size="15" stroke-width="1.5" aria-hidden="true" />
-        <input v-model="query" type="search" :placeholder="t('picker.search')" :aria-label="t('picker.search')">
-      </label>
-    </div>
+    <label class="op__search">
+      <IconSearch :size="15" stroke-width="1.5" aria-hidden="true" />
+      <input
+        ref="searchInput"
+        v-model="query"
+        type="search"
+        :placeholder="t('picker.search')"
+        :aria-label="t('picker.search')"
+        @keydown.esc="onEsc"
+      >
+    </label>
+    <Tabs :model-value="searching ? '' : group" :items="tabs" :label="t('advanced.pickerTitle')" class="op__tabs" @update:model-value="selectGroup" />
     <div v-if="entries.length" class="op__grid">
       <button
         v-for="e in entries"
@@ -50,8 +70,9 @@ const hex = (c: number) => `0x${c.toString(16).padStart(4, '0').toUpperCase()}`;
         type="button"
         class="op__key"
         :class="{ 'op__key--current': current === e.code }"
-        :disabled="disabledCodes?.includes(e.code) && current !== e.code"
-        :title="`${e.long ?? e.label} · ${hex(e.code)}`"
+        :disabled="isDisabled(e.code)"
+        :aria-description="isDisabled(e.code) ? disabledReason : undefined"
+        :title="`${e.long ?? e.label} · ${hex(e.code)}${isDisabled(e.code) && disabledReason ? ` — ${disabledReason}` : ''}`"
         @click="emit('pick', e.code)"
       >
         <span class="op__label">{{ e.label }}</span>
@@ -68,16 +89,15 @@ const hex = (c: number) => `0x${c.toString(16).padStart(4, '0').toUpperCase()}`;
 
 <style scoped>
 .op { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
-.op__top { display: flex; align-items: flex-end; gap: var(--s-3); }
-.op__tabs { flex: 1; min-width: 0; }
+.op__tabs { min-width: 0; }
 .op__search {
   display: flex;
   align-items: center;
   gap: 6px;
   height: 32px;
   padding: 0 10px;
-  width: 180px;
-  flex: none;
+  width: 100%;
+  box-sizing: border-box;
   border: 1px solid var(--line-2);
   border-radius: var(--r-control);
   background: var(--bg-1);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { checkFrame, checkPerformanceWrite, isWriteCommand, UnsafeCommandError } from '../src/protocol/safety';
+import { checkFrame, checkPerformanceWrite, isWriteCommand, UnsafeCommandError, BLOCKED_KEYCODES } from '../src/protocol/safety';
 import type { Performance } from '../src/protocol/types';
+import { KEYCODE_GROUPS, comboKeycode } from '../src/protocol/keycodes';
 
 const blocked = (p: number[], opts?: { readOnly?: boolean }) => expect(() => checkFrame(p, opts)).toThrow(UnsafeCommandError);
 const ok = (p: number[], opts?: { readOnly?: boolean }) => expect(() => checkFrame(p, opts)).not.toThrow();
@@ -117,5 +118,39 @@ describe('checkPerformanceWrite', () => {
   it('lets unchanged values through even if unusual', () => {
     const odd = { ...base, releaseDeadStroke: 0 , normalRelease: 0 };
     expect(checkPerformanceWrite({ ...odd, normalPress: 2 }, [odd])).toBeNull();
+  });
+});
+
+describe('keycode guard for combos and firmware codes', () => {
+  const setKey = (code: number) => [0x03, 0x04, 0, 1, 1, code & 0xff, code >> 8];
+
+  it('refuses right-modifier combos that collide with firmware functions', () => {
+    blocked(setKey(0xf404)); // mask 0xF4 + A = BT2 mode switch (blocked)
+    blocked(setKey(0xf20b)); // unknown firmware code in the 0xF2 range
+    blocked(setKey(0xf20a)); // Link (mask 0xF2 + G)
+    blocked(setKey(0x1006)); // RCtrl+C
+    expect(() => comboKeycode(0xf2, 0x05)).toThrow(RangeError);
+    expect(() => comboKeycode(0x10, 0x06)).toThrow(RangeError);
+    expect(() => comboKeycode(0x20, 0x6f)).toThrow(RangeError);
+  });
+
+  it('allows left-modifier combos', () => {
+    ok(setKey(0x0306)); // Ctrl+Shift+C
+    ok(setKey(comboKeycode(0x0f, 0x2a)));
+  });
+
+  it('refuses unknown codes with a high byte, also in advanced records', () => {
+    blocked(setKey(0xbeef));
+    blocked([0x06, 0x02, 1, 1, 2, 0xef, 0xbe, 0, 0, 0, 0]); // MPT with 0xBEEF
+    ok([0x06, 0x02, 1, 1, 2, 0x06, 0x03, 0, 0, 0, 0]); // MPT with Ctrl+Shift+C
+  });
+
+  it('allows every catalogue code unless it is blocked', () => {
+    for (const g of KEYCODE_GROUPS) {
+      for (const e of g.codes) {
+        if (BLOCKED_KEYCODES.has(e.code)) blocked(setKey(e.code));
+        else ok(setKey(e.code));
+      }
+    }
   });
 });

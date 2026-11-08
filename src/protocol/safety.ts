@@ -5,6 +5,7 @@
 // read from the device, so the sensor calibration fields can never be changed (see BaseTransport).
 
 import type { Performance } from './types';
+import { decodeCombo, isKnownKeycode } from './keycodes';
 
 export class UnsafeCommandError extends Error {
   constructor(readonly payload: readonly number[], readonly reason: string) {
@@ -45,7 +46,10 @@ export const BLOCKED_KEYCODES: ReadonlySet<number> = new Set([
 const keycodesAt = (p: readonly number[], offsets: readonly number[]): string | null => {
   for (const o of offsets) {
     const code = (p[o] ?? 0) | ((p[o + 1] ?? 0) << 8);
-    if (BLOCKED_KEYCODES.has(code)) return `keycode ${code.toString(16).toUpperCase().padStart(4, '0')} is never written by this app`;
+    const h = code.toString(16).toUpperCase().padStart(4, '0');
+    if (BLOCKED_KEYCODES.has(code)) return `keycode ${h} is never written by this app`;
+    // A non-zero high byte is a firmware function, so only catalogue codes or left-modifier combos pass.
+    if (code > 0xff && !isKnownKeycode(code) && decodeCombo(code) === null) return `keycode ${h} is not a known keycode or modifier combo`;
   }
   return null;
 };

@@ -6,8 +6,9 @@ function onKey(e: KeyboardEvent) {
   const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
   if (!d) return;
   e.preventDefault();
+  const n = props.items.length;
   const i = props.items.findIndex((x) => x.id === model.value);
-  const next = props.items[(i + d + props.items.length) % props.items.length];
+  const next = props.items[i < 0 ? (d > 0 ? 0 : n - 1) : (i + d + n) % n]; // none selected (search active)
   model.value = next.id;
   ((e.currentTarget as HTMLElement).querySelector(`[data-id="${next.id}"]`) as HTMLElement | null)?.focus();
 }
@@ -16,14 +17,14 @@ function onKey(e: KeyboardEvent) {
 <template>
   <div class="tabs" role="tablist" :aria-label="label" @keydown="onKey">
     <button
-      v-for="it in items"
+      v-for="(it, idx) in items"
       :key="it.id"
       type="button"
       role="tab"
       class="tabs__tab"
       :data-id="it.id"
       :aria-selected="it.id === model"
-      :tabindex="it.id === model ? 0 : -1"
+      :tabindex="it.id === model || (idx === 0 && !items.some((x) => x.id === model)) ? 0 : -1"
       @click="model = it.id"
     >
       {{ it.label }}
@@ -32,7 +33,7 @@ function onKey(e: KeyboardEvent) {
 </template>
 
 <style scoped>
-.tabs { display: flex; gap: var(--s-1); border-bottom: 1px solid var(--line-1); overflow-x: auto; scrollbar-width: none; }
+.tabs { display: flex; flex-wrap: wrap; gap: 0 var(--s-1); border-bottom: 1px solid var(--line-1); }
 .tabs__tab {
   position: relative;
   border: 0;
