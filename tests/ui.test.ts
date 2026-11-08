@@ -3,6 +3,9 @@ import { mount } from '@vue/test-utils';
 import KeyPicker from '../src/components/ui/KeyPicker.vue';
 import Slider from '../src/components/ui/Slider.vue';
 import ColorPicker from '../src/components/ui/ColorPicker.vue';
+import NumberField, { decimalsFor, formatMm } from '../src/components/ui/NumberField.vue';
+import { deriveRtLinked } from '../src/pages/PerformancePage.vue';
+import type { Performance } from '../src/protocol';
 
 describe('KeyPicker', () => {
   it('emits plain keycodes and modifier combos (mask in the high byte)', async () => {
@@ -74,5 +77,62 @@ describe('ColorPicker', () => {
     expect(w.props('modelValue')).toBe('#ff8800');
     expect(w.emitted('commit')![0]).toEqual(['#ff8800']);
     expect(JSON.parse(localStorage.getItem('ae64.recentColors')!)).toEqual(['#ff8800']);
+  });
+});
+
+describe('NumberField', () => {
+  const props = { min: 0.1, max: 3.3, step: 0.05, decimals: 3, label: 'x' };
+
+  it('does not step from the range midpoint on a mixed value', async () => {
+    const w = mount(NumberField, { props: { ...props, modelValue: null } });
+    const [minus, plus] = w.findAll('.nf__btn');
+    expect(minus.attributes('disabled')).toBeDefined();
+    expect(plus.attributes('disabled')).toBeDefined();
+    await plus.trigger('click');
+    await w.find('input').trigger('keydown', { key: 'ArrowUp' });
+    expect(w.emitted('update:modelValue')).toBeUndefined();
+    expect(w.emitted('step')).toBeUndefined();
+  });
+
+  it('typing a number on a mixed value still sets it', async () => {
+    const w = mount(NumberField, { props: { ...props, modelValue: null } });
+    await w.find('input').setValue('1,5');
+    await w.find('input').trigger('keydown', { key: 'Enter' });
+    expect(w.emitted('update:modelValue')![0]).toEqual([1.5]);
+  });
+
+  it('emits a relative step on a mixed value when `relative`', async () => {
+    const w = mount(NumberField, { props: { ...props, modelValue: null, relative: true } });
+    await w.findAll('.nf__btn')[1].trigger('click');
+    await w.find('input').trigger('keydown', { key: 'ArrowDown', shiftKey: true });
+    expect(w.emitted('step')!.map((e) => e[0])).toEqual([0.05, -0.005]);
+    expect(w.emitted('update:modelValue')).toBeUndefined();
+  });
+
+  it('steps a single value from itself', async () => {
+    const w = mount(NumberField, { props: { ...props, modelValue: 1 } });
+    await w.findAll('.nf__btn')[1].trigger('click');
+    expect(w.emitted('update:modelValue')![0]).toEqual([1.05]);
+  });
+
+  it('shows 2 decimals unless the value needs the third', () => {
+    expect(formatMm(1, 3)).toBe('1.00');
+    expect(formatMm(0.8, 3)).toBe('0.80');
+    expect(formatMm(0.125, 3)).toBe('0.125');
+    expect(formatMm(0.125, 2)).toBe('0.13');
+    expect(decimalsFor(2.5, 3)).toBe(2);
+    const w = mount(NumberField, { props: { ...props, modelValue: 1 } });
+    expect((w.find('input').element as HTMLInputElement).value).toBe('1.00');
+  });
+});
+
+describe('RT link derivation', () => {
+  const rec = (mode: number, rtPress: number, rtRelease: number) => ({ mode, rtPress, rtRelease }) as Performance;
+  const isRt = (m: number) => m === 1 || m === 2;
+  it('is linked only when every Rapid Trigger key has press = release', () => {
+    expect(deriveRtLinked([rec(1, 0.3, 0.3), rec(2, 0.5, 0.5)], isRt)).toBe(true);
+    expect(deriveRtLinked([rec(1, 0.8, 0.3)], isRt)).toBe(false);
+    expect(deriveRtLinked([rec(1, 0.3, 0.3), rec(1, 0.8, 0.3)], isRt)).toBe(false);
+    expect(deriveRtLinked([rec(0, 0.8, 0.3), rec(1, 0.3, 0.3)], isRt)).toBe(true); // standard keys' RT fields are not edited
   });
 });

@@ -1,6 +1,19 @@
+<script lang="ts">
+/** Decimals a value needs: 2, or `max` (≥3) only when the third digit is not zero (1.000 → 1.00, 0.125 stays). */
+export function decimalsFor(v: number, max: number): number {
+  if (max <= 2) return max;
+  return Math.abs(v * 100 - Math.round(v * 100)) < 0.0005 ? 2 : max;
+}
+export function formatMm(v: number, max: number): string {
+  return v.toFixed(decimalsFor(v, max));
+}
+</script>
+
 <script setup lang="ts">
 // Numeric input with unit suffix. `null` shows the mixed-values placeholder. Commits on Enter/blur,
 // ArrowUp/Down step (Shift = fine), and the − / + buttons. Accepts "," as decimal separator.
+// On a mixed value (null) − / + / arrows are off, since there is no base to step from, unless `relative`
+// is set: then they emit `step` with the signed delta and the parent moves each item from its own value.
 import { computed, ref, watch } from 'vue';
 import { IconMinus, IconPlus } from '@tabler/icons-vue';
 import { t } from '../../i18n/vi';
@@ -15,12 +28,13 @@ const props = withDefaults(defineProps<{
   label: string;
   disabled?: boolean;
   placeholder?: string;
+  relative?: boolean;
 }>(), { step: 0.01, decimals: 2, unit: 'mm' });
-const emit = defineEmits<{ 'update:modelValue': [number] }>();
+const emit = defineEmits<{ 'update:modelValue': [number]; step: [number] }>();
 
 const focused = ref(false);
 const text = ref('');
-const display = computed(() => (props.modelValue === null ? '' : props.modelValue.toFixed(props.decimals)));
+const display = computed(() => (props.modelValue === null ? '' : formatMm(props.modelValue, props.decimals)));
 watch(display, (d) => { if (!focused.value) text.value = d; }, { immediate: true });
 
 function clamp(v: number) {
@@ -31,14 +45,17 @@ function commit() {
   if (Number.isFinite(v)) {
     const c = clamp(v);
     if (c !== props.modelValue) emit('update:modelValue', c);
-    text.value = c.toFixed(props.decimals);
+    text.value = formatMm(c, props.decimals);
   } else text.value = display.value;
 }
+const stepOff = computed(() => props.disabled || (props.modelValue === null && !props.relative));
 function nudge(dir: 1 | -1, fine = false) {
-  const base = props.modelValue ?? (props.min + props.max) / 2;
-  const c = clamp(base + dir * (fine ? props.step / 10 : props.step));
+  if (stepOff.value) return;
+  const delta = dir * (fine ? props.step / 10 : props.step);
+  if (props.modelValue === null) { emit('step', Number(delta.toFixed(props.decimals + 1))); return; }
+  const c = clamp(props.modelValue + delta);
   emit('update:modelValue', c);
-  text.value = c.toFixed(props.decimals);
+  text.value = formatMm(c, props.decimals);
 }
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Enter') { commit(); (e.target as HTMLInputElement).select(); }
@@ -49,7 +66,7 @@ function onKey(e: KeyboardEvent) {
 
 <template>
   <div class="nf" :class="{ 'nf--disabled': disabled, 'nf--focus': focused }">
-    <button type="button" class="nf__btn" :aria-label="`${t('ui.decrease')} ${label}`" tabindex="-1" :disabled="disabled" @click="nudge(-1)">
+    <button type="button" class="nf__btn" :aria-label="`${t('ui.decrease')} ${label}`" tabindex="-1" :disabled="stepOff" @click="nudge(-1)">
       <IconMinus :size="14" stroke-width="1.5" />
     </button>
     <input
@@ -64,7 +81,7 @@ function onKey(e: KeyboardEvent) {
       @keydown="onKey"
     >
     <span v-if="unit" class="nf__unit">{{ unit }}</span>
-    <button type="button" class="nf__btn" :aria-label="`${t('ui.increase')} ${label}`" tabindex="-1" :disabled="disabled" @click="nudge(1)">
+    <button type="button" class="nf__btn" :aria-label="`${t('ui.increase')} ${label}`" tabindex="-1" :disabled="stepOff" @click="nudge(1)">
       <IconPlus :size="14" stroke-width="1.5" />
     </button>
   </div>
@@ -108,4 +125,5 @@ function onKey(e: KeyboardEvent) {
   transition: color var(--t-fast) var(--ease);
 }
 .nf__btn:hover:not(:disabled) { color: var(--fg-1); }
+.nf__btn:disabled { opacity: 0.35; cursor: not-allowed; }
 </style>

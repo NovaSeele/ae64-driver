@@ -1,23 +1,31 @@
+<script lang="ts">
+import type { Performance as PerformanceRec } from '../protocol';
+
+/** RT press/release start linked only when every Rapid Trigger key in the selection already has them equal. */
+export function deriveRtLinked(recs: PerformanceRec[], isRt: (mode: number) => boolean): boolean {
+  return recs.filter((p) => isRt(p.mode)).every((p) => Math.abs(p.rtPress - p.rtRelease) < 0.0005);
+}
+</script>
+
 <script setup lang="ts">
 // Hành trình — reference implementation of the per-key page pattern (docs/ARCHITECTURE.md).
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { IconAdjustmentsHorizontal, IconFlask, IconLink, IconLinkOff, IconRefresh } from '@tabler/icons-vue';
+import { IconAdjustmentsHorizontal, IconAlertTriangle, IconFlask, IconLink, IconLinkOff, IconRefresh } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import EmptyState from '../components/shell/EmptyState.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import TravelEditor from '../components/performance/TravelEditor.vue';
 import Card from '../components/ui/Card.vue';
 import Button from '../components/ui/Button.vue';
-import IconButton from '../components/ui/IconButton.vue';
 import Segmented from '../components/ui/Segmented.vue';
 import Slider from '../components/ui/Slider.vue';
 import Switch from '../components/ui/Switch.vue';
-import NumberField from '../components/ui/NumberField.vue';
+import NumberField, { decimalsFor, formatMm } from '../components/ui/NumberField.vue';
 import AnimatedNumber from '../components/ui/AnimatedNumber.vue';
 import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
-import { LIMITS, PRESETS, actuationOf, rangeMm, usePerformanceStore } from '../stores/performance';
+import { LIMITS, PRESETS, actuationOf, isKnownMode, rangeMm, usePerformanceStore } from '../stores/performance';
 import type { PerfEdit } from '../stores/performance';
 import { isRtMode, supportsIntervalRt } from '../protocol';
 import type { Performance, PerfMode, PhysicalKey } from '../protocol';
@@ -34,7 +42,6 @@ const router = useRouter();
 const toast = useToast();
 
 const metric = ref<Metric>('actuation');
-const rtLinked = ref(true);
 const METRICS: { id: Metric; label: MessageKey }[] = [
   { id: 'actuation', label: 'perf.metricActuation' },
   { id: 'rtPress', label: 'perf.metricRtPress' },
@@ -55,12 +62,16 @@ onMounted(() => {
 onBeforeUnmount(() => offProfile?.());
 
 const decimals = computed(() => (device.rtPrecision < 0.01 ? 3 : 2));
+/** Editor value text: 2 decimals unless the value needs the third. */
+const fmtEdit = (v: number) => formatMm(v, decimals.value);
 function fmt(v: number): string {
   const s = v.toFixed(decimals.value).replace(/0+$/, '');
   return s.endsWith('.') ? `${s}0` : s;
 }
 
 // ----- keyboard
+/** Short keycap form: no leading zero (".125"). */
+const short = (v: number) => fmt(v).replace(/^0(?=\.)/, '');
 function sublabel(k: PhysicalKey): string | undefined {
   const p = perf.values[k.id];
   if (!p) return undefined;
@@ -68,14 +79,13 @@ function sublabel(k: PhysicalKey): string | undefined {
     case 'actuation': return fmt(actuationOf(p));
     case 'rtPress': return isRtMode(p.mode) ? fmt(p.rtPress) : '—';
     case 'rtRelease': return isRtMode(p.mode) ? fmt(p.rtRelease) : '—';
-    case 'deadzone': return `${fmt(p.pressDeadStroke)}·${fmt(p.releaseDeadStroke)}`;
+    case 'deadzone': return `↑${short(p.pressDeadStroke)}\n↓${short(p.releaseDeadStroke)}`;
   }
 }
 /** Rapid Trigger keys also show press/release sensitivity, like the factory driver's keycaps. */
 function badge(k: PhysicalKey): string | undefined {
   const p = perf.values[k.id];
   if (!p || !isRtMode(p.mode) || metric.value !== 'actuation') return undefined;
-  const short = (v: number) => fmt(v).replace(/^0(?=\.)/, '');
   return `${short(p.rtPress)}/${short(p.rtRelease)}`;
 }
 function fill(k: PhysicalKey): number | undefined {
@@ -84,9 +94,17 @@ function fill(k: PhysicalKey): number | undefined {
 }
 
 // ----- selection summary
-const ids = computed(() => sel.ids.filter((id) => perf.values[id]));
+/** Selected keys that are loaded; keys in a firmware mode we do not know are shown but never edited (store.apply skips them). */
+const loadedIds = computed(() => sel.ids.filter((id) => perf.values[id]));
+const hasSel = computed(() => loadedIds.value.length > 0);
+const ids = computed(() => loadedIds.value.filter((id) => isKnownMode(perf.values[id].mode)));
+const unknownCount = computed(() => loadedIds.value.length - ids.value.length);
 const recs = computed<Performance[]>(() => ids.value.map((id) => perf.values[id]));
-const hasSel = computed(() => recs.value.length > 0);
+
+// RT link: derived from the selection, re-derived whenever the selection changes; a click overrides it until then.
+const rtLinkOverride = ref<boolean | null>(null);
+const rtLinked = computed(() => rtLinkOverride.value ?? deriveRtLinked(recs.value, isRtMode));
+watch(() => ids.value.join(','), () => { rtLinkOverride.value = null; });
 
 function summary(get: (p: Performance) => number): { value: number | null; range: [number, number] } {
   const vs = recs.value.map(get);
@@ -129,6 +147,24 @@ function setMode(m: PerfMode | null) {
 function setContinuous(on: boolean) {
   perf.apply(ids.value.filter((id) => isRtMode(perf.values[id].mode)), () => ({ mode: on ? 1 : 2 }), t('perf.continuous'));
 }
+/** Relative step from a mixed field: each key moves one step from its own value (the store clamps). */
+const add = (v: number, d: number) => Number((v + d).toFixed(3));
+function stepActuation(d: number) {
+  perf.apply(ids.value, (p) => (isRtMode(p.mode) ? { rtFirstTouch: add(p.rtFirstTouch, d) } : { normalPress: add(p.normalPress, d) }), t('perf.actuation'));
+}
+function stepRt(which: 'rtPress' | 'rtRelease', d: number) {
+  perf.apply(
+    ids.value.filter((id) => isRtMode(perf.values[id].mode)),
+    (p) => {
+      const v = add(p[which], d);
+      return rtLinked.value ? { rtPress: v, rtRelease: v } : { [which]: v };
+    },
+    t('perf.rt'),
+  );
+}
+function stepDead(which: 'pressDeadStroke' | 'releaseDeadStroke', d: number) {
+  perf.apply(ids.value, (p) => ({ [which]: add(p[which], d) }), t('perf.deadzones'));
+}
 function setActuation(v: number, gesture = true) {
   perf.apply(ids.value, (p) => (isRtMode(p.mode) ? { rtFirstTouch: v } : { normalPress: v }), t('perf.actuation'), gesture ? 'act' : undefined);
 }
@@ -147,7 +183,7 @@ function applyPreset(id: (typeof PRESETS)[number]['id']) {
   toast.show(t('perf.presetApplied', { name, n: ids.value.length }), 'success');
 }
 function tryNow() {
-  const key = sel.focused !== null && sel.selected.has(sel.focused) ? sel.focused : ids.value[0];
+  const key = sel.focused !== null && sel.selected.has(sel.focused) ? sel.focused : loadedIds.value[0];
   void router.push({ path: '/live', query: { key: String(key) } });
 }
 
@@ -212,6 +248,11 @@ const modeOptions = computed(() => [
 
     <!-- editors -->
     <div v-else class="grid">
+      <div v-if="unknownCount" class="unknown" role="note">
+        <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />
+        <span>{{ t('perf.unknownModes', { n: unknownCount }) }}</span>
+      </div>
+      <template v-if="recs.length">
       <Card :title="t('perf.actuation')" :subtitle="allRt ? t('perf.actuationHintRt') : t('perf.actuationHintStandard')">
         <div class="act">
           <TravelEditor
@@ -229,8 +270,8 @@ const modeOptions = computed(() => [
           <div class="act__readout">
             <span class="micro">{{ t('perf.travel') }}</span>
             <div class="big">
-              <AnimatedNumber v-if="act.value !== null" :value="act.value" :decimals="decimals" />
-              <span v-else class="mixed">{{ fmt(act.range[0]) }}–{{ fmt(act.range[1]) }}</span>
+              <AnimatedNumber v-if="act.value !== null" :value="act.value" :decimals="decimalsFor(act.value, decimals)" />
+              <span v-else class="mixed">{{ fmtEdit(act.range[0]) }}–{{ fmtEdit(act.range[1]) }}</span>
               <span class="unit">mm</span>
             </div>
             <NumberField
@@ -240,7 +281,9 @@ const modeOptions = computed(() => [
               :step="0.05"
               :decimals="decimals"
               :label="t('perf.actuation')"
+              relative
               @update:model-value="setActuation($event, false)"
+              @step="stepActuation"
             />
             <span class="hint num">{{ t('perf.range', { max: fmt(maxTravel) }) }}</span>
           </div>
@@ -264,14 +307,18 @@ const modeOptions = computed(() => [
 
       <Card :title="t('perf.rt')">
         <template #actions>
-          <IconButton
-            :icon="rtLinked ? IconLink : IconLinkOff"
-            :label="t('perf.rtLink')"
-            :active="rtLinked"
-            size="sm"
+          <button
+            type="button"
+            class="link"
+            :class="{ 'link--on': rtLinked }"
+            :aria-pressed="rtLinked"
+            :title="t('perf.rtLinkHint')"
             :disabled="!anyRt"
-            @click="rtLinked = !rtLinked"
-          />
+            @click="rtLinkOverride = !rtLinked"
+          >
+            <component :is="rtLinked ? IconLink : IconLinkOff" :size="16" stroke-width="1.5" aria-hidden="true" />
+            {{ t('perf.rtLinkLabel') }}
+          </button>
         </template>
         <p v-if="!anyRt" class="hint">{{ t('perf.rtDisabled') }}</p>
         <div class="field" :class="{ 'field--off': !anyRt }">
@@ -285,7 +332,9 @@ const modeOptions = computed(() => [
               :decimals="decimals"
               :label="t('perf.rtPress')"
               :disabled="!anyRt"
+              relative
               @update:model-value="setRt('rtPress', $event, false)"
+              @step="stepRt('rtPress', $event)"
             />
           </div>
           <Slider
@@ -311,7 +360,9 @@ const modeOptions = computed(() => [
               :decimals="decimals"
               :label="t('perf.rtRelease')"
               :disabled="!anyRt"
+              relative
               @update:model-value="setRt('rtRelease', $event, false)"
+              @step="stepRt('rtRelease', $event)"
             />
           </div>
           <Slider
@@ -339,7 +390,9 @@ const modeOptions = computed(() => [
               :step="0.05"
               :decimals="decimals"
               :label="dz.label"
+              relative
               @update:model-value="setDead(dz.field, $event, false)"
+              @step="stepDead(dz.field, $event)"
             />
           </div>
           <Slider
@@ -363,6 +416,7 @@ const modeOptions = computed(() => [
           </button>
         </div>
       </Card>
+      </template>
     </div>
   </PageLayout>
 </template>
@@ -396,8 +450,10 @@ const modeOptions = computed(() => [
 
 @media (max-width: 1360px) {
   .chips { flex-direction: row; }
-  .aside-label { align-self: center; }
+  .aside-label, .chips, .try { align-self: center; }
   .try { margin-top: 0; }
+  /* The hint gets its own full-width line below the chips. */
+  .aside-hint { order: 1; flex: 0 0 100%; max-width: none; margin: 0; text-align: right; }
 }
 
 .grid {
@@ -428,6 +484,33 @@ const modeOptions = computed(() => [
 .big .mixed { font-size: var(--fs-hero); color: var(--fg-2); }
 .act__readout :deep(.nf) { width: 150px; }
 
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--fg-2);
+  font-size: var(--fs-label);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.link:hover:not(:disabled) { background: var(--bg-3); color: var(--fg-1); }
+.link:disabled { opacity: 0.35; cursor: not-allowed; }
+.link--on { color: var(--acc); background: var(--acc-soft); border-color: var(--acc-line); }
+.unknown {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-control);
+  background: var(--bg-2);
+  color: var(--fg-2);
+  font-size: var(--fs-label);
+}
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
 .continuous { display: grid; gap: var(--s-2); margin-top: var(--s-4); padding-top: var(--s-4); border-top: 1px solid var(--line-1); }
 .field { display: flex; flex-direction: column; gap: var(--s-2); transition: opacity var(--t-fast) var(--ease); }

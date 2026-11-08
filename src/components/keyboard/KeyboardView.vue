@@ -25,11 +25,11 @@ const props = defineProps<{
 }>();
 
 const MAX_UNIT = 58;
-const PAD = 16;
 const DRAG_THRESHOLD = 5;
 
 const sel = useSelectionStore();
 const root = ref<HTMLElement | null>(null);
+const plate = ref<HTMLElement | null>(null);
 const width = ref(0);
 const bounds = computed(() => layoutBounds(props.keys));
 const unit = computed(() => Math.max(24, Math.min(MAX_UNIT, width.value / bounds.value.width)));
@@ -43,9 +43,16 @@ function modeOf(e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): S
   return e.ctrlKey || e.metaKey ? 'toggle' : e.shiftKey ? 'range' : 'replace';
 }
 
+/** Pointer position in plate coordinates (the plate is centred in the case, so measure it, not the case). */
 function local(e: PointerEvent) {
-  const r = root.value!.getBoundingClientRect();
-  return { x: e.clientX - r.left - PAD, y: e.clientY - r.top - PAD };
+  const r = plate.value!.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+/** Lost capture / cancel / window blur: end the box-select instead of leaving the box following the mouse. */
+function cancelDrag() {
+  box.value = null;
+  start = null;
 }
 
 function onPointerDown(e: PointerEvent) {
@@ -143,10 +150,12 @@ onMounted(() => {
   ro = new ResizeObserver(([entry]) => { width.value = entry.contentRect.width; });
   ro.observe(root.value!);
   window.addEventListener('keydown', onWindowKey);
+  window.addEventListener('blur', cancelDrag);
 });
 onBeforeUnmount(() => {
   ro?.disconnect();
   window.removeEventListener('keydown', onWindowKey);
+  window.removeEventListener('blur', cancelDrag);
 });
 
 const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id);
@@ -162,9 +171,10 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
     @pointerup="onPointerUp"
-    @pointercancel="box = null; start = null"
+    @pointercancel="cancelDrag"
+    @lostpointercapture="cancelDrag"
   >
-    <div class="kb__plate" :style="{ width: `${bounds.width * unit}px`, height: `${bounds.height * unit}px` }">
+    <div ref="plate" class="kb__plate" :style="{ width: `${bounds.width * unit}px`, height: `${bounds.height * unit}px` }">
       <button
         v-for="k in keys"
         :key="k.id"
@@ -173,7 +183,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
         :data-key="k.id"
         :tabindex="k.id === tabStop ? 0 : -1"
         :aria-pressed="selectable ? isSelected(k.id) : undefined"
-        :aria-label="`${legend ? legend(k) : k.name}${sublabel?.(k) ? ` · ${sublabel(k)}` : ''}${badge?.(k) ? ` · ${badge(k)}` : ''}`"
+        :aria-label="`${legend ? legend(k) : k.name}${sublabel?.(k) ? ` · ${sublabel(k)!.replace(/\n/g, ' ')}` : ''}${badge?.(k) ? ` · ${badge(k)}` : ''}`"
         :style="{ left: `${k.x * unit}px`, top: `${k.y * unit}px`, width: `${k.w * unit}px`, height: `${unit}px` }"
         @keydown="onKeyDown($event, k)"
         @focus="focusId = k.id"

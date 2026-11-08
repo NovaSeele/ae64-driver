@@ -104,21 +104,22 @@ defineProps<{
   font-size: 11px;
   font-weight: 500;
   color: var(--fg-2);
-  line-height: 1;
-  white-space: nowrap;
+  line-height: 1.1;
+  text-align: right;
+  white-space: pre; /* a line break stacks two values (dead zones) */
 }
 .cap--sel .cap__sub { color: var(--acc); }
 .cap__foot {
   position: relative;
   display: flex;
+  flex-direction: column;
   align-items: flex-end;
-  justify-content: flex-end;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 }
 .cap__badge {
-  margin-right: auto;
-  font-size: 9.5px;
+  align-self: flex-start;
+  font-size: 10.5px;
   font-weight: 500;
   line-height: 1;
   color: var(--acc);

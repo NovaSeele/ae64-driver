@@ -20,10 +20,13 @@ const emit = defineEmits<{ update: [number]; commit: [number] }>();
 
 const shown = computed(() => props.value ?? props.range[0]);
 const ratio = computed(() => Math.min(1, Math.max(0, shown.value / props.max)));
-const pct = (v: number) => `${Math.min(100, Math.max(0, (v / props.max) * 100))}%`;
+/** Same mapping as the vertical Slider: `min` at the top, `max` at the bottom. */
+const pctNum = (v: number) => Math.min(100, Math.max(0, props.max === props.min ? 0 : ((v - props.min) / (props.max - props.min)) * 100));
+const pct = (v: number) => `${pctNum(v)}%`;
+const deadBottomPct = computed(() => `${100 - pctNum(props.max - (props.deadBottom ?? 0))}%`);
 const ticks = computed(() => {
   const out: { v: number; major: boolean }[] = [];
-  for (let v = 0; v <= props.max + 1e-6; v += 0.25) out.push({ v: Number(v.toFixed(2)), major: Math.abs(v % 1) < 1e-6 || Math.abs((v % 1) - 0.5) < 1e-6 });
+  for (let v = 0; v <= props.max + 1e-6; v += 0.25) if (v >= props.min - 1e-6) out.push({ v: Number(v.toFixed(2)), major: Math.abs(v % 1) < 1e-6 || Math.abs((v % 1) - 0.5) < 1e-6 });
   return out;
 });
 
@@ -75,7 +78,7 @@ const CAP_TRAVEL = 46; // px the illustrated cap moves at full travel
       </div>
       <div class="te__track">
         <div v-if="deadTop" class="te__dead" :style="{ top: '0', height: pct(deadTop) }" />
-        <div v-if="deadBottom" class="te__dead" :style="{ bottom: '0', height: pct(deadBottom) }" />
+        <div v-if="deadBottom" class="te__dead" :style="{ bottom: '0', height: deadBottomPct }" />
         <div class="te__mark" :style="{ top: pct(shown) }" />
         <Slider
           :model-value="shown"
