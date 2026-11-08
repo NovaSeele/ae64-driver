@@ -3,6 +3,8 @@
 defineProps<{
   legend: string;
   sublabel?: string;
+  /** Small accent value on the bottom-left (e.g. Rapid Trigger press/release sensitivity). */
+  badge?: string;
   /** 0..1 vertical fill (e.g. travel or actuation depth). */
   fill?: number;
   /** LED colour (CSS colour). */
@@ -23,7 +25,10 @@ defineProps<{
       <span v-if="color" class="cap__led" :style="{ background: color, boxShadow: `0 0 10px ${color}` }" />
       <span class="cap__legend">{{ legend }}</span>
       <span v-if="loading" class="cap__sub cap__sub--skeleton skeleton" />
-      <span v-else-if="sublabel !== undefined" class="cap__sub num">{{ sublabel }}</span>
+      <span v-else-if="sublabel !== undefined || badge" class="cap__foot">
+        <span v-if="badge" class="cap__badge num">{{ badge }}</span>
+        <span v-if="sublabel !== undefined" class="cap__sub num">{{ sublabel }}</span>
+      </span>
     </span>
   </span>
 </template>
@@ -103,5 +108,22 @@ defineProps<{
   white-space: nowrap;
 }
 .cap--sel .cap__sub { color: var(--acc); }
+.cap__foot {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 3px;
+  min-width: 0;
+}
+.cap__badge {
+  margin-right: auto;
+  font-size: 9.5px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--acc);
+  opacity: 0.85;
+  white-space: nowrap;
+}
 .cap__sub--skeleton { width: 60%; height: 9px; }
 </style>

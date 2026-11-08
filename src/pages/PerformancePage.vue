@@ -69,6 +69,13 @@ function sublabel(k: PhysicalKey): string | undefined {
     case 'deadzone': return `${fmt(p.pressDeadStroke)}·${fmt(p.releaseDeadStroke)}`;
   }
 }
+/** Rapid Trigger keys also show press/release sensitivity, like the factory driver's keycaps. */
+function badge(k: PhysicalKey): string | undefined {
+  const p = perf.values[k.id];
+  if (!p || p.mode !== 1 || metric.value !== 'actuation') return undefined;
+  const short = (v: number) => fmt(v).replace(/^0(?=\.)/, '');
+  return `${short(p.rtPress)}/${short(p.rtRelease)}`;
+}
 function fill(k: PhysicalKey): number | undefined {
   const p = perf.values[k.id];
   return p && metric.value === 'actuation' ? actuationOf(p) / rangeMm(p) : undefined;
@@ -142,6 +149,7 @@ const modeOptions = computed(() => [
         :keys="device.keys"
         :legend="device.legend"
         :sublabel="sublabel"
+        :badge="badge"
         :fill="fill"
         :loading="perf.loading"
         selectable
@@ -163,6 +171,7 @@ const modeOptions = computed(() => [
           {{ t(m.label) }}
         </button>
       </div>
+      <p v-if="metric === 'actuation'" class="aside-hint">{{ t('perf.rtBadgeHint') }}</p>
       <Button class="try" variant="secondary" size="sm" :icon="IconFlask" :disabled="!hasSel" :title="t('perf.tryNowHint')" @click="tryNow">
         {{ t('perf.tryNow') }}
       </Button>
@@ -336,6 +345,13 @@ const modeOptions = computed(() => [
 </template>
 
 <style scoped>
+.aside-hint {
+  margin: 2px 0 0;
+  max-width: 160px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--fg-3);
+}
 .aside-label { padding: 0 2px; }
 .chips { display: flex; flex-direction: column; gap: 4px; }
 .chip {

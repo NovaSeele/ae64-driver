@@ -14,6 +14,8 @@ const props = defineProps<{
   keys: PhysicalKey[];
   legend?: (key: PhysicalKey) => string;
   sublabel?: (key: PhysicalKey) => string | undefined;
+  /** Small accent value on the keycap's bottom-left. */
+  badge?: (key: PhysicalKey) => string | undefined;
   fill?: (key: PhysicalKey) => number | undefined;
   color?: (key: PhysicalKey) => string | undefined;
   state?: (key: PhysicalKey) => 'pressed' | undefined;
@@ -157,7 +159,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
         :data-key="k.id"
         :tabindex="k.id === tabStop ? 0 : -1"
         :aria-pressed="selectable ? sel.selected.has(k.id) : undefined"
-        :aria-label="`${legend ? legend(k) : k.name}${sublabel?.(k) ? ` · ${sublabel(k)}` : ''}`"
+        :aria-label="`${legend ? legend(k) : k.name}${sublabel?.(k) ? ` · ${sublabel(k)}` : ''}${badge?.(k) ? ` · ${badge(k)}` : ''}`"
         :style="{ left: `${k.x * unit}px`, top: `${k.y * unit}px`, width: `${k.w * unit}px`, height: `${unit}px` }"
         @keydown="onKeyDown($event, k)"
         @focus="focusId = k.id"
@@ -165,6 +167,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
         <Keycap
           :legend="legend ? legend(k) : k.name"
           :sublabel="sublabel?.(k)"
+          :badge="badge?.(k)"
           :fill="fill?.(k)"
           :color="color?.(k)"
           :state="state?.(k)"
