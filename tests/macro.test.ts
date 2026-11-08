@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { MockTransport, SAVE_GROUP, WriteNotAllowedError } from '../src/protocol';
+import { PermanentSyncError } from '../src/stores/sync';
 import type { MacroAction } from '../src/protocol';
 import { useDeviceStore } from '../src/stores/device';
 import { useHistoryStore } from '../src/stores/history';
@@ -167,6 +168,30 @@ describe('macro store', () => {
     expect(macro.slots[0]).toEqual(before);
     expect(await mock.getMacroMeta(0)).toMatchObject({ valid: true, actionCount: before.actions.length, mode: before.mode });
     expect((await mock.readMacroActions(0, before.actions.length)).slice(0, before.actions.length)).toEqual(before.actions);
+  });
+
+  it('discarding after a read-back mismatch writes the original macro back, not the half-new read-back', async () => {
+    const { macro, mock } = await setup();
+    const before = macro.slots[0];
+    const real = mock.readMacroActions.bind(mock);
+    vi.spyOn(mock, 'readMacroActions').mockImplementationOnce(async (id, n) => (await real(id, n)).map((a) => ({ ...a, delay: a.delay + 1 })));
+    await expect(macro.save(0, { mode: 1, repeatCount: 2, actions: sequence(4) })).rejects.toThrow();
+    expect(macro.waiting.has(0)).toBe(true);
+
+    await macro.discardWaiting(0);
+    expect(macro.waiting.has(0)).toBe(false);
+    expect(macro.slots[0]).toEqual(before);
+    expect(await mock.getMacroMeta(0)).toMatchObject({ valid: true, actionCount: before.actions.length, mode: before.mode });
+    expect((await mock.readMacroActions(0, before.actions.length)).slice(0, before.actions.length)).toEqual(before.actions);
+  });
+
+  it('a verified macro save resolves even when another job made the flush fail', async () => {
+    const { macro } = await setup();
+    const draft = sequence(4);
+    useSyncStore().enqueue({ key: 'other', label: 'other', write: async () => { throw new PermanentSyncError('nope'); } });
+    await expect(macro.save(3, { mode: 1, repeatCount: 2, actions: draft })).resolves.toBeUndefined();
+    expect(macro.waiting.has(3)).toBe(false);
+    expect(macro.slots[3].actions).toEqual(draft);
   });
 
   it('a dropped write (permanent error) restores the slot through onDrop', async () => {

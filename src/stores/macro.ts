@@ -86,6 +86,8 @@ export const useMacroStore = defineStore('macro', () => {
   let loadedFor: unknown = null;
   /** Last state read back from the keyboard per slot: what a failed or dropped write falls back to. */
   const confirmed = new Map<number, MacroSlot>();
+  /** Last state known complete and consistent (from load or a verified save): what "discard" writes back. */
+  const lastGood = new Map<number, MacroSlot>();
 
   /** Put a slot back to what the keyboard really has (a write failed, so the optimistic copy is wrong). */
   function restore(id: number): void {
@@ -121,7 +123,8 @@ export const useMacroStore = defineStore('macro', () => {
         });
         slots.value = next;
         confirmed.clear();
-        for (const s of next) confirmed.set(s.id, s);
+        lastGood.clear();
+        for (const s of next) { confirmed.set(s.id, s); lastGood.set(s.id, s); }
         loaded.value = true;
         loadedFor = device.transport;
       } catch (err) {
@@ -134,8 +137,8 @@ export const useMacroStore = defineStore('macro', () => {
     return loadPromise;
   }
 
-  /** Latest job per slot: `sent` once its first write packet (07 02) went out, `settled` once verified or dropped. */
-  const jobs = new Map<number, { sent: boolean; settled: boolean }>();
+  /** Latest job per slot: `sent` once its first write packet (07 02) went out, `settled` once verified or dropped, `verified` if it verified. */
+  const jobs = new Map<number, { sent: boolean; settled: boolean; verified: boolean }>();
   /** Slots whose write was interrupted after packets went out: the job keeps retrying and the slot shows the draft. */
   const waiting = reactive(new Set<number>());
 
@@ -143,7 +146,7 @@ export const useMacroStore = defineStore('macro', () => {
     const actions = d.actions.map((a) => ({ ...a }));
     // Always valid: the reference never writes valid = 0 (an unused slot is restored as "Clear Data": valid, 0 actions).
     const meta: MacroMeta = { id, valid: true, actionCount: actions.length, repeatCount: storedRepeat(d), mode: d.mode };
-    const st = { sent: false, settled: false };
+    const st = { sent: false, settled: false, verified: false };
     jobs.set(id, st);
     return {
       key: `macro:${id}`,
@@ -167,7 +170,7 @@ export const useMacroStore = defineStore('macro', () => {
         slots.value = slots.value.map((s) => (s.id === id ? read : s));
         const ok = read.valid === meta.valid && read.actions.length === actions.length && read.repeatCount === meta.repeatCount
           && read.mode === meta.mode && sameActions(read.actions, actions);
-        if (ok) { st.settled = true; waiting.delete(id); }
+        if (ok) { st.settled = true; st.verified = true; lastGood.set(id, read); waiting.delete(id); }
         return ok;
       },
       onDrop: () => { st.settled = true; waiting.delete(id); restore(id); },
@@ -201,6 +204,8 @@ export const useMacroStore = defineStore('macro', () => {
       await sync.flush();
     } catch (err) {
       const st = jobs.get(id);
+      // Another job made the flush fail, but this macro was written and verified: the save itself succeeded.
+      if (st?.settled && st.verified) return;
       if (st?.sent && !st.settled) {
         waiting.add(id);
       } else {
@@ -216,7 +221,7 @@ export const useMacroStore = defineStore('macro', () => {
 
   /** Discard a draft that is waiting to be written: write the confirmed version back under the same sync key. */
   async function discardWaiting(id: number): Promise<void> {
-    const real = confirmed.get(id);
+    const real = lastGood.get(id);
     if (!waiting.has(id) || !real) return;
     commit(id, snapshot(real));
     await flushOrRestore(id);
