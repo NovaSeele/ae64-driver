@@ -18,7 +18,7 @@ import type { AdvancedRecord, Ae64Transport, KeyPos, Performance, PhysicalKey } 
 import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
 import { useHistoryStore } from './history';
-import { PermanentSyncError, useSyncStore } from './sync';
+import { MAX_ATTEMPTS, PermanentSyncError, useSyncStore } from './sync';
 import { DEFAULT_RANGE_MM, pickEdit, usePerformanceStore } from './performance';
 
 type N4 = [number, number, number, number];
@@ -320,7 +320,15 @@ function sameTuning(a: Performance, b: Performance): boolean {
 
 interface Change { before: Assignment | null; after: WritableAssignment | null }
 /** One enqueued change: `verified` once the keyboard confirmed it; `cancel` makes the job a no-op and restores the records. */
-interface Pending { verified: boolean; cancelled: boolean; rollback: () => void }
+interface Pending {
+  verified: boolean;
+  cancelled: boolean;
+  /** The job started writing: the keyboard may already differ from what the UI showed before, so it is retried, never rolled back. */
+  touched: boolean;
+  /** The sync queue gave the job up. */
+  dropped: boolean;
+  rollback: () => void;
+}
 
 export const useAdvancedStore = defineStore('advanced', () => {
   const device = useDeviceStore();
@@ -336,6 +344,11 @@ export const useAdvancedStore = defineStore('advanced', () => {
   let loadPromise: Promise<void> | null = null;
   /** Performance per key read for MPT limits (cleared with the profile). */
   const perfCache = new Map<number, Performance>();
+  /**
+   * Hall tuning from before the first write of a job that touched the keyboard, per job key, until a job for those
+   * keys verifies. A job that replaces an unfinished one inherits it: re-reading would capture the reset values.
+   */
+  const tuningSnapshots = new Map<string, Map<number, Performance>>();
   // Another keyboard (or the demo) was connected: nothing cached belongs to it.
   watch(() => device.connection, () => {
     records.value = {};
@@ -343,6 +356,7 @@ export const useAdvancedStore = defineStore('advanced', () => {
     loadedProfile.value = null;
     loadPromise = null; // a load of the old keyboard may still be running: a new load() must start fresh
     loading.value = false;
+    tuningSnapshots.clear();
   }, { flush: 'sync' });
 
   const assignments = computed(() => assignmentsFrom(records.value, device.keys));
@@ -429,26 +443,41 @@ export const useAdvancedStore = defineStore('advanced', () => {
         return other !== undefined && p.row === other.row && p.col === other.col;
       });
     };
-    // Captured once: a retried job must restore the tuning from before the first write, not the reset one.
+    // Captured once (or inherited from an unfinished job): a retried job must restore the tuning from before the first write, not the reset one.
     let tuning: Map<number, Performance> | null = null;
     const names = involved.map((id) => device.legend(keys[id])).join(' + ');
+    const jobKey = `adv:${profile}:${involved.join(',')}`;
     return {
-      key: `adv:${profile}:${involved.join(',')}`,
+      key: jobKey,
       group: SAVE_GROUP.ADVANCED,
       profile,
-      label: tr('advanced.jobLabel', { keys: names }),
-      onDrop: () => pending.rollback(),
+      get label() {
+        return tr(pending.touched ? 'advanced.jobLabelReset' : 'advanced.jobLabel', { keys: names });
+      },
+      onDrop: () => {
+        pending.dropped = true;
+        if (!pending.touched) { pending.rollback(); return; }
+        // Written (at least partly) and never completed: the keys may have lost their travel settings.
+        usePerformanceStore().loadedProfile = null;
+      },
+      // Idempotent: every step reads the keyboard first and rewrites the same data; the tuning snapshot never changes.
       write: async (t: Ae64Transport) => {
-        if (pending.cancelled) return;
+        if (pending.cancelled) return 'skip';
         for (const id of involved) {
           const cur = await t.getAdvanced(keys[id]);
           if (!allowedOn(id, cur)) throw new PermanentSyncError(tr('advanced.conflictDevice', { key: device.legend(keys[id]) }));
         }
         if (!tuning) {
-          const snap = new Map<number, Performance>();
-          for (const id of involved) snap.set(id, await t.getPerformance(keys[id]));
-          tuning = snap;
+          tuning = tuningSnapshots.get(jobKey) ?? null;
+          if (!tuning) {
+            const snap = new Map<number, Performance>();
+            for (const id of involved) snap.set(id, await t.getPerformance(keys[id]));
+            tuning = snap;
+          }
         }
+        // From here on the keyboard may change, even if a packet below fails.
+        pending.touched = true;
+        tuningSnapshots.set(jobKey, tuning);
         for (const id of involved) if (!expected.has(id)) await t.clearAdvanced(keys[id]);
         const a = change.after;
         if (!a) return;
@@ -480,6 +509,7 @@ export const useAdvancedStore = defineStore('advanced', () => {
         }
         await t.commit(SAVE_GROUP.PERFORMANCE);
         pending.verified = true;
+        tuningSnapshots.delete(jobKey);
         return true;
       },
     };
@@ -488,7 +518,7 @@ export const useAdvancedStore = defineStore('advanced', () => {
   /** Show the change at once (optimistic) and queue its write. A job that is given up puts the previous records back. */
   function commit(change: Change): Pending {
     const profile = device.activeProfile;
-    const pending: Pending = { verified: false, cancelled: false, rollback: () => undefined };
+    const pending: Pending = { verified: false, cancelled: false, touched: false, dropped: false, rollback: () => undefined };
     if (profile !== loadedProfile.value) { // stale history entry from another profile
       pending.cancelled = true;
       return pending;
@@ -515,18 +545,32 @@ export const useAdvancedStore = defineStore('advanced', () => {
     return pending;
   }
 
-  /** Flush `pending`; when it was not written, give it up, show the previous records and re-read the keys from the keyboard. */
+  /**
+   * Flush `pending`. Never written: give it up, show the previous records and re-read the keys from the keyboard.
+   * Already (partly) written: keep flushing so the job retries (rewrite + tuning restore); once it is given up,
+   * show what the keyboard really has. Rejects unless the change was saved; a failure of another job after this
+   * change was verified does not count.
+   */
   async function settle(pending: Pending, change: Change): Promise<void> {
-    try {
-      await sync.flush();
-    } catch (err) {
-      if (!pending.verified) {
-        pending.rollback();
-        const ids = [...new Set([...(change.before?.keys ?? []), ...(change.after?.keys ?? [])])];
-        await refreshKeys(ids);
+    const ids = [...new Set([...(change.before?.keys ?? []), ...(change.after?.keys ?? [])])];
+    let failure: unknown = null;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        await sync.flush();
+        return;
+      } catch (err) {
+        failure = err;
       }
-      throw err;
+      if (pending.verified) return;
+      if (!pending.touched || pending.dropped) break;
     }
+    if (!pending.touched) {
+      pending.rollback();
+      await refreshKeys(ids);
+    } else if (pending.dropped) {
+      await refreshKeys(ids);
+    }
+    throw failure;
   }
 
   async function refreshKeys(ids: number[]): Promise<void> {

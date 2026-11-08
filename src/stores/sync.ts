@@ -25,7 +25,8 @@ export interface SyncJob {
   group?: SaveGroup;
   /** Onboard profile this job belongs to; never written while another profile is active. Omit for global data. */
   profile?: number;
-  write: (t: Ae64Transport) => Promise<void>;
+  /** Resolve `'skip'` when nothing was written: the job is then neither committed nor verified. */
+  write: (t: Ae64Transport) => Promise<void | 'skip'>;
   verify?: (t: Ae64Transport) => Promise<boolean>;
   label: string;
   /** The job was given up without being saved; restore the state the keyboard really has. */
@@ -127,8 +128,7 @@ export const useSyncStore = defineStore('sync', () => {
             continue;
           }
           try {
-            await e.job.write(t);
-            written.push(e);
+            if ((await e.job.write(t)) !== 'skip') written.push(e);
           } catch (err) {
             fail(e, err);
           }

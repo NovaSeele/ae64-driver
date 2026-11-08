@@ -79,6 +79,7 @@ export const advancedEn: Record<keyof typeof advancedVi, string> = {
   'advanced.conflictDevice': '{key} already has another advanced key on device — aborted write.',
   'advanced.tuningFailed': 'Saved advanced key, but failed to restore travel for {key}.',
   'advanced.jobLabel': 'Advanced {keys}',
+  'advanced.jobLabelReset': 'Advanced {keys} (their travel settings may have been reset)',
   'advanced.histSave': '{type} · {keys}',
   'advanced.histRemove': 'Delete {type} · {keys}',
   'advanced.confirmDelete': 'Delete {type} on {keys}?',

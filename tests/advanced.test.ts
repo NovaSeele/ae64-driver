@@ -4,6 +4,9 @@ import { MockTransport, SAVE_GROUP } from '../src/protocol';
 import type { Performance, PhysicalKey } from '../src/protocol';
 import { useDeviceStore } from '../src/stores/device';
 import { useHistoryStore } from '../src/stores/history';
+import { usePerformanceStore } from '../src/stores/performance';
+import { t as tr } from '../src/i18n/vi';
+import { PermanentSyncError, useSyncStore } from '../src/stores/sync';
 import {
   AdvancedConflictError, KEYBOARD_CODES, assignmentsFrom, fixUnusedStage3, mptBounds, normalizeDksMask, normalizeMptDepths, pickPairKey,
   setDksCell, swapPair, useAdvancedStore, validateAssignment,
@@ -174,8 +177,9 @@ describe('advanced store: failed writes', () => {
   it('a failed create is rolled back, leaves no history entry, and saving again really writes', async () => {
     const { adv, mock, key } = await setup();
     const host = key('K');
-    vi.spyOn(mock, 'setDks').mockRejectedValueOnce(new Error('usb'));
+    vi.spyOn(mock, 'setDks').mockRejectedValue(new Error('usb'));
     await expect(adv.save(dksOn(host.id))).rejects.toThrow();
+    vi.restoreAllMocks();
     expect(adv.byKey.get(host.id)).toBeUndefined();
     expect((await mock.getAdvanced(host)).type).toBe('NONE');
     expect(useHistoryStore().undoLabel).toBeNull();
@@ -190,7 +194,7 @@ describe('advanced store: failed writes', () => {
     const { adv, mock, key } = await setup();
     const host = key('K');
     await adv.save(dksOn(host.id));
-    vi.spyOn(mock, 'clearAdvanced').mockRejectedValueOnce(new Error('usb'));
+    vi.spyOn(mock, 'clearAdvanced').mockRejectedValue(new Error('usb'));
     await expect(adv.remove(adv.byKey.get(host.id)!)).rejects.toThrow();
     expect(adv.byKey.get(host.id)?.type).toBe('DKS');
     expect((await mock.getAdvanced(host)).type).toBe('DKS');
@@ -209,8 +213,94 @@ describe('advanced store: failed writes', () => {
     expect(await mock.getAdvanced(j)).toMatchObject({ type: 'DKS' });
 
     useHistoryStore().undo(); // queued again (undo of the save on J … back to K)
-    vi.spyOn(mock, 'setDks').mockRejectedValueOnce(new Error('usb'));
+    vi.spyOn(mock, 'setDks').mockRejectedValue(new Error('usb'));
     await expect(adv.save(moved)).rejects.toThrow();
+  });
+
+  it('A1: a transient read error during verify after the write is retried and the Hall tuning is restored', async () => {
+    const { device, mock, adv, key } = await setup(1);
+    resetTuningOnAdvancedWrite(mock);
+    const host = key('W');
+    const before = await device.withTransport((t) => t.getPerformance(host));
+    expect(before.mode).toBe(1);
+    const origGet = mock.getAdvanced.bind(mock);
+    let calls = 0;
+    vi.spyOn(mock, 'getAdvanced').mockImplementation(async (pos) => {
+      calls++;
+      if (calls === 2) throw new Error('usb hiccup'); // the verify read-back, after write + commit
+      return origGet(pos);
+    });
+    const mpt: MptAssignment = { type: 'MPT', keys: [host.id], keycodes: [0x1a, 0x08, 0], depths: [0.5, 1.2, 2.0] };
+    await adv.save(mpt);
+    expect(await origGet(host)).toMatchObject({ type: 'MPT', keycodes: [0x1a, 0x08, 0], depths: [0.5, 1.2, 2.0] });
+    expect(await mock.getPerformance(host)).toEqual(before);
+    expect(adv.byKey.get(host.id)?.type).toBe('MPT');
+    expect(useSyncStore().state).toBe('saved');
+  });
+
+  it('a partial write (clear done, next write fails once) is retried: binding written, ORIGINAL tuning restored', async () => {
+    const { adv, mock, key } = await setup();
+    resetTuningOnAdvancedWrite(mock);
+    const [j, k, l] = [key('J'), key('K'), key('L')];
+    const original: Performance[] = [];
+    for (const pos of [j, k, l]) {
+      const p = await mock.getPerformance(pos);
+      const tuned: Performance = { ...p, mode: 1, normalPress: 1.3, rtPress: 0.3, rtRelease: 0.2 };
+      await mock.setPerformance(pos, tuned);
+      original.push(await mock.getPerformance(pos));
+    }
+    expect(original[0].normalPress).not.toBe(2);
+    const rs: RsAssignment = { type: 'RS', keys: [j.id, k.id], keycodes: [0x0d, 0x0e], delay: 0 };
+    await adv.save(rs);
+    // the first save itself reset the tuning and restored it
+    expect(await mock.getPerformance(j)).toEqual(original[0]);
+
+    const moved: RsAssignment = { ...rs, keys: [j.id, l.id], keycodes: [0x0d, 0x0f] };
+    vi.spyOn(mock, 'setRappySnappyPair').mockRejectedValueOnce(new Error('usb')); // after clearAdvanced(K) succeeded
+    await adv.save(moved, rs);
+    expect((await mock.getAdvanced(k)).type).toBe('NONE');
+    expect(await mock.getAdvanced(l)).toMatchObject({ type: 'RS', pairedRow: j.row, pairedCol: j.col });
+    for (const [i, pos] of [j, k, l].entries()) expect(await mock.getPerformance(pos)).toEqual(original[i]);
+  });
+
+  it('a job that replaces an unfinished, touched one inherits its tuning snapshot', async () => {
+    const { device, mock, adv, key } = await setup(1);
+    resetTuningOnAdvancedWrite(mock);
+    const perf = usePerformanceStore();
+    const host = key('W');
+    const before = await device.withTransport((t) => t.getPerformance(host));
+    const origGet = mock.getAdvanced.bind(mock);
+    const origSet = (vi.mocked(mock.setMpt).getMockImplementation() ?? mock.setMpt.bind(mock)) as unknown as (a: unknown) => Promise<unknown>;
+    let wrote = false;
+    vi.spyOn(mock, 'setMpt').mockImplementation((async (a: unknown) => { wrote = true; return origSet(a); }) as never);
+    let failing = true;
+    vi.spyOn(mock, 'getAdvanced').mockImplementation(async (pos) => {
+      if (failing && wrote) throw new Error('usb');
+      return origGet(pos);
+    });
+    perf.loadedProfile = 1;
+    const first: MptAssignment = { type: 'MPT', keys: [host.id], keycodes: [0x1a, 0x08, 0], depths: [0.5, 1.2, 2.0] };
+    await expect(adv.save(first)).rejects.toThrow();
+    // given up after being written: no pretence that the old state is on the keyboard, perf store marked stale, label names the keys
+    expect(adv.byKey.get(host.id)?.type).toBe('MPT');
+    expect(perf.loadedProfile).toBeNull();
+    expect(useSyncStore().lastError).toContain(tr('advanced.jobLabelReset', { keys: 'W' }));
+    expect((await mock.getPerformance(host)).mode).toBe(0); // reset by the firmware, never restored
+
+    failing = false;
+    await adv.save({ ...first, depths: [0.6, 1.3, 2.1] });
+    expect(await mock.getAdvanced(host)).toMatchObject({ type: 'MPT', depths: [0.6, 1.3, 2.1] });
+    expect(await mock.getPerformance(host)).toEqual(before);
+  });
+
+  it('a failure of another job does not fail a change that was saved', async () => {
+    const { adv, mock, key } = await setup();
+    const host = key('F');
+    const sync = useSyncStore();
+    sync.enqueue({ key: 'other', label: 'other', write: async () => { throw new PermanentSyncError('nope'); } });
+    await adv.save(dksOn(host.id));
+    expect(await mock.getAdvanced(host)).toMatchObject({ type: 'DKS' });
+    expect(useHistoryStore().undoLabel).not.toBeNull();
   });
 
   it('editing onto an occupied key of the same type is a conflict, not a silent overwrite', async () => {
