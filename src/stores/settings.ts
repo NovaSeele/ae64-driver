@@ -62,9 +62,11 @@ export const useSettingsStore = defineStore('settings', () => {
   const loaded = ref(false);
   const loadError = ref<string | null>(null);
   let loadPromise: Promise<void> | null = null;
+  /** Last value of each undoable setting read from the keyboard (load or verify): what a dropped write puts back. */
+  const boardValue = new Map<string, unknown>();
 
   // New connection: the defaults above are not this keyboard's values until load() has run.
-  watch(() => device.transport, () => { loaded.value = false; loadError.value = null; });
+  watch(() => device.transport, () => { loaded.value = false; loadError.value = null; boardValue.clear(); });
   // A failed polling change is only worth showing until the keyboard is connected again.
   watch(() => device.connected, (c) => {
     if (c && pollingState.value === 'error') { pollingState.value = 'idle'; pollingError.value = null; }
@@ -91,6 +93,9 @@ export const useSettingsStore = defineStore('settings', () => {
           macroSpace.value = await t.getMacroSpace();
           lightingAreas.value = await t.getLightingAreas();
         });
+        boardValue.set('systemMode', systemMode.value);
+        boardValue.set('rgbSleep', rgbSleep.value);
+        boardValue.set('shakeOptimization', shakeOptimization.value);
         loaded.value = true;
       } catch (err) {
         loadError.value = err instanceof Error ? err.message : String(err);
@@ -118,8 +123,15 @@ export const useSettingsStore = defineStore('settings', () => {
         write: (t) => write(t, v),
         verify: async (t) => {
           const got = await read(t);
+          boardValue.set(key, got);
           state.value = got;
           return got === v;
+        },
+        // Not saved: show what the keyboard really has, unless a newer change is already showing.
+        onDrop: () => {
+          if (state.value !== v) return;
+          if (boardValue.has(key)) state.value = boardValue.get(key) as T;
+          else loaded.value = false; // never read: the Settings page reloads
         },
       });
     }

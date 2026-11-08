@@ -37,6 +37,21 @@ describe('settings store', () => {
     expect(settings.lightingAreas?.count).toBe(2);
   });
 
+  it('a setting whose write is given up shows the value the keyboard really has', async () => {
+    const mock = await connectMock();
+    const settings = useSettingsStore();
+    const sync = useSyncStore();
+    await settings.load();
+    expect(settings.systemMode).toBe(0);
+    vi.spyOn(mock, 'setSystemMode').mockRejectedValue(new Error('usb'));
+    settings.setSystemMode(1);
+    expect(settings.systemMode).toBe(1); // optimistic
+    for (let i = 0; i < 3; i++) await sync.flush().catch(() => undefined);
+    expect(sync.pendingCount()).toBe(0);
+    expect(await mock.getSystemMode()).toBe(0);
+    expect(settings.systemMode).toBe(0);
+  });
+
   it('updates system mode, polling rate, rgb sleep and shake optimization with read-back verification', async () => {
     const mock = await connectMock();
     const settings = useSettingsStore();

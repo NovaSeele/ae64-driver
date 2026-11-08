@@ -101,7 +101,7 @@ export const useSyncStore = defineStore('sync', () => {
     if (!dropped.length) return;
     const labels = dropped.map((e) => e.job.label);
     const shown = labels.slice(0, 2).join(', ') + (labels.length > 2 ? ` +${labels.length - 2}` : '');
-    const restored = dropped.some((e) => e.job.onDrop);
+    const restored = dropped.every((e) => e.job.onDrop);
     useToast().show(tr('sync.dropped', { labels: shown }) + (restored ? ` ${tr('sync.restored')}` : ''), 'error');
     useFlashStore().flash([...new Set(dropped.flatMap((e) => e.job.keys ?? []))]);
   }
