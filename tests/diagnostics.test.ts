@@ -308,6 +308,30 @@ describe('diagnostics store', () => {
     expect(rows[base].repeat).toBe(10); // the earlier group is closed
   });
 
+  it('listeners get the raw buffer; stored rows are copies, grouped polls store nothing', async () => {
+    const mock = await connectMock();
+    const device = useDeviceStore();
+    const seen: Uint8Array[] = [];
+    const off = mock.onPacketRaw((_dir, bytes) => { seen.push(bytes); });
+    const base = device.packetEntries().length;
+    await mock.getAxisData('route', 1); // poll group starts: one row
+    await mock.getAxisData('route', 1);
+    expect(device.packetEntries().length).toBe(base + 1);
+    expect(seen.length).toBe(4);
+    expect(seen.every((b) => b instanceof Uint8Array)).toBe(true);
+    const row = device.packetEntries()[base];
+    expect(Array.isArray(row.bytes)).toBe(true);
+    const snapshot = [...row.bytes];
+    for (const b of seen) b.fill(0xee); // reusing/mutating the transport buffers must not touch the log
+    expect(row.bytes).toEqual(snapshot);
+    await mock.getActiveProfile();
+    const rows = device.packetEntries();
+    const copy = [...rows[base + 1].bytes];
+    seen.forEach((b) => b.fill(0x11));
+    expect(rows[base + 1].bytes).toEqual(copy);
+    off();
+  });
+
   it('packetSeq is throttled to ~4 Hz and no timer runs without watchers', async () => {
     const mock = await connectMock();
     const device = useDeviceStore();

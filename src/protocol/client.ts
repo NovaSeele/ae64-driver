@@ -15,6 +15,8 @@ import * as c from './codec';
 import { checkFrame, checkPerformanceWrite, isWriteCommand, UnsafeCommandError } from './safety';
 import { t } from '../i18n/vi';
 
+type RawPacketListener = (dir: 'out' | 'in', bytes: Uint8Array, note?: string) => void;
+
 export class TransportTimeoutError extends Error {
   constructor(command: number[]) {
     super(t('error.transportTimeout', { cmd: command.slice(0, 2).map((b) => b.toString(16).padStart(2, '0')).join(':') }));
@@ -88,7 +90,7 @@ export abstract class BaseTransport implements Ae64Transport {
 
   private queue: Promise<unknown> = Promise.resolve();
   private readonly disconnectListeners = new Set<() => void>();
-  private readonly packetListeners = new Set<(e: PacketLogEntry) => void>();
+  private readonly packetListeners = new Set<RawPacketListener>();
 
   /** Send one frame and resolve with the reply whose bytes 0–1 match; reject with TransportTimeoutError on timeout. */
   protected abstract exchange(frame: Uint8Array, timeoutMs: number): Promise<Bytes>;
@@ -100,6 +102,10 @@ export abstract class BaseTransport implements Ae64Transport {
   }
 
   onPacket(cb: (e: PacketLogEntry) => void): () => void {
+    return this.onPacketRaw((dir, bytes, note) => cb({ t: Date.now(), dir, bytes: Array.from(bytes), note }));
+  }
+
+  onPacketRaw(cb: RawPacketListener): () => void {
     this.packetListeners.add(cb);
     return () => this.packetListeners.delete(cb);
   }
@@ -110,8 +116,7 @@ export abstract class BaseTransport implements Ae64Transport {
 
   private log(dir: 'out' | 'in', bytes: Uint8Array, note?: string): void {
     if (!this.packetListeners.size) return;
-    const entry: PacketLogEntry = { t: Date.now(), dir, bytes: Array.from(bytes), note };
-    for (const cb of this.packetListeners) cb(entry);
+    for (const cb of this.packetListeners) cb(dir, bytes, note);
   }
 
   /** Serialised request: one in flight at a time, replies matched on bytes 0–1. */

@@ -18,8 +18,8 @@ const LATENCY_REFRESH_MS = 250;
 const PACKET_SEQ_MS = 250;
 
 /** Live-travel poll = axis data read `04 03 …` (FAMILY.PERFORMANCE, command 0x03), both the request and its reply. */
-function isTravelPoll(e: PacketLogEntry): boolean {
-  return e.bytes[0] === 0x04 && e.bytes[1] === 0x03;
+function isTravelPoll(bytes: Uint8Array): boolean {
+  return bytes[0] === 0x04 && bytes[1] === 0x03;
 }
 
 function message(err: unknown): string {
@@ -125,18 +125,20 @@ export const useDeviceStore = defineStore('device', () => {
     profileNames.value = names;
   }
 
-  function handlePacket(e: PacketLogEntry): void {
+  /** `bytes` is the transport's buffer: nothing is allocated for a grouped poll, a stored row gets its own copy. */
+  function handlePacket(dir: 'out' | 'in', bytes: Uint8Array, note?: string): void {
     packetsDirty = true;
-    if (isTravelPoll(e)) {
+    const t = Date.now();
+    if (isTravelPoll(bytes)) {
       const last = lastPacket;
       if (last?.repeat !== undefined) {
         last.repeat++;
-        last.tEnd = e.t;
+        last.tEnd = t;
         return;
       }
-      lastPacket = packetRing[packetHead] = { ...e, repeat: 1, tEnd: e.t };
+      lastPacket = packetRing[packetHead] = { t, dir, bytes: Array.from(bytes), note, repeat: 1, tEnd: t };
     } else {
-      lastPacket = packetRing[packetHead] = e;
+      lastPacket = packetRing[packetHead] = { t, dir, bytes: Array.from(bytes), note };
     }
     packetHead = (packetHead + 1) % PACKET_LOG_SIZE;
     if (packetCount < PACKET_LOG_SIZE) packetCount++;
@@ -209,7 +211,7 @@ export const useDeviceStore = defineStore('device', () => {
     transport.value = t;
     demo.value = isDemo;
     clearPackets();
-    detach = [t.onDisconnect(handleDisconnect), t.onPacket(handlePacket)];
+    detach = [t.onDisconnect(handleDisconnect), t.onPacketRaw(handlePacket)];
     latencyTimer = setInterval(() => {
       if (transport.value !== t) return;
       latencyMs.value = t.stats.lastLatencyMs;

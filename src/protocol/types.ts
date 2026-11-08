@@ -83,6 +83,8 @@ export interface Ae64Transport {
   readonly stats: TransportStats;
   onDisconnect(cb: () => void): () => void;
   onPacket(cb: (e: PacketLogEntry) => void): () => void;   // diagnostics log
+  /** Allocation-free variant of onPacket: `bytes` is the transport's own buffer, valid only during the call (copy to keep). */
+  onPacketRaw(cb: (dir: 'out' | 'in', bytes: Uint8Array, note?: string) => void): () => void;
   /** True from "start calibration" until "stop calibration" was acknowledged; writes are refused meanwhile. */
   readonly calibrationLocked: boolean;
   close(): Promise<void>;
