@@ -192,10 +192,10 @@ export const useDeviceStore = defineStore('device', () => {
     }
   }
 
-  async function disconnect(): Promise<void> {
+  async function disconnect(opts: { flush?: boolean } = {}): Promise<void> {
     const t = transport.value;
     if (!t) return;
-    await useSyncStore().flush().catch(() => undefined);
+    if (opts.flush !== false) await useSyncStore().flush().catch(() => undefined);
     reset();
     status.value = 'idle';
     await t.close().catch(() => undefined);

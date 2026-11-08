@@ -8,7 +8,8 @@ import { useDeviceStore } from './device';
 export interface SyncJob {
   /** Jobs with the same key coalesce (last wins), e.g. `perf:<profile>:<keyId>`. */
   key: string;
-  group: SaveGroup;
+  /** Commit group written after the batch; omit for commands the firmware applies without a commit (global settings). */
+  group?: SaveGroup;
   write: (t: Ae64Transport) => Promise<void>;
   verify?: (t: Ae64Transport) => Promise<boolean>;
   label: string;
@@ -45,7 +46,7 @@ export const useSyncStore = defineStore('sync', () => {
     try {
       await useDeviceStore().withTransport(async (t) => {
         for (const job of jobs) await job.write(t);
-        for (const group of new Set(jobs.map((j) => j.group))) await t.commit(group);
+        for (const group of new Set(jobs.map((j) => j.group))) if (group !== undefined) await t.commit(group);
         const mismatched: string[] = [];
         for (const job of jobs) if (job.verify && !(await job.verify(t))) mismatched.push(job.label);
         if (mismatched.length) throw new Error(tr('sync.verifyFailed', { labels: mismatched.join(', ') }));

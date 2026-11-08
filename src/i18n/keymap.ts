@@ -1,3 +1,22 @@
 // Strings for the keymap area (Vietnamese UI, English technical terms). Keys are prefixed 'keymap.'.
 export const keymapVi = {
+  'keymap.layerMain': 'Main',
+  'keymap.layerFn1': 'Fn1',
+  'keymap.layerFn2': 'Fn2',
+  'keymap.layerFn3': 'Fn3',
+  'keymap.layerTab': 'Layer {name}',
+  'keymap.keyLabel': 'Keymap {layer} · {key}',
+  'keymap.restoreDefault': 'Khôi phục layer mặc định',
+  'keymap.restoreDefaultTitle': 'Khôi phục layer mặc định',
+  'keymap.restoreDefaultBody': 'Sẽ khôi phục {n} phím trên layer {layer} về giá trị mặc định của bàn phím. Bạn có chắc chắn muốn tiếp tục?',
+  'keymap.restoreDefaultConfirm': 'Khôi phục {n} phím',
+  'keymap.restoreDefaultCancel': 'Huỷ',
+  'keymap.restoreDefaultSuccess': 'Đã khôi phục {n} phím về mặc định.',
+  'keymap.restoreDefaultNone': 'Layer này đã ở trạng thái mặc định.',
+  'keymap.fnRuleNote': 'Quy tắc Fn: Khi gán phím chuyển Fn (Fn1–Fn3), vị trí phím này ở các layer cao hơn tự động chuyển thành Transparent (0001) để khi nhả phím sẽ trở lại đúng layer.',
+  'keymap.fnGuardedApplied': 'Đã tự động đặt Transparent ở các layer cao hơn cho phím Fn.',
+  'keymap.transparentHint': '▽ Phím trong suốt: Kế thừa phím từ layer bên dưới ({inherited}).',
+  'keymap.emptyHint': 'Phím chưa được gán chức năng.',
+  'keymap.editLabel': 'Đổi keymap ({n} phím)',
+  'keymap.selectKeyPrompt': 'Chọn một hoặc nhiều phím trên bàn phím để gán chức năng.',
 } as const;
