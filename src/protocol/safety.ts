@@ -42,14 +42,21 @@ export const BLOCKED_KEYCODES: ReadonlySet<number> = new Set([
   0xf407, // battery status
 ]);
 
+/**
+ * True when `checkFrame` accepts this keycode in a write. A non-zero high byte is a firmware function,
+ * so only catalogue codes or left-modifier combos pass; blocked codes never do.
+ */
+export function isWritableKeycode(code: number): boolean {
+  return !BLOCKED_KEYCODES.has(code) && (code <= 0xff || isKnownKeycode(code) || decodeCombo(code) !== null);
+}
+
 /** Little-endian uint16 keycodes at the given payload offsets must not be blocked. */
 const keycodesAt = (p: readonly number[], offsets: readonly number[]): string | null => {
   for (const o of offsets) {
     const code = (p[o] ?? 0) | ((p[o + 1] ?? 0) << 8);
     const h = code.toString(16).toUpperCase().padStart(4, '0');
     if (BLOCKED_KEYCODES.has(code)) return `keycode ${h} is never written by this app`;
-    // A non-zero high byte is a firmware function, so only catalogue codes or left-modifier combos pass.
-    if (code > 0xff && !isKnownKeycode(code) && decodeCombo(code) === null) return `keycode ${h} is not a known keycode or modifier combo`;
+    if (!isWritableKeycode(code)) return `keycode ${h} is not a known keycode or modifier combo`;
   }
   return null;
 };

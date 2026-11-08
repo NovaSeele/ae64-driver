@@ -33,7 +33,7 @@ export const liveVi = {
   'live.legendRelease': 'Nhả',
   'live.mActuation': 'Actuation',
   'live.mRelease': 'Release',
-  'live.mFirst': 'First actuation',
+  'live.mFirst': 'Kích hoạt đầu',
   'live.mReset': 'Nhả nếu lên',
   'live.mReactuate': 'Kích hoạt lại ở',
   'live.mDeadTop': 'Vùng chết trên',

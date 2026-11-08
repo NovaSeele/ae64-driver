@@ -164,6 +164,7 @@ function doRestoreDefault() {
         <Button
           size="sm"
           variant="ghost"
+          class="kaside__restore"
           :disabled="!ready || readOnly"
           @click="checkRestoreDefault"
         >
@@ -292,6 +293,14 @@ function doRestoreDefault() {
 }
 .kaside__layers {
   width: 100%;
+}
+.kaside .kaside__restore {
+  max-width: 100%;
+  height: auto;
+  min-height: 28px;
+  padding-block: 4px;
+  white-space: normal;
+  text-align: left;
 }
 .kaside__layers :deep(.seg__opt) {
   flex: 1;

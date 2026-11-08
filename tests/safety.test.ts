@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkFrame, checkPerformanceWrite, isWriteCommand, UnsafeCommandError, BLOCKED_KEYCODES } from '../src/protocol/safety';
+import { checkFrame, checkPerformanceWrite, isWriteCommand, UnsafeCommandError, BLOCKED_KEYCODES, isWritableKeycode } from '../src/protocol/safety';
 import type { Performance } from '../src/protocol/types';
 import { KEYCODE_GROUPS, comboKeycode } from '../src/protocol/keycodes';
 
@@ -167,5 +167,27 @@ describe('macro meta guard (07 02)', () => {
     blocked([0x07, 0x02, 3, 1, 0xc1, 0x03, 1, 0, 0]); // 961
     blocked([0x07, 0x02, 3, 1, 1, 0, 1, 0, 6]);
     blocked([0x07, 0x02, 16, 1, 1, 0, 1, 0, 0]);
+  });
+});
+
+describe('isWritableKeycode', () => {
+  const setKey = (code: number) => [0x03, 0x04, 0, 1, 1, code & 0xff, code >> 8];
+  const accepted = (code: number) => {
+    try { checkFrame(setKey(code)); return true; } catch { return false; }
+  };
+
+  it('agrees with checkFrame for known, combo, right combo, unknown and blocked codes', () => {
+    const cases: [number, boolean][] = [
+      [0x0004, true], // plain key
+      [0xf101, true], // known firmware code (Fn1)
+      [comboKeycode(0x01, 0x06), true], // LCtrl+C
+      [0x1006, false], // RCtrl+C
+      [0xf20b, false], // unknown high byte
+      [0xf404, false], // blocked
+    ];
+    for (const [code, writable] of cases) {
+      expect(isWritableKeycode(code), code.toString(16)).toBe(writable);
+      expect(accepted(code), code.toString(16)).toBe(writable);
+    }
   });
 });

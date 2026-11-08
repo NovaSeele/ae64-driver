@@ -138,6 +138,47 @@ describe('keymap store', () => {
     expect(afterDiff.diffCount).toBe(0);
   });
 
+  it('skips and counts a factory default the guard refuses; nothing is enqueued for it', async () => {
+    const mock = await connectMock();
+    const keymap = useKeymapStore();
+    const sync = useSyncStore();
+    await keymap.load();
+
+    const k = PHYSICAL_KEYS[1];
+    keymap.activeLayer = 0;
+    const real = mock.getDefaultKeymapRow.bind(mock);
+    vi.spyOn(mock, 'getDefaultKeymapRow').mockImplementation(async (sys, layer, row) => {
+      const codes = await real(sys, layer, row);
+      if (row === k.row) codes[k.col] = 0xf20b; // unknown high byte: refused by checkFrame
+      return codes;
+    });
+
+    const diff = await keymap.computeDefaultDiff(0);
+    expect(diff.skipped).toBeGreaterThanOrEqual(1);
+    expect(diff.defaultCodes[k.id]).toBeUndefined();
+
+    const enqueue = vi.spyOn(sync, 'enqueue');
+    const before = keymap.values[0][k.id];
+    keymap.applyDefault(0, { ...diff.defaultCodes, [k.id]: 0xf20b });
+    expect(enqueue.mock.calls.every(([job]) => !job.key.includes(`:${k.id}`) || keymap.values[0][k.id] === before)).toBe(true);
+    expect(keymap.values[0][k.id]).toBe(before);
+    await sync.flush();
+  });
+
+  it('refuses to plan or apply a keycode the guard refuses', async () => {
+    await connectMock();
+    const keymap = useKeymapStore();
+    const sync = useSyncStore();
+    await keymap.load();
+
+    const k = PHYSICAL_KEYS[1];
+    keymap.activeLayer = 0;
+    const enqueue = vi.spyOn(sync, 'enqueue');
+    expect(Object.keys(keymap.planKeycode([k.id], 0xf20b).after)).toHaveLength(0);
+    keymap.applyKeycode([k.id], 0xf20b);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
   it('layer-0 key edit: device.layer0[id] retains new code before and after flush', async () => {
     await connectMock();
     const device = useDeviceStore();

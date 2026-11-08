@@ -8,7 +8,7 @@ import type {
   AdvancedRecord, LedRecord, LightingBase, MacroAction, MacroMeta,
   PaletteEntry, Performance,
 } from '../protocol';
-import { BLOCKED_KEYCODES } from '../protocol/safety';
+import { BLOCKED_KEYCODES, isWritableKeycode } from '../protocol/safety';
 import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
 import { useHistoryStore } from './history';
@@ -50,6 +50,10 @@ function validateBackupPayload(
         const isAssignable = ASSIGNABLE_KEYCODES.has(code) || decodeCombo(code) !== null;
         if (!isCurrent && !isAssignable) {
           throw new Error(`Unassignable keycode 0x${code.toString(16).padStart(4, '0')} at layer ${layer}, key ${id}`);
+        }
+        // A code the keyboard already has is left alone (the write loop skips it); a different one must be writable.
+        if (!isCurrent && !isWritableKeycode(code)) {
+          throw new Error(`Unwritable keycode 0x${code.toString(16).padStart(4, '0')} at layer ${layer}, key ${id}`);
         }
       }
     }
@@ -371,7 +375,7 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
               if (!layerMap) continue;
               for (const key of device.keys) {
                 const code = layerMap[key.id];
-                if (code !== undefined && keymapStore.values[layer]?.[key.id] !== code && !BLOCKED_KEYCODES.has(code)) {
+                if (code !== undefined && keymapStore.values[layer]?.[key.id] !== code && isWritableKeycode(code)) {
                   await t.setKeycode(key, code, layer);
                   layoutCommitted = true;
                 }

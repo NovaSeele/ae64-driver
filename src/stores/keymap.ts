@@ -3,7 +3,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref, shallowRef, watch } from 'vue';
 import { FIRMWARE_ROWS, LAYER_COUNT, SAVE_GROUP, keycodeLabel } from '../protocol';
-import { BLOCKED_KEYCODES } from '../protocol/safety';
+import { BLOCKED_KEYCODES, isWritableKeycode } from '../protocol/safety';
 import type { Ae64Transport, PhysicalKey } from '../protocol';
 import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
@@ -204,7 +204,7 @@ export const useKeymapStore = defineStore('keymap', () => {
     };
     let layer0Changed = false;
     for (const [tok, code] of Object.entries(map)) {
-      if (BLOCKED_KEYCODES.has(code)) continue;
+      if (!isWritableKeycode(code)) continue;
       const [lStr, idStr] = tok.split(':');
       const layer = Number(lStr);
       const id = Number(idStr);
@@ -236,7 +236,7 @@ export const useKeymapStore = defineStore('keymap', () => {
    */
   function planKeycode(ids: number[], keycode: number): KeycodePlan {
     const plan: KeycodePlan = { before: {}, after: {}, fnGuarded: false, factoryLost: [] };
-    if (BLOCKED_KEYCODES.has(keycode)) return plan;
+    if (!isWritableKeycode(keycode)) return plan;
     if (loadedProfile.value !== device.activeProfile || !ids.length) return plan;
     const currentL = activeLayer.value;
     const note = (layer: number, id: number, prev: number, next: number) => {
@@ -294,8 +294,8 @@ export const useKeymapStore = defineStore('keymap', () => {
         for (const key of device.keys) {
           if (key.row === row) {
             const defCode = rowCodes[key.col] ?? 0;
-            // Factory reset / wireless codes are never written by this app (protocol/safety.ts).
-            if (BLOCKED_KEYCODES.has(defCode)) {
+            // Factory reset / wireless codes and codes the guard refuses are never written (protocol/safety.ts).
+            if (!isWritableKeycode(defCode)) {
               skipped++;
               continue;
             }
@@ -320,7 +320,7 @@ export const useKeymapStore = defineStore('keymap', () => {
     for (const [idStr, defCode] of Object.entries(defaultCodes)) {
       const id = Number(idStr);
       const cur = values.value[layer]?.[id] ?? 0;
-      if (cur !== defCode) {
+      if (cur !== defCode && isWritableKeycode(defCode)) {
         before[token(layer, id)] = cur;
         after[token(layer, id)] = defCode;
       }

@@ -52,6 +52,8 @@ function onKey(e: KeyboardEvent) {
 <style scoped>
 .seg {
   display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   padding: 3px;
   gap: 2px;
   background: var(--bg-1);
