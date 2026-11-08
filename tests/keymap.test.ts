@@ -137,4 +137,60 @@ describe('keymap store', () => {
     const afterDiff = await keymap.computeDefaultDiff(0);
     expect(afterDiff.diffCount).toBe(0);
   });
+
+  it('layer-0 key edit: device.layer0[id] retains new code before and after flush', async () => {
+    await connectMock();
+    const device = useDeviceStore();
+    const keymap = useKeymapStore();
+    const sync = useSyncStore();
+    await keymap.load(true);
+
+    const esc = PHYSICAL_KEYS[0];
+    keymap.activeLayer = 0;
+    keymap.applyKeycode([esc.id], 0x0004); // Key 'A'
+    expect(device.layer0[esc.id]).toBe(0x0004);
+
+    await sync.flush();
+    expect(device.layer0[esc.id]).toBe(0x0004);
+  });
+
+  it('does not write or undo/redo to a BLOCKED keycode', async () => {
+    const mock = await connectMock();
+    const esc = PHYSICAL_KEYS[0];
+    const wKey = PHYSICAL_KEYS[16]; // 'W' key
+
+    // Pre-seed mock layer 1 Esc key to 0xF200 (factory reset)
+    (mock as unknown as { profiles: { keymap: number[][][] }[] }).profiles[0].keymap[1][esc.row][esc.col] = 0xf200;
+
+    const keymap = useKeymapStore();
+    const sync = useSyncStore();
+    const history = useHistoryStore();
+    await keymap.load(true);
+    expect(keymap.values[1][esc.id]).toBe(0xf200);
+
+    // Applying blocked keycode directly returns fnGuarded=false with no changes
+    keymap.activeLayer = 0;
+    const blockedRes = keymap.applyKeycode([esc.id], 0xf200);
+    expect(blockedRes.fnGuarded).toBe(false);
+
+    // Edit key holding F200 on layer 1 to 0x0004
+    keymap.activeLayer = 1;
+    keymap.applyKeycode([esc.id], 0x0004);
+    expect(keymap.values[1][esc.id]).toBe(0x0004);
+    await sync.flush();
+
+    // History undo must NOT enqueue setKeycode(0xF200); local value stays 0x04
+    const setKeycode = vi.spyOn(mock, 'setKeycode');
+    history.undo();
+    await sync.flush().catch(() => undefined);
+    expect(setKeycode.mock.calls.some(([, code]) => code === 0xf200)).toBe(false);
+    expect(keymap.values[1][esc.id]).toBe(0x0004);
+
+    // A later edit of another key still saves
+    keymap.activeLayer = 0;
+    keymap.applyKeycode([wKey.id], 0x0005);
+    await sync.flush();
+    expect(setKeycode.mock.calls.some(([pos, code]) => pos.row === wKey.row && pos.col === wKey.col && code === 0x0005)).toBe(true);
+    expect(sync.state).toBe('saved');
+  });
 });

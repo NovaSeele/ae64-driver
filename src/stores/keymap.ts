@@ -120,6 +120,7 @@ export const useKeymapStore = defineStore('keymap', () => {
     return {
       key: `keymap:${profile}:${layer}:${id}`,
       group: SAVE_GROUP.LAYOUT,
+      profile,
       label: tr('keymap.keyLabel', { layer: LAYER_NAMES[layer], key: device.legend(key) }),
       write: async (t: Ae64Transport) => {
         await t.setKeycode(key, keycode, layer);
@@ -127,7 +128,19 @@ export const useKeymapStore = defineStore('keymap', () => {
       verify: async (t: Ae64Transport) => {
         const read = await t.getKeycode(key, layer);
         fresh.set(token(layer, id), read);
+        if (layer === 0 && loadedProfile.value === profile) {
+          const nextLayer0 = [...device.layer0];
+          nextLayer0[id] = read;
+          device.layer0 = nextLayer0;
+        }
         return read === keycode;
+      },
+      // Not saved: show the keycode the key really has.
+      onDrop: () => {
+        const real = fresh.get(token(layer, id));
+        if (real === undefined || loadedProfile.value !== profile || !values.value[layer]) return;
+        values.value = { ...values.value, [layer]: { ...values.value[layer], [id]: real } };
+        if (layer === 0) device.layer0 = device.keys.map((k) => values.value[0]?.[k.id] ?? 0);
       },
     };
   }
@@ -143,6 +156,7 @@ export const useKeymapStore = defineStore('keymap', () => {
     };
     let layer0Changed = false;
     for (const [tok, code] of Object.entries(map)) {
+      if (BLOCKED_KEYCODES.has(code)) continue;
       const [lStr, idStr] = tok.split(':');
       const layer = Number(lStr);
       const id = Number(idStr);
@@ -153,7 +167,6 @@ export const useKeymapStore = defineStore('keymap', () => {
     values.value = next;
     if (layer0Changed) {
       device.layer0 = device.keys.map((k) => next[0][k.id] ?? 0);
-      void device.refreshLayer0().catch(() => undefined);
     }
   }
 
@@ -163,6 +176,7 @@ export const useKeymapStore = defineStore('keymap', () => {
    * automatically receive Transparent (0x0001) per reference rule.
    */
   function applyKeycode(ids: number[], keycode: number): { fnGuarded: boolean } {
+    if (BLOCKED_KEYCODES.has(keycode)) return { fnGuarded: false };
     if (loadedProfile.value !== device.activeProfile || !ids.length) return { fnGuarded: false };
     const currentL = activeLayer.value;
     const before: Record<string, number> = {};

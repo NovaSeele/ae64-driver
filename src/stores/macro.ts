@@ -5,7 +5,7 @@
 // Save = meta + every page → commit(SAVE_GROUP.MACRO) (sync store) → full read-back verify; history undoes it.
 import { defineStore } from 'pinia';
 import { computed, ref, shallowRef } from 'vue';
-import { MACRO_MAX_DELAY_MS, MACRO_SLOTS, SAVE_GROUP } from '../protocol';
+import { MACRO_ACTIONS_PER_PAGE, MACRO_MAX_DELAY_MS, MACRO_SLOTS, SAVE_GROUP } from '../protocol';
 import type { Ae64Transport, MacroAction, MacroMeta } from '../protocol';
 import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
@@ -17,6 +17,7 @@ export const MACRO_DELAY_MIN = 1;
 export const MACRO_DELAY_MAX = MACRO_MAX_DELAY_MS;
 export const MACRO_CLICK_REPEAT_MAX = 9999;
 export const MACRO_HOLD_REPEAT = 0xffff;
+export const MACRO_PROTOCOL_EVENT_LIMIT = 64 * MACRO_ACTIONS_PER_PAGE;
 /** Default capacity when 02 0E reports nothing (the Max reports 16 slots / 960). */
 const DEFAULT_CAPACITY = 960;
 
@@ -28,7 +29,7 @@ export function isHoldMode(mode: number): boolean {
 }
 
 export interface MacroSlot { id: number; valid: boolean; mode: MacroMode; repeatCount: number; actions: MacroAction[] }
-export interface MacroDraft { mode: MacroMode; repeatCount: number; actions: MacroAction[] }
+export interface MacroDraft { valid?: boolean; mode: MacroMode; repeatCount: number; actions: MacroAction[] }
 
 export function storedRepeat(d: { mode: number; repeatCount: number }): number {
   return isHoldMode(d.mode) ? MACRO_HOLD_REPEAT : Math.round(Math.min(MACRO_CLICK_REPEAT_MAX, Math.max(1, d.repeatCount || 1)));
@@ -38,7 +39,8 @@ export function storedRepeat(d: { mode: number; repeatCount: number }): number {
 export function actionLimit(space: { count: number; capacity: number }): number {
   const slots = Math.max(1, Math.min(MACRO_SLOTS, space.count || MACRO_SLOTS));
   const cap = space.capacity || DEFAULT_CAPACITY;
-  return Math.max(1, cap > slots ? cap - slots : cap);
+  const raw = Math.max(1, cap > slots ? cap - slots : cap);
+  return Math.min(raw, MACRO_PROTOCOL_EVENT_LIMIT);
 }
 
 export function validateDraft(d: MacroDraft, limit: number): string | null {
@@ -124,7 +126,8 @@ export const useMacroStore = defineStore('macro', () => {
 
   function jobFor(id: number, d: MacroDraft) {
     const actions = d.actions.map((a) => ({ ...a }));
-    const meta: MacroMeta = { id, valid: true, actionCount: actions.length, repeatCount: storedRepeat(d), mode: d.mode };
+    const valid = d.valid ?? true;
+    const meta: MacroMeta = { id, valid, actionCount: actions.length, repeatCount: storedRepeat(d), mode: d.mode };
     return {
       key: `macro:${id}`,
       group: SAVE_GROUP.MACRO,
@@ -136,7 +139,7 @@ export const useMacroStore = defineStore('macro', () => {
       verify: async (t: Ae64Transport) => {
         const read = await readSlot(t, id);
         slots.value = slots.value.map((s) => (s.id === id ? read : s));
-        return read.valid && read.actions.length === actions.length && read.repeatCount === meta.repeatCount
+        return read.valid === meta.valid && read.actions.length === actions.length && read.repeatCount === meta.repeatCount
           && read.mode === meta.mode && sameActions(read.actions, actions);
       },
     };
@@ -144,13 +147,13 @@ export const useMacroStore = defineStore('macro', () => {
 
   function commit(id: number, d: MacroDraft): void {
     slots.value = slots.value.map((s) => (s.id === id
-      ? { id, valid: true, mode: d.mode, repeatCount: storedRepeat(d), actions: d.actions.map((a) => ({ ...a })) }
+      ? { id, valid: d.valid ?? true, mode: d.mode, repeatCount: storedRepeat(d), actions: d.actions.map((a) => ({ ...a })) }
       : s));
     sync.enqueue(jobFor(id, d));
   }
 
   function snapshot(s: MacroSlot): MacroDraft {
-    return { mode: s.mode, repeatCount: s.repeatCount, actions: s.actions.map((a) => ({ ...a })) };
+    return { valid: s.valid, mode: s.mode, repeatCount: s.repeatCount, actions: s.actions.map((a) => ({ ...a })) };
   }
 
   function push(id: number, before: MacroDraft, after: MacroDraft, label: string): void {
@@ -163,14 +166,14 @@ export const useMacroStore = defineStore('macro', () => {
     const err = validateDraft(d, limit.value);
     if (err) throw new Error(err);
     const slot = slots.value.find((s) => s.id === id)!;
-    push(id, snapshot(slot), { mode: d.mode, repeatCount: d.repeatCount, actions: d.actions }, tr('macro.histSave', { n: id }));
+    push(id, snapshot(slot), { valid: true, mode: d.mode, repeatCount: d.repeatCount, actions: d.actions }, tr('macro.histSave', { n: id }));
     await sync.flush();
   }
 
   /** "Xoá dữ liệu": slot stays valid, actNum = 0, no data pages; key mappings to the slot are untouched. */
   async function clearData(id: number): Promise<void> {
     const slot = slots.value.find((s) => s.id === id)!;
-    push(id, snapshot(slot), { mode: slot.mode, repeatCount: slot.repeatCount, actions: [] }, tr('macro.histClear', { n: id }));
+    push(id, snapshot(slot), { valid: true, mode: slot.mode, repeatCount: slot.repeatCount, actions: [] }, tr('macro.histClear', { n: id }));
     await sync.flush();
   }
 

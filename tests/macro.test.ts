@@ -5,7 +5,7 @@ import type { MacroAction } from '../src/protocol';
 import { useDeviceStore } from '../src/stores/device';
 import { useHistoryStore } from '../src/stores/history';
 import { useSyncStore } from '../src/stores/sync';
-import { MACRO_HOLD_REPEAT, actionLimit, balanceWarnings, useMacroStore, validateDraft } from '../src/stores/macro';
+import { MACRO_HOLD_REPEAT, MACRO_PROTOCOL_EVENT_LIMIT, actionLimit, balanceWarnings, useMacroStore, validateDraft } from '../src/stores/macro';
 
 async function setup() {
   setActivePinia(createPinia());
@@ -94,5 +94,30 @@ describe('macro store', () => {
   it('balance warnings', () => {
     expect(balanceWarnings([{ down: false, delay: 1, keycode: 4 }])).toEqual({ early: [0], stuck: [] });
     expect(balanceWarnings([{ down: true, delay: 1, keycode: 4 }])).toEqual({ early: [], stuck: [4] });
+  });
+
+  it('actionLimit clamps to at most MACRO_PROTOCOL_EVENT_LIMIT (960)', () => {
+    expect(MACRO_PROTOCOL_EVENT_LIMIT).toBe(960);
+    // E.g. capacity 2000, count 16 -> 960, not 1984
+    expect(actionLimit({ count: 16, capacity: 2000 })).toBe(960);
+    expect(actionLimit({ count: 16, capacity: 960 })).toBe(944);
+  });
+
+  it('undoing a save on an invalid slot restores valid=false', async () => {
+    const { macro, mock } = await setup();
+    // Slot 1 is initially invalid in mock
+    expect(macro.slots[1].valid).toBe(false);
+    expect((await mock.getMacroMeta(1)).valid).toBe(false);
+
+    // Save on slot 1 makes it valid
+    await macro.save(1, { mode: 0, repeatCount: 1, actions: sequence(2) });
+    expect(macro.slots[1].valid).toBe(true);
+    expect((await mock.getMacroMeta(1)).valid).toBe(true);
+
+    // Undo restores valid=false
+    useHistoryStore().undo();
+    await useSyncStore().flush();
+    expect((await mock.getMacroMeta(1)).valid).toBe(false);
+    expect(macro.slots[1].valid).toBe(false);
   });
 });

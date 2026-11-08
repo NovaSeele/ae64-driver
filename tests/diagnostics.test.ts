@@ -5,6 +5,8 @@ import { useDeviceStore } from '../src/stores/device';
 import { useKeymapStore } from '../src/stores/keymap';
 import { usePerformanceStore } from '../src/stores/performance';
 import { useSettingsStore } from '../src/stores/settings';
+import { useSyncStore } from '../src/stores/sync';
+import { useHistoryStore } from '../src/stores/history';
 import { useDiagnosticsStore } from '../src/stores/diagnostics';
 
 async function connectMock(): Promise<MockTransport> {
@@ -115,5 +117,91 @@ describe('diagnostics store', () => {
     // Verify settings restored
     expect(settingsStore.rgbSleep).toBe(5);
     expect(await mock.getRgbSleep()).toBe(5);
+  }, 15000);
+
+  it('rejects backup payload with blocked keycode (0xF200) without writing to transport', async () => {
+    const mock = await connectMock();
+    const diag = useDiagnosticsStore();
+    const backup = await diag.generateBackup();
+    const esc = PHYSICAL_KEYS[0];
+    backup.keymap[0][esc.id] = 0xf200; // Blocked keycode
+
+    const setKeycode = vi.spyOn(mock, 'setKeycode');
+    const setPerformance = vi.spyOn(mock, 'setPerformance');
+
+    const diff = await diag.parseAndDiffBackup(JSON.stringify(backup));
+    await expect(diag.applyRestore(diff)).rejects.toThrow(/Blocked keycode/);
+
+    expect(setKeycode).not.toHaveBeenCalled();
+    expect(setPerformance).not.toHaveBeenCalled();
+  });
+
+  it('rejects backup payload with unknown unassignable keycode (0xF204) without writing to transport', async () => {
+    const mock = await connectMock();
+    const diag = useDiagnosticsStore();
+    const backup = await diag.generateBackup();
+    const esc = PHYSICAL_KEYS[0];
+    backup.keymap[0][esc.id] = 0xf204; // Unknown unassignable keycode
+
+    const setKeycode = vi.spyOn(mock, 'setKeycode');
+    const setPerformance = vi.spyOn(mock, 'setPerformance');
+
+    const diff = await diag.parseAndDiffBackup(JSON.stringify(backup));
+    await expect(diag.applyRestore(diff)).rejects.toThrow(/Unassignable keycode/);
+
+    expect(setKeycode).not.toHaveBeenCalled();
+    expect(setPerformance).not.toHaveBeenCalled();
+  });
+
+  it('flushes pending queued edits before restore writes, and clears history after restore', async () => {
+    await connectMock();
+    const diag = useDiagnosticsStore();
+    const perfStore = usePerformanceStore();
+    const history = useHistoryStore();
+    const sync = useSyncStore();
+
+    await perfStore.load();
+    const esc = PHYSICAL_KEYS[0];
+    const wKey = PHYSICAL_KEYS[16];
+
+    // Enqueue a pending perf edit on 'W'
+    perfStore.apply([wKey.id], () => ({ normalPress: 1.1 }), 'edit W');
+    expect(sync.state).toBe('pending');
+    expect(history.canUndo).toBe(true);
+
+    const backup = await diag.generateBackup();
+    backup.keymap[0][esc.id] = 0x0014; // Key 'Q'
+    const diff = await diag.parseAndDiffBackup(JSON.stringify(backup));
+
+    await diag.applyRestore(diff);
+
+    // Verify pending perf edit was flushed and saved
+    expect(sync.state).toBe('saved');
+    expect(perfStore.values[wKey.id].normalPress).toBeCloseTo(1.1);
+    expect(history.canUndo).toBe(false);
+  }, 15000);
+
+  it('reports written sections and clears history when restore fails part-way', async () => {
+    const mock = await connectMock();
+    const diag = useDiagnosticsStore();
+    const history = useHistoryStore();
+
+    const backup = await diag.generateBackup();
+    const esc = PHYSICAL_KEYS[0];
+    backup.keymap[0][esc.id] = 0x0014; // Key 'Q' (changed keymap)
+    backup.performance[esc.id].normalPress = 1.3; // changed perf
+
+    const diff = await diag.parseAndDiffBackup(JSON.stringify(backup));
+
+    // Force performance write to fail after keymap writes
+    vi.spyOn(mock, 'setPerformance').mockRejectedValue(new Error('simulated perf bus error'));
+
+    // Push something to history to verify it gets cleared
+    history.push({ label: 'test', undo: () => {}, redo: () => {} });
+    expect(history.canUndo).toBe(true);
+
+    await expect(diag.applyRestore(diff)).rejects.toThrow(/keymap written; performance failed: simulated perf bus error/);
+
+    expect(history.canUndo).toBe(false);
   }, 15000);
 });
