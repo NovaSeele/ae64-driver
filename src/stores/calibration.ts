@@ -3,7 +3,7 @@
 // the bottom, then 02 06 01 + commit(SAVE_GROUP.CALIBRATION) finishes. Status per key: 0 uncalibrated,
 // 1 calibrated, 2 newly calibrated in this session (kept once seen).
 import { defineStore } from 'pinia';
-import { computed, ref, shallowRef } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import { FIRMWARE_ROWS, SAVE_GROUP } from '../protocol';
 import type { Ae64Transport, AxisDataType } from '../protocol';
 import { useDeviceStore } from './device';
@@ -32,6 +32,17 @@ export const useCalibrationStore = defineStore('calibration', () => {
   /** Latest matrices by PhysicalKey.id; replaced once per polled frame. */
   const frame = shallowRef<CalibrationFrame>(emptyFrame());
   const error = ref<string | null>(null);
+  /** True once a real frame was read from the keyboard; before that `frame` is only a zeroed placeholder. */
+  const loaded = ref(false);
+  /** The last failure may have left the keyboard in calibration mode (the stop command itself failed). */
+  const stopFailed = ref(false);
+  // A new connection (demo → real keyboard): the old frame belongs to another keyboard.
+  watch(() => device.connection, () => {
+    frame.value = emptyFrame();
+    loaded.value = false;
+    error.value = null;
+    stopFailed.value = false;
+  });
   const newCount = computed(() => frame.value.status.filter((s) => s === 2).length);
   const calibratedCount = computed(() => frame.value.status.filter((s) => s > 0).length);
   const uncalibratedCount = computed(() => frame.value.status.filter((s) => s === 0).length);
@@ -62,10 +73,16 @@ export const useCalibrationStore = defineStore('calibration', () => {
     if (phase.value !== 'idle') return;
     try {
       frame.value = await device.withTransport((t) => readFrame(t, false));
+      loaded.value = true;
       error.value = null;
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
     }
+  }
+
+  /** Best-effort 02 06 01 without committing; false when the keyboard may still be calibrating. */
+  async function tryStop(): Promise<boolean> {
+    return device.withTransport((t) => t.stopCalibration()).then(() => true, () => false);
   }
 
   async function poll(gen: number): Promise<void> {
@@ -75,12 +92,13 @@ export const useCalibrationStore = defineStore('calibration', () => {
         const next = await device.withTransport((t) => readFrame(t, true));
         if (gen !== generation) return;
         frame.value = next;
+        loaded.value = true;
       } catch (err) {
         if (gen !== generation) return;
         error.value = err instanceof Error ? err.message : String(err);
         generation++;
         // Never leave the keyboard in calibration mode: best-effort stop, nothing committed.
-        await device.withTransport((t) => t.stopCalibration()).catch(() => undefined);
+        stopFailed.value = !(await tryStop());
         phase.value = 'idle';
         return;
       }
@@ -93,6 +111,7 @@ export const useCalibrationStore = defineStore('calibration', () => {
     if (phase.value !== 'idle') return;
     phase.value = 'starting';
     error.value = null;
+    stopFailed.value = false;
     try {
       useLiveStore().stop();
       await useSyncStore().flush();
@@ -100,7 +119,7 @@ export const useCalibrationStore = defineStore('calibration', () => {
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
       // The start reply may be lost while the keyboard did enter calibration: always try to stop.
-      await device.withTransport((t) => t.stopCalibration()).catch(() => undefined);
+      stopFailed.value = !(await tryStop());
       phase.value = 'idle';
       return;
     }
@@ -110,37 +129,44 @@ export const useCalibrationStore = defineStore('calibration', () => {
     loopDone = poll(gen);
   }
 
-  async function end(save: boolean): Promise<void> {
-    if (phase.value !== 'running') return;
+  /** Resolves true when the session ended as asked (stopped, and saved when `save`); false when it did not. */
+  async function end(save: boolean): Promise<boolean> {
+    if (phase.value !== 'running') return true;
     phase.value = 'finishing';
     generation++;
     await loopDone;
+    let stopped = false;
     try {
       await device.withTransport(async (t) => {
         await t.stopCalibration();
+        stopped = true;
         if (save) await t.commit(SAVE_GROUP.CALIBRATION);
       });
+      stopFailed.value = false;
       // The calibrate flag lives in the performance record; reload so later writes preserve the new value.
       const perf = usePerformanceStore();
       if (perf.loadedProfile !== null) void perf.load(true);
       // As the factory driver does: once the session ends, "newly calibrated" is just "calibrated".
       frame.value = { ...frame.value, status: frame.value.status.map((s) => (s === 2 ? 1 : s)) };
+      return true;
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
+      stopFailed.value = !stopped;
+      return false;
     } finally {
       phase.value = 'idle';
     }
   }
 
   /** Stop calibration and save (02 06 01, commit group 1). */
-  function finish(): Promise<void> {
+  function finish(): Promise<boolean> {
     return end(true);
   }
 
   /** Stop calibration without committing. Also used when the page unmounts mid-session. */
-  function cancel(): Promise<void> {
+  function cancel(): Promise<boolean> {
     return end(false);
   }
 
-  return { phase, frame, error, newCount, calibratedCount, uncalibratedCount, refresh, start, finish, cancel };
+  return { phase, frame, error, loaded, stopFailed, newCount, calibratedCount, uncalibratedCount, refresh, start, finish, cancel };
 });

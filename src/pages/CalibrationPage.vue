@@ -3,7 +3,8 @@
 // per-key status / travel / ADC while the user bottoms out every key, then finish (02 06 01 + commit 1)
 // or cancel. Leaving the page mid-session always takes the keyboard out of calibration mode.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { IconCheck, IconPlayerPlay, IconX } from '@tabler/icons-vue';
+import { onBeforeRouteLeave } from 'vue-router';
+import { IconAlertTriangle, IconCheck, IconPlayerPlay, IconRefresh, IconX } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import { attachDemoPress } from '../components/live/demoPress';
@@ -28,35 +29,52 @@ const busy = computed(() => cal.phase === 'starting' || cal.phase === 'finishing
 let unmounted = false;
 
 const STATUS_COLOR = ['var(--danger)', 'var(--info)', 'var(--ok)'];
-const statusColor = (k: PhysicalKey) => STATUS_COLOR[cal.frame.status[k.id]] ?? STATUS_COLOR[0];
+/** Not colour-only: each state also has a glyph on the key (○ none, ✓ calibrated, ✓✓ newly calibrated). */
+const STATUS_GLYPH = ['○', '✓', '✓✓'];
+// Until a real frame is read every status would be 0 ("uncalibrated"): show neutral keys instead.
+const statusColor = (k: PhysicalKey) => (cal.loaded ? STATUS_COLOR[cal.frame.status[k.id]] ?? STATUS_COLOR[0] : 'var(--fg-4)');
+const statusGlyph = (k: PhysicalKey) => (cal.loaded ? STATUS_GLYPH[cal.frame.status[k.id]] ?? STATUS_GLYPH[0] : undefined);
 function fill(k: PhysicalKey) {
+  if (!cal.loaded) return 0;
   if (cal.frame.status[k.id] === 2) return 1;
   const max = perf.values[k.id]?.axisRangeMax || DEFAULT_RANGE_MM * 1000;
   return Math.min(1, cal.frame.route[k.id] / max);
 }
-const adc = (k: PhysicalKey) => String(cal.frame.adc[k.id]);
+const adc = (k: PhysicalKey) => (cal.loaded ? String(cal.frame.adc[k.id]) : undefined);
 
 const progress = computed(() => (running.value ? cal.newCount : cal.calibratedCount));
 const legend = computed(() => [
-  { color: STATUS_COLOR[0], label: t('calibration.legendNone'), n: cal.uncalibratedCount },
-  { color: STATUS_COLOR[1], label: t('calibration.legendDone'), n: cal.calibratedCount - cal.newCount },
-  { color: STATUS_COLOR[2], label: t('calibration.legendNew'), n: cal.newCount },
+  { color: STATUS_COLOR[0], glyph: STATUS_GLYPH[0], label: t('calibration.legendNone'), n: cal.uncalibratedCount },
+  { color: STATUS_COLOR[1], glyph: STATUS_GLYPH[1], label: t('calibration.legendDone'), n: cal.calibratedCount - cal.newCount },
+  { color: STATUS_COLOR[2], glyph: STATUS_GLYPH[2], label: t('calibration.legendNew'), n: cal.newCount },
 ]);
+const allDone = computed(() => cal.loaded && !running.value && cal.calibratedCount === 64);
+/** Failure text for a session that ended badly: says whether the keyboard may still be calibrating. */
+const sessionError = computed(() =>
+  cal.error ? `${t('calibration.failed', { error: cal.error })} ${cal.stopFailed ? t('calibration.stopFailed') : t('calibration.stoppedNotSaved')}` : null,
+);
+const loadError = computed(() => (cal.error && !cal.loaded ? t('calibration.loadFailed', { error: cal.error }) : null));
 
 async function begin() {
   confirmOpen.value = false;
   await cal.start();
   if (unmounted) await cal.cancel();
-  else if (cal.error) toast.show(t('calibration.failed', { error: cal.error }), 'error');
+  else if (cal.error) toast.show(sessionError.value ?? '', 'error');
 }
 async function finish() {
-  await cal.finish();
-  toast.show(cal.error ? t('calibration.failed', { error: cal.error }) : t('calibration.saved'), cal.error ? 'error' : 'success');
+  if (cal.newCount === 0 && !window.confirm(t('calibration.confirmEmpty'))) return;
+  const ok = await cal.finish();
+  if (ok) toast.show(t('calibration.saved'), 'success');
+  else toast.show(sessionError.value ?? '', 'error');
 }
 async function cancel() {
-  await cal.cancel();
-  toast.show(t('calibration.cancelled'), 'info');
+  const ok = await cal.cancel();
+  if (ok) toast.show(t('calibration.cancelled'), 'info');
+  else toast.show(`${t('calibration.cancelFailed', { error: cal.error ?? '' })} ${cal.stopFailed ? t('calibration.stopFailed') : ''}`.trim(), 'error');
 }
+
+// Leaving mid-session stops calibration without saving (onBeforeUnmount): ask first.
+onBeforeRouteLeave(() => (running.value ? window.confirm(t('calibration.confirmLeave')) : true));
 
 // demo: PC keyboard presses bottom out the matching key
 let detachDemo: (() => void) | null = null;
@@ -90,15 +108,16 @@ onBeforeUnmount(() => {
   <PageLayout :title="t('page.calibration')">
     <section class="kbrow">
       <div class="board" :class="{ 'board--live': running }">
-        <KeyboardView :keys="device.keys" :legend="device.legend" :sublabel="adc" :fill="fill" :color="statusColor" />
+        <KeyboardView :keys="device.keys" :legend="device.legend" :sublabel="adc" :fill="fill" :color="statusColor" :badge="statusGlyph" />
       </div>
       <aside class="aside">
         <span class="micro">{{ t('calibration.status') }}</span>
         <ul class="legend">
           <li v-for="l in legend" :key="l.label">
             <i :style="{ background: l.color, boxShadow: `0 0 8px ${l.color}` }" />
+            <span class="glyph" aria-hidden="true">{{ l.glyph }}</span>
             <span>{{ l.label }}</span>
-            <span class="num">{{ l.n }}</span>
+            <span class="num">{{ cal.loaded ? l.n : '—' }}</span>
           </li>
         </ul>
         <p class="hint">{{ t('calibration.adcHint') }}</p>
@@ -113,6 +132,7 @@ onBeforeUnmount(() => {
           <li :class="{ now: running }"><span class="steps__n num">2</span>{{ t('calibration.step2') }}</li>
           <li><span class="steps__n num">3</span>{{ t('calibration.step3') }}</li>
         </ol>
+        <p v-if="sessionError && cal.phase === 'idle'" class="alert" role="alert"><IconAlertTriangle :size="14" />{{ sessionError }}</p>
         <p v-if="!device.boardAllowed" class="warn">{{ t('calibration.readOnly') }}</p>
         <p v-if="device.demo" class="hint">{{ t('calibration.demoHint') }}</p>
         <div class="actions">
@@ -134,11 +154,18 @@ onBeforeUnmount(() => {
       </Card>
 
       <Card class="progress">
+        <div v-if="loadError" class="alert" role="alert">
+          <IconAlertTriangle :size="14" />
+          <span>{{ loadError }}</span>
+          <Button size="sm" variant="ghost" :icon="IconRefresh" @click="cal.refresh()">{{ t('calibration.retry') }}</Button>
+        </div>
+        <p v-else-if="!cal.loaded" class="hint" role="status">{{ t('calibration.loading') }}</p>
         <p v-if="running" class="running" role="status"><span class="pulse" />{{ t('calibration.running') }}</p>
-        <div class="big num">{{ progress }}<span class="of">/64</span></div>
-        <p class="sub">{{ running ? t('calibration.progressSession', { n: progress }) : t('calibration.progress', { n: progress }) }}</p>
-        <div class="bar" :class="{ 'bar--new': running }"><span :style="{ transform: `scaleX(${progress / 64})` }" /></div>
-        <p v-if="!running && cal.uncalibratedCount > 0" class="warn">{{ t('calibration.uncalibrated', { n: cal.uncalibratedCount }) }}</p>
+        <div class="big num">{{ cal.loaded ? progress : '—' }}<span class="of">/64</span></div>
+        <p v-if="cal.loaded" class="sub">{{ running ? t('calibration.progressSession', { n: progress }) : t('calibration.progress', { n: progress }) }}</p>
+        <div class="bar" :class="{ 'bar--new': running }"><span :style="{ transform: `scaleX(${cal.loaded ? progress / 64 : 0})` }" /></div>
+        <p v-if="allDone" class="done" role="status"><IconCheck :size="14" />{{ t('calibration.allDone') }}</p>
+        <p v-else-if="cal.loaded && !running && cal.uncalibratedCount > 0" class="warn">{{ t('calibration.uncalibrated', { n: cal.uncalibratedCount }) }}</p>
       </Card>
     </div>
 
@@ -153,7 +180,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.kbrow { display: flex; gap: var(--s-5); align-items: flex-start; }
+.kbrow { display: flex; gap: var(--s-5); align-items: flex-start; margin-bottom: var(--s-4); }
 .board { flex: 1; min-width: 0; max-width: 940px; margin: 0 auto; border-radius: var(--r-panel); transition: box-shadow var(--t-slow) var(--ease); }
 .board--live { box-shadow: 0 0 0 1px var(--acc-line); }
 .aside { flex: none; width: 188px; display: flex; flex-direction: column; gap: var(--s-2); }
@@ -163,9 +190,24 @@ onBeforeUnmount(() => {
 .legend li .num { margin-left: auto; color: var(--fg-1); font-weight: 600; }
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
 .warn { color: var(--warn); font-size: var(--fs-label); }
+.legend .glyph { width: 18px; text-align: center; color: var(--fg-3); }
+.alert {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: var(--s-2) 0 0;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-control);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--fs-label);
+}
+.alert svg { flex: none; margin-top: 1px; }
+.done { display: flex; align-items: center; gap: 6px; color: var(--ok); font-size: var(--fs-label); }
 
 @media (max-width: 1360px) {
   .kbrow { flex-direction: column-reverse; align-items: stretch; }
+  .board { width: 100%; }
   .aside { width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--s-4); }
   .legend { flex-direction: row; gap: var(--s-4); }
 }

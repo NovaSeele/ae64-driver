@@ -90,4 +90,55 @@ describe('calibration store', () => {
     expect(cal.error).toBe('write refused');
     expect(device.connected).toBe(true);
   });
+
+  it('is not loaded until a real frame is read, and stays unloaded when refresh fails', async () => {
+    const cal = useCalibrationStore();
+    expect(cal.loaded).toBe(false);
+    const get = vi.spyOn(mock, 'getAxisData').mockRejectedValueOnce(new Error('no reply'));
+    await cal.refresh();
+    expect(cal.loaded).toBe(false);
+    expect(cal.error).toBe('no reply');
+    get.mockRestore();
+    await cal.refresh();
+    expect(cal.loaded).toBe(true);
+    expect(cal.error).toBe(null);
+  });
+
+  it('finish and cancel report success', async () => {
+    const cal = useCalibrationStore();
+    await cal.start();
+    expect(await cal.finish()).toBe(true);
+    await cal.start();
+    expect(await cal.cancel()).toBe(true);
+    expect(cal.stopFailed).toBe(false);
+  });
+
+  it('cancel reports false and stopFailed when the stop command fails', async () => {
+    const cal = useCalibrationStore();
+    await cal.start();
+    vi.spyOn(mock, 'stopCalibration').mockRejectedValue(new Error('usb gone'));
+    expect(await cal.cancel()).toBe(false);
+    expect(cal.error).toBe('usb gone');
+    expect(cal.stopFailed).toBe(true);
+    expect(cal.phase).toBe('idle');
+  });
+
+  it('finish reports false but not stopFailed when only the commit fails', async () => {
+    const cal = useCalibrationStore();
+    await cal.start();
+    vi.spyOn(mock, 'commit').mockRejectedValue(new Error('commit failed'));
+    expect(await cal.finish()).toBe(false);
+    expect(cal.stopFailed).toBe(false);
+  });
+
+  it('a polling error stops calibration, reports the error and the stop result', async () => {
+    const cal = useCalibrationStore();
+    const stop = vi.spyOn(mock, 'stopCalibration');
+    await cal.start();
+    vi.spyOn(mock, 'getAxisData').mockRejectedValue(new Error('poll failed'));
+    await until(() => cal.phase === 'idle');
+    expect(cal.error).toBe('poll failed');
+    expect(stop).toHaveBeenCalledOnce();
+    expect(cal.stopFailed).toBe(false);
+  });
 });

@@ -26,4 +26,13 @@ export const calibrationEn: Record<keyof typeof calibrationVi, string> = {
   'calibration.uncalibrated': '{n} uncalibrated keys — consider recalibrating.',
   'calibration.adcHint': 'Small numbers show raw Hall sensor ADC values.',
   'calibration.demoHint': 'Demo: hold any key on your keyboard to simulate a full bottom-out.',
+  'calibration.loading': 'Reading key status…',
+  'calibration.loadFailed': 'Could not read calibration status: {error}',
+  'calibration.retry': 'Retry',
+  'calibration.stoppedNotSaved': 'The keyboard was told to leave calibration mode; nothing was saved.',
+  'calibration.stopFailed': 'The stop command failed — the keyboard may still be in calibration mode. Reconnect the keyboard.',
+  'calibration.cancelFailed': 'Could not cancel calibration: {error}',
+  'calibration.confirmEmpty': 'No key has been calibrated yet. Save anyway?',
+  'calibration.confirmLeave': 'Calibration is running. Leaving stops it without saving. Leave?',
+  'calibration.allDone': 'All 64/64 keys are calibrated.',
 };

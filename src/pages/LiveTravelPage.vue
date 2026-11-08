@@ -56,7 +56,7 @@ const modeLabel = computed(() => {
   if (!s) return '';
   if (!isRtMode(s.mode)) return t('perf.modeStandard');
   // Mode 2 = Rapid Trigger without Continuous RT.
-  return s.mode === 1 ? `${t('perf.modeRt')} · ${t('perf.continuous')}` : t('perf.modeRt');
+  return s.mode === 1 ? `${t('perf.modeRt')} · ${t('live.modeContinuous')}` : t('perf.modeRt');
 });
 
 function editKey() {
@@ -272,6 +272,7 @@ const simLabel = computed(() => t('live.simLabel', { key: keyName.value, mm: vie
 
 @media (max-width: 1360px) {
   .kbrow { flex-direction: column-reverse; align-items: stretch; }
+  .board { width: 100%; }
   .aside { width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
   .aside .hint { flex-basis: 100%; order: 9; }
 }

@@ -95,7 +95,7 @@ const field = computed(() => 0.12 + ratio.value * 0.7);
 </script>
 
 <template>
-  <svg class="sim" :class="{ 'sim--on': actuated }" viewBox="0 0 400 380" role="img" :aria-label="label">
+  <svg class="sim" :class="{ 'sim--on': actuated }" viewBox="0 0 440 380" role="img" :aria-label="label">
     <defs>
       <linearGradient id="sim-cap" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0" stop-color="#323840" />
@@ -179,7 +179,7 @@ const field = computed(() => 0.12 + ratio.value * 0.7);
 </template>
 
 <style scoped>
-.sim { display: block; width: 100%; max-width: 440px; height: auto; overflow: visible; }
+.sim { display: block; width: 100%; max-width: 484px; height: auto; overflow: visible; }
 .sim__cap { stroke: var(--line-3); transition: stroke var(--t-fast) var(--ease); }
 .sim--on .sim__cap { stroke: var(--acc); }
 .sim__magnet { fill: var(--fg-4); transition: fill var(--t-fast) var(--ease); }
