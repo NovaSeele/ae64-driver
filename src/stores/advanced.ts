@@ -357,7 +357,7 @@ export const useAdvancedStore = defineStore('advanced', () => {
   // device.info is read before the connection becomes usable, so no job can run before this has decided.
   watch(() => device.info, (info) => {
     if (!info) return;
-    const known = /[1-9a-f]/i.test(info.serial) && !device.demo;
+    const known = !device.demo && !/^0*$/.test(info.serial) && info.serial !== '255'.repeat(12); // all 0x00 / all 0xFF: never programmed
     tuningSnapshotsFor(known ? `${info.boardIdHex}:${info.serial}` : null);
   }, { flush: 'sync', immediate: true });
 
