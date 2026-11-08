@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { MockTransport, PHYSICAL_KEYS } from '../src/protocol';
-import type { PacketLogEntry } from '../src/protocol';
 import { useDeviceStore } from '../src/stores/device';
 import { useKeymapStore } from '../src/stores/keymap';
 import { usePerformanceStore } from '../src/stores/performance';
@@ -226,27 +225,74 @@ describe('diagnostics store', () => {
     expect(formatBuildTime(undefined)).toBe('—');
   });
 
+  it('records packets without a watcher, as a ring that keeps the newest 200 in order', async () => {
+    const mock = await connectMock();
+    const device = useDeviceStore();
+    expect(device.packetEntries().length).toBeGreaterThan(0); // the connect handshake itself
+    for (let i = 0; i < 150; i++) await mock.getActiveProfile(); // 300 packets
+    const rows = device.packetEntries();
+    expect(rows.length).toBe(200);
+    for (let i = 1; i < rows.length; i++) expect(rows[i].t).toBeGreaterThanOrEqual(rows[i - 1].t);
+    await mock.getProfileName(1);
+    const after = device.packetEntries();
+    expect(after.length).toBe(200);
+    expect(after[198].bytes.slice(0, 2)).toEqual([0x02, 0x03]); // newest two: request, reply of getProfileName(1)
+    expect(after[198].dir).toBe('out');
+    expect(after[199].dir).toBe('in');
+    expect(after[0]).toBe(rows[2]); // oldest two dropped
+  });
+
+  it('collapses consecutive live-travel polls into one row; another packet ends the group', async () => {
+    const mock = await connectMock();
+    const device = useDeviceStore();
+    const base = device.packetEntries().length;
+    for (let i = 0; i < 5; i++) await mock.getAxisData('route', 1); // 10 packets
+    let rows = device.packetEntries();
+    expect(rows.length).toBe(base + 1);
+    expect(rows[base].repeat).toBe(10);
+    expect(rows[base].tEnd).toBeGreaterThanOrEqual(rows[base].t);
+    await mock.getActiveProfile(); // 2 packets
+    await mock.getAxisData('route', 2);
+    rows = device.packetEntries();
+    expect(rows.length).toBe(base + 4);
+    expect(rows[base + 1].repeat).toBeUndefined();
+    expect(rows[base + 2].repeat).toBeUndefined();
+    expect(rows[base + 3].repeat).toBe(2);
+    expect(rows[base].repeat).toBe(10); // the earlier group is closed
+  });
+
   it('packetSeq is throttled to ~4 Hz and no timer runs without watchers', async () => {
     const mock = await connectMock();
     const device = useDeviceStore();
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] }); // the mock's own latency timers stay real
     const timersBefore = vi.getTimerCount();
-    let emit: (e: PacketLogEntry) => void = () => undefined;
-    vi.spyOn(mock, 'onPacket').mockImplementation((cb) => { emit = cb; return () => undefined; });
     const remove = device.watchPackets();
     expect(vi.getTimerCount()).toBe(timersBefore + 1);
     const seq0 = device.packetSeq;
-    for (let i = 0; i < 1700; i++) emit({ t: Date.now(), dir: 'in', bytes: [i & 0xff] });
-    expect(device.packetLog.length).toBe(200);
+    for (let i = 0; i < 110; i++) await mock.getActiveProfile(); // 220 packets
+    expect(device.packetEntries().length).toBe(200);
     expect(device.packetSeq).toBe(seq0); // nothing bumped between ticks
     await vi.advanceTimersByTimeAsync(1000);
-    const bumps = device.packetSeq - seq0;
-    expect(bumps).toBe(1); // dirty once, then idle ticks do not bump
+    expect(device.packetSeq - seq0).toBe(1); // dirty once, then idle ticks do not bump
     remove();
     expect(vi.getTimerCount()).toBe(timersBefore);
-    const seq1 = device.packetSeq;
+    // Still recording, but silently: no timer, no bump.
+    await mock.getActiveProfile();
     await vi.advanceTimersByTimeAsync(2000);
-    expect(device.packetSeq).toBe(seq1);
+    expect(device.packetSeq - seq0).toBe(1);
+  });
+
+  it('clears the buffer on a new connection', async () => {
+    const mock = await connectMock();
+    const device = useDeviceStore();
+    for (let i = 0; i < 5; i++) await mock.getActiveProfile();
+    const old = device.packetEntries();
+    await device.disconnect();
+    await device.connectDemo();
+    const fresh = device.packetEntries();
+    expect(fresh.length).toBeGreaterThan(0);
+    expect(fresh.some((e) => old.includes(e))).toBe(false);
+    expect(fresh.length).toBeLessThan(old.length + 5);
   });
 
   it('restore refuses before writing when the keyboard could not be read, and reports skipped keys', async () => {

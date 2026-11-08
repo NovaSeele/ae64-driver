@@ -20,9 +20,8 @@ import { t } from '../i18n/vi';
 const device = useDeviceStore();
 const diag = useDiagnosticsStore();
 const toast = useToast();
-// Packets are only recorded while this page is open.
+// The store records packets for the whole connection; watching makes `packetSeq` tick while this page is open.
 onBeforeUnmount(device.watchPackets());
-const openedAt = Date.now(); // the log also holds packets from an earlier visit; show only this one's
 const LOG_ROWS = 200;
 
 const logFilter = ref<'all' | 'in' | 'out'>('all');
@@ -32,7 +31,7 @@ const paused = ref(false);
 const frozen = shallowRef<PacketLogEntry[]>([]);
 
 function togglePause() {
-  if (!paused.value) frozen.value = device.packetLog.slice();
+  if (!paused.value) frozen.value = device.packetEntries().map((e) => ({ ...e })); // collapsed rows keep counting in the store: copy
   paused.value = !paused.value;
 }
 
@@ -84,13 +83,12 @@ function toHex(bytes: number[]): string {
 const filteredPackets = computed<PacketLogEntry[]>(() => {
   const q = logSearch.value.trim().toLowerCase();
   const dir = logFilter.value;
-  void device.packetSeq; // the log array is not reactive: re-run when the store reports new packets (≤ 4 Hz)
-  const source = paused.value ? frozen.value : device.packetLog;
+  void device.packetSeq; // the ring buffer is not reactive: re-run when the store reports new packets (≤ 4 Hz)
+  const source = paused.value ? frozen.value : device.packetEntries();
   const rows: PacketLogEntry[] = [];
   // Newest first, at most LOG_ROWS rows.
   for (let i = source.length - 1; i >= 0 && rows.length < LOG_ROWS; i--) {
     const e = source[i];
-    if (e.t < openedAt) break;
     if (dir !== 'all' && e.dir !== dir) continue;
     if (q && !toHex(e.bytes).includes(q) && !(e.note ?? '').toLowerCase().includes(q)) continue;
     rows.push(e);
@@ -98,11 +96,16 @@ const filteredPackets = computed<PacketLogEntry[]>(() => {
   return rows;
 });
 
+/** Hex of one packet, or the count for a row that stands for a run of live-travel polls. */
+function rowText(e: PacketLogEntry): string {
+  return e.repeat === undefined ? toHex(e.bytes) : t('diagnostics.travelPackets', { n: e.repeat });
+}
+
 async function copyLog() {
   const text = filteredPackets.value.map((e) => {
     const time = new Date(e.t).toISOString().slice(11, 23);
     const dir = e.dir.toUpperCase().padEnd(3);
-    const hex = toHex(e.bytes);
+    const hex = rowText(e);
     const note = e.note ? ` (${e.note})` : '';
     return `[${time}] ${dir}  ${hex}${note}`;
   }).join('\n');
@@ -318,7 +321,7 @@ async function doRestore() {
               <span class="diag-log-line__dir" :class="`diag-log-line__dir--${p.dir}`">
                 {{ p.dir.toUpperCase() }}
               </span>
-              <span class="diag-log-line__hex num">{{ toHex(p.bytes) }}</span>
+              <span class="diag-log-line__hex num">{{ rowText(p) }}</span>
               <span v-if="p.note" class="diag-log-line__note">{{ p.note }}</span>
             </div>
           </div>

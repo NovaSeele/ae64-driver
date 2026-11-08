@@ -254,18 +254,18 @@ describe('calibration lock', () => {
 });
 
 describe('device housekeeping', () => {
-  it('records packets only while someone watches the log', async () => {
+  it('records packets with or without a watcher', async () => {
     const mock = await connectMock();
     const device = useDeviceStore();
-    const before = device.packetLog.length;
+    const before = device.packetEntries().length;
     await mock.getActiveProfile();
-    expect(device.packetLog.length).toBe(before);
+    expect(device.packetEntries().length).toBe(before + 2);
     const stop = device.watchPackets();
     await mock.getActiveProfile();
-    expect(device.packetLog.length).toBe(before + 2);
+    expect(device.packetEntries().length).toBe(before + 4);
     stop();
     await mock.getActiveProfile();
-    expect(device.packetLog.length).toBe(before + 2);
+    expect(device.packetEntries().length).toBe(before + 6);
   });
 
   it('keys reporting an unknown performance mode are left alone', async () => {

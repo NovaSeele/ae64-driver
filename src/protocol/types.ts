@@ -72,7 +72,8 @@ export const SAVE_GROUP = { ALL: 0, CALIBRATION: 1, PERFORMANCE: 2, LIGHTING: 3,
 export type SaveGroup = typeof SAVE_GROUP[keyof typeof SAVE_GROUP];
 
 export interface TransportStats { lastLatencyMs: number; avgLatencyMs: number; requests: number; timeouts: number }
-export interface PacketLogEntry { t: number; dir: 'out' | 'in'; bytes: number[]; note?: string }
+/** `repeat`/`tEnd`: set on a row that stands for `repeat` consecutive live-travel polls (first at `t`, last at `tEnd`; `bytes` is the first). */
+export interface PacketLogEntry { t: number; dir: 'out' | 'in'; bytes: number[]; note?: string; repeat?: number; tEnd?: number }
 
 /** Implemented by HidTransport (WebHID) and MockTransport (demo). Requests are serialised. */
 export interface Ae64Transport {

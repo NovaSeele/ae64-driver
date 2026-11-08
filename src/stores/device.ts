@@ -17,6 +17,11 @@ const PACKET_LOG_SIZE = 200;
 const LATENCY_REFRESH_MS = 250;
 const PACKET_SEQ_MS = 250;
 
+/** Live-travel poll = axis data read `04 03 …` (FAMILY.PERFORMANCE, command 0x03), both the request and its reply. */
+function isTravelPoll(e: PacketLogEntry): boolean {
+  return e.bytes[0] === 0x04 && e.bytes[1] === 0x03;
+}
+
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -45,7 +50,7 @@ export const useDeviceStore = defineStore('device', () => {
    * never be shown, or written back, as this one's.
    */
   const connection = ref(0);
-  /** Bumped at most every PACKET_SEQ_MS while the packet log is watched and has new packets (packetLog itself is not reactive). */
+  /** Bumped at most every PACKET_SEQ_MS while the packet log is watched and has new packets (the ring itself is not reactive). */
   const packetSeq = ref(0);
   /** Bumped every LATENCY_REFRESH_MS while connected so views of `transport.stats` re-read it. */
   const statsTick = ref(0);
@@ -55,12 +60,15 @@ export const useDeviceStore = defineStore('device', () => {
   const connected = computed(() => status.value === 'connected');
   const hidAvailable = webHidAvailable();
 
-  const packetLog: PacketLogEntry[] = markRaw([]);
+  /** Fixed-size ring of the newest packets, written without touching reactive state. */
+  const packetRing: (PacketLogEntry | undefined)[] = markRaw(new Array(PACKET_LOG_SIZE).fill(undefined));
+  let packetHead = 0;
+  let packetCount = 0;
+  let lastPacket: PacketLogEntry | null = null;
   const profileListeners = new Set<() => void>();
   let detach: (() => void)[] = [];
-  /** Pages that show the packet log; packets are only recorded while > 0 (live travel sends ~1,700/s). */
+  /** Pages that show the packet log; the timer behind `packetSeq` only runs while > 0. */
   let packetWatchers = 0;
-  let detachPackets: (() => void) | null = null;
   let packetTimer: ReturnType<typeof setInterval> | null = null;
   let packetsDirty = false;
   let latencyTimer: ReturnType<typeof setInterval> | null = null;
@@ -118,9 +126,36 @@ export const useDeviceStore = defineStore('device', () => {
   }
 
   function handlePacket(e: PacketLogEntry): void {
-    packetLog.push(e);
-    if (packetLog.length > PACKET_LOG_SIZE) packetLog.splice(0, packetLog.length - PACKET_LOG_SIZE);
     packetsDirty = true;
+    if (isTravelPoll(e)) {
+      const last = lastPacket;
+      if (last?.repeat !== undefined) {
+        last.repeat++;
+        last.tEnd = e.t;
+        return;
+      }
+      lastPacket = packetRing[packetHead] = { ...e, repeat: 1, tEnd: e.t };
+    } else {
+      lastPacket = packetRing[packetHead] = e;
+    }
+    packetHead = (packetHead + 1) % PACKET_LOG_SIZE;
+    if (packetCount < PACKET_LOG_SIZE) packetCount++;
+  }
+
+  /** The recorded packets of this connection, oldest → newest (a collapsed poll group is one entry; `repeat` is live, copy it to freeze). */
+  function packetEntries(): PacketLogEntry[] {
+    const out: PacketLogEntry[] = [];
+    const start = (packetHead - packetCount + PACKET_LOG_SIZE) % PACKET_LOG_SIZE;
+    for (let i = 0; i < packetCount; i++) out.push(packetRing[(start + i) % PACKET_LOG_SIZE]!);
+    return out;
+  }
+
+  function clearPackets(): void {
+    packetRing.fill(undefined);
+    packetHead = 0;
+    packetCount = 0;
+    lastPacket = null;
+    packetsDirty = false;
   }
 
   function flushPackets(): void {
@@ -129,23 +164,16 @@ export const useDeviceStore = defineStore('device', () => {
     packetSeq.value++;
   }
 
-  function attachPackets(): void {
-    if (!detachPackets && transport.value && packetWatchers > 0) detachPackets = transport.value.onPacket(handlePacket);
-  }
-
-  /** Record packets into `packetLog` while the caller is mounted (Diagnostics). Returns the remover. */
+  /** Let a page show the packet log: bumps `packetSeq` at most every PACKET_SEQ_MS while packets arrive. Returns the remover. */
   function watchPackets(): () => void {
     packetWatchers++;
     if (!packetTimer) packetTimer = setInterval(flushPackets, PACKET_SEQ_MS);
-    attachPackets();
     let done = false;
     return () => {
       if (done) return;
       done = true;
       packetWatchers--;
       if (packetWatchers === 0) {
-        detachPackets?.();
-        detachPackets = null;
         if (packetTimer) clearInterval(packetTimer);
         packetTimer = null;
         flushPackets();
@@ -158,8 +186,6 @@ export const useDeviceStore = defineStore('device', () => {
     session++;
     detach.forEach((fn) => fn());
     detach = [];
-    detachPackets?.();
-    detachPackets = null;
     if (latencyTimer) clearInterval(latencyTimer);
     latencyTimer = null;
     transport.value = null;
@@ -182,8 +208,8 @@ export const useDeviceStore = defineStore('device', () => {
     connection.value++;
     transport.value = t;
     demo.value = isDemo;
-    detach = [t.onDisconnect(handleDisconnect)];
-    attachPackets();
+    clearPackets();
+    detach = [t.onDisconnect(handleDisconnect), t.onPacket(handlePacket)];
     latencyTimer = setInterval(() => {
       if (transport.value !== t) return;
       latencyMs.value = t.stats.lastLatencyMs;
@@ -295,7 +321,7 @@ export const useDeviceStore = defineStore('device', () => {
 
   return {
     transport, status, error, info, version, features, boardAllowed, demo, keys, profileCount, activeProfile,
-    profileNames, rtPrecision, layer0, latencyMs, connection, packetSeq, statsTick, exclusiveActive, connected, hidAvailable, packetLog, activeProfileName,
+    profileNames, rtPrecision, layer0, latencyMs, connection, packetSeq, statsTick, exclusiveActive, connected, hidAvailable, packetEntries, activeProfileName,
     legend, withTransport, calibrationLocked, watchPackets, onProfileChanged, refreshLayer0, connect, connectDemo,
     tryAutoReconnect, disconnect, switchProfile, renameProfile,
   };
