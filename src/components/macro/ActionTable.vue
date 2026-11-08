@@ -204,7 +204,7 @@ function endDrag() {
         <span class="row__more">
           <IconButton
             :icon="IconDots"
-            :label="t('macro.more')"
+            :label="t('macro.more', { n: String(i + 1).padStart(2, '0') })"
             size="sm"
             aria-haspopup="menu"
             :aria-expanded="menuRow === i"
@@ -217,7 +217,7 @@ function endDrag() {
     </TransitionGroup>
     </div>
 
-    <div v-if="menuRow !== null" ref="menuEl" class="menu" role="menu" :aria-label="t('macro.more')" :style="{ top: `${menuPos.top}px`, right: `${menuPos.right}px` }" @keydown="onMenuKey">
+    <div v-if="menuRow !== null" ref="menuEl" class="menu" role="menu" :aria-label="t('macro.more', { n: String(menuRow + 1).padStart(2, '0') })" :style="{ top: `${menuPos.top}px`, right: `${menuPos.right}px` }" @keydown="onMenuKey">
       <button type="button" role="menuitem" class="menu__it" :disabled="menuRow === 0" @click="menuDo((i) => step(i, -1))"><IconChevronUp :size="16" stroke-width="1.5" />{{ t('macro.moveUp') }}</button>
       <button type="button" role="menuitem" class="menu__it" :disabled="menuRow === actions.length - 1" @click="menuDo((i) => step(i, 1))"><IconChevronDown :size="16" stroke-width="1.5" />{{ t('macro.moveDown') }}</button>
       <button type="button" role="menuitem" class="menu__it" :disabled="!canInsert" @click="menuDo(insertBelow)"><IconRowInsertBottom :size="16" stroke-width="1.5" />{{ t('macro.insert') }}</button>
@@ -232,10 +232,13 @@ function endDrag() {
 
 <style scoped>
 .at { container-type: inline-size; }
-.at__in { display: flex; flex-direction: column; }
-.at__head, .row { display: grid; grid-template-columns: 24px 32px minmax(96px, 1fr) 124px 130px 118px; gap: var(--s-3); align-items: center; }
+/* One grid for the whole table: header and rows are subgrids, so the direction and action columns are sized
+   by their widest content in any row (VI and EN labels differ) and every row stays aligned. The edge tracks are
+   max-content because a subgrid's padding (the row's side padding) is taken out of its first and last track. */
+.at__in { display: grid; grid-template-columns: max-content 32px minmax(96px, 1fr) max-content minmax(112px, 130px) max-content; column-gap: var(--s-3); }
+.at__head, .at__body, .row { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; }
 .at__head { padding: 0 var(--s-3) var(--s-2); color: var(--fg-3); border-bottom: 1px solid var(--line-1); }
-.at__body { display: flex; flex-direction: column; max-height: 460px; overflow-y: auto; padding: 4px 0; }
+.at__body { align-content: start; max-height: 460px; overflow-y: auto; padding: 4px 0; }
 .row {
   position: relative;
   padding: 5px var(--s-3);
@@ -293,7 +296,7 @@ function endDrag() {
 .menu__it:disabled { opacity: 0.35; cursor: not-allowed; }
 
 @container (max-width: 759px) {
-  .at__head, .row { grid-template-columns: 24px 28px minmax(96px, 1fr) 108px 128px 28px; gap: var(--s-2); }
+  .at__in { grid-template-columns: max-content 28px minmax(96px, 1fr) max-content minmax(104px, 128px) max-content; column-gap: var(--s-2); }
   .row__acts { display: none; }
   .row__more { display: flex; }
   .dir__opt { padding: 0 4px; }

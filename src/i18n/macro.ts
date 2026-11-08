@@ -63,7 +63,7 @@ export const macroVi = {
   'macro.tabDirty': 'chưa lưu',
   'macro.waiting': 'Đang chờ ghi',
   'macro.waitingHint': 'Lần ghi trước bị gián đoạn giữa chừng nên Macro {n} sẽ được ghi lại ở lần đồng bộ tiếp theo. "Bỏ thay đổi" sẽ ghi lại bản đã lưu trước đó.',
-  'macro.more': 'Thêm thao tác',
+  'macro.more': 'Tuỳ chọn dòng {n}',
   'macro.moveUp': 'Chuyển lên',
   'macro.moveDown': 'Chuyển xuống',
   'macro.table': 'Bảng thao tác',

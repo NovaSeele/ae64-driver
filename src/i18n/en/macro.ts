@@ -65,7 +65,7 @@ export const macroEn: Record<keyof typeof macroVi, string> = {
   'macro.tabDirty': 'unsaved',
   'macro.waiting': 'Waiting to be written',
   'macro.waitingHint': 'The previous write was interrupted midway, so Macro {n} will be written again on the next sync. "Discard changes" writes the previously saved version back.',
-  'macro.more': 'More actions',
+  'macro.more': 'Row {n} options',
   'macro.moveUp': 'Move up',
   'macro.moveDown': 'Move down',
   'macro.table': 'Action table',
