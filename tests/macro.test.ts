@@ -104,22 +104,23 @@ describe('macro store', () => {
     expect(actionLimit({ count: 16, capacity: 960 })).toBe(944);
   });
 
-  it('undoing a save on an invalid slot restores valid=false', async () => {
+  it('undoing a save on an unused slot writes "Clear Data" (valid, 0 actions), never valid=0', async () => {
     const { macro, mock } = await setup();
-    // Slot 1 is initially invalid in mock
+    // Slot 1 is initially unused in mock
     expect(macro.slots[1].valid).toBe(false);
-    expect((await mock.getMacroMeta(1)).valid).toBe(false);
+    const meta = vi.spyOn(mock, 'setMacroMeta');
 
-    // Save on slot 1 makes it valid
     await macro.save(1, { mode: 0, repeatCount: 1, actions: sequence(2) });
-    expect(macro.slots[1].valid).toBe(true);
     expect((await mock.getMacroMeta(1)).valid).toBe(true);
 
-    // Undo restores valid=false
     useHistoryStore().undo();
     await useSyncStore().flush();
-    expect((await mock.getMacroMeta(1)).valid).toBe(false);
-    expect(macro.slots[1].valid).toBe(false);
+    const m = await mock.getMacroMeta(1);
+    expect(m.valid).toBe(true);
+    expect(m.actionCount).toBe(0);
+    expect(macro.slots[1].valid).toBe(true);
+    expect(macro.slots[1].actions).toEqual([]);
+    expect(meta.mock.calls.every(([x]) => x.valid)).toBe(true);
   });
 
   it('a failed save rolls the slot back to what the keyboard has', async () => {

@@ -122,7 +122,16 @@ const RULES: readonly Rule[] = [
   },
   // 07 macro
   { prefix: [0x07, 0x01], write: false, check: (p) => range(p[2], 0, 15, 'macro id') },
-  { prefix: [0x07, 0x02], write: true, check: (p) => range(p[2], 0, 15, 'macro id') },
+  // Macro meta: the reference only ever writes valid = 1 ("Clear Data" is valid + 0 actions), modes 0–5, ≤ 960 actions.
+  {
+    prefix: [0x07, 0x02],
+    write: true,
+    check: (p) =>
+      range(p[2], 0, 15, 'macro id') ??
+      (p[3] === 1 ? null : 'macro valid flag must be 1') ??
+      range((p[4] ?? 0) | ((p[5] ?? 0) << 8), 0, 64 * 15, 'macro action count') ??
+      range(p[8], 0, 5, 'macro mode'),
+  },
   { prefix: [0x07, 0x03], write: false, check: (p) => range(p[2], 0, 15, 'macro id') ?? range(p[3], 0, 63, 'macro page') },
   { prefix: [0x07, 0x04], write: true, check: (p) => range(p[2], 0, 15, 'macro id') ?? range(p[3], 0, 63, 'macro page') },
 ];

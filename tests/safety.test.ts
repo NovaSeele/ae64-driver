@@ -154,3 +154,18 @@ describe('keycode guard for combos and firmware codes', () => {
     }
   });
 });
+
+describe('macro meta guard (07 02)', () => {
+  // [07 02 id valid countLo countHi repLo repHi mode]
+  it('allows a valid meta, including Clear Data (0 actions)', () => {
+    ok([0x07, 0x02, 3, 1, 31, 0, 12, 0, 1]);
+    ok([0x07, 0x02, 3, 1, 0, 0, 1, 0, 0]);
+    ok([0x07, 0x02, 15, 1, 0xc0, 0x03, 1, 0, 5]); // 960 actions, mode 5
+  });
+  it('refuses valid = 0, too many actions or an unknown mode', () => {
+    blocked([0x07, 0x02, 3, 0, 0, 0, 1, 0, 0]);
+    blocked([0x07, 0x02, 3, 1, 0xc1, 0x03, 1, 0, 0]); // 961
+    blocked([0x07, 0x02, 3, 1, 1, 0, 1, 0, 6]);
+    blocked([0x07, 0x02, 16, 1, 1, 0, 1, 0, 0]);
+  });
+});

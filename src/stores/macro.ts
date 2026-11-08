@@ -136,8 +136,8 @@ export const useMacroStore = defineStore('macro', () => {
 
   function jobFor(id: number, d: MacroDraft) {
     const actions = d.actions.map((a) => ({ ...a }));
-    const valid = d.valid ?? true;
-    const meta: MacroMeta = { id, valid, actionCount: actions.length, repeatCount: storedRepeat(d), mode: d.mode };
+    // Always valid: the reference never writes valid = 0 (an unused slot is restored as "Clear Data": valid, 0 actions).
+    const meta: MacroMeta = { id, valid: true, actionCount: actions.length, repeatCount: storedRepeat(d), mode: d.mode };
     return {
       key: `macro:${id}`,
       group: SAVE_GROUP.MACRO,
@@ -159,7 +159,7 @@ export const useMacroStore = defineStore('macro', () => {
 
   function commit(id: number, d: MacroDraft): void {
     slots.value = slots.value.map((s) => (s.id === id
-      ? { id, valid: d.valid ?? true, mode: d.mode, repeatCount: storedRepeat(d), actions: d.actions.map((a) => ({ ...a })) }
+      ? { id, valid: true, mode: d.mode, repeatCount: storedRepeat(d), actions: d.actions.map((a) => ({ ...a })) }
       : s));
     sync.enqueue(jobFor(id, d));
   }
