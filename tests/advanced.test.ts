@@ -7,7 +7,7 @@ import { useHistoryStore } from '../src/stores/history';
 import { usePerformanceStore } from '../src/stores/performance';
 import { t as tr } from '../src/i18n/vi';
 import { PermanentSyncError, useSyncStore } from '../src/stores/sync';
-import { clearTuningSnapshots } from '../src/stores/tuning';
+import { clearTuningSnapshots, getTuningSnapshot, setTuningSnapshot, tuningSnapshotsFor } from '../src/stores/tuning';
 import {
   AdvancedConflictError, KEYBOARD_CODES, assignmentsFrom, fixUnusedStage3, mptBounds, normalizeDksMask, normalizeMptDepths, pickPairKey,
   setDksCell, swapPair, useAdvancedStore, validateAssignment,
@@ -381,6 +381,25 @@ describe('advanced store: failed writes', () => {
     const mine = adv.byKey.get(j.id)!;
     await expect(adv.save({ ...dksOn(k.id) }, mine)).rejects.toBeInstanceOf(AdvancedConflictError);
     expect(adv.byKey.get(j.id)?.type).toBe('DKS');
+  });
+});
+
+describe('tuning snapshots follow the keyboard', () => {
+  it('kept when the same keyboard is plugged in again, dropped for another or an unknown one', () => {
+    clearTuningSnapshots();
+    const p = { mode: 1, normalPress: 1.3 } as unknown as Performance;
+    tuningSnapshotsFor('0030000d:A1');
+    setTuningSnapshot(0, 5, p);
+    tuningSnapshotsFor('0030000d:A1'); // cable pulled mid-write, same keyboard back
+    expect(getTuningSnapshot(0, 5)).toBe(p);
+    tuningSnapshotsFor('0030000d:B2');
+    expect(getTuningSnapshot(0, 5)).toBeUndefined();
+    setTuningSnapshot(0, 5, p);
+    tuningSnapshotsFor(null); // demo, or a serial that cannot tell keyboards apart
+    expect(getTuningSnapshot(0, 5)).toBeUndefined();
+    setTuningSnapshot(0, 5, p);
+    tuningSnapshotsFor(null);
+    expect(getTuningSnapshot(0, 5)).toBeUndefined();
   });
 });
 

@@ -20,7 +20,7 @@ import { useDeviceStore } from './device';
 import { useHistoryStore } from './history';
 import { MAX_ATTEMPTS, PermanentSyncError, useSyncStore } from './sync';
 import { DEFAULT_RANGE_MM, pickEdit, usePerformanceStore } from './performance';
-import { clearTuningSnapshots, deleteTuningSnapshot, getTuningSnapshot, setTuningSnapshot } from './tuning';
+import { deleteTuningSnapshot, getTuningSnapshot, setTuningSnapshot, tuningSnapshotsFor } from './tuning';
 
 type N4 = [number, number, number, number];
 type N3 = [number, number, number];
@@ -352,8 +352,14 @@ export const useAdvancedStore = defineStore('advanced', () => {
     loadedProfile.value = null;
     loadPromise = null; // a load of the old keyboard may still be running: a new load() must start fresh
     loading.value = false;
-    clearTuningSnapshots();
   }, { flush: 'sync' });
+  // Tuning snapshots follow the physical keyboard (serial from `01 02`), not the connection: see stores/tuning.ts.
+  // device.info is read before the connection becomes usable, so no job can run before this has decided.
+  watch(() => device.info, (info) => {
+    if (!info) return;
+    const known = /[1-9a-f]/i.test(info.serial) && !device.demo;
+    tuningSnapshotsFor(known ? `${info.boardIdHex}:${info.serial}` : null);
+  }, { flush: 'sync', immediate: true });
 
   const assignments = computed(() => assignmentsFrom(records.value, device.keys));
   const byKey = computed(() => {
