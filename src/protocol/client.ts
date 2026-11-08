@@ -12,25 +12,28 @@ import {
   LED_RECORDS_PER_PACKET, LED_STRIP_COUNT, REPORT_LENGTH, REQUEST_TIMEOUT_MS,
 } from './constants';
 import * as c from './codec';
+import { checkFrame, checkPerformanceWrite, isWriteCommand, UnsafeCommandError } from './safety';
+import { t } from '../i18n/vi';
 
 export class TransportTimeoutError extends Error {
   constructor(command: number[]) {
-    super(`Bàn phím không phản hồi lệnh ${command.slice(0, 2).map((b) => b.toString(16).padStart(2, '0')).join(':')}.`);
+    super(t('error.transportTimeout', { cmd: command.slice(0, 2).map((b) => b.toString(16).padStart(2, '0')).join(':') }));
     this.name = 'TransportTimeoutError';
   }
 }
 
 export class WriteNotAllowedError extends Error {
   constructor() {
-    super('Bảng mạch này không nằm trong danh sách được phép ghi (chỉ AE64 Max 0030000D / Pro 0030000A).');
+    super(t('error.boardNotAllowed'));
     this.name = 'WriteNotAllowedError';
   }
 }
 
-/** Zero-padded 64-byte report; rejects firmware-family packets outright. */
+/** Zero-padded 64-byte report. Rejects firmware-family packets and anything not on the safety allow-list. */
 export function frameOf(payload: number[]): Uint8Array {
-  if (payload[0] === FIRMWARE_FAMILY) throw new Error('Lệnh firmware (family 08) bị chặn trong ứng dụng này.');
-  if (payload.length > REPORT_LENGTH) throw new RangeError(`Gói HID vượt quá ${REPORT_LENGTH} byte.`);
+  if (payload[0] === FIRMWARE_FAMILY) throw new Error(t('error.firmwareBlocked'));
+  checkFrame(payload);
+  if (payload.length > REPORT_LENGTH) throw new RangeError(t('error.hidLength', { max: REPORT_LENGTH }));
   const frame = new Uint8Array(REPORT_LENGTH);
   payload.forEach((b, i) => { frame[i] = c.byte(b, `byte ${i}`); });
   return frame;
@@ -81,7 +84,8 @@ export abstract class BaseTransport implements Ae64Transport {
   /** Serialised request: one in flight at a time, replies matched on bytes 0–1. */
   protected request(payload: number[], timeoutMs = REQUEST_TIMEOUT_MS): Promise<Bytes> {
     const run = async (): Promise<Bytes> => {
-      if (!this.connected) throw new Error('Bàn phím chưa được kết nối.');
+      if (!this.connected) throw new Error(t('error.notConnected'));
+      if (!this.boardAllowed && isWriteCommand(payload)) throw new WriteNotAllowedError();
       const frame = frameOf(payload);
       this.log('out', frame);
       const t0 = performance.now();
@@ -114,6 +118,11 @@ export abstract class BaseTransport implements Ae64Transport {
   /** Diagnostics only. Family 08 is always refused; on a non-allowed board only family 01 reads pass. */
   raw(payload: number[], timeoutMs?: number): Promise<Bytes> {
     if (!this.boardAllowed && payload[0] !== FAMILY.DEVICE) return Promise.reject(new WriteNotAllowedError());
+    try {
+      checkFrame(payload, { readOnly: true });
+    } catch (err) {
+      return Promise.reject(err);
+    }
     return this.request(payload, timeoutMs);
   }
 
@@ -240,12 +249,25 @@ export abstract class BaseTransport implements Ae64Transport {
 
   // ------------------------------------------------------------------ 04 performance
 
+  /** Performance records read from each key during this connection (newest last), for the write guard. */
+  private readonly perfSeen = new Map<string, Performance[]>();
+
   async getPerformance(pos: KeyPos): Promise<Performance> {
-    return c.decodePerformance(await this.request([FAMILY.PERFORMANCE, 0x01, pos.row, pos.col]));
+    const p = c.decodePerformance(await this.request([FAMILY.PERFORMANCE, 0x01, pos.row, pos.col]));
+    const k = `${pos.row}:${pos.col}`;
+    const seen = this.perfSeen.get(k) ?? [];
+    seen.push({ ...p });
+    if (seen.length > 8) seen.splice(0, seen.length - 8);
+    this.perfSeen.set(k, seen);
+    return p;
   }
 
+  /** Refused unless the key was read first and the sensor fields stay as the device reported them. */
   async setPerformance(pos: KeyPos, p: Performance): Promise<void> {
-    await this.write(c.encodePerformance(pos, p));
+    const payload = c.encodePerformance(pos, p);
+    const why = checkPerformanceWrite(p, this.perfSeen.get(`${pos.row}:${pos.col}`) ?? []);
+    if (why) throw new UnsafeCommandError(payload, why);
+    await this.write(payload);
   }
 
   async getAxisData(type: AxisDataType, row: number): Promise<AxisRow> {
