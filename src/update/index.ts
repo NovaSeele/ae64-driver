@@ -28,6 +28,8 @@ export const useUpdateStore = defineStore('update', () => {
   const state = ref<UpdateState>('idle');
   const availableInfo = ref<AvailableVersion | null>(null);
   const error = ref<string | null>(null);
+  /** Version downloaded but not yet applied (state 'deferred'). */
+  const deferredVersion = ref('');
 
   /** Why the page must not reload now (a reload mid-write or mid-calibration can leave the keyboard half-written). */
   const busyReason = computed<string | null>(() => {
@@ -169,6 +171,7 @@ export const useUpdateStore = defineStore('update', () => {
       if (!why) return true;
       // Downloaded but not applied: not a failure; the user reloads when ready.
       state.value = 'deferred';
+      deferredVersion.value = availableInfo.value?.version ?? '';
       error.value = null;
       return false;
     };
@@ -238,6 +241,7 @@ export const useUpdateStore = defineStore('update', () => {
     currentVersion,
     state,
     availableInfo,
+    deferredVersion,
     error,
     busyReason,
     check,

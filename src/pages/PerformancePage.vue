@@ -11,7 +11,7 @@ export function deriveRtLinked(recs: PerformanceRec[], isRt: (mode: number) => b
 // Hành trình — reference implementation of the per-key page pattern (docs/ARCHITECTURE.md).
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { IconAdjustmentsHorizontal, IconAlertTriangle, IconFlask, IconLink, IconLinkOff, IconRefresh } from '@tabler/icons-vue';
+import { IconAdjustmentsHorizontal, IconAlertTriangle, IconFlask, IconLink, IconLinkOff, IconLock, IconRefresh } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import EmptyState from '../components/shell/EmptyState.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
@@ -85,9 +85,12 @@ function sublabel(k: PhysicalKey): string | undefined {
 /** Rapid Trigger keys also show press/release sensitivity, like the factory driver's keycaps. */
 function badge(k: PhysicalKey): string | undefined {
   const p = perf.values[k.id];
-  if (p && !isKnownMode(p.mode)) return '🔒';
   if (!p || !isRtMode(p.mode) || metric.value !== 'actuation') return undefined;
   return `${short(p.rtPress)}/${short(p.rtRelease)}`;
+}
+function badgeIcon(k: PhysicalKey) {
+  const p = perf.values[k.id];
+  return p && !isKnownMode(p.mode) ? IconLock : undefined;
 }
 function badgeTitle(k: PhysicalKey): string | undefined {
   const p = perf.values[k.id];
@@ -207,6 +210,7 @@ const modeOptions = computed(() => [
         :sublabel="sublabel"
         :badge="badge"
         :badge-title="badgeTitle"
+        :badge-icon="badgeIcon"
         :fill="fill"
         :loading="perf.loading"
         selectable
@@ -256,7 +260,7 @@ const modeOptions = computed(() => [
     <div v-else class="grid">
       <div v-if="unknownCount" class="unknown" role="note">
         <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />
-        <span>{{ t('perf.unknownModes', { n: unknownCount }) }}<template v-if="!recs.length"> {{ t('perf.unsupportedMode') }}.</template></span>
+        <span>{{ t('perf.unknownModes', { n: unknownCount }) }}</span>
       </div>
       <template v-if="recs.length">
       <Card :title="t('perf.actuation')" :subtitle="allRt ? t('perf.actuationHintRt') : t('perf.actuationHintStandard')">

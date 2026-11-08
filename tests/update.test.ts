@@ -368,6 +368,7 @@ describe('update', () => {
       await store.apply();
 
       expect(store.state).toBe('deferred');
+      expect(store.deferredVersion).toBe('0.2.0');
       expect(store.error).toBeNull();
       expect(reloadMock).not.toHaveBeenCalled();
       expect(store.busyReason).toMatch(/calibration is running/i);

@@ -3,6 +3,7 @@
 // click = replace, Ctrl/⌘-click = toggle, Shift-click = range, drag = box select (Ctrl/Shift adds),
 // click on the case clears, Esc clears. Arrow keys move focus between keys, Space/Enter selects.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import type { Component } from 'vue';
 import Keycap from './Keycap.vue';
 import { layoutBounds } from '../../protocol';
 import type { PhysicalKey } from '../../protocol';
@@ -19,6 +20,8 @@ const props = defineProps<{
   badge?: (key: PhysicalKey) => string | undefined;
   /** Accessible name / tooltip for a key's badge (replaces the badge text in the key's aria-label). */
   badgeTitle?: (key: PhysicalKey) => string | undefined;
+  /** Tabler icon shown as the badge instead of its text. */
+  badgeIcon?: (key: PhysicalKey) => Component | undefined;
   fill?: (key: PhysicalKey) => number | undefined;
   color?: (key: PhysicalKey) => string | undefined;
   state?: (key: PhysicalKey) => 'pressed' | undefined;
@@ -187,7 +190,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
         :data-key="k.id"
         :tabindex="k.id === tabStop ? 0 : -1"
         :aria-pressed="selectable ? isSelected(k.id) : undefined"
-        :aria-label="`${legend ? legend(k) : k.name}${sublabel?.(k) ? ` · ${sublabel(k)!.replace(/\n/g, ' ')}` : ''}${badge?.(k) ? ` · ${badgeTitle?.(k) ?? badge(k)}` : ''}`"
+        :aria-label="`${legend ? legend(k) : k.name}${sublabel?.(k) ? ` · ${sublabel(k)!.replace(/\n/g, ' ')}` : ''}${badge?.(k) || badgeIcon?.(k) ? ` · ${badgeTitle?.(k) ?? badge?.(k)}` : ''}`"
         :style="{ left: `${k.x * unit}px`, top: `${k.y * unit}px`, width: `${k.w * unit}px`, height: `${unit}px` }"
         @keydown="onKeyDown($event, k)"
         @focus="focusId = k.id"
@@ -197,6 +200,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
           :sublabel="sublabel?.(k)"
           :badge="badge?.(k)"
           :badge-title="badgeTitle?.(k)"
+          :badge-icon="badgeIcon?.(k)"
           :fill="fill?.(k)"
           :color="color?.(k)"
           :state="state?.(k)"

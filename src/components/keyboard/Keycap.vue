@@ -1,5 +1,7 @@
 <script setup lang="ts">
 // One CSS keycap. Geometry is set by KeyboardView; this renders legend, value line, fill, LED colour and state.
+import type { Component } from 'vue';
+
 defineProps<{
   legend: string;
   sublabel?: string;
@@ -7,6 +9,8 @@ defineProps<{
   badge?: string;
   /** Accessible name / tooltip of the badge when its text alone is not meaningful (e.g. a lock icon). */
   badgeTitle?: string;
+  /** Tabler icon shown instead of the badge text (e.g. a lock for a read-only key). */
+  badgeIcon?: Component;
   /** 0..1 vertical fill (e.g. travel or actuation depth). */
   fill?: number;
   /** LED colour (CSS colour). */
@@ -29,8 +33,11 @@ defineProps<{
       <span v-if="color" class="cap__led" :style="{ background: color, boxShadow: `0 0 10px ${color}` }" />
       <span class="cap__legend">{{ legend }}</span>
       <span v-if="loading" class="cap__sub cap__sub--skeleton skeleton" />
-      <span v-else-if="sublabel !== undefined || badge" class="cap__foot">
-        <span v-if="badge" class="cap__badge num" :title="badgeTitle" :aria-label="badgeTitle">{{ badge }}</span>
+      <span v-else-if="sublabel !== undefined || badge || badgeIcon" class="cap__foot">
+        <span v-if="badgeIcon" class="cap__badge cap__badge--icon" :title="badgeTitle" :aria-label="badgeTitle">
+          <component :is="badgeIcon" :size="11" :stroke-width="1.8" aria-hidden="true" />
+        </span>
+        <span v-else-if="badge" class="cap__badge num" :title="badgeTitle" :aria-label="badgeTitle">{{ badge }}</span>
         <span v-if="sublabel !== undefined" class="cap__sub num">{{ sublabel }}</span>
       </span>
     </span>
@@ -132,6 +139,11 @@ defineProps<{
   color: var(--acc);
   opacity: 0.85;
   white-space: nowrap;
+}
+.cap__badge--icon {
+  display: inline-flex;
+  color: var(--fg-2);
+  opacity: 1;
 }
 .cap__sub--skeleton { width: 60%; height: 9px; }
 </style>

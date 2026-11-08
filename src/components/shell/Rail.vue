@@ -129,7 +129,7 @@ function formatUpdateDate(iso: string): string {
           </div>
 
           <div v-else-if="update.state === 'deferred'" class="help__status-row help__status-row--info" role="status">
-            <span>{{ t('update.deferred') }}</span>
+            <span>{{ t('update.deferred', { version: update.deferredVersion }) }}</span>
             <Button size="sm" :disabled="update.busyReason !== null" :title="update.busyReason ?? undefined" @click="update.reloadNow()">
               {{ t('update.reloadNow') }}
             </Button>
