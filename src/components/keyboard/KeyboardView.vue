@@ -56,10 +56,28 @@ function onPointerDown(e: PointerEvent) {
   root.value!.setPointerCapture(e.pointerId);
 }
 
+/** Keys whose cap intersects the drag box (plate coordinates). */
+function keysInBox(b: { x0: number; y0: number; x1: number; y1: number }): number[] {
+  const [x0, x1] = [Math.min(b.x0, b.x1), Math.max(b.x0, b.x1)];
+  const [y0, y1] = [Math.min(b.y0, b.y1), Math.max(b.y0, b.y1)];
+  const u = unit.value;
+  return props.keys.filter((k) => k.x * u < x1 && (k.x + k.w) * u > x0 && k.y * u < y1 && (k.y + 1) * u > y0).map((k) => k.id);
+}
+
+/** Live preview while box-selecting: the keys the box covers light up as it grows (added to the selection with Ctrl/Shift). */
+const boxHits = computed<Set<number> | null>(() => (box.value ? new Set(keysInBox(box.value)) : null));
+const boxAdds = ref(false);
+function isSelected(id: number): boolean {
+  const hits = boxHits.value;
+  if (!hits) return sel.selected.has(id);
+  return hits.has(id) || (boxAdds.value && sel.selected.has(id));
+}
+
 function onPointerMove(e: PointerEvent) {
   if (!start) return;
   const p = local(e);
   if (!box.value && Math.hypot(p.x - start.x, p.y - start.y) < DRAG_THRESHOLD) return;
+  boxAdds.value = start.mods !== 'replace';
   box.value = { x0: start.x, y0: start.y, x1: p.x, y1: p.y };
 }
 
@@ -68,12 +86,8 @@ function onPointerUp(e: PointerEvent) {
   const s = start;
   start = null;
   if (box.value) {
-    const b = box.value;
+    const hit = keysInBox(box.value);
     box.value = null;
-    const [x0, x1] = [Math.min(b.x0, b.x1), Math.max(b.x0, b.x1)];
-    const [y0, y1] = [Math.min(b.y0, b.y1), Math.max(b.y0, b.y1)];
-    const u = unit.value;
-    const hit = props.keys.filter((k) => k.x * u < x1 && (k.x + k.w) * u > x0 && k.y * u < y1 && (k.y + 1) * u > y0).map((k) => k.id);
     sel.selectMany(hit, s.mods === 'replace' ? 'replace' : 'range');
     return;
   }
@@ -158,7 +172,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
         class="kb__key"
         :data-key="k.id"
         :tabindex="k.id === tabStop ? 0 : -1"
-        :aria-pressed="selectable ? sel.selected.has(k.id) : undefined"
+        :aria-pressed="selectable ? isSelected(k.id) : undefined"
         :aria-label="`${legend ? legend(k) : k.name}${sublabel?.(k) ? ` · ${sublabel(k)}` : ''}${badge?.(k) ? ` · ${badge(k)}` : ''}`"
         :style="{ left: `${k.x * unit}px`, top: `${k.y * unit}px`, width: `${k.w * unit}px`, height: `${unit}px` }"
         @keydown="onKeyDown($event, k)"
@@ -171,7 +185,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
           :fill="fill?.(k)"
           :color="color?.(k)"
           :state="state?.(k)"
-          :selected="selectable && sel.selected.has(k.id)"
+          :selected="selectable && isSelected(k.id)"
           :loading="loading"
         />
       </button>
