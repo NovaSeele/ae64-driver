@@ -290,6 +290,9 @@ describe('advanced store: failed writes', () => {
     expect((await mock.getPerformance(host)).mode).toBe(0); // reset by the firmware, never restored
 
     failing = false;
+    // Nor could the keys be re-read: the page shows "read again" (the snapshot outlives the reload).
+    await vi.waitFor(() => expect(adv.loadError).toBe(tr('advanced.notLoaded')));
+    await adv.load(true);
     await adv.save({ ...first, depths: [0.6, 1.3, 2.1] });
     expect(await mock.getAdvanced(host)).toMatchObject({ type: 'MPT', depths: [0.6, 1.3, 2.1] });
     expect(await mock.getPerformance(host)).toEqual(before);
@@ -314,6 +317,9 @@ describe('advanced store: failed writes', () => {
     await expect(ctx.adv.save(first)).rejects.toThrow();
     expect((await ctx.mock.getPerformance(host)).mode).toBe(0); // reset by the firmware, never restored
     failing = false;
+    // The keys could not be re-read after the drop: the page shows "read again", and the user clicks it.
+    await vi.waitFor(() => expect(ctx.adv.loadError).toBe(tr('advanced.notLoaded')));
+    await ctx.adv.load(true);
     return { ...ctx, host, before };
   }
 
@@ -339,6 +345,22 @@ describe('advanced store: failed writes', () => {
     await adv.save({ type: 'MPT', keys: [host.id], keycodes: [0x1a, 0x08, 0], depths: [0.6, 1.3, 2.1] });
     expect(await mock.getAdvanced(host)).toMatchObject({ type: 'MPT', depths: [0.6, 1.3, 2.1] });
     expect(await mock.getPerformance(host)).toEqual(edited);
+  });
+
+  it('an undo that is written in part and then given up re-reads the keys: the list shows what the board has', async () => {
+    const { adv, mock, key } = await setup();
+    const [j, k] = [key('J'), key('K')];
+    const rs: RsAssignment = { type: 'RS', keys: [j.id, k.id], keycodes: [0x0d, 0x0e], delay: 0 };
+    await adv.save(rs);
+    await adv.remove(adv.byKey.get(j.id)!);
+    vi.spyOn(mock, 'setRappySnappyPair').mockRejectedValue(new Error('usb'));
+    useHistoryStore().undo(); // puts RS back optimistically; the write keeps failing until the job is dropped
+    expect(adv.byKey.get(j.id)?.type).toBe('RS');
+    const sync = useSyncStore();
+    for (let i = 0; i < 3; i++) await sync.flush().catch(() => undefined);
+    await vi.waitFor(() => expect(adv.byKey.get(j.id)).toBeUndefined());
+    expect((await mock.getAdvanced(j)).type).toBe('NONE');
+    expect(adv.byKey.get(k.id)).toBeUndefined();
   });
 
   it('a failure of another job does not fail a change that was saved', async () => {

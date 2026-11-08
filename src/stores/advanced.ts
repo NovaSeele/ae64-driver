@@ -453,8 +453,15 @@ export const useAdvancedStore = defineStore('advanced', () => {
       onDrop: () => {
         pending.dropped = true;
         if (!pending.touched) { pending.rollback(); return; }
-        // Written (at least partly) and never completed: the keys may have lost their travel settings.
+        // Written (at least partly) and never completed: the keys may have lost their travel settings,
+        // and the optimistic records may not be on the board (undo/redo has no settle() to re-read them).
         usePerformanceStore().loadedProfile = null;
+        void refreshKeys(involved).then((ok) => {
+          if (ok || loadedProfile.value !== profile) return;
+          // Could not read them either: the list is not trustworthy, show the "read again" card.
+          loadedProfile.value = null;
+          loadError.value = tr('advanced.notLoaded');
+        });
       },
       // Idempotent: every step reads the keyboard first and rewrites the same data; the tuning snapshot never changes.
       write: async (t: Ae64Transport) => {
@@ -566,7 +573,8 @@ export const useAdvancedStore = defineStore('advanced', () => {
     throw failure;
   }
 
-  async function refreshKeys(ids: number[]): Promise<void> {
+  /** Re-read `ids` from the keyboard; false when the read failed (the previous records stay). */
+  async function refreshKeys(ids: number[]): Promise<boolean> {
     const shown = ids.map((id) => records.value[id]);
     try {
       const fresh = await device.withTransport(async (t) => {
@@ -574,12 +582,13 @@ export const useAdvancedStore = defineStore('advanced', () => {
         for (const id of ids) out.push(await t.getAdvanced(device.keys[id]));
         return out;
       });
-      if (loadedProfile.value !== device.activeProfile) return;
+      if (loadedProfile.value !== device.activeProfile) return true;
       const next = { ...records.value };
       ids.forEach((id, i) => { if (next[id] === shown[i]) next[id] = fresh[i]; });
       records.value = next;
+      return true;
     } catch {
-      // the previous records stay
+      return false;
     }
   }
 
