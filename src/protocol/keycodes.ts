@@ -1,6 +1,7 @@
 // 16-bit AE64 keycode catalogue (ported from reference foundation.js / mapping.js).
 // `label` is the short keycap legend, `long` the full name. Combinations carry a HID modifier mask
 // in the high byte and one standard keyboard usage (4–223) in the low byte.
+import { t } from '../i18n/vi';
 
 export interface KeycodeEntry { code: number; label: string; long?: string }
 export interface KeycodeGroup { id: string; label: string; codes: KeycodeEntry[] }
@@ -78,24 +79,24 @@ const lightingArea = (area: number, short: string, long: string) =>
 const LIGHTING: KeycodeEntry[] = [...lightingArea(0, 'RGB', 'Lighting'), ...lightingArea(1, 'D1', 'Decorative lighting')];
 
 const SPECIAL: KeycodeEntry[] = [
-  e(0x0000, 'Empty', 'Empty (không gán)'), e(0x0001, 'Trans', 'Transparent (dùng phím lớp dưới)'),
+  { code: 0x0000, label: 'Empty', get long() { return t('key.emptyDesc'); } }, { code: 0x0001, label: 'Trans', get long() { return t('key.transDesc'); } },
   e(0xf209, 'Win Lock', 'Lock Win key'), e(0xf201, 'Win Mode', 'Switch to Windows layout (hold)'),
   e(0xf202, 'Mac Mode', 'Switch to macOS layout (hold)'), e(0xf203, 'Calibrate', 'Calibrate Hall sensors (hold)'),
 ];
 
 /** Selectable groups (KeyPicker). Factory reset (F200), wireless and gamepad codes are deliberately not offered. */
 export const KEYCODE_GROUPS: readonly KeycodeGroup[] = Object.freeze([
-  { id: 'basic', label: 'Cơ bản', codes: BASIC },
+  { id: 'basic', get label() { return t('key.groupBasic'); }, codes: BASIC },
   { id: 'modifier', label: 'Modifier', codes: MODIFIERS },
   { id: 'fkeys', label: 'F-keys', codes: FKEYS },
-  { id: 'navigation', label: 'Điều hướng', codes: NAVIGATION },
+  { id: 'navigation', get label() { return t('key.groupNavigation'); }, codes: NAVIGATION },
   { id: 'numpad', label: 'Numpad', codes: NUMPAD },
   { id: 'media', label: 'Media', codes: MEDIA },
-  { id: 'mouse', label: 'Chuột', codes: MOUSE },
+  { id: 'mouse', get label() { return t('key.groupMouse'); }, codes: MOUSE },
   { id: 'layer', label: 'Layer/Fn', codes: LAYER },
   { id: 'macro', label: 'Macro', codes: MACRO },
-  { id: 'lighting', label: 'Đèn', codes: LIGHTING },
-  { id: 'special', label: 'Đặc biệt', codes: SPECIAL },
+  { id: 'lighting', get label() { return t('key.groupLighting'); }, codes: LIGHTING },
+  { id: 'special', get label() { return t('key.groupSpecial'); }, codes: SPECIAL },
 ]);
 
 // Decode-only entries: codes that may already be on the board but are never offered for writing.
@@ -140,8 +141,8 @@ export function isComboTrigger(code: number): boolean {
 }
 
 export function comboKeycode(mask: number, trigger: number): number {
-  if (!(mask & 0xff)) throw new RangeError('Chọn ít nhất một modifier.');
-  if (!isComboTrigger(trigger)) throw new RangeError('Phím kích hoạt phải là phím bàn phím tiêu chuẩn.');
+  if (!(mask & 0xff)) throw new RangeError(t('error.modifierRequired'));
+  if (!isComboTrigger(trigger)) throw new RangeError(t('error.comboTriggerStandard'));
   return ((mask & 0xff) << 8) | trigger;
 }
 

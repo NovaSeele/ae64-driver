@@ -3,6 +3,7 @@
 import type { Ae64Transport, Bytes } from './types';
 import { CONFIG_USAGE, CONFIG_USAGE_PAGE, HID_FILTERS, REPORT_ID } from './constants';
 import { BaseTransport, TransportTimeoutError } from './client';
+import { t as tr } from '../i18n/vi';
 
 interface Pending {
   match0: number;
@@ -22,7 +23,7 @@ function isAe64(device: HIDDevice): boolean {
 
 export class NoDeviceSelectedError extends Error {
   constructor() {
-    super('Chưa chọn bàn phím AE64.');
+    super(tr('error.noAe64Selected'));
     this.name = 'NoDeviceSelectedError';
   }
 }
@@ -37,7 +38,7 @@ export class HidTransport extends BaseTransport {
   private readonly onReport = (e: HIDInputReportEvent) => this.handleReport(e);
   private readonly onHidDisconnect = (e: HIDConnectionEvent) => {
     if (e.device !== this.device) return;
-    this.failPending(new Error('Bàn phím đã bị ngắt kết nối.'));
+    this.failPending(new Error(tr('error.disconnected')));
     this.teardown();
     this.emitDisconnect();
   };
@@ -55,14 +56,14 @@ export class HidTransport extends BaseTransport {
   }
 
   async open(): Promise<void> {
-    if (!hasConfigCollection(this.device)) throw new Error('Thiết bị đã chọn không có cổng cấu hình FFB0:0001 của AE64.');
+    if (!hasConfigCollection(this.device)) throw new Error(tr('error.noConfigEndpoint'));
     if (!this.device.opened) await this.device.open();
     this.device.addEventListener('inputreport', this.onReport);
     navigator.hid.addEventListener('disconnect', this.onHidDisconnect);
   }
 
   async close(): Promise<void> {
-    this.failPending(new Error('Đã đóng kết nối bàn phím.'));
+    this.failPending(new Error(tr('error.connectionClosed')));
     this.teardown();
     if (this.device.opened) await this.device.close();
   }
@@ -113,7 +114,7 @@ async function openDevice(device: HIDDevice): Promise<HidTransport> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(/open|access|denied/i.test(msg)
-      ? 'Không mở được bàn phím. Hãy đóng các trình driver khác (hub.xsyd.top, tab khác) rồi thử lại.'
+      ? tr('error.openFailedOtherApp')
       : msg);
   }
   return t;
@@ -121,7 +122,7 @@ async function openDevice(device: HIDDevice): Promise<HidTransport> {
 
 /** requestDevice + open. Throws readable (Vietnamese) errors. */
 export async function connectHid(): Promise<Ae64Transport> {
-  if (!webHidAvailable()) throw new Error('Trình duyệt không hỗ trợ WebHID. Hãy dùng Chrome hoặc Edge bản desktop.');
+  if (!webHidAvailable()) throw new Error(tr('error.noWebHid'));
   const devices = await navigator.hid.requestDevice({ filters: [...HID_FILTERS] });
   const device = devices.find(isAe64);
   if (!device) throw new NoDeviceSelectedError();

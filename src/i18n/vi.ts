@@ -8,8 +8,10 @@ import { macroVi } from './macro';
 import { lightingVi } from './lighting';
 import { liveVi } from './live';
 import { calibrationVi } from './calibration';
+import { locale } from './locale';
+import { en } from './en';
 
-const base = {
+export const base = {
   'app.name': 'AE64 Max Control',
   'app.tagline': 'Driver cục bộ cho Everglide AE64 Max',
 
@@ -79,6 +81,7 @@ const base = {
 
   // performance
   'perf.metric': 'Hiển thị',
+  'perf.rtBadgeHint': 'Phím Rapid Trigger: số góc phải là điểm kích hoạt đầu, số xanh góc trái là độ nhạy nhấn/nhả (mm).',
   'perf.metricActuation': 'Actuation',
   'perf.metricRtPress': 'RT nhấn',
   'perf.metricRtRelease': 'RT nhả',
@@ -144,6 +147,57 @@ const base = {
   'help.shortcutUndo': 'Hoàn tác / Làm lại',
   'help.shortcutSelect': 'Bỏ chọn phím',
   'help.safety': 'Ứng dụng không bao giờ gửi lệnh firmware (family 08) hay khôi phục cài đặt gốc.',
+
+  // language
+  'lang.switch': 'Ngôn ngữ / Language',
+  'lang.vi': 'Tiếng Việt',
+  'lang.en': 'English',
+
+  // update
+  'update.version': 'Phiên bản {version}',
+  'update.check': 'Kiểm tra cập nhật',
+  'update.checking': 'Đang kiểm tra…',
+  'update.upToDate': 'Bạn đang dùng bản mới nhất',
+  'update.available': 'Có bản mới {version} ({date})',
+  'update.apply': 'Cập nhật',
+  'update.downloading': 'Đang tải bản cập nhật…',
+  'update.failed': 'Kiểm tra cập nhật thất bại: {error}',
+  'update.applyFailed': 'Cập nhật thất bại: {error}',
+  'update.retry': 'Thử lại',
+
+  // protocol / hid / client / codec errors
+  'error.byteRange': '{field} phải là số nguyên 0–255 (nhận {val}).',
+  'error.u16Range': '{field} phải là số 16-bit không dấu (nhận {val}).',
+  'error.paletteSize': 'Bảng màu cần đúng 8 màu.',
+  'error.dksCount': 'DKS cần 4 keycode và 4 điểm kích hoạt.',
+  'error.mptCount': 'MPT cần 3 keycode và 3 độ sâu.',
+  'error.mptOrder': 'Độ sâu MPT phải dương và tăng dần.',
+  'error.pairDistinct': 'Hai phím phải khác nhau.',
+  'error.socdMode': 'SOCD mode phải là 0–3.',
+  'error.macroDelay': 'Độ trễ macro phải từ 0 đến {max} ms.',
+  'error.macroKeycode': 'Macro cần keycode 16-bit.',
+  'error.macroActionsPerPage': 'Mỗi trang macro tối đa 15 thao tác.',
+  'error.transportTimeout': 'Bàn phím không phản hồi lệnh {cmd}.',
+  'error.boardNotAllowed': 'Bảng mạch này không nằm trong danh sách được phép ghi (chỉ AE64 Max 0030000D / Pro 0030000A).',
+  'error.firmwareBlocked': 'Lệnh firmware (family 08) bị chặn trong ứng dụng này.',
+  'error.hidLength': 'Gói HID vượt quá {max} byte.',
+  'error.noAe64Selected': 'Chưa chọn bàn phím AE64.',
+  'error.disconnected': 'Bàn phím đã bị ngắt kết nối.',
+  'error.noConfigEndpoint': 'Thiết bị đã chọn không có cổng cấu hình FFB0:0001 của AE64.',
+  'error.connectionClosed': 'Đã đóng kết nối bàn phím.',
+  'error.openFailedOtherApp': 'Không mở được bàn phím. Hãy đóng các trình driver khác (hub.xsyd.top, tab khác) rồi thử lại.',
+  'error.noWebHid': 'Trình duyệt không hỗ trợ WebHID. Hãy dùng Chrome hoặc Edge bản desktop.',
+  'error.modifierRequired': 'Chọn ít nhất một modifier.',
+  'error.comboTriggerStandard': 'Phím kích hoạt phải là phím bàn phím tiêu chuẩn.',
+
+  // keycodes
+  'key.emptyDesc': 'Empty (không gán)',
+  'key.transDesc': 'Transparent (dùng phím lớp dưới)',
+  'key.groupBasic': 'Cơ bản',
+  'key.groupNavigation': 'Điều hướng',
+  'key.groupMouse': 'Chuột',
+  'key.groupLighting': 'Đèn',
+  'key.groupSpecial': 'Đặc biệt',
 } as const;
 
 export const vi = {
@@ -162,6 +216,8 @@ export type MessageKey = keyof typeof vi;
 
 /** Look up a string; `{name}` placeholders are replaced from params. */
 export function t(key: MessageKey, params?: Record<string, string | number>): string {
-  const s: string = vi[key];
+  const current = locale.value;
+  const table = current === 'en' ? (en as unknown as Record<string, string>) : (vi as unknown as Record<string, string>);
+  const s: string = table[key] ?? (vi as unknown as Record<string, string>)[key] ?? key;
   return params ? s.replace(/\{(\w+)\}/g, (_, k: string) => String(params[k] ?? `{${k}}`)) : s;
 }

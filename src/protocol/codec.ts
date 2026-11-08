@@ -10,17 +10,18 @@ import {
   FAMILY, LED_RECORDS_PER_PACKET, MACRO_ACTIONS_PER_PAGE, MACRO_MAX_DELAY_MS,
   PALETTE_SIZE, SOCD_PAIR_MODES,
 } from './constants';
+import { t } from '../i18n/vi';
 
 // ---------------------------------------------------------------- primitives
 
 export function byte(value: number, field = 'value'): number {
-  if (!Number.isInteger(value) || value < 0 || value > 0xff) throw new RangeError(`${field} phải là số nguyên 0–255 (nhận ${value}).`);
+  if (!Number.isInteger(value) || value < 0 || value > 0xff) throw new RangeError(t('error.byteRange', { field, val: value }));
   return value;
 }
 
 export function le16(value: number, field = 'value'): [number, number] {
   const n = Math.round(value);
-  if (!Number.isInteger(n) || n < 0 || n > 0xffff) throw new RangeError(`${field} phải là số 16-bit không dấu (nhận ${value}).`);
+  if (!Number.isInteger(n) || n < 0 || n > 0xffff) throw new RangeError(t('error.u16Range', { field, val: value }));
   return [n & 0xff, n >>> 8];
 }
 
@@ -214,7 +215,7 @@ export function decodePalette(d: Bytes): PaletteEntry[] {
 }
 
 export function encodePalette(area: number, colors: PaletteEntry[]): number[] {
-  if (colors.length !== PALETTE_SIZE) throw new RangeError('Bảng màu cần đúng 8 màu.');
+  if (colors.length !== PALETTE_SIZE) throw new RangeError(t('error.paletteSize'));
   return [
     FAMILY.LIGHTING, 0x02, byte(area, 'area'), 0x01,
     ...colors.flatMap((c) => [byte(c.b, 'blue'), byte(c.g, 'green'), byte(c.r, 'red'), byte(c.hue, 'hue')]),
@@ -280,7 +281,7 @@ export function encodeClearAdvanced(p: KeyPos): number[] {
 
 /** DKS: `06 02 row col 01 key1..4 (LE16) trp1..4 (byte) db1 db2 (µm LE16)`. */
 export function encodeDks(a: { pos: KeyPos; keycodes: number[]; travels: number[]; dbs: [number, number] }): number[] {
-  if (a.keycodes.length !== 4 || a.travels.length !== 4) throw new RangeError('DKS cần 4 keycode và 4 điểm kích hoạt.');
+  if (a.keycodes.length !== 4 || a.travels.length !== 4) throw new RangeError(t('error.dksCount'));
   return [
     FAMILY.ADVANCED, 0x02, ...pos(a.pos), 1,
     ...a.keycodes.flatMap((k, i) => le16(k, `DKS keycode ${i + 1}`)),
@@ -291,9 +292,9 @@ export function encodeDks(a: { pos: KeyPos; keycodes: number[]; travels: number[
 
 /** MPT: `06 02 row col 02 key1..3 (LE16) depth1..3 (µm LE16)`; depths strictly increasing. */
 export function encodeMpt(a: { pos: KeyPos; keycodes: number[]; depths: number[] }): number[] {
-  if (a.keycodes.length !== 3 || a.depths.length !== 3) throw new RangeError('MPT cần 3 keycode và 3 độ sâu.');
+  if (a.keycodes.length !== 3 || a.depths.length !== 3) throw new RangeError(t('error.mptCount'));
   const [d1, d2, d3] = a.depths;
-  if (!(d1 > 0 && d1 < d2 && d2 < d3)) throw new RangeError('Độ sâu MPT phải dương và tăng dần.');
+  if (!(d1 > 0 && d1 < d2 && d2 < d3)) throw new RangeError(t('error.mptOrder'));
   return [
     FAMILY.ADVANCED, 0x02, ...pos(a.pos), 2,
     ...a.keycodes.flatMap((k, i) => le16(k, `MPT keycode ${i + 1}`)),
@@ -302,14 +303,14 @@ export function encodeMpt(a: { pos: KeyPos; keycodes: number[]; depths: number[]
 }
 
 function assertPair(first: KeyPos, second: KeyPos) {
-  if (first.row === second.row && first.col === second.col) throw new RangeError('Hai phím phải khác nhau.');
+  if (first.row === second.row && first.col === second.col) throw new RangeError(t('error.pairDistinct'));
 }
 
 /** SOCD pair: two reciprocal mode-6 records; outputs reversed in the second; mode bytes per SOCD_PAIR_MODES. */
 export function encodeSocdPair(a: { first: KeyPos; second: KeyPos; keycodes: [number, number]; delay: number; mode: 0 | 1 | 2 | 3 }): [number[], number[]] {
   assertPair(a.first, a.second);
   const modes = SOCD_PAIR_MODES[a.mode];
-  if (!modes) throw new RangeError('SOCD mode phải là 0–3.');
+  if (!modes) throw new RangeError(t('error.socdMode'));
   const [ka, kb] = a.keycodes;
   return [
     [FAMILY.ADVANCED, 0x02, ...pos(a.first, 'A'), 6, ...pos(a.second, 'B'), ...le16(ka), ...le16(kb), ...le16(a.delay, 'delay'), modes[0]],
@@ -342,8 +343,8 @@ export function encodeMacroMeta(m: MacroMeta): number[] {
 
 /** Packed action (uint32 LE): bit 31 = down, bits 16–30 = delay ms, bits 0–15 = keycode. */
 export function packMacroAction(a: MacroAction): number {
-  if (!Number.isInteger(a.delay) || a.delay < 0 || a.delay > MACRO_MAX_DELAY_MS) throw new RangeError(`Độ trễ macro phải từ 0 đến ${MACRO_MAX_DELAY_MS} ms.`);
-  if (!Number.isInteger(a.keycode) || a.keycode <= 0 || a.keycode > 0xffff) throw new RangeError('Macro cần keycode 16-bit.');
+  if (!Number.isInteger(a.delay) || a.delay < 0 || a.delay > MACRO_MAX_DELAY_MS) throw new RangeError(t('error.macroDelay', { max: MACRO_MAX_DELAY_MS }));
+  if (!Number.isInteger(a.keycode) || a.keycode <= 0 || a.keycode > 0xffff) throw new RangeError(t('error.macroKeycode'));
   return ((a.down ? 0x80000000 : 0) | (a.delay << 16) | a.keycode) >>> 0;
 }
 
@@ -357,7 +358,7 @@ export function macroPageCount(actionCount: number): number {
 
 /** `07 04 id page` + up to 15 packed actions. The offset byte is a page number, not an index. */
 export function encodeMacroPage(id: number, page: number, actions: MacroAction[]): number[] {
-  if (actions.length > MACRO_ACTIONS_PER_PAGE) throw new RangeError('Mỗi trang macro tối đa 15 thao tác.');
+  if (actions.length > MACRO_ACTIONS_PER_PAGE) throw new RangeError(t('error.macroActionsPerPage'));
   return [
     FAMILY.MACRO, 0x04, byte(id, 'macro id'), byte(page, 'macro page'),
     ...actions.flatMap((a) => {
