@@ -238,10 +238,20 @@ async function clearData() {
     saving.value = false;
   }
 }
-function discard() {
+async function discard() {
   stopRecording();
-  drafts.delete(current.value);
+  const id = current.value;
+  drafts.delete(id);
   removed.value = null;
+  if (!macro.waiting.has(id)) return;
+  saving.value = true;
+  try {
+    await macro.discardWaiting(id);
+  } catch (err) {
+    toast.show(err instanceof Error ? err.message : String(err), 'error');
+  } finally {
+    saving.value = false;
+  }
 }
 </script>
 
@@ -288,6 +298,7 @@ function discard() {
               <span class="slot__dirty" aria-hidden="true" :title="t('macro.dirty')" />
               <span class="sr-only">({{ t('macro.tabDirty') }})</span>
             </template>
+            <span v-else-if="macro.waiting.has(s.id)" class="slot__dirty" :title="t('macro.waiting')" />
           </button>
         </div>
         <p class="note">{{ t('macro.capacityNote', { total: macro.space.capacity, slots: macro.slotCount, n: macro.limit }) }}</p>
@@ -300,7 +311,9 @@ function discard() {
           <div>
             <h2 class="head__title">{{ t('macro.slotName', { n: current }) }}
               <span v-if="dirty" class="badge">{{ t('macro.dirty') }}</span>
+              <span v-else-if="macro.waiting.has(current)" class="badge">{{ t('macro.waiting') }}</span>
             </h2>
+            <p v-if="macro.waiting.has(current)" class="head__hint" role="status">{{ t('macro.waitingHint', { n: current }) }}</p>
             <p class="head__hint">
               <IconKeyboard :size="14" stroke-width="1.6" aria-hidden="true" />
               <span v-if="assignedKeys.length">{{ t('macro.assignedTo', { keys: assignedKeys.join(', ') }) }} · </span>
@@ -310,7 +323,7 @@ function discard() {
           </div>
           <div class="head__acts">
             <Button variant="ghost" :icon="IconEraser" :disabled="saving || recording || readOnly || !slot.actions.length" @click="confirmClear = true">{{ t('macro.clearData') }}</Button>
-            <Button variant="secondary" :disabled="!dirty || saving" @click="discard">{{ t('macro.discard') }}</Button>
+            <Button variant="secondary" :disabled="(!dirty && !macro.waiting.has(current)) || saving" @click="discard">{{ t('macro.discard') }}</Button>
             <Button variant="primary" :loading="saving" :disabled="!dirty || !!problem || saving || recording || readOnly" @click="save">{{ t('macro.save') }}</Button>
           </div>
         </div>

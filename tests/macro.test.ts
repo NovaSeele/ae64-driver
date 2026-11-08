@@ -123,14 +123,50 @@ describe('macro store', () => {
     expect(meta.mock.calls.every(([x]) => x.valid)).toBe(true);
   });
 
-  it('a failed save rolls the slot back to what the keyboard has', async () => {
+  it('a save refused before any packet drops the job and restores the slot', async () => {
     const { macro, mock } = await setup();
     const before = macro.slots[3];
-    vi.spyOn(mock, 'setMacroMeta').mockRejectedValue(new Error('usb error'));
+    const meta = vi.spyOn(mock, 'setMacroMeta').mockRejectedValue(new WriteNotAllowedError());
     await expect(macro.save(3, { mode: 1, repeatCount: 2, actions: sequence(4) })).rejects.toThrow();
     expect(macro.slots[3]).toEqual(before);
-    expect(macro.slots[3].actions).not.toHaveLength(4);
+    expect(macro.waiting.has(3)).toBe(false);
+    expect(useSyncStore().pendingCount()).toBe(0);
+    meta.mockClear();
+    await useSyncStore().flush();
+    expect(meta).not.toHaveBeenCalled();
     useSyncStore().reset();
+  });
+
+  it('a save that failed after packets were sent keeps retrying and shows the draft as waiting', async () => {
+    const { macro, mock } = await setup();
+    const before = macro.slots[3];
+    const draft = sequence(4);
+    vi.spyOn(mock, 'writeMacroActions').mockRejectedValueOnce(new Error('usb error'));
+    await expect(macro.save(3, { mode: 1, repeatCount: 2, actions: draft })).rejects.toThrow();
+    expect(macro.waiting.has(3)).toBe(true);
+    expect(macro.slots[3].actions).toEqual(draft);
+    expect(useSyncStore().pendingCount()).toBe(1);
+
+    // The next flush (any other edit) finishes the write; the slot is no longer waiting.
+    await useSyncStore().flush();
+    expect(macro.waiting.has(3)).toBe(false);
+    expect((await mock.readMacroActions(3, 4)).slice(0, 4)).toEqual(draft);
+    expect(macro.slots[3]).not.toEqual(before);
+  });
+
+  it('discarding a waiting draft writes the confirmed version back under the same key', async () => {
+    const { macro, mock } = await setup();
+    const before = macro.slots[0];
+    vi.spyOn(mock, 'writeMacroActions').mockRejectedValueOnce(new Error('usb error'));
+    await expect(macro.save(0, { mode: 1, repeatCount: 2, actions: sequence(4) })).rejects.toThrow();
+    expect(macro.waiting.has(0)).toBe(true);
+
+    await macro.discardWaiting(0);
+    expect(macro.waiting.has(0)).toBe(false);
+    expect(useSyncStore().pendingCount()).toBe(0);
+    expect(macro.slots[0]).toEqual(before);
+    expect(await mock.getMacroMeta(0)).toMatchObject({ valid: true, actionCount: before.actions.length, mode: before.mode });
+    expect((await mock.readMacroActions(0, before.actions.length)).slice(0, before.actions.length)).toEqual(before.actions);
   });
 
   it('a dropped write (permanent error) restores the slot through onDrop', async () => {

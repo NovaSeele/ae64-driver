@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // Macro action rows: drag handle (reorder), index, key (restricted picker), Nhấn/Nhả, delay (1–32767 ms),
-// insert-below and delete. Emits a whole new list on every change.
-import { computed, nextTick, ref } from 'vue';
-import { IconArrowDown, IconArrowUp, IconChevronDown, IconChevronUp, IconGripVertical, IconRowInsertBottom, IconTrash } from '@tabler/icons-vue';
+// insert-below and delete. Emits a whole new list on every change. In a narrow card (container query) move up/down,
+// insert and delete collapse into one "⋯" menu per row.
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
+import { IconArrowDown, IconArrowUp, IconChevronDown, IconChevronUp, IconDots, IconGripVertical, IconRowInsertBottom, IconTrash } from '@tabler/icons-vue';
 import NumberField from '../ui/NumberField.vue';
 import IconButton from '../ui/IconButton.vue';
 import Dialog from '../ui/Dialog.vue';
@@ -49,10 +50,64 @@ function step(i: number, dir: -1 | 1) {
   move(i, dir < 0 ? to : to + 1);
   void nextTick(() => {
     const row = root.value?.querySelectorAll('.row')[to];
-    const want = row?.querySelector<HTMLButtonElement>(`[data-move="${dir}"]`);
-    (want && !want.disabled ? want : row?.querySelector<HTMLButtonElement>('[data-move]:not(:disabled)'))?.focus();
+    const shown = (b: HTMLButtonElement | null | undefined) => (b && !b.disabled && b.offsetParent !== null ? b : null);
+    const want = shown(row?.querySelector<HTMLButtonElement>(`[data-move="${dir}"]`))
+      ?? shown(row?.querySelector<HTMLButtonElement>('[data-move]:not(:disabled)'))
+      ?? shown(row?.querySelector<HTMLButtonElement>('.row__more button'));
+    want?.focus();
   });
 }
+
+// ----- "⋯" menu (narrow card): fixed popover under the row's button, Esc / outside click / scroll closes it
+const menuRow = ref<number | null>(null);
+const menuPos = ref({ top: 0, right: 0 });
+const menuEl = ref<HTMLElement | null>(null);
+let menuTrigger: HTMLElement | null = null;
+function closeMenu(refocus = false) {
+  if (menuRow.value === null) return;
+  menuRow.value = null;
+  document.removeEventListener('pointerdown', onOutside, true);
+  window.removeEventListener('resize', onResize);
+  root.value?.removeEventListener('scroll', onResize, true);
+  if (refocus) menuTrigger?.focus();
+}
+function onOutside(e: Event) {
+  const el = e.target as Node;
+  if (menuEl.value?.contains(el) || menuTrigger?.contains(el)) return;
+  closeMenu();
+}
+function onResize() { closeMenu(); }
+function toggleMenu(e: MouseEvent, i: number) {
+  if (menuRow.value === i) { closeMenu(true); return; }
+  closeMenu();
+  menuTrigger = e.currentTarget as HTMLElement;
+  const r = menuTrigger.getBoundingClientRect();
+  menuPos.value = { top: r.bottom + 4, right: window.innerWidth - r.right };
+  menuRow.value = i;
+  document.addEventListener('pointerdown', onOutside, true);
+  window.addEventListener('resize', onResize);
+  root.value?.addEventListener('scroll', onResize, true);
+  void nextTick(() => menuEl.value?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus());
+}
+function onMenuKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(true); return; }
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  e.preventDefault();
+  const items = [...(menuEl.value?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])];
+  const at = items.indexOf(document.activeElement as HTMLButtonElement);
+  items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+}
+/** Run a row action from the menu: close first (the row may disappear or move). */
+function menuDo(fn: (i: number) => void) {
+  const i = menuRow.value;
+  if (i === null) return;
+  const trigger = menuTrigger;
+  closeMenu();
+  fn(i);
+  if (fn === step) return; // step() moves focus itself
+  void nextTick(() => (trigger?.isConnected ? trigger.focus() : undefined));
+}
+onBeforeUnmount(() => closeMenu());
 function pick(code: number) {
   patch(pickRow.value!, { keycode: code });
   pickRow.value = null;
@@ -139,14 +194,34 @@ function endDrag() {
           :disabled="disabled"
           @update:model-value="patch(i, { delay: Math.round($event) })"
         /></div>
-        <span class="row__acts" role="cell">
+        <span class="row__end" role="cell">
+        <span class="row__acts">
           <IconButton :icon="IconChevronUp" :label="t('macro.moveUp')" size="sm" data-move="-1" :disabled="disabled || i === 0" @click="step(i, -1)" />
           <IconButton :icon="IconChevronDown" :label="t('macro.moveDown')" size="sm" data-move="1" :disabled="disabled || i === actions.length - 1" @click="step(i, 1)" />
           <IconButton :icon="IconRowInsertBottom" :label="t('macro.insert')" size="sm" :disabled="disabled || !canInsert" @click="insertBelow(i)" />
           <IconButton :icon="IconTrash" :label="t('macro.remove')" size="sm" :disabled="disabled" @click="remove(i)" />
         </span>
+        <span class="row__more">
+          <IconButton
+            :icon="IconDots"
+            :label="t('macro.more')"
+            size="sm"
+            aria-haspopup="menu"
+            :aria-expanded="menuRow === i"
+            :disabled="disabled"
+            @click="toggleMenu($event, i)"
+          />
+        </span>
+        </span>
       </div>
     </TransitionGroup>
+    </div>
+
+    <div v-if="menuRow !== null" ref="menuEl" class="menu" role="menu" :aria-label="t('macro.more')" :style="{ top: `${menuPos.top}px`, right: `${menuPos.right}px` }" @keydown="onMenuKey">
+      <button type="button" role="menuitem" class="menu__it" :disabled="menuRow === 0" @click="menuDo((i) => step(i, -1))"><IconChevronUp :size="16" stroke-width="1.5" />{{ t('macro.moveUp') }}</button>
+      <button type="button" role="menuitem" class="menu__it" :disabled="menuRow === actions.length - 1" @click="menuDo((i) => step(i, 1))"><IconChevronDown :size="16" stroke-width="1.5" />{{ t('macro.moveDown') }}</button>
+      <button type="button" role="menuitem" class="menu__it" :disabled="!canInsert" @click="menuDo(insertBelow)"><IconRowInsertBottom :size="16" stroke-width="1.5" />{{ t('macro.insert') }}</button>
+      <button type="button" role="menuitem" class="menu__it" @click="menuDo(remove)"><IconTrash :size="16" stroke-width="1.5" />{{ t('macro.remove') }}</button>
     </div>
 
     <Dialog v-model:open="pickOpen" :title="pickRow !== null ? t('macro.pickKey', { n: pickRow + 1 }) : ''" :width="620">
@@ -156,9 +231,9 @@ function endDrag() {
 </template>
 
 <style scoped>
-.at { overflow-x: auto; }
-.at__in { display: flex; flex-direction: column; min-width: 720px; }
-.at__head, .row { display: grid; grid-template-columns: 24px 32px 140px 150px 150px 1fr; gap: var(--s-3); align-items: center; }
+.at { container-type: inline-size; }
+.at__in { display: flex; flex-direction: column; }
+.at__head, .row { display: grid; grid-template-columns: 24px 32px minmax(96px, 1fr) 124px 130px 118px; gap: var(--s-3); align-items: center; }
 .at__head { padding: 0 var(--s-3) var(--s-2); color: var(--fg-3); border-bottom: 1px solid var(--line-1); }
 .at__body { display: flex; flex-direction: column; max-height: 460px; overflow-y: auto; padding: 4px 0; }
 .row {
@@ -184,9 +259,45 @@ function endDrag() {
 .row__grip { display: grid; place-items: center; color: var(--fg-4); cursor: grab; }
 .row__grip:hover { color: var(--fg-2); }
 .row__idx { color: var(--fg-3); font-size: var(--fs-label); }
-.row :deep(.os) { width: 140px; height: 36px; }
-.row :deep(.nf) { width: 150px; }
+.row :deep(.os) { width: 100%; min-width: 0; height: 36px; }
+.row :deep(.nf) { width: 100%; }
 .row__acts { display: flex; gap: 2px; justify-content: flex-end; }
+.row__end { display: flex; justify-content: flex-end; min-width: 0; }
+.row__more { display: none; }
+.menu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-control);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+}
+.menu__it {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-1);
+  font-size: var(--fs-label);
+  text-align: left;
+}
+.menu__it:hover:not(:disabled), .menu__it:focus-visible { background: var(--bg-4); }
+.menu__it:disabled { opacity: 0.35; cursor: not-allowed; }
+
+@container (max-width: 759px) {
+  .at__head, .row { grid-template-columns: 24px 28px minmax(96px, 1fr) 108px 128px 28px; gap: var(--s-2); }
+  .row__acts { display: none; }
+  .row__more { display: flex; }
+  .dir__opt { padding: 0 4px; }
+}
 .cell { display: flex; min-width: 0; }
 .cell > .dir { flex: 1; }
 

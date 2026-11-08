@@ -4,8 +4,8 @@
 // "Xoá dữ liệu" keeps the slot valid with actNum = 0 and sends no pages.
 // Save = meta + every page → commit(SAVE_GROUP.MACRO) (sync store) → full read-back verify; history undoes it.
 import { defineStore } from 'pinia';
-import { computed, ref, shallowRef } from 'vue';
-import { MACRO_ACTIONS_PER_PAGE, MACRO_MAX_DELAY_MS, MACRO_SLOTS, SAVE_GROUP } from '../protocol';
+import { computed, reactive, ref, shallowRef } from 'vue';
+import { MACRO_ACTIONS_PER_PAGE, MACRO_MAX_DELAY_MS, MACRO_SLOTS, SAVE_GROUP, UnsafeCommandError, WriteNotAllowedError } from '../protocol';
 import type { Ae64Transport, MacroAction, MacroMeta } from '../protocol';
 import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
@@ -134,30 +134,48 @@ export const useMacroStore = defineStore('macro', () => {
     return loadPromise;
   }
 
+  /** Latest job per slot: `sent` once its first write packet (07 02) went out, `settled` once verified or dropped. */
+  const jobs = new Map<number, { sent: boolean; settled: boolean }>();
+  /** Slots whose write was interrupted after packets went out: the job keeps retrying and the slot shows the draft. */
+  const waiting = reactive(new Set<number>());
+
   function jobFor(id: number, d: MacroDraft) {
     const actions = d.actions.map((a) => ({ ...a }));
     // Always valid: the reference never writes valid = 0 (an unused slot is restored as "Clear Data": valid, 0 actions).
     const meta: MacroMeta = { id, valid: true, actionCount: actions.length, repeatCount: storedRepeat(d), mode: d.mode };
+    const st = { sent: false, settled: false };
+    jobs.set(id, st);
     return {
       key: `macro:${id}`,
       group: SAVE_GROUP.MACRO,
       label: tr('macro.slotName', { n: id }),
       write: async (t: Ae64Transport) => {
-        await t.setMacroMeta(meta);
+        const wasSent = st.sent;
+        st.sent = true;
+        try {
+          await t.setMacroMeta(meta);
+        } catch (err) {
+          // A refusal (safety guard, read-only board) happens before anything is sent.
+          if (err instanceof UnsafeCommandError || err instanceof WriteNotAllowedError) st.sent = wasSent;
+          throw err;
+        }
         if (actions.length) await t.writeMacroActions(id, actions);
       },
       verify: async (t: Ae64Transport) => {
         const read = await readSlot(t, id);
         confirmed.set(id, read);
         slots.value = slots.value.map((s) => (s.id === id ? read : s));
-        return read.valid === meta.valid && read.actions.length === actions.length && read.repeatCount === meta.repeatCount
+        const ok = read.valid === meta.valid && read.actions.length === actions.length && read.repeatCount === meta.repeatCount
           && read.mode === meta.mode && sameActions(read.actions, actions);
+        if (ok) { st.settled = true; waiting.delete(id); }
+        return ok;
       },
-      onDrop: () => restore(id),
+      onDrop: () => { st.settled = true; waiting.delete(id); restore(id); },
     };
   }
 
   function commit(id: number, d: MacroDraft): void {
+    waiting.delete(id);
     slots.value = slots.value.map((s) => (s.id === id
       ? { id, valid: true, mode: d.mode, repeatCount: storedRepeat(d), actions: d.actions.map((a) => ({ ...a })) }
       : s));
@@ -173,14 +191,35 @@ export const useMacroStore = defineStore('macro', () => {
     history.push({ label, undo: () => commit(id, before), redo: () => commit(id, after) });
   }
 
-  /** A failed save must not look saved: the slot shows what the keyboard has, so the caller's draft stays unsaved. */
+  /**
+   * A failed save must not look saved. Nothing sent yet: the job is replaced by a no-op (sync has no cancel) and the
+   * slot shows what the keyboard has. Packets sent: cancelling would leave a meta without its pages, so the job keeps
+   * retrying and the slot shows as waiting.
+   */
   async function flushOrRestore(id: number): Promise<void> {
     try {
       await sync.flush();
     } catch (err) {
-      restore(id);
+      const st = jobs.get(id);
+      if (st?.sent && !st.settled) {
+        waiting.add(id);
+      } else {
+        if (st && !st.settled) {
+          st.settled = true;
+          sync.enqueue({ key: `macro:${id}`, label: tr('macro.slotName', { n: id }), write: async () => 'skip' as const });
+        }
+        restore(id);
+      }
       throw err;
     }
+  }
+
+  /** Discard a draft that is waiting to be written: write the confirmed version back under the same sync key. */
+  async function discardWaiting(id: number): Promise<void> {
+    const real = confirmed.get(id);
+    if (!waiting.has(id) || !real) return;
+    commit(id, snapshot(real));
+    await flushOrRestore(id);
   }
 
   /** Validate and write a slot's mode, repeat and full action list; resolves after read-back verification. */
@@ -199,5 +238,5 @@ export const useMacroStore = defineStore('macro', () => {
     await flushOrRestore(id);
   }
 
-  return { space, slots, slotCount, limit, loading, loadedCount, loadError, loaded, load, save, clearData };
+  return { space, slots, slotCount, limit, loading, loadedCount, loadError, loaded, waiting, load, save, clearData, discardWaiting };
 });
