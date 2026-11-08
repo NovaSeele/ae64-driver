@@ -323,3 +323,38 @@ describe('per-keyboard caches', () => {
     expect(enqueue).not.toHaveBeenCalled();
   });
 });
+
+describe('restore baseline (X1, X2)', () => {
+  it('X1: restore after a profile switch on the Diagnostics page compares against the new profile', async () => {
+    await connectMock();
+    const device = useDeviceStore();
+    const keymap = useKeymapStore();
+    const diag = useDiagnosticsStore();
+    await keymap.load(); // the Keymap page was open on profile 0 earlier
+    const code0 = keymap.values[0][Q.id];
+    const payload = await diag.generateBackup();
+    await device.switchProfile(1); // nothing reloads the keymap store while Diagnostics is open
+    const other = code0 === 0x0004 ? 0x0005 : 0x0004;
+    await device.withTransport(async (t) => { await t.setKeycode(Q, other, 0); await t.commit(SAVE_GROUP.LAYOUT); });
+    expect(keymap.loadedProfile).toBe(0);
+    await diag.applyRestore({ payload } as never);
+    expect(await device.withTransport((t) => t.getKeycode(Q, 0))).toBe(code0);
+  }, 15000);
+
+  it('X2: a failed performance read aborts the restore before anything is written', async () => {
+    const mock = await connectMock();
+    const device = useDeviceStore();
+    const diag = useDiagnosticsStore();
+    const payload = await diag.generateBackup();
+    const before = payload.performance[Q.id].normalPress;
+    payload.performance[Q.id].normalPress = Math.round((before > 2 ? before - 0.5 : before + 0.5) * 100) / 100;
+    payload.keymap[0][Q.id] = payload.keymap[0][Q.id] === 0x0004 ? 0x0005 : 0x0004;
+    const setKeycode = vi.spyOn(mock, 'setKeycode');
+    const setPerformance = vi.spyOn(mock, 'setPerformance');
+    vi.spyOn(mock, 'getPerformance').mockRejectedValueOnce(new Error('usb hiccup'));
+    await expect(diag.applyRestore({ payload } as never)).rejects.toThrow(/nothing was written|chưa ghi gì/);
+    expect(setKeycode).not.toHaveBeenCalled();
+    expect(setPerformance).not.toHaveBeenCalled();
+    expect((await device.withTransport((t) => t.getPerformance(Q))).normalPress).toBeCloseTo(before, 3);
+  }, 15000);
+});

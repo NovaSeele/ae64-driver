@@ -1,6 +1,6 @@
 // Diagnostics store: export/import configuration backup (JSON), validate schema & board, calculate diffs.
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import {
   ALLOWED_BOARDS, FIRMWARE_ROWS, KEYCODE_GROUPS, LAYER_COUNT, MACRO_SLOTS, SAVE_GROUP, decodeCombo, supportsIntervalRt,
 } from '../protocol';
@@ -9,6 +9,7 @@ import type {
   PaletteEntry, Performance,
 } from '../protocol';
 import { BLOCKED_KEYCODES } from '../protocol/safety';
+import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
 import { useHistoryStore } from './history';
 import { useKeymapStore } from './keymap';
@@ -149,6 +150,8 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
   const isExporting = ref(false);
   const isRestoring = ref(false);
   const importDiff = ref<ImportDiff | null>(null);
+  // A diff was computed against another profile: it no longer describes what a restore would change.
+  watch(() => device.activeProfile, () => { importDiff.value = null; });
 
   /**
    * Reads the active profile's full configuration from device and returns the versioned JSON payload.
@@ -328,7 +331,7 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
    * Apply restore: writes keymap, performance and global settings through standard transport calls.
    * Only changed records are written to minimize bus traffic and wear.
    */
-  async function applyRestore(diff: ImportDiff): Promise<void> {
+  async function applyRestore(diff: ImportDiff): Promise<{ skipped: number }> {
     const { payload } = diff;
     if (payload.boardIdHex?.toLowerCase() !== device.info?.boardIdHex?.toLowerCase()) {
       throw new Error(`invalid_board_mismatch:${String(payload.boardIdHex).toUpperCase()}:${(device.info?.boardIdHex ?? '').toUpperCase()}`);
@@ -338,16 +341,22 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
       const sync = useSyncStore();
       const history = useHistoryStore();
 
-      if (keymapStore.loadedProfile === null) {
-        await keymapStore.load();
+      await sync.flush(); // pending edits reach the keyboard before the baseline is read
+      // Always re-read: the stores only follow a profile switch while their own page is open.
+      await keymapStore.load(true);
+      await perfStore.load(true);
+      if (
+        keymapStore.loadError || perfStore.loadError
+        || keymapStore.loadedProfile !== device.activeProfile || perfStore.loadedProfile !== device.activeProfile
+      ) {
+        throw new Error(tr('diagnostics.importUnreadable'));
       }
-      await perfStore.load();
       validateBackupPayload(payload, device.keys, keymapStore.values, perfStore.values, supportsIntervalRt(device.version));
 
-      await sync.flush();
       const release = sync.hold();
 
       const writtenSections: string[] = [];
+      let skipped = 0;
       let currentSection = '';
       let restoreError: Error | null = null;
 
@@ -382,6 +391,7 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
               const next = payload.performance[key.id];
               const cur = perfStore.values[key.id];
               // Keys reporting a mode this app does not know are left alone (as in the Performance page).
+              if (next && (!cur || !isKnownMode(cur.mode))) skipped++;
               if (next && cur && isKnownMode(cur.mode)) {
                 const changed = cur.mode !== next.mode
                   || Math.abs(cur.normalPress - next.normalPress) > 0.001
@@ -456,6 +466,7 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
         release();
         if (restoreError) throw restoreError;
       }
+      return { skipped };
     } finally {
       isRestoring.value = false;
     }

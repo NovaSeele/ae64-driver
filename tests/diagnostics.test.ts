@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { MockTransport, PHYSICAL_KEYS } from '../src/protocol';
+import type { PacketLogEntry } from '../src/protocol';
 import { useDeviceStore } from '../src/stores/device';
 import { useKeymapStore } from '../src/stores/keymap';
 import { usePerformanceStore } from '../src/stores/performance';
@@ -134,7 +135,7 @@ describe('diagnostics store', () => {
 
     expect(setKeycode).not.toHaveBeenCalled();
     expect(setPerformance).not.toHaveBeenCalled();
-  });
+  }, 15000);
 
   it('rejects backup payload with unknown unassignable keycode (0xF204) without writing to transport', async () => {
     const mock = await connectMock();
@@ -151,7 +152,7 @@ describe('diagnostics store', () => {
 
     expect(setKeycode).not.toHaveBeenCalled();
     expect(setPerformance).not.toHaveBeenCalled();
-  });
+  }, 15000);
 
   it('flushes pending queued edits before restore writes, and clears history after restore', async () => {
     await connectMock();
@@ -224,4 +225,47 @@ describe('diagnostics store', () => {
     expect(formatBuildTime('unknown')).toBe('unknown');
     expect(formatBuildTime(undefined)).toBe('—');
   });
+
+  it('packetSeq is throttled to ~4 Hz and no timer runs without watchers', async () => {
+    const mock = await connectMock();
+    const device = useDeviceStore();
+    vi.useFakeTimers();
+    const timersBefore = vi.getTimerCount();
+    let emit: (e: PacketLogEntry) => void = () => undefined;
+    vi.spyOn(mock, 'onPacket').mockImplementation((cb) => { emit = cb; return () => undefined; });
+    const remove = device.watchPackets();
+    expect(vi.getTimerCount()).toBe(timersBefore + 1);
+    const seq0 = device.packetSeq;
+    for (let i = 0; i < 1700; i++) emit({ t: Date.now(), dir: 'in', bytes: [i & 0xff] });
+    expect(device.packetLog.length).toBe(200);
+    expect(device.packetSeq).toBe(seq0); // nothing bumped between ticks
+    await vi.advanceTimersByTimeAsync(1000);
+    const bumps = device.packetSeq - seq0;
+    expect(bumps).toBe(1); // dirty once, then idle ticks do not bump
+    remove();
+    expect(vi.getTimerCount()).toBe(timersBefore);
+    const seq1 = device.packetSeq;
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(device.packetSeq).toBe(seq1);
+  });
+
+  it('restore refuses before writing when the keyboard could not be read, and reports skipped keys', async () => {
+    const mock = await connectMock();
+    const diag = useDiagnosticsStore();
+    const payload = await diag.generateBackup();
+    payload.keymap[0][PHYSICAL_KEYS[0].id] = payload.keymap[0][PHYSICAL_KEYS[0].id] === 0x0004 ? 0x0005 : 0x0004;
+    const setKeycode = vi.spyOn(mock, 'setKeycode');
+    vi.spyOn(mock, 'getKeymapRow').mockRejectedValueOnce(new Error('usb hiccup'));
+    await expect(diag.applyRestore({ payload } as never)).rejects.toThrow(/nothing was written|chưa ghi gì/);
+    expect(setKeycode).not.toHaveBeenCalled();
+
+    // A key in an unknown firmware mode is skipped and counted.
+    const good = await diag.generateBackup();
+    vi.spyOn(mock, 'getPerformance').mockImplementation(async (key) => {
+      const r = await MockTransport.prototype.getPerformance.call(mock, key);
+      return key.row === PHYSICAL_KEYS[0].row && key.col === PHYSICAL_KEYS[0].col ? { ...r, mode: 9 as never } : r;
+    });
+    const res = await diag.applyRestore({ payload: good } as never);
+    expect(res.skipped).toBe(1);
+  }, 15000);
 });

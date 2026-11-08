@@ -15,6 +15,7 @@ export type DeviceStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
 const PACKET_LOG_SIZE = 200;
 const LATENCY_REFRESH_MS = 250;
+const PACKET_SEQ_MS = 250;
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -44,7 +45,7 @@ export const useDeviceStore = defineStore('device', () => {
    * never be shown, or written back, as this one's.
    */
   const connection = ref(0);
-  /** Bumped per recorded packet while the packet log is watched (packetLog itself is not reactive). */
+  /** Bumped at most every PACKET_SEQ_MS while the packet log is watched and has new packets (packetLog itself is not reactive). */
   const packetSeq = ref(0);
   /** Bumped every LATENCY_REFRESH_MS while connected so views of `transport.stats` re-read it. */
   const statsTick = ref(0);
@@ -60,6 +61,8 @@ export const useDeviceStore = defineStore('device', () => {
   /** Pages that show the packet log; packets are only recorded while > 0 (live travel sends ~1,700/s). */
   let packetWatchers = 0;
   let detachPackets: (() => void) | null = null;
+  let packetTimer: ReturnType<typeof setInterval> | null = null;
+  let packetsDirty = false;
   let latencyTimer: ReturnType<typeof setInterval> | null = null;
   /**
    * Bumped on every reset: an exclusive job that started on an earlier connection must not decrement the
@@ -117,6 +120,12 @@ export const useDeviceStore = defineStore('device', () => {
   function handlePacket(e: PacketLogEntry): void {
     packetLog.push(e);
     if (packetLog.length > PACKET_LOG_SIZE) packetLog.splice(0, packetLog.length - PACKET_LOG_SIZE);
+    packetsDirty = true;
+  }
+
+  function flushPackets(): void {
+    if (!packetsDirty) return;
+    packetsDirty = false;
     packetSeq.value++;
   }
 
@@ -127,6 +136,7 @@ export const useDeviceStore = defineStore('device', () => {
   /** Record packets into `packetLog` while the caller is mounted (Diagnostics). Returns the remover. */
   function watchPackets(): () => void {
     packetWatchers++;
+    if (!packetTimer) packetTimer = setInterval(flushPackets, PACKET_SEQ_MS);
     attachPackets();
     let done = false;
     return () => {
@@ -136,6 +146,9 @@ export const useDeviceStore = defineStore('device', () => {
       if (packetWatchers === 0) {
         detachPackets?.();
         detachPackets = null;
+        if (packetTimer) clearInterval(packetTimer);
+        packetTimer = null;
+        flushPackets();
       }
     };
   }

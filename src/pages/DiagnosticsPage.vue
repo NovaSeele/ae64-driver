@@ -1,9 +1,9 @@
 <script setup lang="ts">
 // Diagnostics page: device identity, protocol version, feature bitmap, transport latency stats, packet log, backup/restore JSON.
 // Note: per safety guidelines, NO raw write console is provided.
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import {
-  IconCopy, IconCheck, IconDownload, IconUpload,
+  IconCopy, IconCheck, IconDownload, IconUpload, IconPlayerPause, IconPlayerPlay,
 } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import Card from '../components/ui/Card.vue';
@@ -22,10 +22,19 @@ const diag = useDiagnosticsStore();
 const toast = useToast();
 // Packets are only recorded while this page is open.
 onBeforeUnmount(device.watchPackets());
+const openedAt = Date.now(); // the log also holds packets from an earlier visit; show only this one's
+const LOG_ROWS = 200;
 
 const logFilter = ref<'all' | 'in' | 'out'>('all');
 const logSearch = ref('');
 const copied = ref(false);
+const paused = ref(false);
+const frozen = shallowRef<PacketLogEntry[]>([]);
+
+function togglePause() {
+  if (!paused.value) frozen.value = device.packetLog.slice();
+  paused.value = !paused.value;
+}
 
 const importDialogOpen = ref(false);
 const activeDiff = ref<ImportDiff | null>(null);
@@ -75,16 +84,18 @@ function toHex(bytes: number[]): string {
 const filteredPackets = computed<PacketLogEntry[]>(() => {
   const q = logSearch.value.trim().toLowerCase();
   const dir = logFilter.value;
-  void device.packetSeq; // the log array is not reactive: re-run on every recorded packet
-  return device.packetLog
-    .filter((e) => dir === 'all' || e.dir === dir)
-    .filter((e) => {
-      if (!q) return true;
-      const hex = toHex(e.bytes);
-      return hex.includes(q) || (e.note ?? '').toLowerCase().includes(q);
-    })
-    .slice()
-    .reverse(); // Newest first
+  void device.packetSeq; // the log array is not reactive: re-run when the store reports new packets (≤ 4 Hz)
+  const source = paused.value ? frozen.value : device.packetLog;
+  const rows: PacketLogEntry[] = [];
+  // Newest first, at most LOG_ROWS rows.
+  for (let i = source.length - 1; i >= 0 && rows.length < LOG_ROWS; i--) {
+    const e = source[i];
+    if (e.t < openedAt) break;
+    if (dir !== 'all' && e.dir !== dir) continue;
+    if (q && !toHex(e.bytes).includes(q) && !(e.note ?? '').toLowerCase().includes(q)) continue;
+    rows.push(e);
+  }
+  return rows;
 });
 
 async function copyLog() {
@@ -155,6 +166,13 @@ async function onFileSelected(e: Event) {
   }
 }
 
+// The shown diff was computed against the previous profile.
+watch(() => device.activeProfile, () => {
+  if (diag.isRestoring) return;
+  importDialogOpen.value = false;
+  activeDiff.value = null;
+});
+
 // No closing (Esc / backdrop / X) while the restore is writing.
 function onImportOpen(v: boolean) {
   if (!v && diag.isRestoring) return;
@@ -164,9 +182,10 @@ function onImportOpen(v: boolean) {
 async function doRestore() {
   if (!activeDiff.value || readOnly.value) return;
   try {
-    await diag.applyRestore(activeDiff.value);
+    const { skipped } = await diag.applyRestore(activeDiff.value);
     importDialogOpen.value = false;
     toast.show(t('diagnostics.importSuccess'), 'success');
+    if (skipped > 0) toast.show(t('diagnostics.importSkipped', { n: skipped }), 'warn');
   } catch (err) {
     toast.show(err instanceof Error ? err.message : String(err), 'error');
   }
@@ -258,8 +277,13 @@ async function doRestore() {
       </Card>
 
       <!-- 4. Packet Log -->
-      <Card :title="t('diagnostics.packetLogTitle')" :subtitle="t('diagnostics.packetLogDesc')">
+      <Card :title="t('diagnostics.packetLogTitle')" :subtitle="t('diagnostics.packetLogDesc', { n: LOG_ROWS })">
         <template #actions>
+          <Button size="sm" variant="ghost" @click="togglePause">
+            <IconPlayerPlay v-if="paused" :size="15" />
+            <IconPlayerPause v-else :size="15" />
+            {{ paused ? t('diagnostics.logResume') : t('diagnostics.logPause') }}
+          </Button>
           <Button size="sm" variant="ghost" @click="copyLog">
             <IconCheck v-if="copied" :size="15" />
             <IconCopy v-else :size="15" />
