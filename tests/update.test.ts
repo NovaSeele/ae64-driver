@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { computeReleaseFileList } from '../build/release';
-import { useUpdateStore } from '../src/update';
+import { buildVersionString, computeReleaseFileList, formatUtcStamp } from '../build/release';
+import { compareVersions, isNewerVersion, useUpdateStore } from '../src/update';
+import { useDeviceStore } from '../src/stores/device';
+import { useCalibrationStore } from '../src/stores/calibration';
+import { useSyncStore } from '../src/stores/sync';
 
 describe('update', () => {
   describe('computeReleaseFileList', () => {
@@ -35,6 +38,40 @@ describe('update', () => {
     });
   });
 
+  describe('version stamping and comparison', () => {
+    it('generates 14-digit UTC stamp with second resolution', () => {
+      const d = new Date('2026-11-09T00:20:16Z');
+      const stamp = formatUtcStamp(d);
+      expect(stamp).toBe('20261109002016');
+      expect(buildVersionString('0.1.0', d)).toBe('0.1.0+20261109002016');
+    });
+
+    it('compares semver cores accurately', () => {
+      expect(compareVersions('0.2.0', '0.1.0')).toBeGreaterThan(0);
+      expect(compareVersions('0.1.0', '0.2.0')).toBeLessThan(0);
+      expect(compareVersions('1.0.0', '0.9.9')).toBeGreaterThan(0);
+      expect(compareVersions('0.1.1', '0.1.0')).toBeGreaterThan(0);
+      expect(compareVersions('0.1.0', '0.1.0')).toBe(0);
+    });
+
+    it('compares build metadata as timestamps', () => {
+      // Second resolution: later second is newer
+      expect(compareVersions('0.1.0+20261109002017', '0.1.0+20261109002016')).toBeGreaterThan(0);
+      expect(compareVersions('0.1.0+20261109002015', '0.1.0+20261109002016')).toBeLessThan(0);
+
+      // 14-digit timestamp vs 12-digit timestamp
+      expect(compareVersions('0.1.0+20261109002016', '0.1.0+202611082200')).toBeGreaterThan(0);
+      expect(compareVersions('0.1.0+202611082200', '0.1.0+20261109002016')).toBeLessThan(0);
+    });
+
+    it('isNewerVersion rejects downgrades and identical versions', () => {
+      expect(isNewerVersion('0.1.0', '0.2.0')).toBe(false);
+      expect(isNewerVersion('0.1.0+202611082200', '0.1.0+20261109002016')).toBe(false);
+      expect(isNewerVersion('0.1.0+20261109002016', '0.1.0+20261109002016')).toBe(false);
+      expect(isNewerVersion('0.2.0+20261109002016', '0.1.0+20261109002016')).toBe(true);
+    });
+  });
+
   describe('update store state machine', () => {
     beforeEach(() => {
       setActivePinia(createPinia());
@@ -55,7 +92,6 @@ describe('update', () => {
     it('fallback fetch without service worker: detects up-to-date', async () => {
       const store = useUpdateStore();
 
-      // Mock global fetch
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({ version: store.currentVersion, builtAt: '2026-11-08T16:00:00Z', files: [] }),
@@ -87,6 +123,21 @@ describe('update', () => {
       });
     });
 
+    it('fallback fetch without service worker: downgrade is not offered', async () => {
+      const store = useUpdateStore();
+
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ version: '0.0.1+20260101000000', builtAt: '2026-01-01T00:00:00Z', files: [] }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      await store.check();
+
+      expect(store.state).toBe('upToDate');
+      expect(store.availableInfo).toBeNull();
+    });
+
     it('fallback fetch error sets error state', async () => {
       const store = useUpdateStore();
 
@@ -101,14 +152,13 @@ describe('update', () => {
     it('service worker messaging: check returns available', async () => {
       const store = useUpdateStore();
 
-      // Mock navigator.serviceWorker with controller
       const mockController = {
         postMessage: vi.fn((msg: { type: string }, ports: MessagePort[]) => {
           if (msg.type === 'check') {
             ports[0].postMessage({
               ok: true,
               available: true,
-              latest: '0.2.0+202611082200',
+              latest: '99.0.0+202611082200',
               builtAt: '2026-11-08T22:00:00Z',
             });
           }
@@ -127,13 +177,44 @@ describe('update', () => {
 
       expect(store.state).toBe('available');
       expect(store.availableInfo).toEqual({
-        version: '0.2.0+202611082200',
+        version: '99.0.0+202611082200',
         builtAt: '2026-11-08T22:00:00Z',
       });
     });
 
-    it('service worker messaging: apply calls reload on success', async () => {
+    it('service worker messaging: downgrade is not offered even if SW reported available', async () => {
       const store = useUpdateStore();
+
+      const mockController = {
+        postMessage: vi.fn((msg: { type: string }, ports: MessagePort[]) => {
+          if (msg.type === 'check') {
+            ports[0].postMessage({
+              ok: true,
+              available: true,
+              latest: '0.0.1+20260101000000',
+              builtAt: '2026-01-01T00:00:00Z',
+            });
+          }
+        }),
+      };
+
+      Object.defineProperty(navigator, 'serviceWorker', {
+        value: {
+          controller: mockController,
+          ready: Promise.resolve({}),
+        },
+        configurable: true,
+      });
+
+      await store.check();
+
+      expect(store.state).toBe('upToDate');
+      expect(store.availableInfo).toBeNull();
+    });
+
+    it('service worker messaging: apply sends offered version and calls reload on success', async () => {
+      const store = useUpdateStore();
+      store.availableInfo = { version: '0.2.0', builtAt: '' };
 
       const reloadMock = vi.fn();
       const origLocation = window.location;
@@ -143,9 +224,11 @@ describe('update', () => {
         configurable: true,
       });
 
+      let sentMsg: any = null;
       const mockController = {
-        postMessage: vi.fn((msg: { type: string }, ports: MessagePort[]) => {
+        postMessage: vi.fn((msg: { type: string; version?: string }, ports: MessagePort[]) => {
           if (msg.type === 'apply') {
+            sentMsg = msg;
             ports[0].postMessage({ ok: true, version: '0.2.0' });
           }
         }),
@@ -161,6 +244,7 @@ describe('update', () => {
 
       await store.apply();
 
+      expect(sentMsg).toEqual({ type: 'apply', version: '0.2.0' });
       expect(reloadMock).toHaveBeenCalled();
       Object.defineProperty(window, 'location', {
         value: origLocation,
@@ -171,6 +255,7 @@ describe('update', () => {
 
     it('service worker messaging: apply sets error on failure', async () => {
       const store = useUpdateStore();
+      store.availableInfo = { version: '0.2.0', builtAt: '' };
 
       const mockController = {
         postMessage: vi.fn((msg: { type: string }, ports: MessagePort[]) => {
@@ -192,6 +277,70 @@ describe('update', () => {
 
       expect(store.state).toBe('error');
       expect(store.error).toBe('Cache quota exceeded');
+    });
+
+    it('apply refused when exclusiveActive is true', async () => {
+      const store = useUpdateStore();
+      store.availableInfo = { version: '0.2.0', builtAt: '' };
+
+      const device = useDeviceStore();
+      vi.spyOn(device, 'exclusiveActive', 'get').mockReturnValue(true);
+      expect(device.exclusiveActive).toBe(true);
+
+      const reloadMock = vi.fn();
+      Object.defineProperty(window, 'location', {
+        value: { reload: reloadMock },
+        writable: true,
+        configurable: true,
+      });
+
+      await store.apply();
+
+      expect(store.state).toBe('error');
+      expect(store.error).toMatch(/keyboard write|operation in progress/i);
+      expect(reloadMock).not.toHaveBeenCalled();
+    });
+
+    it('apply refused when calibration is running', async () => {
+      const store = useUpdateStore();
+      store.availableInfo = { version: '0.2.0', builtAt: '' };
+
+      const calibration = useCalibrationStore();
+      calibration.phase = 'running';
+
+      const reloadMock = vi.fn();
+      Object.defineProperty(window, 'location', {
+        value: { reload: reloadMock },
+        writable: true,
+        configurable: true,
+      });
+
+      await store.apply();
+
+      expect(store.state).toBe('error');
+      expect(store.error).toMatch(/calibration is running/i);
+      expect(reloadMock).not.toHaveBeenCalled();
+    });
+
+    it('apply aborted when sync.flush rejects', async () => {
+      const store = useUpdateStore();
+      store.availableInfo = { version: '0.2.0', builtAt: '' };
+
+      const sync = useSyncStore();
+      vi.spyOn(sync, 'flush').mockRejectedValue(new Error('Unsaved device edits'));
+
+      const reloadMock = vi.fn();
+      Object.defineProperty(window, 'location', {
+        value: { reload: reloadMock },
+        writable: true,
+        configurable: true,
+      });
+
+      await store.apply();
+
+      expect(store.state).toBe('error');
+      expect(store.error).toBe('Unsaved device edits');
+      expect(reloadMock).not.toHaveBeenCalled();
     });
   });
 });

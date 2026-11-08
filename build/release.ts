@@ -15,7 +15,8 @@ export function formatUtcStamp(date: Date = new Date()): string {
   const d = pad(date.getUTCDate());
   const h = pad(date.getUTCHours());
   const min = pad(date.getUTCMinutes());
-  return `${y}${m}${d}${h}${min}`;
+  const s = pad(date.getUTCSeconds());
+  return `${y}${m}${d}${h}${min}${s}`;
 }
 
 export function buildVersionString(pkgVersion: string, date: Date = new Date()): string {
@@ -45,7 +46,8 @@ export interface ReleasePluginOptions {
 }
 
 export function releasePlugin(options: ReleasePluginOptions = {}): Plugin {
-  let outDir = 'dist';
+  let resolvedDistPath = '';
+  let resolvedRoot = '';
   const finalVersion = options.version;
   const finalBuiltAt = options.builtAt;
 
@@ -53,14 +55,16 @@ export function releasePlugin(options: ReleasePluginOptions = {}): Plugin {
     name: 'ae64-release',
     apply: 'build',
     configResolved(config) {
-      outDir = config.build.outDir || 'dist';
+      resolvedRoot = config.root;
+      resolvedDistPath = path.resolve(config.root, config.build.outDir || 'dist');
     },
     closeBundle() {
       const now = new Date();
       let version = finalVersion;
       if (!version) {
         try {
-          const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
+          const pkgPath = resolvedRoot ? path.resolve(resolvedRoot, 'package.json') : path.resolve('package.json');
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
           version = buildVersionString(pkg.version, now);
         } catch {
           version = buildVersionString('0.0.0', now);
@@ -68,7 +72,7 @@ export function releasePlugin(options: ReleasePluginOptions = {}): Plugin {
       }
       const builtAt = finalBuiltAt || now.toISOString();
 
-      const distPath = path.resolve(outDir);
+      const distPath = resolvedDistPath || (resolvedRoot ? path.resolve(resolvedRoot, 'dist') : path.resolve('dist'));
       if (!fs.existsSync(distPath)) return;
 
       function scanDir(dir: string, base = ''): string[] {

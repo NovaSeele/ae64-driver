@@ -1,5 +1,11 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
+import { useDeviceStore } from '../stores/device';
+import { useCalibrationStore } from '../stores/calibration';
+import { useSyncStore } from '../stores/sync';
+import { isNewerVersion } from './version';
+
+export * from './version';
 
 export type UpdateState = 'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'error';
 
@@ -22,7 +28,7 @@ export const useUpdateStore = defineStore('update', () => {
   const availableInfo = ref<AvailableVersion | null>(null);
   const error = ref<string | null>(null);
 
-  async function postSwMessage<T>(msg: { type: string }, timeoutMs = 15000): Promise<T> {
+  async function postSwMessage<T>(msg: { type: string; version?: string }, timeoutMs = 15000): Promise<T> {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
       throw new Error('ServiceWorker not supported');
     }
@@ -81,7 +87,7 @@ export const useUpdateStore = defineStore('update', () => {
         if (!reply.ok) {
           throw new Error(reply.error || 'Failed to check for updates');
         }
-        if (reply.available && reply.latest) {
+        if (reply.available && reply.latest && isNewerVersion(reply.latest, currentVersion)) {
           state.value = 'available';
           availableInfo.value = {
             version: reply.latest,
@@ -99,7 +105,7 @@ export const useUpdateStore = defineStore('update', () => {
         }
         const data = await res.json();
         const latest = data.version;
-        if (latest && latest !== currentVersion) {
+        if (latest && isNewerVersion(latest, currentVersion)) {
           state.value = 'available';
           availableInfo.value = {
             version: latest,
@@ -117,8 +123,57 @@ export const useUpdateStore = defineStore('update', () => {
   }
 
   async function apply(): Promise<void> {
+    const device = useDeviceStore();
+    const calibration = useCalibrationStore();
+    const sync = useSyncStore();
+
+    /** Why the page must not reload now (a reload mid-write or mid-calibration can leave the keyboard half-written). */
+    const busy = (): string | null => {
+      if (device.exclusiveActive) return 'Cannot update while a keyboard write is in progress';
+      if (calibration.phase !== 'idle' || device.calibrationLocked()) return 'Cannot update while calibration is running';
+      return null;
+    };
+    /** Re-checked right before reloading: the download can take a while and the user keeps working meanwhile. */
+    const readyToReload = async (): Promise<boolean> => {
+      let why = busy();
+      if (!why) {
+        try {
+          await sync.flush();
+          why = busy();
+        } catch (err) {
+          why = err instanceof Error ? err.message : String(err);
+        }
+      }
+      if (!why) return true;
+      state.value = 'error';
+      error.value = `${why}. The update is downloaded and applies the next time the page is reloaded.`;
+      return false;
+    };
+
+    const why = busy();
+    if (why) {
+      state.value = 'error';
+      error.value = why;
+      return;
+    }
+
+    const offeredVersion = availableInfo.value?.version;
+    if (!offeredVersion) {
+      state.value = 'error';
+      error.value = 'No update available to apply';
+      return;
+    }
+
     state.value = 'downloading';
     error.value = null;
+
+    try {
+      await sync.flush();
+    } catch (err) {
+      state.value = 'error';
+      error.value = err instanceof Error ? err.message : String(err);
+      return;
+    }
 
     try {
       const hasSw =
@@ -132,10 +187,14 @@ export const useUpdateStore = defineStore('update', () => {
           version?: string;
           error?: string;
         }
-        const reply = await postSwMessage<ApplyReply>({ type: 'apply' }, 120000);
+        const reply = await postSwMessage<ApplyReply>(
+          { type: 'apply', version: offeredVersion },
+          120000
+        );
         if (!reply.ok) {
           throw new Error(reply.error || 'Failed to apply update');
         }
+        if (!(await readyToReload())) return;
         if (typeof window !== 'undefined') {
           window.location.reload();
         }
