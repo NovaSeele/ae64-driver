@@ -67,7 +67,9 @@ export const useKeymapStore = defineStore('keymap', () => {
     fresh.clear();
     loadedProfile.value = null;
     fnNoticeTriggered.value = false;
-  });
+    loadPromise = null; // a load of the old keyboard may still be running: a new load() must start fresh
+    loading.value = false;
+  }, { flush: 'sync' });
   // The Fn-rule notice belongs to the profile it was triggered in.
   device.onProfileChanged(() => { fnNoticeTriggered.value = false; });
   let loadPromise: Promise<void> | null = null;
@@ -86,7 +88,9 @@ export const useKeymapStore = defineStore('keymap', () => {
     if (!force && loadedProfile.value === device.activeProfile && Object.keys(values.value[0] || {}).length) {
       return Promise.resolve();
     }
-    loadPromise = (async () => {
+    const gen = device.connection;
+    let mine: Promise<void> | null = null;
+    mine = (async () => {
       loading.value = true;
       loadError.value = null;
       loadedCount.value = 0;
@@ -99,6 +103,7 @@ export const useKeymapStore = defineStore('keymap', () => {
           for (let layer = 0; layer < LAYER_COUNT; layer++) {
             for (const row of FIRMWARE_ROWS) {
               const rowCodes = await t.getKeymapRow(layer, row);
+              if (gen !== device.connection) return;
               for (const key of device.keys) {
                 if (key.row === row) {
                   const code = rowCodes[key.col] ?? 0;
@@ -110,16 +115,21 @@ export const useKeymapStore = defineStore('keymap', () => {
             }
           }
         });
+        if (gen !== device.connection) return;
         values.value = next;
         loadedProfile.value = profile;
       } catch (err) {
+        if (gen !== device.connection) return;
         loadError.value = err instanceof Error ? err.message : String(err);
       } finally {
-        loading.value = false;
-        loadPromise = null;
+        if (loadPromise === mine) {
+          loading.value = false;
+          loadPromise = null;
+        }
       }
     })();
-    return loadPromise;
+    loadPromise = mine;
+    return mine;
   }
 
   /** Find the keycode inherited from lower layers when this key is Transparent (0x0001). */
@@ -157,6 +167,7 @@ export const useKeymapStore = defineStore('keymap', () => {
     return {
       key: `keymap:${profile}:${layer}:${id}`,
       group: SAVE_GROUP.LAYOUT,
+      keys: [id],
       profile,
       label: tr('keymap.keyLabel', { layer: LAYER_NAMES[layer], key: device.legend(key) }),
       write: async (t: Ae64Transport) => {

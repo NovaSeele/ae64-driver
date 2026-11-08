@@ -87,7 +87,9 @@ export const useLightingStore = defineStore('lighting', () => {
     freshPalette.clear();
     freshMatrix.clear();
     loadedProfile.value = null;
-  });
+    loadPromise = null; // a load of the old keyboard may still be running: a new load() must start fresh
+    loading.value = false;
+  }, { flush: 'sync' });
 
   // Live preview poller state
   const livePreview = ref(true);
@@ -150,7 +152,9 @@ export const useLightingStore = defineStore('lighting', () => {
       return Promise.resolve();
     }
 
-    loadPromise = (async () => {
+    const gen = device.connection;
+    let mine: Promise<void> | null = null;
+    mine = (async () => {
       loading.value = true;
       loadError.value = null;
       const profile = device.activeProfile;
@@ -158,6 +162,7 @@ export const useLightingStore = defineStore('lighting', () => {
         await device.withTransport(async (t) => {
           try {
             const areas = await t.getLightingAreas();
+            if (gen !== device.connection) return;
             if (areas.areas[0]?.modes) area0ModeCount.value = areas.areas[0].modes;
             if (areas.areas[1]?.modes) area1ModeCount.value = areas.areas[1].modes;
           } catch {
@@ -172,6 +177,7 @@ export const useLightingStore = defineStore('lighting', () => {
             t.getPalette(1),
             t.readLedMatrix(1),
           ]);
+          if (gen !== device.connection) return;
 
           area0Base.value = { ...b0 };
           area0Palette.value = p0.map((e) => ({ ...e }));
@@ -187,18 +193,28 @@ export const useLightingStore = defineStore('lighting', () => {
           freshPalette.set(1, p1.map((e) => ({ ...e })));
           freshMatrix.set(1, m1.map((e) => ({ ...e })));
         });
+        if (gen !== device.connection) return;
         loadedProfile.value = profile;
       } catch (err) {
+        if (gen !== device.connection) return;
         loadError.value = err instanceof Error ? err.message : String(err);
       } finally {
-        loading.value = false;
-        loadPromise = null;
+        if (loadPromise === mine) {
+          loading.value = false;
+          loadPromise = null;
+        }
       }
     })();
-    return loadPromise;
+    loadPromise = mine;
+    return mine;
   }
 
   // ------------------------------------------------------------------ Sync jobs
+  // Not saved: the shown value is no longer what the keyboard has, so the next visit reloads it.
+  /** Bumped when a dropped job left the shown values stale: an open Lighting page reloads them. */
+  const staleSeq = ref(0);
+  const markStale = () => { loadedProfile.value = null; staleSeq.value++; };
+
   function baseJob(area: number, profile: number, base: LightingBase) {
     const written = { ...base };
     return {
@@ -206,6 +222,7 @@ export const useLightingStore = defineStore('lighting', () => {
       group: SAVE_GROUP.LIGHTING,
       profile,
       label: tr('lighting.syncBase', { area: area === 0 ? tr('lighting.tabKeys') : tr('lighting.tabStrip') }),
+      onDrop: markStale,
       write: async (t: Ae64Transport) => {
         await t.setLightingBase(written);
       },
@@ -230,6 +247,7 @@ export const useLightingStore = defineStore('lighting', () => {
       group: SAVE_GROUP.LIGHTING,
       profile,
       label: tr('lighting.syncPalette', { area: area === 0 ? tr('lighting.tabKeys') : tr('lighting.tabStrip') }),
+      onDrop: markStale,
       write: async (t: Ae64Transport) => {
         await t.setPalette(area, written);
       },
@@ -250,6 +268,7 @@ export const useLightingStore = defineStore('lighting', () => {
       group: SAVE_GROUP.LIGHTING,
       profile,
       label: tr('lighting.syncMatrix', { area: area === 0 ? tr('lighting.tabKeys') : tr('lighting.tabStrip') }),
+      onDrop: markStale,
       write: async (t: Ae64Transport) => {
         await t.writeLedMatrix(area, written);
       },
@@ -582,6 +601,7 @@ export const useLightingStore = defineStore('lighting', () => {
     loading,
     loadError,
     loadedProfile,
+    staleSeq,
 
     area0Base,
     area0Palette,

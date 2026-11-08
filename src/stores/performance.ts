@@ -80,7 +80,9 @@ export const usePerformanceStore = defineStore('performance', () => {
     values.value = {};
     fresh.clear();
     loadedProfile.value = null;
-  });
+    loadPromise = null; // a load of the old keyboard may still be running: a new load() must start fresh
+    loading.value = false;
+  }, { flush: 'sync' });
   let loadPromise: Promise<void> | null = null;
 
   function keyById(id: number): PhysicalKey {
@@ -92,7 +94,9 @@ export const usePerformanceStore = defineStore('performance', () => {
     // A forced reload requested mid-load (profile switched) runs again once the current load ends.
     if (loadPromise) return force ? loadPromise.then(() => load(true)) : loadPromise;
     if (!force && loadedProfile.value === device.activeProfile && Object.keys(values.value).length) return Promise.resolve();
-    loadPromise = (async () => {
+    const gen = device.connection;
+    let mine: Promise<void> | null = null;
+    mine = (async () => {
       loading.value = true;
       loadError.value = null;
       loadedCount.value = 0;
@@ -104,21 +108,27 @@ export const usePerformanceStore = defineStore('performance', () => {
         await device.withTransport(async (t) => {
           for (const key of device.keys) {
             const p = await t.getPerformance(key);
+            if (gen !== device.connection) return;
             next[key.id] = p;
             fresh.set(key.id, p);
             loadedCount.value++;
           }
         });
+        if (gen !== device.connection) return;
         values.value = next;
         loadedProfile.value = profile;
       } catch (err) {
+        if (gen !== device.connection) return;
         loadError.value = err instanceof Error ? err.message : String(err);
       } finally {
-        loading.value = false;
-        loadPromise = null;
+        if (loadPromise === mine) {
+          loading.value = false;
+          loadPromise = null;
+        }
       }
     })();
-    return loadPromise;
+    loadPromise = mine;
+    return mine;
   }
 
   function round(mm: number): number {
@@ -148,6 +158,7 @@ export const usePerformanceStore = defineStore('performance', () => {
     return {
       key: `perf:${profile}:${id}`,
       group: SAVE_GROUP.PERFORMANCE,
+      keys: [id],
       profile,
       label: tr('perf.keyLabel', { key: device.legend(key) }),
       write: async (t: Ae64Transport) => {

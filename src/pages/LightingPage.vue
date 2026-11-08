@@ -73,6 +73,11 @@ onMounted(() => {
   });
 });
 
+// A write was dropped: the shown values are no longer what the keyboard has, read them again.
+watch(() => lighting.staleSeq, () => {
+  if (device.connected) void lighting.load(true);
+});
+
 onBeforeUnmount(() => {
   offProfile?.();
   lighting.stopLivePolling();

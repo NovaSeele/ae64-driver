@@ -341,7 +341,9 @@ export const useAdvancedStore = defineStore('advanced', () => {
     records.value = {};
     perfCache.clear();
     loadedProfile.value = null;
-  });
+    loadPromise = null; // a load of the old keyboard may still be running: a new load() must start fresh
+    loading.value = false;
+  }, { flush: 'sync' });
 
   const assignments = computed(() => assignmentsFrom(records.value, device.keys));
   const byKey = computed(() => {
@@ -353,7 +355,9 @@ export const useAdvancedStore = defineStore('advanced', () => {
   function load(force = false): Promise<void> {
     if (loadPromise) return force ? loadPromise.then(() => load(true)) : loadPromise;
     if (!force && loadedProfile.value === device.activeProfile && Object.keys(records.value).length) return Promise.resolve();
-    loadPromise = (async () => {
+    const gen = device.connection;
+    let mine: Promise<void> | null = null;
+    mine = (async () => {
       loading.value = true;
       loadError.value = null;
       loadedCount.value = 0;
@@ -364,20 +368,27 @@ export const useAdvancedStore = defineStore('advanced', () => {
         const next: Record<number, AdvancedRecord> = {};
         await device.withTransport(async (t) => {
           for (const key of device.keys) {
-            next[key.id] = await t.getAdvanced(key);
+            const rec = await t.getAdvanced(key);
+            if (gen !== device.connection) return;
+            next[key.id] = rec;
             loadedCount.value++;
           }
         });
+        if (gen !== device.connection) return;
         records.value = next;
         loadedProfile.value = profile;
       } catch (err) {
+        if (gen !== device.connection) return;
         loadError.value = err instanceof Error ? err.message : String(err);
       } finally {
-        loading.value = false;
-        loadPromise = null;
+        if (loadPromise === mine) {
+          loading.value = false;
+          loadPromise = null;
+        }
       }
     })();
-    return loadPromise;
+    loadPromise = mine;
+    return mine;
   }
 
   /** Performance of a key (performance page cache, else one read) — for the MPT depth limit. */
