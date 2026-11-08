@@ -296,7 +296,7 @@ describe('update', () => {
 
       await store.apply();
 
-      expect(store.state).toBe('error');
+      expect(store.state).toBe('available');
       expect(store.error).toMatch(/keyboard write|operation in progress/i);
       expect(reloadMock).not.toHaveBeenCalled();
     });
@@ -317,8 +317,9 @@ describe('update', () => {
 
       await store.apply();
 
-      expect(store.state).toBe('error');
+      expect(store.state).toBe('available');
       expect(store.error).toMatch(/calibration is running/i);
+      expect(store.busyReason).toMatch(/calibration is running/i);
       expect(reloadMock).not.toHaveBeenCalled();
     });
 
@@ -341,6 +342,42 @@ describe('update', () => {
       expect(store.state).toBe('error');
       expect(store.error).toBe('Unsaved device edits');
       expect(reloadMock).not.toHaveBeenCalled();
+    });
+
+    it('busy after the download: deferred (not an error), reload only on a user click', async () => {
+      const store = useUpdateStore();
+      store.availableInfo = { version: '0.2.0', builtAt: '' };
+      const calibration = useCalibrationStore();
+      const reloadMock = vi.fn();
+      Object.defineProperty(window, 'location', { value: { reload: reloadMock }, writable: true, configurable: true });
+      Object.defineProperty(navigator, 'serviceWorker', {
+        value: {
+          controller: {
+            postMessage: vi.fn((msg: { type: string }, ports: MessagePort[]) => {
+              if (msg.type === 'apply') {
+                calibration.phase = 'running'; // calibration starts while the download runs
+                ports[0].postMessage({ ok: true });
+              }
+            }),
+          },
+          ready: Promise.resolve({}),
+        },
+        configurable: true,
+      });
+
+      await store.apply();
+
+      expect(store.state).toBe('deferred');
+      expect(store.error).toBeNull();
+      expect(reloadMock).not.toHaveBeenCalled();
+      expect(store.busyReason).toMatch(/calibration is running/i);
+      await store.reloadNow();
+      expect(reloadMock).not.toHaveBeenCalled();
+
+      calibration.phase = 'idle';
+      expect(store.busyReason).toBeNull();
+      await store.reloadNow();
+      expect(reloadMock).toHaveBeenCalledTimes(1);
     });
   });
 });

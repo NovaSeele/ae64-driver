@@ -71,6 +71,8 @@ const baseEn: Record<keyof typeof base, string> = {
   'sync.otherProfile': 'belongs to another profile, discarded',
   'sync.held': 'Restoring a backup: changes will be written when it finishes.',
   'sync.lost': 'connection lost before saving',
+  'sync.dropped': 'Not saved: {labels}.',
+  'sync.restored': 'Restored the value on the keyboard.',
   'history.undo': 'Undo',
   'history.redo': 'Redo',
   'history.disabledCalibrating': 'Undo / redo is unavailable while the keyboard is calibrating.',
@@ -176,6 +178,10 @@ const baseEn: Record<keyof typeof base, string> = {
   'update.failed': 'Update check failed: {error}',
   'update.applyFailed': 'Update failed: {error}',
   'update.retry': 'Retry',
+  'update.busyWrite': 'Cannot update while a keyboard write is in progress.',
+  'update.busyCalibration': 'Cannot update while calibration is running.',
+  'update.deferred': 'Update downloaded. It applies when the page reloads.',
+  'update.reloadNow': 'Reload now',
 
   // protocol / hid / client / codec errors
   'error.byteRange': '{field} must be an integer 0–255 (got {val}).',

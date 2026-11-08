@@ -120,9 +120,19 @@ function formatUpdateDate(iso: string): string {
               {{ t('update.apply') }}
             </Button>
           </div>
+          <div v-if="update.state === 'available' && update.error" class="help__status-row help__status-row--info" role="status">
+            <span>{{ update.error }}</span>
+          </div>
 
           <div v-else-if="update.state === 'downloading'" class="help__status-row">
             <span>{{ t('update.downloading') }}</span>
+          </div>
+
+          <div v-else-if="update.state === 'deferred'" class="help__status-row help__status-row--info" role="status">
+            <span>{{ t('update.deferred') }}</span>
+            <Button size="sm" :disabled="update.busyReason !== null" :title="update.busyReason ?? undefined" @click="update.reloadNow()">
+              {{ t('update.reloadNow') }}
+            </Button>
           </div>
 
           <div v-else-if="update.state === 'error'" class="help__status-row help__status-row--err">
@@ -250,6 +260,9 @@ function formatUpdateDate(iso: string): string {
 }
 .help__status-row--avail {
   color: var(--acc);
+}
+.help__status-row--info {
+  color: var(--info);
 }
 .help__status-row--err {
   color: var(--danger);

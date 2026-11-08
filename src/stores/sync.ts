@@ -14,7 +14,9 @@ import { ref } from 'vue';
 import { UnsafeCommandError, WriteNotAllowedError } from '../protocol';
 import type { Ae64Transport, SaveGroup } from '../protocol';
 import { t as tr } from '../i18n/vi';
+import { useToast } from '../components/ui/toast';
 import { useDeviceStore } from './device';
+import { useFlashStore } from './flash';
 
 export interface SyncJob {
   /** Jobs with the same key coalesce (last wins), e.g. `perf:<profile>:<keyId>`. */
@@ -81,7 +83,9 @@ export const useSyncStore = defineStore('sync', () => {
     schedule();
   }
 
-  function drop(e: Entry, reason: string): void {
+  /** Dropped jobs are collected per batch and reported once (toast + flashing keys) by reportDropped. */
+  function drop(e: Entry, reason: string, dropped: Entry[]): void {
+    dropped.push(e);
     try {
       e.job.onDrop?.(reason);
     } catch {
@@ -89,16 +93,27 @@ export const useSyncStore = defineStore('sync', () => {
     }
   }
 
+  /** One error toast per batch that gave up on jobs, and the keys they write flash on the keyboard view. */
+  function reportDropped(dropped: Entry[]): void {
+    if (!dropped.length) return;
+    const labels = dropped.map((e) => e.job.label);
+    const shown = labels.slice(0, 2).join(', ') + (labels.length > 2 ? ` +${labels.length - 2}` : '');
+    const restored = dropped.some((e) => e.job.onDrop);
+    useToast().show(tr('sync.dropped', { labels: shown }) + (restored ? ` ${tr('sync.restored')}` : ''), 'error');
+    useFlashStore().flash([...new Set(dropped.flatMap((e) => e.job.keys ?? []))]);
+  }
+
   /** Runs one batch; returns true when every job was written and verified. */
   async function runBatch(entries: Entry[]): Promise<boolean> {
     const device = useDeviceStore();
     const problems: string[] = [];
     const retry: Entry[] = [];
+    const dropped: Entry[] = [];
     const fail = (e: Entry, err: unknown) => {
       const msg = `${e.job.label}: ${messageOf(err)}`;
       problems.push(msg);
       e.attempts++;
-      if (isPermanent(err) || e.attempts >= MAX_ATTEMPTS) drop(e, msg);
+      if (isPermanent(err) || e.attempts >= MAX_ATTEMPTS) drop(e, msg, dropped);
       else retry.push(e);
     };
     try {
@@ -108,7 +123,7 @@ export const useSyncStore = defineStore('sync', () => {
           if (e.job.profile !== undefined && e.job.profile !== device.activeProfile) {
             const msg = `${e.job.label}: ${tr('sync.otherProfile')}`;
             problems.push(msg);
-            drop(e, msg);
+            drop(e, msg, dropped);
             continue;
           }
           try {
@@ -143,6 +158,7 @@ export const useSyncStore = defineStore('sync', () => {
       // (Every step inside is caught per job, so this only happens when withTransport itself refused.)
       for (const e of entries) fail(e, err);
     }
+    reportDropped(dropped);
     for (const e of retry) if (!queued.has(e.job.key)) failed.set(e.job.key, e);
     if (problems.length) {
       lastError.value = tr('sync.failed', { labels: problems.join('; ') });
@@ -217,7 +233,9 @@ export const useSyncStore = defineStore('sync', () => {
     const lost = [...queued.values(), ...failed.values()];
     queued = new Map();
     failed = new Map();
-    for (const e of lost) drop(e, tr('sync.lost'));
+    const dropped: Entry[] = [];
+    for (const e of lost) drop(e, tr('sync.lost'), dropped);
+    reportDropped(dropped);
     state.value = 'saved';
     lastError.value = null;
     return lost.length;

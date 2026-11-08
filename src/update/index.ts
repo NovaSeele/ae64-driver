@@ -1,13 +1,14 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useDeviceStore } from '../stores/device';
 import { useCalibrationStore } from '../stores/calibration';
 import { useSyncStore } from '../stores/sync';
+import { t as tr } from '../i18n/vi';
 import { isNewerVersion } from './version';
 
 export * from './version';
 
-export type UpdateState = 'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'error';
+export type UpdateState = 'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'deferred' | 'error';
 
 export interface AvailableVersion {
   version: string;
@@ -27,6 +28,15 @@ export const useUpdateStore = defineStore('update', () => {
   const state = ref<UpdateState>('idle');
   const availableInfo = ref<AvailableVersion | null>(null);
   const error = ref<string | null>(null);
+
+  /** Why the page must not reload now (a reload mid-write or mid-calibration can leave the keyboard half-written). */
+  const busyReason = computed<string | null>(() => {
+    const device = useDeviceStore();
+    const calibration = useCalibrationStore();
+    if (device.exclusiveActive) return tr('update.busyWrite');
+    if (calibration.phase !== 'idle' || device.calibrationLocked()) return tr('update.busyCalibration');
+    return null;
+  });
 
   async function postSwMessage<T>(msg: { type: string; version?: string }, timeoutMs = 15000): Promise<T> {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
@@ -122,17 +132,29 @@ export const useUpdateStore = defineStore('update', () => {
     }
   }
 
-  async function apply(): Promise<void> {
+  /** Checked fresh (the computed may cache device.calibrationLocked(), which is not reactive). */
+  function busyNow(): string | null {
     const device = useDeviceStore();
-    const calibration = useCalibrationStore();
-    const sync = useSyncStore();
+    if (device.exclusiveActive) return tr('update.busyWrite');
+    if (useCalibrationStore().phase !== 'idle' || device.calibrationLocked()) return tr('update.busyCalibration');
+    return null;
+  }
 
-    /** Why the page must not reload now (a reload mid-write or mid-calibration can leave the keyboard half-written). */
-    const busy = (): string | null => {
-      if (device.exclusiveActive) return 'Cannot update while a keyboard write is in progress';
-      if (calibration.phase !== 'idle' || device.calibrationLocked()) return 'Cannot update while calibration is running';
-      return null;
-    };
+  /** The user chose to reload now (after a deferred update). Never called by the app itself. */
+  async function reloadNow(): Promise<void> {
+    if (busyNow() || typeof window === 'undefined') return;
+    try {
+      await useSyncStore().flush(); // queued edits reach the keyboard before the page goes away
+    } catch {
+      return; // not saved: stay, the sync pill shows why
+    }
+    if (busyNow()) return;
+    window.location.reload();
+  }
+
+  async function apply(): Promise<void> {
+    const sync = useSyncStore();
+    const busy = busyNow;
     /** Re-checked right before reloading: the download can take a while and the user keeps working meanwhile. */
     const readyToReload = async (): Promise<boolean> => {
       let why = busy();
@@ -145,14 +167,16 @@ export const useUpdateStore = defineStore('update', () => {
         }
       }
       if (!why) return true;
-      state.value = 'error';
-      error.value = `${why}. The update is downloaded and applies the next time the page is reloaded.`;
+      // Downloaded but not applied: not a failure; the user reloads when ready.
+      state.value = 'deferred';
+      error.value = null;
       return false;
     };
 
     const why = busy();
     if (why) {
-      state.value = 'error';
+      // Refused before downloading: a notice, not an error (the update stays available).
+      state.value = 'available';
       error.value = why;
       return;
     }
@@ -215,7 +239,9 @@ export const useUpdateStore = defineStore('update', () => {
     state,
     availableInfo,
     error,
+    busyReason,
     check,
     apply,
+    reloadNow,
   };
 });

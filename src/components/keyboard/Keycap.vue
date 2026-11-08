@@ -5,12 +5,16 @@ defineProps<{
   sublabel?: string;
   /** Small accent value on the bottom-left (e.g. Rapid Trigger press/release sensitivity). */
   badge?: string;
+  /** Accessible name / tooltip of the badge when its text alone is not meaningful (e.g. a lock icon). */
+  badgeTitle?: string;
   /** 0..1 vertical fill (e.g. travel or actuation depth). */
   fill?: number;
   /** LED colour (CSS colour). */
   color?: string;
   state?: 'pressed';
   selected?: boolean;
+  /** Briefly outlined in the danger colour (a write for this key was dropped). */
+  flashing?: boolean;
   loading?: boolean;
 }>();
 </script>
@@ -18,7 +22,7 @@ defineProps<{
 <template>
   <span
     class="cap"
-    :class="{ 'cap--sel': selected, 'cap--pressed': state === 'pressed' }"
+    :class="{ 'cap--sel': selected, 'cap--pressed': state === 'pressed', 'cap--flash': flashing }"
   >
     <span class="cap__face">
       <span v-if="fill !== undefined" class="cap__fill" :style="{ transform: `scaleY(${Math.min(1, Math.max(0, fill))})` }" />
@@ -26,7 +30,7 @@ defineProps<{
       <span class="cap__legend">{{ legend }}</span>
       <span v-if="loading" class="cap__sub cap__sub--skeleton skeleton" />
       <span v-else-if="sublabel !== undefined || badge" class="cap__foot">
-        <span v-if="badge" class="cap__badge num">{{ badge }}</span>
+        <span v-if="badge" class="cap__badge num" :title="badgeTitle" :aria-label="badgeTitle">{{ badge }}</span>
         <span v-if="sublabel !== undefined" class="cap__sub num">{{ sublabel }}</span>
       </span>
     </span>
@@ -69,6 +73,9 @@ defineProps<{
   border-color: transparent;
   box-shadow: 0 0 0 1.5px var(--acc), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
+.cap--flash .cap__face { border-color: var(--danger); box-shadow: 0 0 0 2px var(--danger); animation: cap-flash 0.5s ease-in-out 2; }
+@keyframes cap-flash { 50% { box-shadow: 0 0 0 4px var(--danger); } }
+@media (prefers-reduced-motion: reduce) { .cap--flash .cap__face { animation: none; } }
 .cap__fill {
   position: absolute;
   inset: 0;

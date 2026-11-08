@@ -6,6 +6,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import Keycap from './Keycap.vue';
 import { layoutBounds } from '../../protocol';
 import type { PhysicalKey } from '../../protocol';
+import { useFlashStore } from '../../stores/flash';
 import { useSelectionStore } from '../../stores/selection';
 import type { SelectMode } from '../../stores/selection';
 import { t } from '../../i18n/vi';
@@ -16,6 +17,8 @@ const props = defineProps<{
   sublabel?: (key: PhysicalKey) => string | undefined;
   /** Small accent value on the keycap's bottom-left. */
   badge?: (key: PhysicalKey) => string | undefined;
+  /** Accessible name / tooltip for a key's badge (replaces the badge text in the key's aria-label). */
+  badgeTitle?: (key: PhysicalKey) => string | undefined;
   fill?: (key: PhysicalKey) => number | undefined;
   color?: (key: PhysicalKey) => string | undefined;
   state?: (key: PhysicalKey) => 'pressed' | undefined;
@@ -28,6 +31,7 @@ const MAX_UNIT = 58;
 const DRAG_THRESHOLD = 5;
 
 const sel = useSelectionStore();
+const flashStore = useFlashStore();
 const root = ref<HTMLElement | null>(null);
 const plate = ref<HTMLElement | null>(null);
 const width = ref(0);
@@ -183,7 +187,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
         :data-key="k.id"
         :tabindex="k.id === tabStop ? 0 : -1"
         :aria-pressed="selectable ? isSelected(k.id) : undefined"
-        :aria-label="`${legend ? legend(k) : k.name}${sublabel?.(k) ? ` · ${sublabel(k)!.replace(/\n/g, ' ')}` : ''}${badge?.(k) ? ` · ${badge(k)}` : ''}`"
+        :aria-label="`${legend ? legend(k) : k.name}${sublabel?.(k) ? ` · ${sublabel(k)!.replace(/\n/g, ' ')}` : ''}${badge?.(k) ? ` · ${badgeTitle?.(k) ?? badge(k)}` : ''}`"
         :style="{ left: `${k.x * unit}px`, top: `${k.y * unit}px`, width: `${k.w * unit}px`, height: `${unit}px` }"
         @keydown="onKeyDown($event, k)"
         @focus="focusId = k.id"
@@ -192,10 +196,12 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
           :legend="legend ? legend(k) : k.name"
           :sublabel="sublabel?.(k)"
           :badge="badge?.(k)"
+          :badge-title="badgeTitle?.(k)"
           :fill="fill?.(k)"
           :color="color?.(k)"
           :state="state?.(k)"
           :selected="selectable && isSelected(k.id)"
+          :flashing="flashStore.isFlashing(k.id)"
           :loading="loading"
         />
       </button>

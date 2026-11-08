@@ -74,6 +74,8 @@ export const base = {
   'sync.otherProfile': 'thuộc profile khác, đã bỏ',
   'sync.held': 'Đang khôi phục bản sao lưu: thay đổi sẽ được ghi sau khi xong.',
   'sync.lost': 'mất kết nối trước khi lưu',
+  'sync.dropped': 'Chưa lưu được: {labels}.',
+  'sync.restored': 'Đã trả về giá trị đang có trên phím.',
   'history.undo': 'Hoàn tác',
   'history.redo': 'Làm lại',
   'history.disabledCalibrating': 'Không thể hoàn tác / làm lại khi bàn phím đang hiệu chuẩn.',
@@ -179,6 +181,10 @@ export const base = {
   'update.failed': 'Kiểm tra cập nhật thất bại: {error}',
   'update.applyFailed': 'Cập nhật thất bại: {error}',
   'update.retry': 'Thử lại',
+  'update.busyWrite': 'Không thể cập nhật khi đang ghi vào bàn phím.',
+  'update.busyCalibration': 'Không thể cập nhật khi đang hiệu chuẩn.',
+  'update.deferred': 'Đã tải bản cập nhật. Sẽ áp dụng khi tải lại trang.',
+  'update.reloadNow': 'Tải lại ngay',
 
   // protocol / hid / client / codec errors
   'error.byteRange': '{field} phải là số nguyên 0–255 (nhận {val}).',

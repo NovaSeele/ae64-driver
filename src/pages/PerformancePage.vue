@@ -85,8 +85,13 @@ function sublabel(k: PhysicalKey): string | undefined {
 /** Rapid Trigger keys also show press/release sensitivity, like the factory driver's keycaps. */
 function badge(k: PhysicalKey): string | undefined {
   const p = perf.values[k.id];
+  if (p && !isKnownMode(p.mode)) return '🔒';
   if (!p || !isRtMode(p.mode) || metric.value !== 'actuation') return undefined;
   return `${short(p.rtPress)}/${short(p.rtRelease)}`;
+}
+function badgeTitle(k: PhysicalKey): string | undefined {
+  const p = perf.values[k.id];
+  return p && !isKnownMode(p.mode) ? t('perf.unsupportedMode') : undefined;
 }
 function fill(k: PhysicalKey): number | undefined {
   const p = perf.values[k.id];
@@ -201,6 +206,7 @@ const modeOptions = computed(() => [
         :legend="device.legend"
         :sublabel="sublabel"
         :badge="badge"
+        :badge-title="badgeTitle"
         :fill="fill"
         :loading="perf.loading"
         selectable
@@ -250,7 +256,7 @@ const modeOptions = computed(() => [
     <div v-else class="grid">
       <div v-if="unknownCount" class="unknown" role="note">
         <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />
-        <span>{{ t('perf.unknownModes', { n: unknownCount }) }}</span>
+        <span>{{ t('perf.unknownModes', { n: unknownCount }) }}<template v-if="!recs.length"> {{ t('perf.unsupportedMode') }}.</template></span>
       </div>
       <template v-if="recs.length">
       <Card :title="t('perf.actuation')" :subtitle="allRt ? t('perf.actuationHintRt') : t('perf.actuationHintStandard')">

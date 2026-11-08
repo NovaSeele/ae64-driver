@@ -1,20 +1,23 @@
 <script setup lang="ts">
 // Onboard profiles as a compact list; click switches (re-reads the profile), pencil/double-click renames inline.
-import { nextTick, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { IconPencil } from '@tabler/icons-vue';
+import { useCalibrationStore } from '../../stores/calibration';
 import { useDeviceStore } from '../../stores/device';
 import { useToast } from '../ui/toast';
 import { t } from '../../i18n/vi';
 
 const device = useDeviceStore();
+const calibration = useCalibrationStore();
 const toast = useToast();
+const calibrating = computed(() => calibration.phase !== 'idle' || device.calibrationLocked());
 const editing = ref<number | null>(null);
 const draft = ref('');
 const busy = ref<number | null>(null);
 const input = ref<HTMLInputElement[]>([]);
 
 async function choose(i: number) {
-  if (editing.value !== null || busy.value !== null) return;
+  if (calibrating.value || editing.value !== null || busy.value !== null) return;
   busy.value = i;
   try {
     await device.switchProfile(i);
@@ -53,9 +56,11 @@ async function finishRename(save: boolean) {
         v-for="(name, i) in device.profileNames"
         :key="i"
         class="ps__item"
-        :class="{ 'ps__item--on': i === device.activeProfile, 'ps__item--busy': busy === i }"
+        :class="{ 'ps__item--on': i === device.activeProfile, 'ps__item--busy': busy === i, 'ps__item--off': calibrating && i !== device.activeProfile }"
         role="option"
         :aria-selected="i === device.activeProfile"
+        :aria-disabled="calibrating && i !== device.activeProfile ? true : undefined"
+        :title="calibrating && i !== device.activeProfile ? t('device.calibrating') : undefined"
         :tabindex="i === device.activeProfile ? 0 : -1"
         @click="choose(i)"
         @dblclick="startRename(i)"
@@ -109,6 +114,8 @@ async function finishRename(save: boolean) {
 .ps__item:hover { background: var(--bg-3); color: var(--fg-1); }
 .ps__item--on { background: var(--bg-3); color: var(--fg-1); box-shadow: inset 2px 0 0 var(--acc); }
 .ps__item--busy { opacity: 0.6; }
+.ps__item--off { opacity: 0.45; cursor: not-allowed; }
+.ps__item--off:hover { background: transparent; color: var(--fg-2); }
 .ps__idx {
   display: grid;
   place-items: center;
