@@ -31,7 +31,7 @@ const statusText = computed(() => {
     </div>
     <dl v-if="device.info" class="dc__meta">
       <div><dt class="micro">{{ t('device.firmware') }}</dt><dd class="num">{{ device.info.firmware }}</dd></div>
-      <div><dt class="micro">Board</dt><dd class="num">{{ device.info.boardIdHex.toUpperCase() }}</dd></div>
+      <div><dt class="micro">{{ t('device.board') }}</dt><dd class="num">{{ device.info.boardIdHex.toUpperCase() }}</dd></div>
     </dl>
   </div>
 </template>

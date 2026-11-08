@@ -6,7 +6,7 @@
 // USB interface right after `02 05 02`, so it is written last, on its own, with nothing sent after it;
 // the app then closes the session and reconnects once the keyboard is back.
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { UnsafeCommandError, WriteNotAllowedError } from '../protocol';
 import type { Ae64Transport, LightingAreas } from '../protocol';
 import { t as tr } from '../i18n/vi';
@@ -17,6 +17,26 @@ import { useSyncStore } from './sync';
 const RECONNECT_TIMEOUT_MS = 10_000;
 const RECONNECT_STEP_MS = 500;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** The keyboard stores profile names as UTF-8 truncated to this many bytes (codec.encodeProfileName). */
+export const PROFILE_NAME_MAX_BYTES = 32;
+
+export function utf8Bytes(s: string): number {
+  return new TextEncoder().encode(s).length;
+}
+
+/** Longest prefix of `s` that fits in `maxBytes` of UTF-8, never splitting a character. */
+export function truncateUtf8(s: string, maxBytes: number): string {
+  let used = 0;
+  let out = '';
+  for (const ch of s) {
+    const n = utf8Bytes(ch);
+    if (used + n > maxBytes) break;
+    used += n;
+    out += ch;
+  }
+  return out;
+}
 
 export type PollingRateState = 'idle' | 'applying' | 'reconnecting' | 'error';
 
@@ -34,15 +54,27 @@ export const useSettingsStore = defineStore('settings', () => {
   const lightingAreas = ref<LightingAreas | null>(null);
   const pollingState = ref<PollingRateState>('idle');
   const pollingError = ref<string | null>(null);
+  /** Rate being applied while pollingState is applying/reconnecting (the UI shows it as pending). */
+  const pollingTarget = ref<number | null>(null);
 
   const loading = ref(false);
+  /** True once the values above were read from the connected keyboard (not the built-in defaults). */
+  const loaded = ref(false);
   const loadError = ref<string | null>(null);
   let loadPromise: Promise<void> | null = null;
+
+  // New connection: the defaults above are not this keyboard's values until load() has run.
+  watch(() => device.transport, () => { loaded.value = false; loadError.value = null; });
+  // A failed polling change is only worth showing until the keyboard is connected again.
+  watch(() => device.connected, (c) => {
+    if (c && pollingState.value === 'error') { pollingState.value = 'idle'; pollingError.value = null; }
+  });
 
   async function load(): Promise<void> {
     if (loadPromise) return loadPromise;
     loadPromise = (async () => {
       loading.value = true;
+      loaded.value = false;
       loadError.value = null;
       try {
         await device.withTransport(async (t) => {
@@ -59,6 +91,7 @@ export const useSettingsStore = defineStore('settings', () => {
           macroSpace.value = await t.getMacroSpace();
           lightingAreas.value = await t.getLightingAreas();
         });
+        loaded.value = true;
       } catch (err) {
         loadError.value = err instanceof Error ? err.message : String(err);
       } finally {
@@ -113,6 +146,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (rate === pollingRate.value || pollingState.value === 'applying' || pollingState.value === 'reconnecting') return;
     if (!supportedRates.value.includes(rate)) return;
     pollingError.value = null;
+    pollingTarget.value = rate;
     pollingState.value = 'applying';
     try {
       await sync.flush();
@@ -144,12 +178,14 @@ export const useSettingsStore = defineStore('settings', () => {
     } catch (err) {
       pollingState.value = 'error';
       pollingError.value = err instanceof Error ? err.message : String(err);
+    } finally {
+      pollingTarget.value = null;
     }
   }
 
   return {
     systemMode, pollingRate, supportedRates, rgbSleep, shakeOptimization, macroSpace, lightingAreas,
-    pollingState, pollingError,
-    loading, loadError, load, setSystemMode, setPollingRate, setRgbSleep, setShakeOptimization,
+    pollingState, pollingError, pollingTarget,
+    loading, loaded, loadError, load, setSystemMode, setPollingRate, setRgbSleep, setShakeOptimization,
   };
 });

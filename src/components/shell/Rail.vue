@@ -1,23 +1,34 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { IconActivity, IconAdjustments, IconHelpCircle, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from '@tabler/icons-vue';
+import { IconActivity, IconAdjustments, IconHelpCircle, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconSettings } from '@tabler/icons-vue';
 import Dialog from '../ui/Dialog.vue';
 import Button from '../ui/Button.vue';
 import Segmented from '../ui/Segmented.vue';
 import { t } from '../../i18n/vi';
 import { locale, setLocale, type Locale } from '../../i18n/locale';
 import { useUpdateStore } from '../../update';
+import { useDeviceStore } from '../../stores/device';
 
 const collapsed = defineModel<boolean>('collapsed', { required: true });
 const route = useRoute();
 const router = useRouter();
 const update = useUpdateStore();
+const device = useDeviceStore();
 const help = ref(false);
-const lastConfig = ref('/performance');
 
-const onLive = computed(() => route.path === '/live');
-const removeHook = router.afterEach((to) => { if (to.path !== '/live') lastConfig.value = to.fullPath; });
+// The rail switches between three modes; each remembers the last page opened inside it.
+const MODES = [
+  { id: 'configure', label: 'nav.configure', icon: IconAdjustments, home: '/performance', paths: ['/keymap', '/performance', '/advanced', '/lighting', '/macro'] },
+  { id: 'live', label: 'nav.live', icon: IconActivity, home: '/live', paths: ['/live'] },
+  { id: 'device', label: 'nav.groupDevice', icon: IconSettings, home: '/settings', paths: ['/calibration', '/settings', '/diagnostics'] },
+] as const;
+const last = reactive<Record<string, string>>(Object.fromEntries(MODES.map((m) => [m.id, m.home])));
+const activeMode = computed(() => MODES.find((m) => (m.paths as readonly string[]).includes(route.path))?.id);
+const removeHook = router.afterEach((to) => {
+  const m = MODES.find((x) => (x.paths as readonly string[]).includes(to.path));
+  if (m) last[m.id] = to.fullPath;
+});
 onBeforeUnmount(removeHook);
 
 const currentLocale = computed({
@@ -52,13 +63,18 @@ function formatUpdateDate(iso: string): string {
         <path d="M13.3 17.5h5.4" stroke="var(--acc)" stroke-width="2" stroke-linecap="round" />
       </svg>
     </div>
-    <button type="button" class="rail__btn" :class="{ 'rail__btn--on': !onLive }" :aria-current="!onLive ? 'page' : undefined" @click="router.push(lastConfig)">
-      <IconAdjustments :size="20" stroke-width="1.5" aria-hidden="true" />
-      <span>{{ t('nav.configure') }}</span>
-    </button>
-    <button type="button" class="rail__btn" :class="{ 'rail__btn--on': onLive }" :aria-current="onLive ? 'page' : undefined" @click="router.push('/live')">
-      <IconActivity :size="20" stroke-width="1.5" aria-hidden="true" />
-      <span>{{ t('nav.live') }}</span>
+    <button
+      v-for="m in MODES"
+      :key="m.id"
+      type="button"
+      class="rail__btn"
+      :class="{ 'rail__btn--on': activeMode === m.id }"
+      :aria-current="activeMode === m.id ? 'page' : undefined"
+      :disabled="!device.connected"
+      @click="router.push(last[m.id])"
+    >
+      <component :is="m.icon" :size="20" stroke-width="1.5" aria-hidden="true" />
+      <span>{{ t(m.label) }}</span>
     </button>
     <div class="rail__spacer" />
 
@@ -157,7 +173,8 @@ function formatUpdateDate(iso: string): string {
   text-align: center;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
-.rail__btn:hover { color: var(--fg-1); background: var(--bg-3); }
+.rail__btn:hover:not(:disabled) { color: var(--fg-1); background: var(--bg-3); }
+.rail__btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .rail__btn--on { color: var(--acc); background: var(--acc-soft); }
 .rail__spacer { flex: 1; }
 .rail__lang {

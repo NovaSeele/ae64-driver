@@ -22,7 +22,9 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  overflow: hidden;
+  /* Pages scroll themselves; below the shell's min-width the whole app scrolls sideways. */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 h1, h2, h3, h4 {

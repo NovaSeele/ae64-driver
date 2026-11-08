@@ -4,6 +4,8 @@ import { useRoute } from 'vue-router';
 import { IconAlertTriangle, IconArrowBackUp, IconArrowForwardUp, IconCircleCheck, IconLoader2, IconRefresh } from '@tabler/icons-vue';
 import IconButton from '../ui/IconButton.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import { useCalibrationStore } from '../../stores/calibration';
+import { useDeviceStore } from '../../stores/device';
 import { useHistoryStore } from '../../stores/history';
 import { useSyncStore } from '../../stores/sync';
 import { t } from '../../i18n/vi';
@@ -11,6 +13,19 @@ import { t } from '../../i18n/vi';
 const route = useRoute();
 const history = useHistoryStore();
 const sync = useSyncStore();
+const device = useDeviceStore();
+const calibration = useCalibrationStore();
+const calibrating = computed(() => calibration.phase !== 'idle' || device.calibrationLocked());
+// Why undo/redo is unavailable right now (shown as the tooltip), or null when only the stack is empty.
+const histBlock = computed(() => {
+  if (calibrating.value) return t('history.disabledCalibrating');
+  if (history.suspended) return t('history.disabledDraft');
+  return null;
+});
+const undoLabel = computed(() => histBlock.value
+  ?? (history.undoLabel ? `${t('history.undo')}: ${history.undoLabel} (Ctrl+Z)` : `${t('history.undo')} (Ctrl+Z)`));
+const redoLabel = computed(() => histBlock.value
+  ?? (history.redoLabel ? `${t('history.redo')}: ${history.redoLabel} (Ctrl+Y)` : `${t('history.redo')} (Ctrl+Y)`));
 const title = computed(() => (route.meta.title ? t(route.meta.title) : ''));
 const busy = computed(() => sync.state === 'pending' || sync.state === 'writing');
 </script>
@@ -34,14 +49,14 @@ const busy = computed(() => sync.state === 'pending' || sync.state === 'writing'
       <div class="top__hist">
         <IconButton
           :icon="IconArrowBackUp"
-          :label="history.undoLabel ? `${t('history.undo')}: ${history.undoLabel} (Ctrl+Z)` : `${t('history.undo')} (Ctrl+Z)`"
-          :disabled="!history.canUndo"
+          :label="undoLabel"
+          :disabled="!history.canUndo || calibrating"
           @click="history.undo()"
         />
         <IconButton
           :icon="IconArrowForwardUp"
-          :label="history.redoLabel ? `${t('history.redo')}: ${history.redoLabel} (Ctrl+Y)` : `${t('history.redo')} (Ctrl+Y)`"
-          :disabled="!history.canRedo"
+          :label="redoLabel"
+          :disabled="!history.canRedo || calibrating"
           @click="history.redo()"
         />
       </div>

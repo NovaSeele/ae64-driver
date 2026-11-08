@@ -9,7 +9,7 @@ import { lightingVi } from './lighting';
 import { liveVi } from './live';
 import { calibrationVi } from './calibration';
 import { performanceVi } from './performance';
-import { locale } from './locale';
+import { applyPlurals, locale } from './locale';
 import { en } from './en';
 
 export const base = {
@@ -22,15 +22,15 @@ export const base = {
   'nav.help': 'Giới thiệu & trợ giúp',
   'nav.collapse': 'Thu gọn thanh bên',
   'nav.expand': 'Mở thanh bên',
-  'nav.groupProfile': 'Cấu hình phím',
+  'nav.groupProfile': 'Cài đặt theo profile',
   'nav.groupDevice': 'Thiết bị',
   'page.keymap': 'Keymap',
   'page.performance': 'Hành trình',
-  'page.advanced': 'Advanced keys',
+  'page.advanced': 'Phím nâng cao',
   'page.lighting': 'Đèn',
   'page.macro': 'Macro',
-  'page.live': 'Đo hành trình thật',
-  'page.calibration': 'Calibrate',
+  'page.live': 'Đo hành trình',
+  'page.calibration': 'Hiệu chuẩn',
   'page.settings': 'Cài đặt thiết bị',
   'page.diagnostics': 'Chẩn đoán',
   'page.wip': 'Đang phát triển',
@@ -42,12 +42,13 @@ export const base = {
   'device.connected': 'Đã kết nối',
   'device.demo': 'Demo',
   'device.firmware': 'Firmware',
+  'device.board': 'Bo mạch',
   'device.latency': 'Độ trễ',
   'device.disconnect': 'Ngắt kết nối',
   'device.notAllowed': 'Bảng mạch {board} không nằm trong danh sách được phép ghi — chế độ chỉ đọc.',
   'device.lost': 'Mất kết nối với bàn phím.',
   'device.unsavedLost': 'Mất kết nối: {n} thay đổi chưa lưu vào phím.',
-  'device.calibrating': 'Phím đang calibrate: hãy kết thúc calibrate trước.',
+  'device.calibrating': 'Bàn phím đang hiệu chuẩn: hãy kết thúc hiệu chuẩn trước.',
   'device.profile': 'Profile',
   'device.rename': 'Đổi tên profile',
   'device.renamed': 'Đã đổi tên profile thành “{name}”.',
@@ -75,6 +76,8 @@ export const base = {
   'sync.lost': 'mất kết nối trước khi lưu',
   'history.undo': 'Hoàn tác',
   'history.redo': 'Làm lại',
+  'history.disabledCalibrating': 'Không thể hoàn tác / làm lại khi bàn phím đang hiệu chuẩn.',
+  'history.disabledDraft': 'Hãy hoàn tất hoặc huỷ bản nháp đang chỉnh trước.',
   'error.notConnected': 'Bàn phím chưa được kết nối.',
 
   // selection / keyboard
@@ -124,7 +127,7 @@ export const base = {
   'perf.presetSensitiveDesc': 'Rapid Trigger · 0.3 mm · 0.1 / 0.1',
   'perf.presetApplied': 'Đã áp dụng mẫu {name} cho {n} phím.',
   'perf.tryNow': 'Thử ngay',
-  'perf.tryNowHint': 'Mở Đo hành trình thật cho phím đang chọn',
+  'perf.tryNowHint': 'Mở Đo hành trình cho phím đang chọn',
   'perf.selectKeys': 'Chọn một hoặc nhiều phím trên bàn phím để chỉnh hành trình.',
   'perf.mixed': 'Nhiều',
   'perf.loading': 'Đang đọc cài đặt từ {n}/64 phím…',
@@ -147,6 +150,7 @@ export const base = {
   'picker.search': 'Tìm phím…',
   'picker.noResults': 'Không có phím phù hợp.',
   'picker.combo': 'Tổ hợp phím',
+  'picker.groups': 'Nhóm keycode',
   'picker.comboHint': 'Chọn modifier rồi chọn một phím cơ bản để tạo tổ hợp (ví dụ Ctrl+C).',
   'picker.comboClear': 'Bỏ modifier',
   'picker.current': 'Hiện tại',
@@ -226,10 +230,10 @@ export const vi = {
 
 export type MessageKey = keyof typeof vi;
 
-/** Look up a string; `{name}` placeholders are replaced from params. */
+/** Look up a string; `{name}` placeholders come from params, `{n|# one|# other}` picks a plural form (see locale.ts). */
 export function t(key: MessageKey, params?: Record<string, string | number>): string {
   const current = locale.value;
   const table = current === 'en' ? (en as unknown as Record<string, string>) : (vi as unknown as Record<string, string>);
   const s: string = table[key] ?? (vi as unknown as Record<string, string>)[key] ?? key;
-  return params ? s.replace(/\{(\w+)\}/g, (_, k: string) => String(params[k] ?? `{${k}}`)) : s;
+  return params ? applyPlurals(s, params).replace(/\{(\w+)\}/g, (_, k: string) => String(params[k] ?? `{${k}}`)) : s;
 }

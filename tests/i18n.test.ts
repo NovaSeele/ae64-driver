@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { vi, t, type MessageKey } from '../src/i18n/vi';
 import { en } from '../src/i18n/en';
-import { locale, setLocale } from '../src/i18n/locale';
+import { locale, plural, setLocale } from '../src/i18n/locale';
 
 function getPlaceholders(str: string): string[] {
-  const matches = [...str.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+  const matches = [...str.matchAll(/\{(\w+)(?:\|[^}]*)?\}/g)].map((m) => m[1]);
   return matches.sort();
 }
 
@@ -48,5 +48,19 @@ describe('i18n', () => {
 
     setLocale('vi');
     expect(t('nav.configure')).toBe('Cấu hình');
+  });
+
+  it('picks plural forms in English and ignores them in Vietnamese', () => {
+    expect(plural(1, '# key', '# keys', 'en')).toBe('1 key');
+    expect(plural(0, '# key', '# keys', 'en')).toBe('0 keys');
+    expect(plural(5, '# key', '# keys', 'en')).toBe('5 keys');
+    expect(plural(1, '# phím', '# phím', 'vi')).toBe('1 phím');
+
+    setLocale('en');
+    expect(t('sel.count', { n: 1 })).toBe('1 key selected');
+    expect(t('sel.count', { n: 3 })).toBe('3 keys selected');
+    expect(t('perf.presetApplied', { name: 'Gaming', n: 1 })).toBe('Applied preset Gaming to 1 key.');
+    setLocale('vi');
+    expect(t('sel.count', { n: 1 })).toBe('1 phím đã chọn');
   });
 });

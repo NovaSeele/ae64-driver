@@ -44,3 +44,21 @@ export function setLocale(l: Locale): void {
     // ignore storage error
   }
 }
+
+/**
+ * Plural forms inside a message: `{n|# key|# keys}` → "1 key" / "2 keys" (`#` becomes the number).
+ * Forms are `one|other`; Vietnamese has a single form, so its tables may simply use `{n}`.
+ * Applied by t() before `{name}` substitution; call directly for strings outside the dictionary.
+ */
+export function plural(n: number, one: string, other: string, loc: Locale = locale.value): string {
+  const form = new Intl.PluralRules(loc).select(n) === 'one' ? one : other;
+  return form.replace(/#/g, String(n));
+}
+
+export function applyPlurals(s: string, params?: Record<string, string | number>): string {
+  if (!params || !s.includes('|')) return s;
+  return s.replace(/\{(\w+)\|([^|}]*)\|([^}]*)\}/g, (m, k: string, one: string, other: string) => {
+    const n = Number(params[k]);
+    return Number.isFinite(n) ? plural(n, one, other) : m;
+  });
+}

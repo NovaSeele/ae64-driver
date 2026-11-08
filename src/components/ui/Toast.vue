@@ -9,9 +9,9 @@ const ICONS = { info: IconInfoCircle, success: IconCircleCheck, warn: IconAlertT
 </script>
 
 <template>
-  <div class="toasts" role="status" aria-live="polite">
+  <div class="toasts">
     <TransitionGroup name="toast">
-      <div v-for="it in items" :key="it.id" class="toast" :class="`toast--${it.kind}`">
+      <div v-for="it in items" :key="it.id" class="toast" :class="`toast--${it.kind}`" :role="it.kind === 'error' ? 'alert' : 'status'">
         <component :is="ICONS[it.kind]" class="toast__icon" :size="18" stroke-width="1.5" aria-hidden="true" />
         <span class="toast__text">{{ it.text }}</span>
         <button type="button" class="toast__x" :aria-label="t('ui.close')" @click="dismiss(it.id)">

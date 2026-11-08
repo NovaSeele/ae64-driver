@@ -4,10 +4,13 @@ import { IconAlertTriangle, IconPlayerPlay, IconShieldCheck, IconUsb } from '@ta
 import Button from '../ui/Button.vue';
 import Segmented from '../ui/Segmented.vue';
 import { useDeviceStore } from '../../stores/device';
+import { useSettingsStore } from '../../stores/settings';
 import { t } from '../../i18n/vi';
 import { locale, setLocale, type Locale } from '../../i18n/locale';
 
 const device = useDeviceStore();
+const settings = useSettingsStore();
+const usbRestarting = computed(() => settings.pollingState === 'applying' || settings.pollingState === 'reconnecting');
 
 const currentLocale = computed({
   get: () => locale.value,
@@ -56,12 +59,12 @@ const LANG_OPTIONS = computed<{ value: Locale; label: string; title: string }[]>
           size="lg"
           :icon="IconUsb"
           :loading="device.status === 'connecting'"
-          :disabled="!device.hidAvailable"
+          :disabled="!device.hidAvailable || usbRestarting"
           @click="device.connect()"
         >
           {{ device.status === 'connecting' ? t('device.connecting') : t('connect.button') }}
         </Button>
-        <Button size="lg" :icon="IconPlayerPlay" :disabled="device.status === 'connecting'" :title="t('connect.demoHint')" @click="device.connectDemo()">
+        <Button size="lg" :icon="IconPlayerPlay" :disabled="device.status === 'connecting' || usbRestarting" :title="t('connect.demoHint')" @click="device.connectDemo()">
           {{ t('connect.demo') }}
         </Button>
       </div>
@@ -71,6 +74,9 @@ const LANG_OPTIONS = computed<{ value: Locale; label: string; title: string }[]>
       </p>
       <p v-if="device.status === 'error' && device.error" class="cs__note cs__note--error" role="alert">
         <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />{{ t('connect.failed') }}: {{ device.error }}
+      </p>
+      <p v-if="settings.pollingState === 'error' && settings.pollingError" class="cs__note cs__note--error" role="alert">
+        <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />{{ settings.pollingError }}
       </p>
       <p class="cs__note">
         <IconShieldCheck :size="16" stroke-width="1.5" aria-hidden="true" />{{ t('connect.safety') }}

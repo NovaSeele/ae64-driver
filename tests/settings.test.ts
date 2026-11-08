@@ -4,7 +4,9 @@ import { MockTransport } from '../src/protocol';
 import { useDeviceStore } from '../src/stores/device';
 import { useSyncStore } from '../src/stores/sync';
 import { useHistoryStore } from '../src/stores/history';
-import { useSettingsStore } from '../src/stores/settings';
+import { mount } from '@vue/test-utils';
+import Segmented from '../src/components/ui/Segmented.vue';
+import { PROFILE_NAME_MAX_BYTES, truncateUtf8, useSettingsStore, utf8Bytes } from '../src/stores/settings';
 
 async function connectMock(): Promise<MockTransport> {
   const device = useDeviceStore();
@@ -96,5 +98,93 @@ describe('settings store', () => {
 
     expect(device.profileNames[0]).toBe('Gaming Pro');
     expect(await mock.getProfileName(0)).toBe('Gaming Pro');
+  });
+
+  it('is not loaded (defaults only) until read from the keyboard, and again after a new connection', async () => {
+    await connectMock();
+    const settings = useSettingsStore();
+    expect(settings.loaded).toBe(false);
+    await settings.load();
+    expect(settings.loaded).toBe(true);
+    expect(settings.loadError).toBeNull();
+
+    await useDeviceStore().connectDemo(); // a new transport: the values belong to the old connection
+    expect(settings.loaded).toBe(false);
+  });
+
+  it('stays not loaded and reports the error when reading fails', async () => {
+    const mock = await connectMock();
+    const settings = useSettingsStore();
+    vi.spyOn(mock, 'getRgbSleep').mockRejectedValue(new Error('timeout'));
+    await settings.load();
+    expect(settings.loaded).toBe(false);
+    expect(settings.loadError).toContain('timeout');
+  });
+
+  it('exposes the requested polling rate as pending while applying', async () => {
+    await connectMock();
+    const settings = useSettingsStore();
+    await settings.load();
+    const p = settings.setPollingRate(3);
+    expect(settings.pollingState).toBe('applying');
+    expect(settings.pollingTarget).toBe(3);
+    await p;
+    expect(settings.pollingTarget).toBeNull();
+    expect(settings.pollingRate).toBe(3);
+  });
+});
+
+describe('profile name byte limit', () => {
+  it('counts UTF-8 bytes, not characters', () => {
+    expect(utf8Bytes('abc')).toBe(3);
+    expect(utf8Bytes('Phím')).toBe(5);
+    expect(utf8Bytes('Việt')).toBe(6);
+  });
+
+  it('truncates to the limit without splitting a character', () => {
+    expect(truncateUtf8('abc', 32)).toBe('abc');
+    const long = 'Bàn phím chơi game của tôi rất nhanh';
+    const cut = truncateUtf8(long, PROFILE_NAME_MAX_BYTES);
+    expect(utf8Bytes(cut)).toBeLessThanOrEqual(PROFILE_NAME_MAX_BYTES);
+    expect(long.startsWith(cut)).toBe(true);
+    expect(utf8Bytes(truncateUtf8('ệệệệệệệệệệệệ', 32))).toBe(30); // 10 × 3 bytes; the 11th would not fit
+    expect(truncateUtf8('abc', 0)).toBe('');
+  });
+});
+
+describe('Segmented', () => {
+  const options = [{ value: 0, label: 'A' }, { value: 1, label: 'B' }, { value: 2, label: 'C' }];
+  const make = (extra: Record<string, unknown> = {}) =>
+    mount(Segmented, { props: { modelValue: 0, options, label: 'x', ...extra }, attachTo: document.body });
+
+  it('default: arrow keys select as they move focus', async () => {
+    const w = make();
+    await w.get('[data-v="0"]').trigger('keydown', { key: 'ArrowRight' });
+    expect(w.emitted('update:modelValue')?.[0]).toEqual([1]);
+    w.unmount();
+  });
+
+  it('manual: arrows only move focus; click selects', async () => {
+    const w = make({ manual: true });
+    const a = w.get('[data-v="0"]');
+    (a.element as HTMLElement).focus();
+    await a.trigger('keydown', { key: 'ArrowRight' });
+    expect(w.emitted('update:modelValue')).toBeUndefined();
+    expect(document.activeElement).toBe(w.get('[data-v="1"]').element);
+    // focus keeps travelling from the focused option, not from the selected one
+    await w.get('[data-v="1"]').trigger('keydown', { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(w.get('[data-v="2"]').element);
+    await w.get('[data-v="2"]').trigger('click');
+    expect(w.emitted('update:modelValue')?.[0]).toEqual([2]);
+    w.unmount();
+  });
+
+  it('disabled: no selection by click or key', async () => {
+    const w = make({ disabled: true });
+    await w.get('[data-v="1"]').trigger('click');
+    await w.get('[data-v="0"]').trigger('keydown', { key: 'ArrowRight' });
+    expect(w.emitted('update:modelValue')).toBeUndefined();
+    expect(w.get('[data-v="1"]').attributes('disabled')).toBeDefined();
+    w.unmount();
   });
 });

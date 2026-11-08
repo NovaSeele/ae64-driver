@@ -1,25 +1,30 @@
 <script setup lang="ts">
 // Settings page: system mode, polling rate, RGB sleep, shake optimization, profile names, hardware info.
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
+import { IconRefresh } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import Card from '../components/ui/Card.vue';
 import Segmented from '../components/ui/Segmented.vue';
 import Switch from '../components/ui/Switch.vue';
 import NumberField from '../components/ui/NumberField.vue';
 import Button from '../components/ui/Button.vue';
+import Dialog from '../components/ui/Dialog.vue';
 import { POLLING_RATE_HZ } from '../protocol';
 import { useDeviceStore } from '../stores/device';
-import { useSettingsStore } from '../stores/settings';
+import { PROFILE_NAME_MAX_BYTES, truncateUtf8, useSettingsStore, utf8Bytes } from '../stores/settings';
 import { t } from '../i18n/vi';
 
 const device = useDeviceStore();
 const settings = useSettingsStore();
 
-const editingNames = ref<string[]>([]);
+// Controls stay disabled until the values were read from the keyboard (not the built-in defaults),
+// on read-only boards, and while the USB restart after a polling-rate change is in progress.
+const ready = computed(() => settings.loaded && !settings.loadError);
+const busy = computed(() => settings.pollingState === 'applying' || settings.pollingState === 'reconnecting');
+const locked = computed(() => !ready.value || !device.boardAllowed || busy.value);
 
-onMounted(async () => {
-  await settings.load();
-  editingNames.value = device.profileNames.slice();
+onMounted(() => {
+  if (!settings.loaded) void settings.load();
 });
 
 const systemModeOptions = computed(() => [
@@ -27,31 +32,94 @@ const systemModeOptions = computed(() => [
   { value: 1, label: t('settings.systemModeMac') },
 ]);
 
+const rateLabel = (r: number) => `${POLLING_RATE_HZ[r] ?? r} Hz`;
+
 const pollingRateOptions = computed(() =>
   settings.supportedRates.map((r) => ({
     value: r,
-    label: `${POLLING_RATE_HZ[r] ?? r} Hz`,
+    label: rateLabel(r),
   })),
 );
 
 const sleepPresets = [0, 5, 10, 15, 30];
+
+// Polling rate restarts the keyboard's USB connection: arrows only move focus, a pick needs confirmation.
+const pendingRate = ref<number | null>(null);
+const confirmOpen = ref(false);
+const shownRate = computed(() => settings.pollingTarget ?? settings.pollingRate);
+
+function askPollingRate(v: number | null) {
+  if (v === null || v === settings.pollingRate || locked.value) return;
+  pendingRate.value = v;
+  confirmOpen.value = true;
+}
+
+function confirmPollingRate() {
+  const rate = pendingRate.value;
+  confirmOpen.value = false;
+  if (rate !== null) void settings.setPollingRate(rate);
+}
+
+const lightingDetails = computed(() => {
+  const strip = settings.lightingAreas?.areas.find((a) => a.leds !== undefined)?.leds ?? 38;
+  return `${t('settings.lightingAreaKeys')}, ${t('settings.lightingAreaStrip', { leds: strip })}`;
+});
 
 const shakeModel = computed({
   get: () => settings.shakeOptimization,
   set: (v: boolean) => settings.setShakeOptimization(v),
 });
 
-function saveProfileName(index: number) {
-  const name = editingNames.value[index];
-  if (name && name.trim()) {
-    void device.renameProfile(index, name.trim());
+// Name drafts only exist while the user is editing; otherwise the live device.profileNames show
+// (so a rename from the sidebar is picked up).
+const drafts = reactive<Record<number, string>>({});
+const nameErrors = reactive<Record<number, string>>({});
+const shownName = (i: number) => drafts[i] ?? device.profileNames[i] ?? '';
+
+function onNameInput(i: number, e: Event) {
+  const el = e.target as HTMLInputElement;
+  const v = truncateUtf8(el.value, PROFILE_NAME_MAX_BYTES);
+  if (v !== el.value) el.value = v;
+  drafts[i] = v;
+  delete nameErrors[i];
+}
+
+function canRename(i: number): boolean {
+  const d = drafts[i]?.trim();
+  return !locked.value && !!d && d !== device.profileNames[i];
+}
+
+async function saveProfileName(i: number) {
+  if (!canRename(i)) return;
+  try {
+    await device.renameProfile(i, drafts[i].trim());
+    delete drafts[i];
+    delete nameErrors[i];
+  } catch (err) {
+    nameErrors[i] = err instanceof Error ? err.message : String(err);
   }
 }
 </script>
 
 <template>
   <PageLayout :title="t('page.settings')">
-    <div class="settings-grid">
+    <p v-if="!device.boardAllowed" class="settings-warn" role="note">{{ t('settings.readOnly') }}</p>
+
+    <!-- load error -->
+    <Card v-if="settings.loadError" :title="t('settings.loadFailed')" :subtitle="settings.loadError">
+      <div><Button :icon="IconRefresh" :loading="settings.loading" @click="settings.load()">{{ t('settings.reload') }}</Button></div>
+    </Card>
+
+    <!-- loading skeleton -->
+    <div v-else-if="!settings.loaded" class="settings-grid" aria-busy="true">
+      <p class="settings-loading">{{ t('settings.loading') }}</p>
+      <div v-for="i in 4" :key="i" class="settings-skel">
+        <div class="skeleton" style="width: 40%; height: 14px" />
+        <div class="skeleton" style="height: 32px" />
+      </div>
+    </div>
+
+    <div v-else class="settings-grid">
       <!-- System mode -->
       <Card :title="t('settings.systemMode')" :subtitle="t('settings.systemModeDesc')">
         <div>
@@ -59,6 +127,7 @@ function saveProfileName(index: number) {
             :model-value="settings.systemMode"
             :options="systemModeOptions"
             :label="t('settings.systemMode')"
+            :disabled="locked"
             @update:model-value="(v) => v !== null && settings.setSystemMode(v)"
           />
         </div>
@@ -68,14 +137,17 @@ function saveProfileName(index: number) {
       <Card :title="t('settings.pollingRate')" :subtitle="t('settings.pollingRateDesc')">
         <div>
           <Segmented
-            :model-value="settings.pollingRate"
+            :model-value="shownRate"
             :options="pollingRateOptions"
             :label="t('settings.pollingRate')"
-            @update:model-value="(v) => v !== null && settings.setPollingRate(v)"
+            manual
+            :disabled="locked"
+            @update:model-value="askPollingRate"
           />
+          <p class="settings-note">{{ t('settings.pollingNote') }}</p>
           <p v-if="settings.pollingState === 'applying'" class="settings-note">{{ t('settings.pollingApplying') }}</p>
           <p v-else-if="settings.pollingState === 'reconnecting'" class="settings-note">{{ t('settings.pollingReconnecting') }}</p>
-          <p v-else-if="settings.pollingState === 'error' && settings.pollingError" class="settings-note settings-note--error">{{ settings.pollingError }}</p>
+          <p v-else-if="settings.pollingState === 'error' && settings.pollingError" class="settings-note settings-note--error" role="alert">{{ settings.pollingError }}</p>
         </div>
       </Card>
 
@@ -88,6 +160,8 @@ function saveProfileName(index: number) {
               :key="mins"
               size="sm"
               :variant="settings.rgbSleep === mins ? 'primary' : 'ghost'"
+              :aria-pressed="settings.rgbSleep === mins"
+              :disabled="locked"
               @click="settings.setRgbSleep(mins)"
             >
               {{ mins === 0 ? t('settings.rgbSleepNever') : t('settings.rgbSleepMinutes', { n: mins }) }}
@@ -100,8 +174,9 @@ function saveProfileName(index: number) {
               :max="120"
               :step="1"
               :decimals="0"
-              unit="min"
+              :unit="t('settings.minutesUnit')"
               :label="t('settings.rgbSleep')"
+              :disabled="locked"
               @update:model-value="(v) => settings.setRgbSleep(v)"
             />
           </div>
@@ -111,38 +186,35 @@ function saveProfileName(index: number) {
       <!-- Shake optimization -->
       <Card :title="t('settings.shakeOptimization')" :subtitle="t('settings.shakeOptimizationDesc')">
         <div class="settings-shake">
-          <Switch
-            v-model="shakeModel"
-            :label="settings.shakeOptimization ? t('settings.shakeOptimizationOn') : t('settings.shakeOptimizationOff')"
-          />
+          <Switch v-model="shakeModel" :label="t('settings.shakeOptimization')" :disabled="locked" />
+          <span class="settings-shake__state">{{ settings.shakeOptimization ? t('settings.shakeOptimizationOn') : t('settings.shakeOptimizationOff') }}</span>
         </div>
       </Card>
 
       <!-- Profile names -->
       <Card :title="t('settings.profileNames')" :subtitle="t('settings.profileNamesDesc')">
         <div class="settings-profiles">
-          <div
-            v-for="(name, i) in device.profileNames"
-            :key="i"
-            class="settings-profile-row"
-          >
-            <span class="settings-profile-row__label micro">Profile {{ i + 1 }}</span>
-            <input
-              v-model="editingNames[i]"
-              type="text"
-              maxlength="32"
-              class="settings-profile-row__input"
-              :placeholder="`Profile ${i + 1}`"
-              @keydown.enter="saveProfileName(i)"
-            >
-            <Button
-              size="sm"
-              variant="ghost"
-              :disabled="editingNames[i] === name || !editingNames[i]?.trim()"
-              @click="saveProfileName(i)"
-            >
-              {{ t('settings.profileRename') }}
-            </Button>
+          <div v-for="(_n, i) in device.profileNames" :key="i">
+            <div class="settings-profile-row">
+              <span class="settings-profile-row__label micro">{{ t('settings.profileLabel', { n: i + 1 }) }}</span>
+              <input
+                :value="shownName(i)"
+                type="text"
+                class="settings-profile-row__input"
+                :aria-label="t('settings.profileInputLabel', { n: i + 1 })"
+                :placeholder="t('settings.profileLabel', { n: i + 1 })"
+                :disabled="locked"
+                @input="onNameInput(i, $event)"
+                @keydown.enter="saveProfileName(i)"
+              >
+              <span class="settings-profile-row__count num" :class="{ 'settings-profile-row__count--full': utf8Bytes(shownName(i)) >= PROFILE_NAME_MAX_BYTES }">
+                {{ t('settings.profileBytes', { used: utf8Bytes(shownName(i)), max: PROFILE_NAME_MAX_BYTES }) }}
+              </span>
+              <Button size="sm" variant="ghost" :disabled="!canRename(i)" @click="saveProfileName(i)">
+                {{ t('settings.profileRename') }}
+              </Button>
+            </div>
+            <p v-if="nameErrors[i]" class="settings-note settings-note--error" role="alert">{{ nameErrors[i] }}</p>
           </div>
         </div>
       </Card>
@@ -171,18 +243,26 @@ function saveProfileName(index: number) {
           <div class="settings-info-item">
             <dt class="micro">{{ t('settings.macroCapacity') }}</dt>
             <dd class="num">
-              {{ t('settings.macroCapacityVal', { count: settings.macroSpace.count, capacity: settings.macroSpace.capacity }) }}
+              {{ t('settings.macroCapacityVal', { count: settings.macroSpace.count, capacity: settings.macroSpace.capacity, max: settings.macroSpace.capacity - settings.macroSpace.count }) }}
             </dd>
           </div>
           <div class="settings-info-item">
             <dt class="micro">{{ t('settings.lightingAreas') }}</dt>
             <dd class="num">
-              {{ t('settings.lightingAreasVal', { count: settings.lightingAreas?.count ?? 2, details: `${t('settings.lightingAreaKeys')}, ${t('settings.lightingAreaStrip')}` }) }}
+              {{ t('settings.lightingAreasVal', { count: settings.lightingAreas?.count ?? 0, details: lightingDetails }) }}
             </dd>
           </div>
         </dl>
       </Card>
     </div>
+
+    <Dialog v-model:open="confirmOpen" :title="t('settings.pollingConfirmTitle', { rate: pendingRate === null ? '' : rateLabel(pendingRate) })" :width="440">
+      <p>{{ t('settings.pollingConfirmBody') }}</p>
+      <template #footer>
+        <Button variant="ghost" @click="confirmOpen = false">{{ t('settings.pollingCancel') }}</Button>
+        <Button variant="primary" @click="confirmPollingRate">{{ t('settings.pollingConfirm') }}</Button>
+      </template>
+    </Dialog>
   </PageLayout>
 </template>
 
@@ -193,7 +273,27 @@ function saveProfileName(index: number) {
   color: var(--fg-2);
 }
 .settings-note--error {
-  color: var(--danger, #ff6b6b);
+  color: var(--danger);
+}
+.settings-warn {
+  max-width: 1200px;
+  margin: 0 auto var(--s-4);
+  width: 100%;
+  color: var(--warn);
+  font-size: var(--fs-label);
+}
+.settings-loading {
+  grid-column: 1 / -1;
+  color: var(--fg-3);
+}
+.settings-skel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-card);
+  background: var(--bg-2);
 }
 .settings-grid {
   display: grid;
@@ -219,6 +319,11 @@ function saveProfileName(index: number) {
 .settings-shake {
   display: flex;
   align-items: center;
+  gap: var(--s-3);
+}
+.settings-shake__state {
+  color: var(--fg-2);
+  font-size: var(--fs-label);
 }
 .settings-profiles {
   display: flex;
@@ -246,6 +351,13 @@ function saveProfileName(index: number) {
   color: var(--fg-1);
   font-size: var(--fs-body);
 }
+.settings-profile-row__input:disabled { opacity: 0.45; }
+.settings-profile-row__count {
+  flex: none;
+  color: var(--fg-3);
+  font-size: var(--fs-caption);
+}
+.settings-profile-row__count--full { color: var(--warn); }
 .settings-profile-row__input:focus {
   border-color: var(--acc-line);
   box-shadow: var(--focus-ring);

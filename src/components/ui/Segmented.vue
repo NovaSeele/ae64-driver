@@ -1,25 +1,36 @@
 <script setup lang="ts" generic="T extends string | number">
 const model = defineModel<T | null>({ required: true });
+// `manual`: arrow keys only move focus; Enter / Space / click select (for choices with side effects).
 const props = withDefaults(defineProps<{
   options: { value: T; label: string; title?: string }[];
   label: string;
   size?: 'sm' | 'md';
+  manual?: boolean;
+  disabled?: boolean;
 }>(), { size: 'md' });
 
+function select(v: T) {
+  if (!props.disabled) model.value = v;
+}
+
 function onKey(e: KeyboardEvent) {
+  if (props.disabled) return;
   const opts = props.options;
   const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
   if (!d) return;
   e.preventDefault();
-  const i = opts.findIndex((o) => o.value === model.value);
+  const from = props.manual ? (e.target as HTMLElement).closest<HTMLElement>('[data-v]')?.dataset.v : undefined;
+  const i = props.manual
+    ? opts.findIndex((o) => String(o.value) === from)
+    : opts.findIndex((o) => o.value === model.value);
   const next = opts[(Math.max(i, 0) + d + opts.length) % opts.length];
-  model.value = next.value;
+  if (!props.manual) model.value = next.value;
   ((e.currentTarget as HTMLElement).querySelector(`[data-v="${String(next.value)}"]`) as HTMLElement | null)?.focus();
 }
 </script>
 
 <template>
-  <div class="seg" :class="`seg--${size}`" role="radiogroup" :aria-label="label" @keydown="onKey">
+  <div class="seg" :class="[`seg--${size}`, { 'seg--disabled': disabled }]" role="radiogroup" :aria-label="label" :aria-disabled="disabled || undefined" @keydown="onKey">
     <button
       v-for="(o, i) in options"
       :key="String(o.value)"
@@ -29,8 +40,9 @@ function onKey(e: KeyboardEvent) {
       :data-v="String(o.value)"
       :title="o.title"
       :aria-checked="o.value === model"
+      :disabled="disabled"
       :tabindex="o.value === model || (model === null && i === 0) ? 0 : -1"
-      @click="model = o.value"
+      @click="select(o.value)"
     >
       {{ o.label }}
     </button>
@@ -57,10 +69,17 @@ function onKey(e: KeyboardEvent) {
 }
 .seg--md .seg__opt { height: 28px; padding: 0 12px; font-size: var(--fs-body); }
 .seg--sm .seg__opt { height: 24px; padding: 0 10px; font-size: var(--fs-label); }
-.seg__opt:hover { color: var(--fg-1); }
+.seg--disabled { opacity: 0.45; }
+.seg__opt:disabled { cursor: not-allowed; }
+.seg__opt:hover:not(:disabled) { color: var(--fg-1); }
 .seg__opt[aria-checked='true'] {
   background: var(--bg-4);
   color: var(--fg-1);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+/* Declared after the checked shadow so the focus ring is not overridden. */
+.seg__opt:focus-visible,
+.seg__opt[aria-checked='true']:focus-visible {
+  box-shadow: var(--focus-ring);
 }
 </style>
