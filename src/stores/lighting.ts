@@ -94,6 +94,8 @@ export const useLightingStore = defineStore('lighting', () => {
   const liveColors = shallowRef<Record<number, string>>({});
   const liveStripColors = shallowRef<string[]>([]);
   const polling = ref(false);
+  /** The last live frame could not be read (cleared by the next good frame). */
+  const liveError = ref(false);
 
   let loadPromise: Promise<void> | null = null;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -511,9 +513,14 @@ export const useLightingStore = defineStore('lighting', () => {
   }
 
   // ------------------------------------------------------------------ Live preview poller (~10 Hz)
+  const HIDDEN_POLL_MS = 500;
+
   async function tickLivePreview() {
     if (!polling.value) return;
-    const canPoll = device.connected &&
+    // No frames while the tab is hidden: nobody sees them and they keep the HID bus busy.
+    const hidden = typeof document !== 'undefined' && document.hidden;
+    const canPoll = !hidden &&
+      device.connected &&
       livePreview.value &&
       !device.exclusiveActive &&
       sync.state !== 'writing' &&
@@ -542,15 +549,16 @@ export const useLightingStore = defineStore('lighting', () => {
           }
           pollCycle++;
         }, { exclusive: false });
+        liveError.value = false;
       } catch {
-        // Suppress poller frame errors
+        liveError.value = true;
       } finally {
         pollInFlight = false;
       }
     }
 
     if (polling.value) {
-      pollTimer = setTimeout(tickLivePreview, 100);
+      pollTimer = setTimeout(tickLivePreview, hidden ? HIDDEN_POLL_MS : 100);
     }
   }
 
@@ -592,6 +600,7 @@ export const useLightingStore = defineStore('lighting', () => {
     liveColors,
     liveStripColors,
     polling,
+    liveError,
 
     load,
     applyBase,

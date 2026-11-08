@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
+import SelectionBar from '../components/keyboard/SelectionBar.vue';
 import Card from '../components/ui/Card.vue';
 import Button from '../components/ui/Button.vue';
+import Dialog from '../components/ui/Dialog.vue';
 import Segmented from '../components/ui/Segmented.vue';
 import Slider from '../components/ui/Slider.vue';
 import ColorPicker from '../components/ui/ColorPicker.vue';
@@ -12,6 +14,7 @@ import Switch from '../components/ui/Switch.vue';
 import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
 import { hexToRgb, rgbToHex, useLightingStore } from '../stores/lighting';
+import { LED_MATRIX_COLS, LED_STRIP_COUNT } from '../protocol';
 import type { PhysicalKey } from '../protocol';
 import { t } from '../i18n/vi';
 
@@ -21,22 +24,44 @@ const lighting = useLightingStore();
 
 type TabId = 'keys' | 'strip';
 const activeTab = ref<TabId>('keys');
+/** Firmware lighting area of the active tab: 0 = keys, 1 = edge strip. */
+const area = computed<0 | 1>(() => (activeTab.value === 'keys' ? 0 : 1));
 
 const tabItems = computed(() => [
   { id: 'keys', label: t('lighting.tabKeys') },
   { id: 'strip', label: t('lighting.tabStrip') },
 ]);
 
-// Strip LED selection (0..37)
-const stripSelection = ref<Set<number>>(new Set());
+// What the page may show and edit: nothing is real until this profile's lighting has been read.
+const ready = computed(() => !lighting.loading && lighting.loadedProfile === device.activeProfile);
+const readOnly = computed(() => !device.boardAllowed);
+const locked = computed(() => !ready.value || readOnly.value);
 
-// Strip side layout for quick selection
+const base = computed(() => (area.value === 0 ? lighting.area0Base : lighting.area1Base));
+const palette = computed(() => (area.value === 0 ? lighting.area0Palette : lighting.area1Palette));
+const modeCount = computed(() => (area.value === 0 ? lighting.area0ModeCount : lighting.area1ModeCount));
+const powered = computed(() => base.value.open);
+/** Effect, tuning and palette do nothing while the area is off. */
+const tuneLocked = computed(() => locked.value || !powered.value);
+
+const areaName = () => t(area.value === 0 ? 'lighting.tabKeys' : 'lighting.tabStrip');
+const baseLabel = () => t('lighting.syncBase', { area: areaName() });
+const paletteLabel = () => t('lighting.syncPalette', { area: areaName() });
+const matrixLabel = () => t('lighting.syncMatrix', { area: areaName() });
+
+// ------------------------------------------------------------------ Edge strip geometry
+// LED indices run clockwise from the top edge's middle: 0..1 top right, 2..6 right, 7..20 bottom
+// (right to left), 21..26 left, 27..37 top left. Drawn clockwise from the top-left corner so each
+// edge is one contiguous group.
 const STRIP_SIDES = {
   top: [27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 0, 1],
   right: [2, 3, 4, 5, 6],
-  bottom: [20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7],
-  left: [26, 25, 24, 23, 22, 21],
+  bottom: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+  left: [21, 22, 23, 24, 25, 26],
 };
+const STRIP_ORDER = [...STRIP_SIDES.top, ...STRIP_SIDES.right, ...STRIP_SIDES.bottom, ...STRIP_SIDES.left];
+
+const stripSelection = ref<Set<number>>(new Set());
 
 let offProfile: (() => void) | null = null;
 
@@ -53,8 +78,14 @@ onBeforeUnmount(() => {
   lighting.stopLivePolling();
 });
 
-// ------------------------------------------------------------------ Color mapping
+// ------------------------------------------------------------------ Preview colours
+/** Static stand-in for the firmware's rainbow: hue by position (0..1). */
+function rainbowAt(pos: number): string {
+  return `hsl(${Math.round(pos * 360)} 80% 60%)`;
+}
+
 function keyColor(key: PhysicalKey): string | undefined {
+  if (!ready.value) return undefined;
   if (lighting.livePreview && lighting.liveColors[key.id]) {
     return lighting.liveColors[key.id];
   }
@@ -62,42 +93,48 @@ function keyColor(key: PhysicalKey): string | undefined {
   if (custom?.custom) {
     return custom.colorHex;
   }
-  if (!lighting.area0Base.open || lighting.area0Base.openMode === 0) {
-    return undefined;
-  }
-  if (lighting.area0Base.paletteIndex > 0) {
-    const pal = lighting.area0Palette[lighting.area0Base.paletteIndex];
-    if (pal) return rgbToHex(pal);
-  }
-  return undefined;
+  const b = lighting.area0Base;
+  if (!b.open || b.openMode === 0) return undefined;
+  if (b.paletteIndex === 0) return rainbowAt(key.col / LED_MATRIX_COLS);
+  const pal = lighting.area0Palette[b.paletteIndex];
+  return pal ? rgbToHex(pal) : undefined;
 }
 
-const stripColors = computed<string[]>(() => {
-  return Array.from({ length: 38 }, (_, index) => {
-    if (lighting.livePreview && lighting.liveStripColors[index]) {
-      return lighting.liveStripColors[index];
-    }
-    const custom = lighting.stripCustomColors[index];
-    if (custom?.custom) {
-      return custom.colorHex;
-    }
-    if (!lighting.area1Base.open || lighting.area1Base.openMode === 0) {
-      return '#121417';
-    }
-    if (lighting.area1Base.paletteIndex > 0) {
-      const pal = lighting.area1Palette[lighting.area1Base.paletteIndex];
-      if (pal) return rgbToHex(pal);
-    }
-    return '#3fe0c5';
-  });
-});
+/** Marks keys that carry their own colour (the LED line alone is easy to miss). */
+function keyBadge(key: PhysicalKey): string | undefined {
+  return ready.value && lighting.keyCustomColors[key.id]?.custom ? '●' : undefined;
+}
 
-const stripLeds = computed(() => {
-  return Array.from({ length: 38 }, (_, index) => {
-    const color = stripColors.value[index] || '#1a1d22';
-    const isSel = stripSelection.value.has(index);
-    return { index, color, isSel };
-  });
+function stripColor(index: number): string {
+  if (!ready.value) return 'var(--bg-3)';
+  if (lighting.livePreview && lighting.liveStripColors[index]) {
+    return lighting.liveStripColors[index];
+  }
+  const custom = lighting.stripCustomColors[index];
+  if (custom?.custom) return custom.colorHex;
+  const b = lighting.area1Base;
+  if (!b.open || b.openMode === 0) return 'var(--bg-1)';
+  if (b.paletteIndex === 0) return rainbowAt(STRIP_ORDER.indexOf(index) / LED_STRIP_COUNT);
+  const pal = lighting.area1Palette[b.paletteIndex];
+  return pal ? rgbToHex(pal) : 'var(--bg-3)';
+}
+
+const stripGroups = computed(() => {
+  const sides = [
+    { id: 'top', label: t('lighting.selectTop') },
+    { id: 'right', label: t('lighting.selectRight') },
+    { id: 'bottom', label: t('lighting.selectBottom') },
+    { id: 'left', label: t('lighting.selectLeft') },
+  ] as const;
+  return sides.map((side) => ({
+    ...side,
+    leds: STRIP_SIDES[side.id].map((index) => ({
+      index,
+      color: stripColor(index),
+      isSel: stripSelection.value.has(index),
+      custom: ready.value && lighting.stripCustomColors[index]?.custom,
+    })),
+  }));
 });
 
 function onToggleStripLed(index: number) {
@@ -108,35 +145,36 @@ function onToggleStripLed(index: number) {
 }
 
 function onStripPreset(preset: 'all' | 'none' | 'top' | 'bottom' | 'left' | 'right') {
-  if (preset === 'all') {
-    stripSelection.value = new Set(Array.from({ length: 38 }, (_, i) => i));
-  } else if (preset === 'none') {
-    stripSelection.value = new Set();
-  } else {
-    stripSelection.value = new Set(STRIP_SIDES[preset]);
-  }
+  if (preset === 'all') stripSelection.value = new Set(STRIP_ORDER);
+  else if (preset === 'none') stripSelection.value = new Set();
+  else stripSelection.value = new Set(STRIP_SIDES[preset]);
 }
 
-// ------------------------------------------------------------------ Area 0 options & edits
-const area0OpenMode = computed<number>({
-  get: () => (lighting.area0Base.open ? lighting.area0Base.openMode || 1 : 0),
+// ------------------------------------------------------------------ Power / direction / effect
+const openOptions = computed(() => (area.value === 0
+  ? [
+      { value: 0, label: t('lighting.modeOff') },
+      { value: 1, label: t('lighting.modeBottom') },
+      { value: 2, label: t('lighting.modeTop') },
+      { value: 3, label: t('lighting.modeBoth') },
+    ]
+  : [
+      { value: 0, label: t('lighting.modeOff') },
+      { value: 1, label: t('lighting.modeOn') },
+    ]));
+
+const openModel = computed<number>({
+  get: () => (base.value.open ? base.value.openMode || 1 : 0),
   set: (val: number | null) => {
     const openMode = val ?? 0;
-    lighting.applyBase(0, { openMode, open: openMode !== 0 }, t('lighting.syncBase', { area: t('lighting.tabKeys') }));
+    lighting.applyBase(area.value, { openMode, open: openMode !== 0 }, baseLabel());
   },
 });
 
-const keyOpenOptions = computed(() => [
-  { value: 0, label: t('lighting.modeOff') },
-  { value: 1, label: t('lighting.modeBottom') },
-  { value: 2, label: t('lighting.modeTop') },
-  { value: 3, label: t('lighting.modeBoth') },
-]);
-
-const area0DirModel = computed<number>({
-  get: () => lighting.area0Base.direction,
+const directionModel = computed<number>({
+  get: () => base.value.direction,
   set: (val: number | null) => {
-    lighting.applyBase(0, { direction: val ?? 0 }, t('lighting.syncBase', { area: t('lighting.tabKeys') }));
+    lighting.applyBase(area.value, { direction: val ?? 0 }, baseLabel());
   },
 });
 
@@ -145,120 +183,131 @@ const directionOptions = computed(() => [
   { value: 1, label: `← ${t('lighting.directionBackward')}` },
 ]);
 
-// Area 0 Palette editing
-const area0EditingSlot = ref<number>(lighting.area0Base.paletteIndex > 0 ? lighting.area0Base.paletteIndex : 1);
-watch(() => lighting.area0Base.paletteIndex, (idx) => {
-  if (idx > 0) area0EditingSlot.value = idx;
-});
-
-const area0EditingHex = computed<string>({
-  get: () => {
-    const entry = lighting.area0Palette[area0EditingSlot.value];
-    return entry ? rgbToHex(entry) : '#ffffff';
-  },
-  set: (hex: string) => {
-    lighting.applyPaletteColor(0, area0EditingSlot.value, hexToRgb(hex), t('lighting.syncPalette', { area: t('lighting.tabKeys') }), 'color');
-  },
-});
-
-function selectArea0Swatch(index: number) {
-  lighting.applyBase(0, { paletteIndex: index }, t('lighting.syncBase', { area: t('lighting.tabKeys') }));
-  if (index > 0) area0EditingSlot.value = index;
+function onEffect(index: number) {
+  lighting.applyBase(area.value, { mode: index }, baseLabel());
 }
 
-// Per-key custom colors
-const perKeyPickedHex = ref('#3fe0c5');
-
-function onApplyKeyColor() {
-  if (sel.count > 0) {
-    lighting.applyKeyColors(sel.ids, hexToRgb(perKeyPickedHex.value), t('lighting.syncMatrix', { area: t('lighting.tabKeys') }));
-  }
-}
-
-function onClearKeyColor() {
-  lighting.clearKeyColors(sel.ids, t('lighting.syncMatrix', { area: t('lighting.tabKeys') }));
-}
-
-function onClearAllKeyColors() {
-  lighting.clearAllKeyColors(t('lighting.syncMatrix', { area: t('lighting.tabKeys') }));
-}
-
-// ------------------------------------------------------------------ Area 1 options & edits
-const area1OpenMode = computed<number>({
-  get: () => (lighting.area1Base.open ? lighting.area1Base.openMode || 1 : 0),
-  set: (val: number | null) => {
-    const openMode = val ?? 0;
-    lighting.applyBase(1, { openMode, open: openMode !== 0 }, t('lighting.syncBase', { area: t('lighting.tabStrip') }));
-  },
-});
-
-const stripOpenOptions = computed(() => [
-  { value: 0, label: t('lighting.modeOff') },
-  { value: 1, label: t('lighting.modeOn') },
+// ------------------------------------------------------------------ Brightness / speed
+// The slider shows a local draft while it is dragged; the store only changes on commit, so applyBase
+// sees the real before/after (history entry + write).
+type TuneField = 'brightness' | 'speed';
+const drafts = reactive<Record<string, number>>({});
+const tuneFields = computed<{ id: TuneField; label: string }[]>(() => [
+  { id: 'brightness', label: t('lighting.brightness') },
+  { id: 'speed', label: t('lighting.speed') },
 ]);
+const draftKey = (field: TuneField) => `${area.value}.${field}`;
+const tuneValue = (field: TuneField) => drafts[draftKey(field)] ?? base.value[field];
+function onTuneDrag(field: TuneField, value: number) {
+  drafts[draftKey(field)] = value;
+}
+function onTuneCommit(field: TuneField, value: number) {
+  delete drafts[draftKey(field)];
+  lighting.applyBase(area.value, { [field]: value }, baseLabel(), field);
+}
 
-const area1DirModel = computed<number>({
-  get: () => lighting.area1Base.direction,
-  set: (val: number | null) => {
-    lighting.applyBase(1, { direction: val ?? 0 }, t('lighting.syncBase', { area: t('lighting.tabStrip') }));
-  },
-});
+// ------------------------------------------------------------------ Palette
+// Slot being edited, per area (0 = follow the active slot).
+const editingSlots = reactive<Record<number, number>>({ 0: 0, 1: 0 });
+for (const a of [0, 1] as const) {
+  watch(() => (a === 0 ? lighting.area0Base : lighting.area1Base).paletteIndex, (idx) => {
+    if (idx > 0) editingSlots[a] = idx;
+  });
+}
+const editingSlot = computed(() => editingSlots[area.value] || (base.value.paletteIndex > 0 ? base.value.paletteIndex : 1));
 
-// Area 1 Palette editing
-const area1EditingSlot = ref<number>(lighting.area1Base.paletteIndex > 0 ? lighting.area1Base.paletteIndex : 1);
-watch(() => lighting.area1Base.paletteIndex, (idx) => {
-  if (idx > 0) area1EditingSlot.value = idx;
-});
-
-const area1EditingHex = computed<string>({
+// The picker edits a draft; the palette is written once, when the gesture ends (@commit).
+const paletteDrafts = reactive<Record<number, string | null>>({ 0: null, 1: null });
+const editingHex = computed<string>({
   get: () => {
-    const entry = lighting.area1Palette[area1EditingSlot.value];
-    return entry ? rgbToHex(entry) : '#ffffff';
+    const entry = palette.value[editingSlot.value];
+    return paletteDrafts[area.value] ?? (entry ? rgbToHex(entry) : '#ffffff');
   },
   set: (hex: string) => {
-    lighting.applyPaletteColor(1, area1EditingSlot.value, hexToRgb(hex), t('lighting.syncPalette', { area: t('lighting.tabStrip') }), 'color');
+    paletteDrafts[area.value] = hex;
   },
 });
 
-function selectArea1Swatch(index: number) {
-  lighting.applyBase(1, { paletteIndex: index }, t('lighting.syncBase', { area: t('lighting.tabStrip') }));
-  if (index > 0) area1EditingSlot.value = index;
+function onPaletteCommit(hex: string) {
+  paletteDrafts[area.value] = null;
+  lighting.applyPaletteColor(area.value, editingSlot.value, hexToRgb(hex), paletteLabel(), 'color');
 }
 
-// Strip custom colors
-const stripPickedHex = ref('#3fe0c5');
-
-function onApplyStripColor() {
-  if (stripSelection.value.size > 0) {
-    lighting.applyStripColors([...stripSelection.value], hexToRgb(stripPickedHex.value), t('lighting.syncMatrix', { area: t('lighting.tabStrip') }));
-  }
+function onSwatch(index: number) {
+  paletteDrafts[area.value] = null;
+  if (index > 0) editingSlots[area.value] = index;
+  lighting.applyBase(area.value, { paletteIndex: index }, baseLabel());
 }
 
-function onClearStripColor() {
-  lighting.clearStripColors([...stripSelection.value], t('lighting.syncMatrix', { area: t('lighting.tabStrip') }));
+function swatchHex(index: number): string | undefined {
+  const draft = paletteDrafts[area.value];
+  if (index === editingSlot.value && draft) return draft;
+  const entry = palette.value[index];
+  return entry ? rgbToHex(entry) : undefined;
 }
 
-function onClearAllStripColors() {
-  lighting.clearAllStripColors(t('lighting.syncMatrix', { area: t('lighting.tabStrip') }));
+/** Slot-number colour that stays readable on the swatch. */
+function swatchInk(index: number): 'dark' | 'light' {
+  const hex = swatchHex(index);
+  if (!hex) return 'light';
+  const { r, g, b } = hexToRgb(hex);
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? 'dark' : 'light';
 }
 
-const activeKeyCount = computed(() => {
-  return Object.values(lighting.keyCustomColors).filter((v) => v.custom).length;
+// ------------------------------------------------------------------ Per-key / per-LED colours
+const picked = reactive<Record<number, string>>({ 0: '#ffffff', 1: '#ffffff' });
+const confirmClear = ref(false);
+
+const selectedCount = computed(() => (area.value === 0 ? sel.count : stripSelection.value.size));
+const overrideCount = computed(() => (area.value === 0
+  ? Object.values(lighting.keyCustomColors).filter((v) => v.custom).length
+  : lighting.stripCustomColors.filter((v) => v.custom).length));
+const selectionHasOverride = computed(() => (area.value === 0
+  ? sel.ids.some((id) => lighting.keyCustomColors[id]?.custom)
+  : [...stripSelection.value].some((i) => lighting.stripCustomColors[i]?.custom)));
+
+const selectedText = computed(() => {
+  const n = selectedCount.value;
+  if (n === 0) return t(area.value === 0 ? 'lighting.noKeysSelected' : 'lighting.noLedsSelected');
+  if (area.value === 0) return n === 1 ? t('lighting.selectedKeyOne') : t('lighting.selectedKeys', { count: n });
+  return n === 1 ? t('lighting.selectedLedOne') : t('lighting.selectedLeds', { count: n });
+});
+const overrideText = computed(() => {
+  const n = overrideCount.value;
+  if (area.value === 0) return n === 1 ? t('lighting.customActiveOne') : t('lighting.customActive', { count: n });
+  return n === 1 ? t('lighting.stripCustomActiveOne') : t('lighting.stripCustomActive', { count: n });
 });
 
-const activeStripCount = computed(() => {
-  return lighting.stripCustomColors.filter((v) => v.custom).length;
+function onApplyColor() {
+  const rgb = hexToRgb(picked[area.value]);
+  if (area.value === 0) lighting.applyKeyColors(sel.ids, rgb, matrixLabel());
+  else lighting.applyStripColors([...stripSelection.value], rgb, matrixLabel());
+}
+
+function onClearSelected() {
+  if (area.value === 0) lighting.clearKeyColors(sel.ids, matrixLabel());
+  else lighting.clearStripColors([...stripSelection.value], matrixLabel());
+}
+
+function onClearAll() {
+  confirmClear.value = false;
+  if (area.value === 0) lighting.clearAllKeyColors(matrixLabel());
+  else lighting.clearAllStripColors(matrixLabel());
+}
+
+const liveState = computed<'error' | 'live' | 'paused'>(() => {
+  if (!lighting.livePreview) return 'paused';
+  return lighting.liveError ? 'error' : 'live';
 });
 </script>
 
 <template>
-  <PageLayout :title="t('page.lighting')" keyboard>
-    <!-- Toolbar: Live Preview Toggle -->
+  <PageLayout :title="t('page.lighting')">
     <template #toolbar>
       <div class="lighting-toolbar">
-        <span class="lighting-live-badge" :class="{ 'lighting-live-badge--live': lighting.livePreview }">
+        <span class="lighting-live-badge" :class="`lighting-live-badge--${liveState}`">
           <span class="lighting-live-badge__dot" />
-          {{ lighting.livePreview ? t('lighting.liveStatus') : t('lighting.pausedStatus') }}
+          {{ liveState === 'error' ? t('lighting.liveError') : liveState === 'live' ? t('lighting.liveStatus') : t('lighting.pausedStatus') }}
         </span>
         <Switch
           v-model="lighting.livePreview"
@@ -267,77 +316,9 @@ const activeStripCount = computed(() => {
       </div>
     </template>
 
-    <!-- Keyboard and Strip View -->
-    <template #keyboard>
-      <div class="lighting-stage">
-        <KeyboardView
-          :keys="device.keys"
-          :legend="device.legend"
-          :color="keyColor"
-          selectable
-        />
+    <div class="lighting">
+      <p v-if="readOnly" class="lighting-notice" role="status">{{ t('lighting.readOnly') }}</p>
 
-        <!-- Perimeter Strip Bar under Keyboard -->
-        <div class="strip-bar" :class="{ 'strip-bar--interactive': activeTab === 'strip' }">
-          <div class="strip-bar__header">
-            <span class="strip-bar__title">{{ t('lighting.stripTitle') }}</span>
-            <span v-if="activeTab === 'strip'" class="strip-bar__hint">{{ t('lighting.stripSubtitle') }}</span>
-          </div>
-          <div class="strip-bar__track">
-            <button
-              v-for="led in stripLeds"
-              :key="led.index"
-              type="button"
-              class="strip-bar__led"
-              :class="{ 'strip-bar__led--selected': led.isSel }"
-              :style="{ '--led-color': led.color }"
-              :title="`LED ${led.index} · ${led.color}`"
-              :disabled="activeTab !== 'strip'"
-              @click="onToggleStripLed(led.index)"
-            >
-              <span class="strip-bar__glow" />
-              <span class="strip-bar__dot" />
-              <span class="strip-bar__num">{{ led.index }}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </template>
-
-    <!-- Keyboard Aside: Status Chips -->
-    <template #keyboard-aside>
-      <div class="lighting-aside">
-        <div class="lighting-chip">
-          <span class="lighting-chip__label">{{ t('lighting.effectsTitle') }}</span>
-          <span class="lighting-chip__val">
-            L{{ (activeTab === 'keys' ? lighting.area0Base.mode : lighting.area1Base.mode) + 1 }}
-          </span>
-        </div>
-        <div class="lighting-chip">
-          <span class="lighting-chip__label">{{ t('lighting.brightness') }}</span>
-          <span class="lighting-chip__val">
-            {{ activeTab === 'keys' ? lighting.area0Base.brightness : lighting.area1Base.brightness }}%
-          </span>
-        </div>
-        <div class="lighting-chip">
-          <span class="lighting-chip__label">{{ t('lighting.speed') }}</span>
-          <span class="lighting-chip__val">
-            {{ activeTab === 'keys' ? lighting.area0Base.speed : lighting.area1Base.speed }}%
-          </span>
-        </div>
-      </div>
-    </template>
-
-    <!-- Error State -->
-    <div v-if="lighting.loadError" class="lighting-error">
-      <p>{{ t('lighting.loadFailed') }}: {{ lighting.loadError }}</p>
-      <Button variant="secondary" size="sm" @click="lighting.load(true)">
-        {{ t('lighting.reload') }}
-      </Button>
-    </div>
-
-    <!-- Main Content Panels -->
-    <div v-else class="lighting-content">
       <div class="lighting-tabs-row">
         <Tabs
           v-model="activeTab"
@@ -346,351 +327,242 @@ const activeStripCount = computed(() => {
         />
       </div>
 
-      <!-- Area 0: Keys -->
-      <div v-if="activeTab === 'keys'" class="lighting-grid">
-        <!-- Power Card -->
-        <Card :title="t('lighting.powerTitle')">
-          <div class="card-inner">
-            <p class="card-desc">{{ t('lighting.powerKeysDesc') }}</p>
-            <Segmented
-              v-model="area0OpenMode"
-              :options="keyOpenOptions"
-              :label="t('lighting.powerTitle')"
-            />
-          </div>
-        </Card>
+      <!-- Keyboard + edge strip preview (keys are only selectable on the keys tab) -->
+      <section class="lighting-stage">
+        <KeyboardView
+          :keys="device.keys"
+          :legend="device.legend"
+          :color="keyColor"
+          :badge="keyBadge"
+          :selectable="activeTab === 'keys'"
+          :loading="!ready"
+        />
+        <SelectionBar v-if="activeTab === 'keys'" />
 
-        <!-- Tuning Card -->
-        <Card :title="t('lighting.tuningTitle')">
-          <div class="card-inner">
-            <div class="field-block">
-              <div class="field-label-row">
-                <span class="field-label">{{ t('lighting.brightness') }}</span>
-                <span class="field-val">{{ lighting.area0Base.brightness }}%</span>
-              </div>
-              <Slider
-                :model-value="lighting.area0Base.brightness"
-                :min="0"
-                :max="100"
-                :step="1"
-                :label="t('lighting.brightness')"
-                @update:model-value="lighting.area0Base.brightness = $event"
-                @commit="lighting.applyBase(0, { brightness: $event }, t('lighting.syncBase', { area: t('lighting.tabKeys') }), 'brightness')"
-              />
-            </div>
-            <div class="field-block">
-              <div class="field-label-row">
-                <span class="field-label">{{ t('lighting.speed') }}</span>
-                <span class="field-val">{{ lighting.area0Base.speed }}%</span>
-              </div>
-              <Slider
-                :model-value="lighting.area0Base.speed"
-                :min="0"
-                :max="100"
-                :step="1"
-                :label="t('lighting.speed')"
-                @update:model-value="lighting.area0Base.speed = $event"
-                @commit="lighting.applyBase(0, { speed: $event }, t('lighting.syncBase', { area: t('lighting.tabKeys') }), 'speed')"
-              />
-            </div>
-            <div class="field-block">
-              <div class="field-label-row">
-                <span class="field-label">{{ t('lighting.direction') }}</span>
-              </div>
-              <Segmented
-                v-model="area0DirModel"
-                :options="directionOptions"
-                :label="t('lighting.direction')"
-              />
-            </div>
+        <div class="strip-bar" :class="{ 'strip-bar--interactive': activeTab === 'strip' && ready }">
+          <div class="strip-bar__header">
+            <span class="strip-bar__title">{{ t('lighting.stripTitle') }}</span>
+            <span v-if="activeTab === 'strip'" class="strip-bar__hint">{{ t('lighting.stripSubtitle') }}</span>
           </div>
-        </Card>
-
-        <!-- Palette Card -->
-        <Card :title="t('lighting.paletteTitle')">
-          <div class="card-inner">
-            <p class="card-desc">{{ t('lighting.paletteDesc') }}</p>
-            <div class="palette-swatches">
-              <button
-                type="button"
-                class="palette-swatch palette-swatch--rainbow"
-                :class="{ 'palette-swatch--active': lighting.area0Base.paletteIndex === 0 }"
-                :title="t('lighting.rainbowSlot')"
-                @click="selectArea0Swatch(0)"
-              >
-                <span class="palette-swatch__label">RGB</span>
-              </button>
-              <button
-                v-for="index in 7"
-                :key="index"
-                type="button"
-                class="palette-swatch"
-                :class="{
-                  'palette-swatch--active': lighting.area0Base.paletteIndex === index,
-                  'palette-swatch--editing': area0EditingSlot === index,
-                }"
-                :style="{
-                  backgroundColor: lighting.area0Palette[index] ? rgbToHex(lighting.area0Palette[index]) : '#000000',
-                }"
-                :title="t('lighting.paletteSlot', { n: index })"
-                @click="selectArea0Swatch(index)"
-              >
-                <span class="palette-swatch__num">{{ index }}</span>
-              </button>
-            </div>
-            <div class="palette-editor">
-              <div v-if="lighting.area0Base.paletteIndex === 0" class="palette-rainbow-info">
-                <span class="palette-rainbow-info__badge">{{ t('lighting.rainbow') }}</span>
-                <p>{{ t('lighting.rainbowHint') }}</p>
-              </div>
-              <div v-else class="palette-color-editor">
-                <span class="palette-color-editor__title">
-                  {{ t('lighting.editColor', { n: area0EditingSlot }) }}
-                </span>
-                <ColorPicker
-                  v-model="area0EditingHex"
-                  @commit="lighting.applyPaletteColor(0, area0EditingSlot, hexToRgb($event), t('lighting.syncPalette', { area: t('lighting.tabKeys') }), 'color')"
-                />
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        <!-- Per-key Card -->
-        <Card :title="t('lighting.perKeyTitle')">
-          <div class="card-inner">
-            <p class="card-desc">{{ t('lighting.perKeyDesc') }}</p>
-            <div class="status-bar">
-              <span class="count-badge" :class="{ 'count-badge--active': sel.count > 0 }">
-                {{ sel.count > 0 ? t('lighting.selectedKeys', { count: sel.count }) : t('lighting.noKeysSelected') }}
-              </span>
-              <span v-if="activeKeyCount > 0" class="active-meta">
-                {{ t('lighting.customActive', { count: activeKeyCount }) }}
-              </span>
-            </div>
-            <ColorPicker v-model="perKeyPickedHex" />
-            <div class="actions-row">
-              <Button variant="primary" :disabled="sel.count === 0" @click="onApplyKeyColor">
-                {{ t('lighting.applyKeyColor') }}
-              </Button>
-              <Button variant="secondary" :disabled="sel.count === 0" @click="onClearKeyColor">
-                {{ t('lighting.clearKeyColor') }}
-              </Button>
-              <Button variant="ghost" :disabled="activeKeyCount === 0" @click="onClearAllKeyColors">
-                {{ t('lighting.clearAllKeyColors') }}
-              </Button>
-            </div>
-            <p class="space-note">{{ t('lighting.spaceNote') }}</p>
-          </div>
-        </Card>
-
-        <!-- Effect Card (Full Width) -->
-        <div class="lighting-grid__full">
-          <Card :title="t('lighting.effectsTitle')">
-            <div class="card-inner">
-              <p class="card-desc">{{ t('lighting.effectsDesc') }}</p>
-              <div class="effect-grid">
+          <div class="strip-bar__track">
+            <div v-for="group in stripGroups" :key="group.id" class="strip-bar__group" :style="{ flexGrow: group.leds.length }">
+              <span class="strip-bar__side">{{ group.label }}</span>
+              <div class="strip-bar__leds" :style="{ gridTemplateColumns: `repeat(${group.leds.length}, minmax(0, 1fr))` }">
                 <button
-                  v-for="index in lighting.area0ModeCount"
-                  :key="index - 1"
+                  v-for="led in group.leds"
+                  :key="led.index"
                   type="button"
-                  class="effect-btn"
-                  :class="{ 'effect-btn--active': lighting.area0Base.mode === index - 1 }"
-                  @click="lighting.applyBase(0, { mode: index - 1 }, t('lighting.syncBase', { area: t('lighting.tabKeys') }))"
+                  class="strip-bar__led"
+                  :class="{ 'strip-bar__led--selected': led.isSel, 'strip-bar__led--custom': led.custom }"
+                  :style="{ '--led-color': led.color }"
+                  :title="`LED ${led.index}`"
+                  :aria-pressed="activeTab === 'strip' ? led.isSel : undefined"
+                  :disabled="activeTab !== 'strip' || !ready"
+                  @click="onToggleStripLed(led.index)"
                 >
-                  <span class="effect-btn__code">L{{ index }}</span>
-                  <span class="effect-btn__name">{{ t('lighting.effectN', { n: index }) }}</span>
+                  <span class="strip-bar__glow" />
+                  <span class="strip-bar__dot" />
+                  <span class="strip-bar__num num">{{ led.index }}</span>
                 </button>
               </div>
             </div>
-          </Card>
+          </div>
         </div>
+      </section>
+
+      <!-- Error State -->
+      <div v-if="lighting.loadError" class="lighting-error">
+        <p>{{ t('lighting.loadFailed') }}: {{ lighting.loadError }}</p>
+        <Button variant="secondary" size="sm" @click="lighting.load(true)">
+          {{ t('lighting.reload') }}
+        </Button>
       </div>
 
-      <!-- Area 1: LED Strip -->
+      <!-- Loading State -->
+      <div v-else-if="!ready" class="lighting-grid" role="status" aria-busy="true">
+        <span class="sr-only">{{ t('lighting.loading') }}</span>
+        <div class="lighting-grid__full skeleton lighting-skeleton lighting-skeleton--effects" />
+        <div class="skeleton lighting-skeleton" />
+        <div class="skeleton lighting-skeleton" />
+      </div>
+
+      <!-- Main Content Panels -->
       <div v-else class="lighting-grid">
-        <!-- Power Card -->
-        <Card :title="t('lighting.powerTitle')">
-          <div class="card-inner">
-            <p class="card-desc">{{ t('lighting.powerStripDesc') }}</p>
-            <Segmented
-              v-model="area1OpenMode"
-              :options="stripOpenOptions"
-              :label="t('lighting.powerTitle')"
-            />
-          </div>
-        </Card>
-
-        <!-- Tuning Card -->
-        <Card :title="t('lighting.tuningTitle')">
-          <div class="card-inner">
-            <div class="field-block">
-              <div class="field-label-row">
-                <span class="field-label">{{ t('lighting.brightness') }}</span>
-                <span class="field-val">{{ lighting.area1Base.brightness }}%</span>
-              </div>
-              <Slider
-                :model-value="lighting.area1Base.brightness"
-                :min="0"
-                :max="100"
-                :step="1"
-                :label="t('lighting.brightness')"
-                @update:model-value="lighting.area1Base.brightness = $event"
-                @commit="lighting.applyBase(1, { brightness: $event }, t('lighting.syncBase', { area: t('lighting.tabStrip') }), 'brightness')"
-              />
-            </div>
-            <div class="field-block">
-              <div class="field-label-row">
-                <span class="field-label">{{ t('lighting.speed') }}</span>
-                <span class="field-val">{{ lighting.area1Base.speed }}%</span>
-              </div>
-              <Slider
-                :model-value="lighting.area1Base.speed"
-                :min="0"
-                :max="100"
-                :step="1"
-                :label="t('lighting.speed')"
-                @update:model-value="lighting.area1Base.speed = $event"
-                @commit="lighting.applyBase(1, { speed: $event }, t('lighting.syncBase', { area: t('lighting.tabStrip') }), 'speed')"
-              />
-            </div>
-            <div class="field-block">
-              <div class="field-label-row">
-                <span class="field-label">{{ t('lighting.direction') }}</span>
-              </div>
-              <Segmented
-                v-model="area1DirModel"
-                :options="directionOptions"
-                :label="t('lighting.direction')"
-              />
-            </div>
-          </div>
-        </Card>
-
-        <!-- Palette Card -->
-        <Card :title="t('lighting.paletteTitle')">
-          <div class="card-inner">
-            <p class="card-desc">{{ t('lighting.paletteDesc') }}</p>
-            <div class="palette-swatches">
+        <!-- Effects (the main choice) -->
+        <Card :title="t('lighting.effectsTitle')" class="lighting-grid__full">
+          <fieldset class="card-inner" :disabled="tuneLocked">
+            <p class="card-desc">{{ powered ? t('lighting.effectsDesc') : t('lighting.powerOffHint') }}</p>
+            <div class="effect-grid">
               <button
+                v-for="index in modeCount"
+                :key="index - 1"
                 type="button"
-                class="palette-swatch palette-swatch--rainbow"
-                :class="{ 'palette-swatch--active': lighting.area1Base.paletteIndex === 0 }"
-                :title="t('lighting.rainbowSlot')"
-                @click="selectArea1Swatch(0)"
+                class="effect-btn"
+                :class="{ 'effect-btn--active': base.mode === index - 1 }"
+                :aria-pressed="base.mode === index - 1"
+                @click="onEffect(index - 1)"
               >
-                <span class="palette-swatch__label">RGB</span>
-              </button>
-              <button
-                v-for="index in 7"
-                :key="index"
-                type="button"
-                class="palette-swatch"
-                :class="{
-                  'palette-swatch--active': lighting.area1Base.paletteIndex === index,
-                  'palette-swatch--editing': area1EditingSlot === index,
-                }"
-                :style="{
-                  backgroundColor: lighting.area1Palette[index] ? rgbToHex(lighting.area1Palette[index]) : '#000000',
-                }"
-                :title="t('lighting.paletteSlot', { n: index })"
-                @click="selectArea1Swatch(index)"
-              >
-                <span class="palette-swatch__num">{{ index }}</span>
+                {{ t('lighting.effectN', { n: index }) }}
               </button>
             </div>
-            <div class="palette-editor">
-              <div v-if="lighting.area1Base.paletteIndex === 0" class="palette-rainbow-info">
-                <span class="palette-rainbow-info__badge">{{ t('lighting.rainbow') }}</span>
-                <p>{{ t('lighting.rainbowHint') }}</p>
-              </div>
-              <div v-else class="palette-color-editor">
-                <span class="palette-color-editor__title">
-                  {{ t('lighting.editColor', { n: area1EditingSlot }) }}
-                </span>
-                <ColorPicker
-                  v-model="area1EditingHex"
-                  @commit="lighting.applyPaletteColor(1, area1EditingSlot, hexToRgb($event), t('lighting.syncPalette', { area: t('lighting.tabStrip') }), 'color')"
-                />
-              </div>
-            </div>
-          </div>
+          </fieldset>
         </Card>
 
-        <!-- Strip Custom Card -->
-        <Card :title="t('lighting.stripCustomTitle')">
-          <div class="card-inner">
-            <p class="card-desc">{{ t('lighting.stripCustomDesc') }}</p>
-            <div class="preset-toolbar">
-              <Button variant="secondary" size="sm" @click="onStripPreset('all')">
-                {{ t('lighting.selectAll') }}
-              </Button>
-              <Button variant="secondary" size="sm" @click="onStripPreset('top')">
-                {{ t('lighting.selectTop') }}
-              </Button>
-              <Button variant="secondary" size="sm" @click="onStripPreset('bottom')">
-                {{ t('lighting.selectBottom') }}
-              </Button>
-              <Button variant="secondary" size="sm" @click="onStripPreset('left')">
-                {{ t('lighting.selectLeft') }}
-              </Button>
-              <Button variant="secondary" size="sm" @click="onStripPreset('right')">
-                {{ t('lighting.selectRight') }}
-              </Button>
-              <Button variant="ghost" size="sm" @click="onStripPreset('none')">
-                {{ t('lighting.selectNone') }}
-              </Button>
-            </div>
-            <div class="status-bar">
-              <span class="count-badge" :class="{ 'count-badge--active': stripSelection.size > 0 }">
-                {{ stripSelection.size > 0 ? t('lighting.selectedLeds', { count: stripSelection.size }) : t('lighting.noLedsSelected') }}
-              </span>
-              <span v-if="activeStripCount > 0" class="active-meta">
-                {{ t('lighting.stripCustomActive', { count: activeStripCount }) }}
-              </span>
-            </div>
-            <ColorPicker v-model="stripPickedHex" />
-            <div class="actions-row">
-              <Button variant="primary" :disabled="stripSelection.size === 0" @click="onApplyStripColor">
-                {{ t('lighting.applyStripColor') }}
-              </Button>
-              <Button variant="secondary" :disabled="stripSelection.size === 0" @click="onClearStripColor">
-                {{ t('lighting.clearStripColor') }}
-              </Button>
-              <Button variant="ghost" :disabled="activeStripCount === 0" @click="onClearAllStripColors">
-                {{ t('lighting.clearAllStripColors') }}
-              </Button>
-            </div>
-          </div>
-        </Card>
+        <div class="lighting-col">
+          <!-- Per-key / per-LED colours -->
+          <Card :title="activeTab === 'keys' ? t('lighting.perKeyTitle') : t('lighting.stripCustomTitle')">
+            <fieldset class="card-inner" :disabled="locked">
+              <p class="card-desc">{{ activeTab === 'keys' ? t('lighting.perKeyDesc') : t('lighting.stripCustomDesc') }}</p>
+              <div v-if="activeTab === 'strip'" class="preset-toolbar">
+                <Button variant="secondary" size="sm" @click="onStripPreset('all')">{{ t('lighting.selectAll') }}</Button>
+                <Button variant="secondary" size="sm" @click="onStripPreset('top')">{{ t('lighting.selectTop') }}</Button>
+                <Button variant="secondary" size="sm" @click="onStripPreset('bottom')">{{ t('lighting.selectBottom') }}</Button>
+                <Button variant="secondary" size="sm" @click="onStripPreset('left')">{{ t('lighting.selectLeft') }}</Button>
+                <Button variant="secondary" size="sm" @click="onStripPreset('right')">{{ t('lighting.selectRight') }}</Button>
+                <Button variant="ghost" size="sm" @click="onStripPreset('none')">{{ t('lighting.selectNone') }}</Button>
+              </div>
+              <div class="status-bar">
+                <span class="count-badge" :class="{ 'count-badge--active': selectedCount > 0 }">{{ selectedText }}</span>
+                <span v-if="overrideCount > 0" class="active-meta">{{ overrideText }}</span>
+              </div>
+              <ColorPicker v-model="picked[area]" :disabled="locked" />
+              <div class="actions-row">
+                <Button variant="primary" :disabled="selectedCount === 0" @click="onApplyColor">
+                  {{ activeTab === 'keys' ? t('lighting.applyKeyColor') : t('lighting.applyStripColor') }}
+                </Button>
+                <Button variant="secondary" :disabled="!selectionHasOverride" @click="onClearSelected">
+                  {{ activeTab === 'keys' ? t('lighting.clearKeyColor') : t('lighting.clearStripColor') }}
+                </Button>
+                <Button variant="danger" :disabled="overrideCount === 0" @click="confirmClear = true">
+                  {{ activeTab === 'keys' ? t('lighting.clearAllKeyColors') : t('lighting.clearAllStripColors') }}
+                </Button>
+              </div>
+              <p v-if="activeTab === 'keys'" class="space-note">{{ t('lighting.spaceNote') }}</p>
+            </fieldset>
+          </Card>
 
-        <!-- Effect Card (Full Width) -->
-        <div class="lighting-grid__full">
-          <Card :title="t('lighting.effectsTitle')">
-            <div class="card-inner">
-              <p class="card-desc">{{ t('lighting.effectsDesc') }}</p>
-              <div class="effect-grid">
+          <!-- Palette -->
+          <Card :title="t('lighting.paletteTitle')">
+            <fieldset class="card-inner" :disabled="tuneLocked">
+              <p class="card-desc">{{ t('lighting.paletteDesc') }}</p>
+              <div class="palette-swatches">
                 <button
-                  v-for="index in lighting.area1ModeCount"
-                  :key="index - 1"
                   type="button"
-                  class="effect-btn"
-                  :class="{ 'effect-btn--active': lighting.area1Base.mode === index - 1 }"
-                  @click="lighting.applyBase(1, { mode: index - 1 }, t('lighting.syncBase', { area: t('lighting.tabStrip') }))"
+                  class="palette-swatch palette-swatch--rainbow"
+                  :class="{ 'palette-swatch--active': base.paletteIndex === 0 }"
+                  :title="t('lighting.rainbowSlot')"
+                  :aria-label="t('lighting.rainbowSlot')"
+                  :aria-pressed="base.paletteIndex === 0"
+                  @click="onSwatch(0)"
                 >
-                  <span class="effect-btn__code">L{{ index }}</span>
-                  <span class="effect-btn__name">{{ t('lighting.effectN', { n: index }) }}</span>
+                  <span class="palette-swatch__label">RGB</span>
+                </button>
+                <button
+                  v-for="index in 7"
+                  :key="index"
+                  type="button"
+                  class="palette-swatch"
+                  :class="{
+                    'palette-swatch--active': base.paletteIndex === index,
+                    'palette-swatch--editing': editingSlot === index,
+                    'palette-swatch--dark-ink': swatchInk(index) === 'dark',
+                  }"
+                  :style="{ backgroundColor: swatchHex(index) ?? 'var(--bg-3)' }"
+                  :title="t('lighting.paletteSlot', { n: index })"
+                  :aria-label="t('lighting.paletteSlot', { n: index })"
+                  :aria-pressed="base.paletteIndex === index"
+                  @click="onSwatch(index)"
+                >
+                  <span class="palette-swatch__num num">{{ index }}</span>
                 </button>
               </div>
-            </div>
+              <div class="palette-editor">
+                <div v-if="base.paletteIndex === 0" class="palette-rainbow-info">
+                  <span class="palette-rainbow-info__badge">{{ t('lighting.rainbow') }}</span>
+                  <p>{{ t('lighting.rainbowHint') }}</p>
+                </div>
+                <div v-else class="palette-color-editor">
+                  <span class="palette-color-editor__title">{{ t('lighting.editColor', { n: editingSlot }) }}</span>
+                  <ColorPicker v-model="editingHex" :disabled="tuneLocked" @commit="onPaletteCommit" />
+                </div>
+              </div>
+            </fieldset>
+          </Card>
+        </div>
+
+        <div class="lighting-col">
+          <!-- Power -->
+          <Card :title="t('lighting.powerTitle')">
+            <fieldset class="card-inner" :disabled="locked">
+              <p class="card-desc">{{ activeTab === 'keys' ? t('lighting.powerKeysDesc') : t('lighting.powerStripDesc') }}</p>
+              <Segmented
+                v-model="openModel"
+                class="seg-fit"
+                :options="openOptions"
+                :label="t('lighting.powerTitle')"
+              />
+            </fieldset>
+          </Card>
+
+          <!-- Tuning -->
+          <Card :title="t('lighting.tuningTitle')">
+            <fieldset class="card-inner" :disabled="tuneLocked">
+              <div v-for="field in tuneFields" :key="field.id" class="field-block">
+                <div class="field-label-row">
+                  <span class="field-label">{{ field.label }}</span>
+                  <span class="field-val num">{{ tuneValue(field.id) }}%</span>
+                </div>
+                <Slider
+                  :model-value="tuneValue(field.id)"
+                  :min="0"
+                  :max="100"
+                  :step="1"
+                  :fine-step="1"
+                  :label="field.label"
+                  :disabled="tuneLocked"
+                  @update:model-value="onTuneDrag(field.id, $event)"
+                  @commit="onTuneCommit(field.id, $event)"
+                />
+              </div>
+              <div class="field-block">
+                <div class="field-label-row">
+                  <span class="field-label">{{ t('lighting.direction') }}</span>
+                </div>
+                <Segmented
+                  v-model="directionModel"
+                  class="seg-fit"
+                  :options="directionOptions"
+                  :label="t('lighting.direction')"
+                />
+              </div>
+            </fieldset>
           </Card>
         </div>
       </div>
     </div>
+
+    <Dialog
+      v-model:open="confirmClear"
+      :title="activeTab === 'keys' ? t('lighting.confirmClearKeysTitle') : t('lighting.confirmClearStripTitle')"
+    >
+      <p class="dlg-body">{{ activeTab === 'keys' ? t('lighting.confirmClearKeysBody') : t('lighting.confirmClearStripBody') }}</p>
+      <template #footer>
+        <Button variant="ghost" @click="confirmClear = false">{{ t('advanced.cancel') }}</Button>
+        <Button variant="danger" @click="onClearAll">
+          {{ activeTab === 'keys' ? t('lighting.clearAllKeyColors') : t('lighting.clearAllStripColors') }}
+        </Button>
+      </template>
+    </Dialog>
   </PageLayout>
 </template>
 
 <style scoped>
+.lighting {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
 .lighting-toolbar {
   display: flex;
   align-items: center;
@@ -712,7 +584,13 @@ const activeStripCount = computed(() => {
 .lighting-live-badge--live {
   background: var(--ok-soft);
   color: var(--ok);
-  border-color: rgba(74, 222, 128, 0.3);
+  border-color: var(--ok-soft);
+}
+
+.lighting-live-badge--error {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger-soft);
 }
 
 .lighting-live-badge__dot {
@@ -722,14 +600,31 @@ const activeStripCount = computed(() => {
   background: currentColor;
 }
 
+.lighting-notice {
+  margin: 0;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--warn-soft);
+  border-radius: var(--r-control);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: var(--fs-label);
+}
+
+.lighting-tabs-row {
+  display: flex;
+  align-items: center;
+}
+
 .lighting-stage {
   display: flex;
   flex-direction: column;
   gap: var(--s-3);
   width: 100%;
+  max-width: 940px;
+  margin: 0 auto;
 }
 
-/* Strip Bar styling */
+/* Edge strip: one group per edge, drawn clockwise from the top-left corner */
 .strip-bar {
   display: flex;
   flex-direction: column;
@@ -762,10 +657,29 @@ const activeStripCount = computed(() => {
 }
 
 .strip-bar__track {
-  display: grid;
-  grid-template-columns: repeat(38, minmax(0, 1fr));
+  display: flex;
+  gap: var(--s-3);
+}
+
+.strip-bar__group {
+  flex-basis: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
   gap: 3px;
-  align-items: center;
+}
+
+.strip-bar__side {
+  font-size: 10px;
+  color: var(--fg-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strip-bar__leds {
+  display: grid;
+  gap: 3px;
 }
 
 .strip-bar__led {
@@ -780,7 +694,7 @@ const activeStripCount = computed(() => {
   background: var(--bg-3);
   border: 1px solid var(--line-1);
   cursor: default;
-  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
 }
 
 .strip-bar--interactive .strip-bar__led {
@@ -792,9 +706,19 @@ const activeStripCount = computed(() => {
   background: var(--bg-4);
 }
 
+.strip-bar__led:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: 1px;
+}
+
 .strip-bar__led--selected {
   border-color: var(--acc) !important;
   background: var(--acc-soft) !important;
+}
+
+.strip-bar__led--custom {
+  border-style: dashed;
+  border-color: var(--fg-3);
 }
 
 .strip-bar__glow {
@@ -813,12 +737,11 @@ const activeStripCount = computed(() => {
   height: 8px;
   border-radius: 50%;
   background: var(--led-color);
-  box-shadow: 0 0 6px var(--led-color), inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 6px var(--led-color), inset 0 0 0 1px var(--line-3);
 }
 
 .strip-bar__num {
   font-size: 9px;
-  font-family: monospace;
   color: var(--fg-3);
   line-height: 1;
 }
@@ -826,38 +749,6 @@ const activeStripCount = computed(() => {
 .strip-bar__led--selected .strip-bar__num {
   color: var(--fg-1);
   font-weight: 600;
-}
-
-/* Aside Chips */
-.lighting-aside {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
-}
-
-.lighting-chip {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--s-2) var(--s-3);
-  background: var(--bg-2);
-  border: 1px solid var(--line-1);
-  border-radius: var(--r-control);
-  min-width: 110px;
-}
-
-.lighting-chip__label {
-  font-size: 10px;
-  text-transform: uppercase;
-  color: var(--fg-3);
-  letter-spacing: 0.05em;
-}
-
-.lighting-chip__val {
-  font-size: var(--fs-body);
-  font-weight: 600;
-  color: var(--fg-1);
-  font-family: monospace;
 }
 
 .lighting-error {
@@ -872,25 +763,31 @@ const activeStripCount = computed(() => {
   color: var(--danger);
 }
 
-.lighting-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-5);
-}
-
-.lighting-tabs-row {
-  display: flex;
-  align-items: center;
-}
-
 .lighting-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--s-5);
+  align-items: start;
 }
 
 .lighting-grid__full {
   grid-column: 1 / -1;
+}
+
+.lighting-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  min-width: 0;
+}
+
+.lighting-skeleton {
+  height: 220px;
+  border-radius: var(--r-card);
+}
+
+.lighting-skeleton--effects {
+  height: 140px;
 }
 
 @media (max-width: 900px) {
@@ -899,17 +796,39 @@ const activeStripCount = computed(() => {
   }
 }
 
-/* Card inner layout */
+/* Card inner layout (a fieldset so `disabled` reaches every native control inside) */
 .card-inner {
   display: flex;
   flex-direction: column;
   gap: var(--s-4);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.card-inner:disabled {
+  opacity: 0.55;
+}
+
+/* The fieldset already dims everything; Slider must not dim a second time. */
+.card-inner :deep(.sl--disabled) {
+  opacity: 1;
+}
+
+.seg-fit {
+  align-self: flex-start;
 }
 
 .card-desc {
   font-size: var(--fs-caption);
   color: var(--fg-3);
   margin: 0;
+}
+
+.dlg-body {
+  margin: 0;
+  color: var(--fg-2);
 }
 
 /* Field blocks */
@@ -933,7 +852,6 @@ const activeStripCount = computed(() => {
 
 .field-val {
   font-size: var(--fs-label);
-  font-family: monospace;
   font-weight: 600;
   color: var(--fg-1);
 }
@@ -960,9 +878,18 @@ const activeStripCount = computed(() => {
   transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
 
-.palette-swatch:hover {
+.palette-swatch:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 0 0 1px var(--line-3), inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
+.palette-swatch:focus-visible {
+  outline: 2px solid var(--fg-1);
+  outline-offset: 3px;
+}
+
+.palette-swatch:disabled {
+  cursor: not-allowed;
 }
 
 .palette-swatch--active {
@@ -981,7 +908,7 @@ const activeStripCount = computed(() => {
 .palette-swatch__label {
   font-size: 11px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--fg-1);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
   letter-spacing: 0.05em;
 }
@@ -989,8 +916,14 @@ const activeStripCount = computed(() => {
 .palette-swatch__num {
   font-size: 11px;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--fg-1);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* Light swatches (yellow, cyan, white): dark number, no halo */
+.palette-swatch--dark-ink .palette-swatch__num {
+  color: var(--bg-0);
+  text-shadow: none;
 }
 
 .palette-editor {
@@ -1014,7 +947,7 @@ const activeStripCount = computed(() => {
   padding: 2px 6px;
   border-radius: var(--r-control);
   background: linear-gradient(135deg, #ff0055, #0099ff);
-  color: #fff;
+  color: var(--fg-1);
   letter-spacing: 0.05em;
 }
 
@@ -1075,7 +1008,7 @@ const activeStripCount = computed(() => {
 }
 
 .space-note {
-  font-size: 11px;
+  font-size: var(--fs-caption);
   color: var(--fg-4);
   margin: 0;
   font-style: italic;
@@ -1091,15 +1024,11 @@ const activeStripCount = computed(() => {
 /* Effect Grid */
 .effect-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
   gap: var(--s-2);
 }
 
 .effect-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
   padding: var(--s-2) var(--s-3);
   background: var(--bg-3);
   border: 1px solid var(--line-1);
@@ -1107,30 +1036,29 @@ const activeStripCount = computed(() => {
   color: var(--fg-2);
   cursor: pointer;
   text-align: left;
-  transition: all var(--t-fast) var(--ease);
+  font-size: var(--fs-body);
+  font-weight: 500;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 
-.effect-btn:hover {
+.effect-btn:hover:not(:disabled) {
   background: var(--bg-4);
   border-color: var(--line-3);
   color: var(--fg-1);
+}
+
+.effect-btn:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: 1px;
+}
+
+.effect-btn:disabled {
+  cursor: not-allowed;
 }
 
 .effect-btn--active {
   background: var(--acc-soft) !important;
   border-color: var(--acc) !important;
   color: var(--acc) !important;
-}
-
-.effect-btn__code {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  opacity: 0.8;
-}
-
-.effect-btn__name {
-  font-size: var(--fs-body);
-  font-weight: 500;
 }
 </style>

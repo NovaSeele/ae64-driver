@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createPinia, setActivePinia } from 'pinia';
+import { createPinia, getActivePinia, setActivePinia } from 'pinia';
+import { flushPromises, mount } from '@vue/test-utils';
 import {
   LED_MATRIX_COLS, MockTransport, PHYSICAL_KEYS, SAVE_GROUP,
 } from '../src/protocol';
@@ -7,6 +8,9 @@ import { useDeviceStore } from '../src/stores/device';
 import { useHistoryStore } from '../src/stores/history';
 import { useSyncStore } from '../src/stores/sync';
 import { keyMatrixIndices, useLightingStore } from '../src/stores/lighting';
+import LightingPage from '../src/pages/LightingPage.vue';
+import Slider from '../src/components/ui/Slider.vue';
+import ColorPicker from '../src/components/ui/ColorPicker.vue';
 
 async function setup() {
   setActivePinia(createPinia());
@@ -335,5 +339,103 @@ describe('lighting store', () => {
       lighting.stopLivePolling();
       expect(lighting.polling).toBe(false);
     });
+  });
+});
+
+describe('lighting page', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  async function mountPage() {
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private cb: (e: unknown[]) => void) {}
+      observe() { this.cb([{ contentRect: { width: 400 } }]); }
+      disconnect() {}
+    });
+    const ctx = await setup();
+    const page = mount(LightingPage, { global: { plugins: [getActivePinia()!], stubs: { teleport: true } } });
+    await flushPromises();
+    return { ...ctx, page };
+  }
+
+  it('writes brightness on slider commit, not while dragging, and undo restores it', async () => {
+    const { mock, lighting, page } = await mountPage();
+    const sync = useSyncStore();
+    const history = useHistoryStore();
+    const orig = lighting.area0Base.brightness;
+    const slider = page.findAllComponents(Slider)[0];
+
+    slider.vm.$emit('update:modelValue', 20); // drag: draft only
+    await flushPromises();
+    expect(lighting.area0Base.brightness).toBe(orig);
+    expect(sync.state).toBe('saved');
+    expect(history.canUndo).toBe(false);
+
+    slider.vm.$emit('commit', 20);
+    expect(sync.state).toBe('pending');
+    await sync.flush();
+    expect((await mock.getLightingBase(0)).brightness).toBe(20);
+    expect(lighting.area0Base.brightness).toBe(20);
+    expect(history.canUndo).toBe(true);
+
+    history.undo();
+    await sync.flush();
+    expect((await mock.getLightingBase(0)).brightness).toBe(orig);
+    expect(lighting.area0Base.brightness).toBe(orig);
+    page.unmount();
+  });
+
+  it('writes a palette colour only when the picker commits', async () => {
+    const { mock, lighting, page } = await mountPage();
+    const sync = useSyncStore();
+    lighting.applyBase(0, { paletteIndex: 2 }, 'Pick slot 2');
+    await sync.flush();
+    await flushPromises();
+
+    const picker = page.findAllComponents(ColorPicker)[1]; // [0] is the per-key picker
+    const before = await mock.getPalette(0);
+    picker.vm.$emit('update:modelValue', '#112233');
+    await flushPromises();
+    expect(sync.state).toBe('saved');
+    expect(lighting.area0Palette[2].r).toBe(before[2].r);
+
+    picker.vm.$emit('commit', '#112233');
+    expect(sync.state).toBe('pending');
+    await sync.flush();
+    const after = await mock.getPalette(0);
+    expect([after[2].r, after[2].g, after[2].b]).toEqual([0x11, 0x22, 0x33]);
+    page.unmount();
+  });
+
+  it('refuses applies and shows a skeleton while the profile is not loaded', async () => {
+    const { lighting, page } = await mountPage();
+    const sync = useSyncStore();
+    const history = useHistoryStore();
+    expect(page.find('.effect-btn').exists()).toBe(true);
+
+    lighting.loadedProfile = null;
+    await flushPromises();
+    expect(page.find('.effect-btn').exists()).toBe(false);
+    expect(page.find('.lighting-skeleton').exists()).toBe(true);
+
+    lighting.applyBase(0, { brightness: 10 }, 'Too early');
+    expect(sync.state).toBe('saved');
+    expect(history.canUndo).toBe(false);
+    page.unmount();
+  });
+
+  it('disables every editor and shows a notice on a read-only board', async () => {
+    const { device, page } = await mountPage();
+    expect(page.find('.lighting-notice').exists()).toBe(false);
+
+    device.boardAllowed = false;
+    await flushPromises();
+    expect(page.find('.lighting-notice').exists()).toBe(true);
+    const sets = page.findAll('fieldset.card-inner');
+    expect(sets.length).toBeGreaterThan(0);
+    expect(sets.every((f) => f.attributes('disabled') !== undefined)).toBe(true);
+    page.unmount();
   });
 });

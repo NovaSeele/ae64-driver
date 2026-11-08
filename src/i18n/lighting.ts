@@ -2,7 +2,7 @@
 export const lightingVi = {
   // Navigation & tabs
   'lighting.tabKeys': 'Bàn phím',
-  'lighting.tabStrip': 'Dải đèn LED',
+  'lighting.tabStrip': 'Dải đèn viền',
   'lighting.tabsLabel': 'Chọn vùng điều khiển đèn',
 
   // Live preview
@@ -10,6 +10,7 @@ export const lightingVi = {
   'lighting.livePreviewHint': 'Đọc liên tục từ bàn phím (~10 Hz)',
   'lighting.liveStatus': 'Trực tiếp',
   'lighting.pausedStatus': 'Tạm dừng',
+  'lighting.liveError': 'Lỗi đọc',
 
   // Power / Open mode
   'lighting.powerTitle': 'Chế độ bật đèn',
@@ -20,6 +21,8 @@ export const lightingVi = {
   'lighting.modeTop': 'Phía trên',
   'lighting.modeBoth': 'Cả hai',
   'lighting.modeOn': 'Bật',
+  'lighting.readOnly': 'Bảng mạch không nằm trong danh sách được phép ghi — chỉ xem, không thể chỉnh đèn.',
+  'lighting.powerOffHint': 'Đèn đang tắt. Bật lại ở "Chế độ bật đèn" để chỉnh hiệu ứng, độ sáng và màu.',
 
   // Effects
   'lighting.effectsTitle': 'Hiệu ứng ánh sáng',
@@ -49,12 +52,16 @@ export const lightingVi = {
   // Per-key custom colors
   'lighting.perKeyTitle': 'Màu riêng từng phím',
   'lighting.perKeyDesc': 'Chọn phím trên bàn phím để gán màu tĩnh ghi đè lên hiệu ứng nền.',
+  'lighting.selectedKeyOne': 'Đã chọn 1 phím',
   'lighting.selectedKeys': 'Đã chọn {count} phím',
   'lighting.noKeysSelected': 'Chưa chọn phím nào. Nhấp hoặc kéo chọn trên bàn phím phía trên.',
   'lighting.applyKeyColor': 'Áp dụng màu cho phím',
   'lighting.clearKeyColor': 'Xoá màu phím đã chọn',
   'lighting.clearAllKeyColors': 'Xoá tất cả màu riêng',
+  'lighting.customActiveOne': 'Đang có 1 phím dùng màu riêng',
   'lighting.customActive': 'Đang có {count} phím dùng màu riêng',
+  'lighting.confirmClearKeysTitle': 'Xoá tất cả màu riêng của phím?',
+  'lighting.confirmClearKeysBody': 'Mọi phím sẽ quay lại theo hiệu ứng nền. Có thể hoàn tác bằng Ctrl+Z.',
   'lighting.spaceNote': 'Phím Space chiếm 5 bóng LED trên mạch; màu được áp dụng đồng bộ cho cả 5 bóng.',
 
   // Strip custom colors
@@ -62,10 +69,11 @@ export const lightingVi = {
   'lighting.stripSubtitle': 'Nhấp vào bóng LED trên thanh để chọn',
   'lighting.stripCustomTitle': 'Màu riêng từng LED viền',
   'lighting.stripCustomDesc': 'Gán màu tĩnh riêng cho từng bóng LED trên dải viền 38 bóng.',
+  'lighting.selectedLedOne': 'Đã chọn 1 LED',
   'lighting.selectedLeds': 'Đã chọn {count} LED',
   'lighting.noLedsSelected': 'Chưa chọn LED nào. Nhấp vào bóng trên dải đèn để chọn.',
-  'lighting.selectAll': 'Tất cả',
-  'lighting.selectNone': 'Bỏ chọn',
+  'lighting.selectAll': 'Tất cả LED',
+  'lighting.selectNone': 'Bỏ chọn LED',
   'lighting.selectTop': 'Cạnh trên',
   'lighting.selectBottom': 'Cạnh dưới',
   'lighting.selectLeft': 'Cạnh trái',
@@ -73,7 +81,10 @@ export const lightingVi = {
   'lighting.applyStripColor': 'Áp dụng màu cho LED',
   'lighting.clearStripColor': 'Xoá màu LED đã chọn',
   'lighting.clearAllStripColors': 'Xoá tất cả màu LED',
+  'lighting.stripCustomActiveOne': 'Đang có 1 LED dùng màu riêng',
   'lighting.stripCustomActive': 'Đang có {count} LED dùng màu riêng',
+  'lighting.confirmClearStripTitle': 'Xoá tất cả màu riêng của LED viền?',
+  'lighting.confirmClearStripBody': 'Mọi LED trên dải viền sẽ quay lại theo hiệu ứng nền. Có thể hoàn tác bằng Ctrl+Z.',
 
   // Loading & status
   'lighting.loading': 'Đang đọc cấu hình đèn…',
@@ -81,7 +92,7 @@ export const lightingVi = {
   'lighting.reload': 'Đọc lại',
 
   // Sync labels for history / status
-  'lighting.syncBase': 'Đổi cài đặt đèn {area}',
-  'lighting.syncPalette': 'Đổi bảng màu {area}',
-  'lighting.syncMatrix': 'Đổi màu LED {area}',
+  'lighting.syncBase': 'Đổi cài đặt đèn ({area})',
+  'lighting.syncPalette': 'Đổi bảng màu ({area})',
+  'lighting.syncMatrix': 'Đổi màu riêng ({area})',
 } as const;

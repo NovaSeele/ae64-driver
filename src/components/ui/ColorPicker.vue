@@ -1,10 +1,12 @@
 <script setup lang="ts">
 // HSV square + hue strip + HEX/RGB inputs + recent colours (kept in localStorage).
 // v-model is a "#rrggbb" string; `commit` fires when a gesture ends (and records a recent colour).
+// Arrow keys commit once, on key release, so holding a key is one edit and one recent colour.
 import { computed, ref, watch } from 'vue';
 import { t } from '../../i18n/vi';
 
 const model = defineModel<string>({ required: true });
+const props = defineProps<{ disabled?: boolean }>();
 const emit = defineEmits<{ commit: [string] }>();
 
 const RECENT_KEY = 'ae64.recentColors';
@@ -71,6 +73,7 @@ function setHsv(next: Hsv): string {
 }
 
 function drag(e: PointerEvent, apply: (x: number, y: number) => string) {
+  if (props.disabled || e.button !== 0) return;
   const el = e.currentTarget as HTMLElement;
   el.setPointerCapture(e.pointerId);
   let last = model.value;
@@ -95,31 +98,47 @@ function drag(e: PointerEvent, apply: (x: number, y: number) => string) {
 const onSquare = (e: PointerEvent) => drag(e, (x, y) => setHsv({ ...hsv.value, s: x, v: 1 - y }));
 const onHue = (e: PointerEvent) => drag(e, (x) => setHsv({ ...hsv.value, h: x * 359.9 }));
 
+/** Colour reached by arrow keys and not yet committed (see onKeyEnd). */
+let pendingKey: string | null = null;
+function onKeyEnd() {
+  if (pendingKey === null) return;
+  const hex = pendingKey;
+  pendingKey = null;
+  finish(hex);
+}
+
 function onSquareKey(e: KeyboardEvent) {
+  if (props.disabled) return;
   const d = e.shiftKey ? 0.1 : 0.02;
   const { s, v } = hsv.value;
   const map: Record<string, Partial<Hsv>> = { ArrowLeft: { s: s - d }, ArrowRight: { s: s + d }, ArrowUp: { v: v + d }, ArrowDown: { v: v - d } };
   const p = map[e.key];
   if (!p) return;
   e.preventDefault();
-  finish(setHsv({ ...hsv.value, s: Math.min(1, Math.max(0, p.s ?? s)), v: Math.min(1, Math.max(0, p.v ?? v)) }));
+  pendingKey = setHsv({ ...hsv.value, s: Math.min(1, Math.max(0, p.s ?? s)), v: Math.min(1, Math.max(0, p.v ?? v)) });
 }
 function onHueKey(e: KeyboardEvent) {
+  if (props.disabled) return;
   const d = (e.shiftKey ? 15 : 3) * (e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0);
   if (!d) return;
   e.preventDefault();
-  finish(setHsv({ ...hsv.value, h: (hsv.value.h + d + 360) % 360 }));
+  pendingKey = setHsv({ ...hsv.value, h: (hsv.value.h + d + 360) % 360 });
 }
 
 function onHex() {
   const m = /^#?([0-9a-f]{6})$/i.exec(hexText.value.trim());
   if (!m) { hexText.value = model.value; return; }
   const hex = `#${m[1].toLowerCase()}`;
+  hexText.value = hex;
+  if (hex === model.value) return; // blur without an edit is not a commit
   model.value = hex;
   finish(hex);
 }
 function onRgb(i: 0 | 1 | 2, e: Event) {
-  const n = Math.min(255, Math.max(0, Math.round(Number((e.target as HTMLInputElement).value) || 0)));
+  const input = e.target as HTMLInputElement;
+  const raw = input.value.trim();
+  if (raw === '' || !Number.isFinite(Number(raw))) { input.value = String(rgb.value[i]); return; }
+  const n = Math.min(255, Math.max(0, Math.round(Number(raw))));
   const c = [...rgb.value] as [number, number, number];
   c[i] = n;
   const hex = rgbToHex(...c);
@@ -135,29 +154,35 @@ const hueColor = computed(() => rgbToHex(...hsvToRgb({ h: hsv.value.h, s: 1, v: 
 </script>
 
 <template>
-  <div class="cp">
+  <div class="cp" :class="{ 'cp--disabled': disabled }">
     <div
       class="cp__sv"
       role="slider"
-      tabindex="0"
+      :tabindex="disabled ? -1 : 0"
       :aria-label="t('ui.saturation')"
+      :aria-disabled="disabled || undefined"
       :aria-valuetext="model"
       :style="{ backgroundColor: hueColor }"
       @pointerdown="onSquare"
       @keydown="onSquareKey"
+      @keyup="onKeyEnd"
+      @blur="onKeyEnd"
     >
       <span class="cp__dot" :style="{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%`, background: model }" />
     </div>
     <div
       class="cp__hue"
       role="slider"
-      tabindex="0"
+      :tabindex="disabled ? -1 : 0"
+      :aria-disabled="disabled || undefined"
       :aria-label="t('ui.hue')"
       aria-valuemin="0"
       aria-valuemax="360"
       :aria-valuenow="Math.round(hsv.h)"
       @pointerdown="onHue"
       @keydown="onHueKey"
+      @keyup="onKeyEnd"
+      @blur="onKeyEnd"
     >
       <span class="cp__hue-thumb" :style="{ left: `${(hsv.h / 360) * 100}%` }" />
     </div>
@@ -165,17 +190,17 @@ const hueColor = computed(() => rgbToHex(...hsvToRgb({ h: hsv.value.h, s: 1, v: 
       <span class="cp__swatch" :style="{ background: model }" />
       <label class="cp__field cp__field--hex">
         <span class="micro">{{ t('ui.hex') }}</span>
-        <input v-model="hexText" class="num" spellcheck="false" maxlength="7" @keydown.enter="onHex" @blur="onHex">
+        <input v-model="hexText" class="num" :disabled="disabled" spellcheck="false" maxlength="7" @keydown.enter="onHex" @blur="onHex">
       </label>
       <label v-for="(ch, i) in (['R', 'G', 'B'] as const)" :key="ch" class="cp__field">
         <span class="micro">{{ ch }}</span>
-        <input class="num" inputmode="numeric" :value="rgb[i]" @change="onRgb(i as 0 | 1 | 2, $event)">
+        <input class="num" inputmode="numeric" :disabled="disabled" :value="rgb[i]" @change="onRgb(i as 0 | 1 | 2, $event)">
       </label>
     </div>
     <div v-if="recent.length" class="cp__recent">
       <span class="micro">{{ t('ui.recentColors') }}</span>
       <div class="cp__chips">
-        <button v-for="c in recent" :key="c" type="button" class="cp__chip" :style="{ background: c }" :aria-label="c" :title="c" @click="pick(c)" />
+        <button v-for="c in recent" :key="c" type="button" class="cp__chip" :disabled="disabled" :style="{ background: c }" :aria-label="c" :title="c" @click="pick(c)" />
       </div>
     </div>
   </div>
@@ -183,6 +208,7 @@ const hueColor = computed(() => rgbToHex(...hsvToRgb({ h: hsv.value.h, s: 1, v: 
 
 <style scoped>
 .cp { display: flex; flex-direction: column; gap: var(--s-3); width: 100%; max-width: 280px; }
+.cp--disabled .cp__sv, .cp--disabled .cp__hue { cursor: not-allowed; }
 .cp__sv {
   position: relative;
   height: 160px;
