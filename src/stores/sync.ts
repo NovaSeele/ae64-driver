@@ -28,6 +28,8 @@ export interface SyncJob {
   label: string;
   /** The job was given up without being saved; restore the state the keyboard really has. */
   onDrop?: (reason: string) => void;
+  /** PhysicalKey ids this job writes (per-key data only): flashed on the keyboard view when the job is dropped. */
+  keys?: number[];
 }
 
 /** An error that retrying cannot fix (the job is dropped at once). */
