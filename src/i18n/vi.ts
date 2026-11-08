@@ -8,6 +8,7 @@ import { macroVi } from './macro';
 import { lightingVi } from './lighting';
 import { liveVi } from './live';
 import { calibrationVi } from './calibration';
+import { performanceVi } from './performance';
 import { locale } from './locale';
 import { en } from './en';
 
@@ -220,6 +221,7 @@ export const vi = {
   ...lightingVi,
   ...liveVi,
   ...calibrationVi,
+  ...performanceVi,
 } as const;
 
 export type MessageKey = keyof typeof vi;

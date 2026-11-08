@@ -12,7 +12,7 @@
 // A change is several dependent packets, so it is one sync job: the sync store already runs each batch inside
 // one withTransport({ exclusive: true }) call, which keeps pollers out while the job runs.
 import { defineStore } from 'pinia';
-import { computed, ref, shallowRef } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import { KEYCODE_GROUPS, SAVE_GROUP, SOCD_PAIR_MODES } from '../protocol';
 import type { AdvancedRecord, Ae64Transport, KeyPos, Performance, PhysicalKey } from '../protocol';
 import { t as tr } from '../i18n/vi';
@@ -301,6 +301,12 @@ export const useAdvancedStore = defineStore('advanced', () => {
   let loadPromise: Promise<void> | null = null;
   /** Performance per key read for MPT limits (cleared with the profile). */
   const perfCache = new Map<number, Performance>();
+  // Another keyboard (or the demo) was connected: nothing cached belongs to it.
+  watch(() => device.connection, () => {
+    records.value = {};
+    perfCache.clear();
+    loadedProfile.value = null;
+  });
 
   const assignments = computed(() => assignmentsFrom(records.value, device.keys));
   const byKey = computed(() => {

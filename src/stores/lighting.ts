@@ -1,7 +1,7 @@
 // Store for Lighting (area 0: keyboard keys, area 1: perimeter LED strip).
 // Follows the per-key page pattern: load -> edit through history + sync -> verify by read-back.
 import { defineStore } from 'pinia';
-import { computed, ref, shallowRef } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import {
   LED_MATRIX_COLS, LED_MATRIX_ROWS, LED_STRIP_COUNT, PALETTE_SIZE, SAVE_GROUP,
 } from '../protocol';
@@ -78,6 +78,16 @@ export const useLightingStore = defineStore('lighting', () => {
   const freshBase = new Map<number, LightingBase>();
   const freshPalette = new Map<number, PaletteEntry[]>();
   const freshMatrix = new Map<number, LedRecord[]>();
+  // Another keyboard (or the demo) was connected: nothing cached belongs to it (load() refetches; every
+  // apply is refused until it has, because loadedProfile no longer matches).
+  watch(() => device.connection, () => {
+    area0Matrix.value = [];
+    area1Matrix.value = [];
+    freshBase.clear();
+    freshPalette.clear();
+    freshMatrix.clear();
+    loadedProfile.value = null;
+  });
 
   // Live preview poller state
   const livePreview = ref(true);

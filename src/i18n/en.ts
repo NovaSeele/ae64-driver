@@ -5,6 +5,7 @@ import { diagnosticsEn } from './en/diagnostics';
 import { lightingEn } from './en/lighting';
 import { liveEn } from './en/live';
 import { calibrationEn } from './en/calibration';
+import { performanceEn } from './en/performance';
 import { advancedEn } from './en/advanced';
 import { macroEn } from './en/macro';
 
@@ -217,4 +218,5 @@ export const en = {
   ...lightingEn,
   ...liveEn,
   ...calibrationEn,
+  ...performanceEn,
 } as const;

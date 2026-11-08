@@ -38,6 +38,16 @@ export const useDeviceStore = defineStore('device', () => {
   /** Layer-0 keycode per PhysicalKey.id for the active profile (drives keycap legends). */
   const layer0 = shallowRef<number[]>([]);
   const latencyMs = ref(0);
+  /**
+   * Bumped on every new connection (also demo ↔ real and the reconnect after a polling-rate change).
+   * Stores holding per-profile data watch it and drop their cache: data read from another keyboard must
+   * never be shown, or written back, as this one's.
+   */
+  const connection = ref(0);
+  /** Bumped per recorded packet while the packet log is watched (packetLog itself is not reactive). */
+  const packetSeq = ref(0);
+  /** Bumped every LATENCY_REFRESH_MS while connected so views of `transport.stats` re-read it. */
+  const statsTick = ref(0);
   /** > 0 while an exclusive job runs; pollers (live travel, LED preview) pause while true. */
   const exclusiveCount = ref(0);
   const exclusiveActive = computed(() => exclusiveCount.value > 0);
@@ -107,6 +117,7 @@ export const useDeviceStore = defineStore('device', () => {
   function handlePacket(e: PacketLogEntry): void {
     packetLog.push(e);
     if (packetLog.length > PACKET_LOG_SIZE) packetLog.splice(0, packetLog.length - PACKET_LOG_SIZE);
+    packetSeq.value++;
   }
 
   function attachPackets(): void {
@@ -155,12 +166,15 @@ export const useDeviceStore = defineStore('device', () => {
   async function init(t: Ae64Transport, isDemo: boolean): Promise<void> {
     status.value = 'connecting';
     error.value = null;
+    connection.value++;
     transport.value = t;
     demo.value = isDemo;
     detach = [t.onDisconnect(handleDisconnect)];
     attachPackets();
     latencyTimer = setInterval(() => {
-      if (transport.value === t) latencyMs.value = t.stats.lastLatencyMs;
+      if (transport.value !== t) return;
+      latencyMs.value = t.stats.lastLatencyMs;
+      statsTick.value++;
     }, LATENCY_REFRESH_MS);
     try {
       version.value = await t.getProtocolVersion();
@@ -268,7 +282,7 @@ export const useDeviceStore = defineStore('device', () => {
 
   return {
     transport, status, error, info, version, features, boardAllowed, demo, keys, profileCount, activeProfile,
-    profileNames, rtPrecision, layer0, latencyMs, exclusiveActive, connected, hidAvailable, packetLog, activeProfileName,
+    profileNames, rtPrecision, layer0, latencyMs, connection, packetSeq, statsTick, exclusiveActive, connected, hidAvailable, packetLog, activeProfileName,
     legend, withTransport, calibrationLocked, watchPackets, onProfileChanged, refreshLayer0, connect, connectDemo,
     tryAutoReconnect, disconnect, switchProfile, renameProfile,
   };

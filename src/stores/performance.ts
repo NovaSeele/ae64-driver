@@ -1,7 +1,7 @@
 // Per-key Hall performance for the active profile — the reference implementation of the per-key page
 // pattern (docs/ARCHITECTURE.md): load all keys → edit through history + sync → verify by reading back.
 import { defineStore } from 'pinia';
-import { ref, shallowRef } from 'vue';
+import { ref, shallowRef, watch } from 'vue';
 import { SAVE_GROUP, isRtMode } from '../protocol';
 import type { Ae64Transport, Performance, PhysicalKey } from '../protocol';
 import { t as tr } from '../i18n/vi';
@@ -75,6 +75,12 @@ export const usePerformanceStore = defineStore('performance', () => {
   const loadedProfile = ref<number | null>(null);
   /** Last record read from the board per key: the source of preserved axis/calibration fields. */
   const fresh = new Map<number, Performance>();
+  // Another keyboard (or the demo) was connected: nothing cached belongs to it.
+  watch(() => device.connection, () => {
+    values.value = {};
+    fresh.clear();
+    loadedProfile.value = null;
+  });
   let loadPromise: Promise<void> | null = null;
 
   function keyById(id: number): PhysicalKey {

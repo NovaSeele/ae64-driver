@@ -304,3 +304,22 @@ describe('backup restore never stops half-way on a value the keyboard would refu
     expect(setPerformance).not.toHaveBeenCalled();
   }, 15000);
 });
+
+describe('per-keyboard caches', () => {
+  it('a new connection drops cached performance, keymap, advanced and lighting data', async () => {
+    await connectMock();
+    const perf = usePerformanceStore();
+    const keymap = useKeymapStore();
+    await perf.load(true);
+    await keymap.load(true);
+    expect(perf.loadedProfile).toBe(0);
+    await useDeviceStore().connectDemo(); // e.g. demo → the real keyboard
+    expect(perf.loadedProfile).toBe(null);
+    expect(Object.keys(perf.values)).toHaveLength(0);
+    expect(keymap.loadedProfile).toBe(null);
+    // Edits are refused until the new keyboard was read.
+    const enqueue = vi.spyOn(useSyncStore(), 'enqueue').mockImplementation(() => undefined);
+    perf.apply([W.id], () => ({ normalPress: 1.1 }), 'test');
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+});

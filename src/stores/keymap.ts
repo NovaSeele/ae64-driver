@@ -1,7 +1,7 @@
 // Per-layer keymap for the active profile (layers 0=Main, 1=Fn1, 2=Fn2, 3=Fn3).
 // Follows the per-key page pattern: load all 4 layers → edit through history + sync (SAVE_GROUP.LAYOUT) → verify by read-back.
 import { defineStore } from 'pinia';
-import { ref, shallowRef } from 'vue';
+import { ref, shallowRef, watch } from 'vue';
 import { FIRMWARE_ROWS, LAYER_COUNT, SAVE_GROUP, keycodeLabel } from '../protocol';
 import { BLOCKED_KEYCODES } from '../protocol/safety';
 import type { Ae64Transport, PhysicalKey } from '../protocol';
@@ -33,6 +33,12 @@ export const useKeymapStore = defineStore('keymap', () => {
 
   /** Last keycode read from the board per layer:keyId. */
   const fresh = new Map<string, number>();
+  // Another keyboard (or the demo) was connected: nothing cached belongs to it.
+  watch(() => device.connection, () => {
+    values.value = { 0: {}, 1: {}, 2: {}, 3: {} };
+    fresh.clear();
+    loadedProfile.value = null;
+  });
   let loadPromise: Promise<void> | null = null;
 
   function token(layer: number, id: number): string {

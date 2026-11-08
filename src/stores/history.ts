@@ -1,6 +1,6 @@
 // Session undo/redo. Entries mutate page-store state and enqueue the same sync jobs as the original edit.
 import { defineStore } from 'pinia';
-import { computed, shallowRef } from 'vue';
+import { computed, ref, shallowRef } from 'vue';
 import { useDeviceStore } from './device';
 import { useCalibrationStore } from './calibration';
 
@@ -20,8 +20,14 @@ interface Stored extends HistoryEntry { at: number }
 export const useHistoryStore = defineStore('history', () => {
   const undoStack = shallowRef<Stored[]>([]);
   const redoStack = shallowRef<Stored[]>([]);
-  const canUndo = computed(() => undoStack.value.length > 0);
-  const canRedo = computed(() => redoStack.value.length > 0);
+  /**
+   * > 0 while a page holds an unsaved draft (macro editor, advanced-key editor): Ctrl+Z would otherwise
+   * write an older saved change to the keyboard instead of undoing the draft edit.
+   */
+  const suspensions = ref(0);
+  const suspended = computed(() => suspensions.value > 0);
+  const canUndo = computed(() => !suspended.value && undoStack.value.length > 0);
+  const canRedo = computed(() => !suspended.value && redoStack.value.length > 0);
   const undoLabel = computed(() => undoStack.value.at(-1)?.label ?? null);
   const redoLabel = computed(() => redoStack.value.at(-1)?.label ?? null);
 
@@ -39,7 +45,18 @@ export const useHistoryStore = defineStore('history', () => {
 
   /** No undo/redo while calibrating: it would write performance records to a keyboard in calibration mode. */
   function locked(): boolean {
-    return useDeviceStore().calibrationLocked() || useCalibrationStore().phase !== 'idle';
+    return suspended.value || useDeviceStore().calibrationLocked() || useCalibrationStore().phase !== 'idle';
+  }
+
+  /** Turn undo/redo off until the returned release is called (idempotent). */
+  function suspend(): () => void {
+    suspensions.value++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      suspensions.value--;
+    };
   }
 
   function undo(): void {
@@ -79,5 +96,5 @@ export const useHistoryStore = defineStore('history', () => {
     return () => target.removeEventListener('keydown', onKey);
   }
 
-  return { canUndo, canRedo, undoLabel, redoLabel, push, undo, redo, clear, installShortcuts };
+  return { canUndo, canRedo, undoLabel, redoLabel, suspended, push, undo, redo, clear, suspend, installShortcuts };
 });
