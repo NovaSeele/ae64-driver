@@ -13,6 +13,7 @@ import Tabs from '../components/ui/Tabs.vue';
 import Switch from '../components/ui/Switch.vue';
 import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
+import { useSyncStore } from '../stores/sync';
 import { hexToRgb, rgbToHex, useLightingStore } from '../stores/lighting';
 import { LED_MATRIX_COLS, LED_STRIP_COUNT } from '../protocol';
 import type { PhysicalKey } from '../protocol';
@@ -20,6 +21,7 @@ import { t } from '../i18n/vi';
 
 const device = useDeviceStore();
 const sel = useSelectionStore();
+const sync = useSyncStore();
 const lighting = useLightingStore();
 
 type TabId = 'keys' | 'strip';
@@ -73,10 +75,24 @@ onMounted(() => {
   });
 });
 
-// A write was dropped: the shown values are no longer what the keyboard has, read them again.
-watch(() => lighting.staleSeq, () => {
-  if (device.connected) void lighting.load(true);
-});
+// A write was dropped: the shown values are no longer what the keyboard has, read them again once the
+// queue has settled (a newer job for the same area may still be waiting to be written).
+let reloading = false;
+let reloadAgain = false;
+async function reloadAfterSettle(): Promise<void> {
+  if (reloading) { reloadAgain = true; return; }
+  reloading = true;
+  try {
+    do {
+      reloadAgain = false;
+      try { await sync.flush(); } catch { /* the toast/pill report it */ }
+      if (device.connected) await lighting.load(true);
+    } while (reloadAgain);
+  } finally {
+    reloading = false;
+  }
+}
+watch(() => lighting.staleSeq, () => { void reloadAfterSettle(); });
 
 onBeforeUnmount(() => {
   offProfile?.();

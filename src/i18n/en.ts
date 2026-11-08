@@ -65,6 +65,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'sync.writing': 'Writing…',
   'sync.error': 'Error — retry',
   'sync.retry': 'Retry',
+  'sync.lastProblem': 'Last save: {msg}',
   'sync.verifyFailed': 'Verification mismatch: {labels}',
   'sync.failed': 'Not saved: {labels}',
   'sync.verifyMismatch': 'read-back mismatch',
@@ -180,7 +181,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'update.retry': 'Retry',
   'update.busyWrite': 'Cannot update while a keyboard write is in progress.',
   'update.busyCalibration': 'Cannot update while calibration is running.',
-  'update.deferred': 'Update downloaded. It applies when the page reloads.',
+  'update.deferred': 'Downloaded {version}. It applies when the page reloads.',
   'update.reloadNow': 'Reload now',
 
   // protocol / hid / client / codec errors

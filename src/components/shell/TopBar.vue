@@ -41,6 +41,9 @@ const busy = computed(() => sync.state === 'pending' || sync.state === 'writing'
         <Tooltip v-if="sync.state === 'error'" :text="sync.lastError ?? ''" placement="bottom">
           <span>{{ t('sync.error') }}</span>
         </Tooltip>
+        <Tooltip v-else-if="!busy && sync.lastProblem" :text="t('sync.lastProblem', { msg: sync.lastProblem })" placement="bottom">
+          <span>{{ t('sync.saved') }}</span>
+        </Tooltip>
         <span v-else>{{ busy ? t('sync.writing') : t('sync.saved') }}</span>
         <button v-if="sync.state === 'error'" type="button" class="pill__retry" :aria-label="t('sync.retry')" :title="t('sync.retry')" @click="sync.retry()">
           <IconRefresh :size="14" stroke-width="1.5" />

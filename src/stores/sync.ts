@@ -62,6 +62,8 @@ function isPermanent(err: unknown): boolean {
 export const useSyncStore = defineStore('sync', () => {
   const state = ref<SyncState>('saved');
   const lastError = ref<string | null>(null);
+  /** Problem of the last batch whose failed jobs were all dropped (nothing to retry); cleared by a successful batch. */
+  const lastProblem = ref<string | null>(null);
 
   let queued = new Map<string, Entry>();
   /** Jobs from a failed batch; retried with the next flush unless a newer job with the same key replaced them. */
@@ -162,10 +164,17 @@ export const useSyncStore = defineStore('sync', () => {
     for (const e of retry) if (!queued.has(e.job.key)) failed.set(e.job.key, e);
     if (problems.length) {
       lastError.value = tr('sync.failed', { labels: problems.join('; ') });
-      state.value = 'error';
+      if (failed.size) {
+        state.value = 'error';
+      } else {
+        // Everything that failed was dropped and restored (the drop toast said so): nothing to retry.
+        lastProblem.value = lastError.value;
+        state.value = queued.size ? 'pending' : 'saved';
+      }
       return false;
     }
     lastError.value = null;
+    lastProblem.value = null;
     state.value = queued.size ? 'pending' : 'saved';
     return true;
   }
@@ -233,13 +242,13 @@ export const useSyncStore = defineStore('sync', () => {
     const lost = [...queued.values(), ...failed.values()];
     queued = new Map();
     failed = new Map();
-    const dropped: Entry[] = [];
-    for (const e of lost) drop(e, tr('sync.lost'), dropped);
-    reportDropped(dropped);
+    // No drop toast or key flash: the disconnect path already reports the lost count.
+    for (const e of lost) drop(e, tr('sync.lost'), []);
     state.value = 'saved';
     lastError.value = null;
+    lastProblem.value = null;
     return lost.length;
   }
 
-  return { state, lastError, enqueue, flush, retry, reset, pendingCount, hold };
+  return { state, lastError, lastProblem, enqueue, flush, retry, reset, pendingCount, hold };
 });

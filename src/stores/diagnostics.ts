@@ -346,18 +346,27 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
       const history = useHistoryStore();
 
       await sync.flush(); // pending edits reach the keyboard before the baseline is read
-      // Always re-read: the stores only follow a profile switch while their own page is open.
-      await keymapStore.load(true);
-      await perfStore.load(true);
-      if (
-        keymapStore.loadError || perfStore.loadError
-        || keymapStore.loadedProfile !== device.activeProfile || perfStore.loadedProfile !== device.activeProfile
-      ) {
-        throw new Error(tr('diagnostics.importUnreadable'));
-      }
-      validateBackupPayload(payload, device.keys, keymapStore.values, perfStore.values, supportsIntervalRt(device.version));
+      // No write may reach the keyboard behind the restore: pause the queue and undo/redo from here on
+      // (loads are reads through withTransport; hold does not block them).
+      const holdRelease = sync.hold();
+      const resume = history.suspend();
+      const release = () => { holdRelease(); resume(); };
 
-      const release = sync.hold();
+      try {
+        // Always re-read: the stores only follow a profile switch while their own page is open.
+        await keymapStore.load(true);
+        await perfStore.load(true);
+        if (
+          keymapStore.loadError || perfStore.loadError
+          || keymapStore.loadedProfile !== device.activeProfile || perfStore.loadedProfile !== device.activeProfile
+        ) {
+          throw new Error(tr('diagnostics.importUnreadable'));
+        }
+        validateBackupPayload(payload, device.keys, keymapStore.values, perfStore.values, supportsIntervalRt(device.version));
+      } catch (err) {
+        release();
+        throw err;
+      }
 
       const writtenSections: string[] = [];
       let skipped = 0;

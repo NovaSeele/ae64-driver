@@ -68,6 +68,7 @@ export const base = {
   'sync.writing': 'Đang ghi…',
   'sync.error': 'Lỗi — thử lại',
   'sync.retry': 'Thử lại',
+  'sync.lastProblem': 'Lần lưu trước: {msg}',
   'sync.verifyFailed': 'Đọc lại không khớp: {labels}',
   'sync.failed': 'Chưa lưu được: {labels}',
   'sync.verifyMismatch': 'đọc lại không khớp',
@@ -183,7 +184,7 @@ export const base = {
   'update.retry': 'Thử lại',
   'update.busyWrite': 'Không thể cập nhật khi đang ghi vào bàn phím.',
   'update.busyCalibration': 'Không thể cập nhật khi đang hiệu chuẩn.',
-  'update.deferred': 'Đã tải bản cập nhật. Sẽ áp dụng khi tải lại trang.',
+  'update.deferred': 'Đã tải bản {version}. Sẽ áp dụng khi tải lại trang.',
   'update.reloadNow': 'Tải lại ngay',
 
   // protocol / hid / client / codec errors

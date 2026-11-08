@@ -205,6 +205,53 @@ describe('diagnostics store', () => {
     expect(history.canUndo).toBe(false);
   }, 15000);
 
+  it('undo is refused during a restore and nothing is written after it', async () => {
+    const mock = await connectMock();
+    const diag = useDiagnosticsStore();
+    const history = useHistoryStore();
+    const sync = useSyncStore();
+    const backup = await diag.generateBackup();
+    const diff = await diag.parseAndDiffBackup(JSON.stringify(backup));
+
+    let open!: () => void;
+    const gate = new Promise<void>((r) => { open = r; });
+    const orig = MockTransport.prototype.getPerformance;
+    vi.spyOn(mock, 'getPerformance').mockImplementation(async (key) => { await gate; return orig.call(mock, key); });
+
+    const undo = vi.fn(() => sync.enqueue({ key: 'x', label: 'X', write: async () => undefined }));
+    history.push({ label: 'edit', undo, redo: () => undefined });
+
+    const restoring = diag.applyRestore(diff);
+    await vi.waitFor(() => expect(history.suspended).toBe(true));
+    history.undo();
+    expect(undo).not.toHaveBeenCalled();
+    open();
+    await restoring;
+
+    expect(history.suspended).toBe(false);
+    expect(sync.pendingCount()).toBe(0);
+    expect(sync.state).toBe('saved');
+  }, 15000);
+
+  it('a validation error releases the hold and the history suspension', async () => {
+    const mock = await connectMock();
+    const diag = useDiagnosticsStore();
+    const history = useHistoryStore();
+    const sync = useSyncStore();
+    const backup = await diag.generateBackup();
+    backup.keymap[0][PHYSICAL_KEYS[0].id] = 0xf200;
+    const diff = await diag.parseAndDiffBackup(JSON.stringify(backup));
+    await expect(diag.applyRestore(diff)).rejects.toThrow(/Blocked keycode/);
+
+    expect(history.suspended).toBe(false);
+    const write = vi.fn(async () => undefined);
+    sync.enqueue({ key: 'y', label: 'Y', write });
+    await sync.flush();
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(sync.state).toBe('saved');
+    void mock;
+  }, 15000);
+
   it('refuses a backup of another board even when that board is allowed', async () => {
     await connectMock();
     const diag = useDiagnosticsStore();

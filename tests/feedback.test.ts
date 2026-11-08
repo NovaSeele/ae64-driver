@@ -49,6 +49,34 @@ describe('dropped sync jobs', () => {
     expect(useToast().items.value).toHaveLength(0);
   });
 
+  it('shows saved with lastProblem (no retry state) once everything failing was dropped', async () => {
+    const sync = useSyncStore();
+    sync.enqueue(job('a', 'A'));
+    await expect(sync.flush()).rejects.toThrow();
+    expect(sync.state).toBe('saved');
+    expect(sync.lastProblem).toContain('A');
+    sync.enqueue({ key: 'b', label: 'B', write: async () => undefined });
+    await sync.flush();
+    expect(sync.lastProblem).toBeNull();
+  });
+
+  it('keeps the error state while a failed job waits for retry', async () => {
+    const sync = useSyncStore();
+    sync.enqueue({ key: 'a', label: 'A', write: async () => { throw new Error('usb'); } });
+    await expect(sync.flush()).rejects.toThrow();
+    expect(sync.state).toBe('error');
+    expect(sync.lastProblem).toBeNull();
+  });
+
+  it('reset() calls onDrop but shows no toast', () => {
+    const sync = useSyncStore();
+    const onDrop = vi.fn();
+    sync.enqueue(job('a', 'A', { onDrop }));
+    expect(sync.reset()).toBe(1);
+    expect(onDrop).toHaveBeenCalledTimes(1);
+    expect(useToast().items.value).toHaveLength(0);
+  });
+
   it('flashes the union of the dropped jobs\' keys', async () => {
     vi.useFakeTimers();
     const sync = useSyncStore();
