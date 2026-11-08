@@ -81,3 +81,14 @@ tests/                 vitest: codec vectors, stores (sync/history/selection/per
 5. Add codec/store tests in `tests/` for any new byte handling; the mock transport (`MockTransport`) answers
    every family-01…07 packet and keeps writes, so stores can be tested end-to-end.
 6. Pollers (live travel, LED preview) must stop on unmount and pause while `device.exclusiveActive` is true.
+
+## Updates & offline caching
+
+Updates run strictly on demand when requested by the user:
+
+- `public/sw.js` is byte-static across builds. Browsers check service worker scripts byte-by-byte and find no differences, preventing silent auto-reloads.
+- Builds emit `dist/release.json` via `build/release.ts`: `{ version, builtAt, files }`, where `version` matches `__APP_VERSION__` (`package.json` version + UTC timestamp).
+- On initial install, `sw.js` fetches `release.json` (no-store), populates cache `ae64-app-<version>`, and records the version in `ae64-meta`.
+- Fetch interceptor: navigations return cached `index.html`; app assets return cache-first; `release.json` always fetches network `no-store`.
+- Update flow: the user clicks "Check for updates" in Rail help; page posts `{ type: 'check' }` to SW via MessageChannel. If a new version exists, the user can click "Update", triggering `{ type: 'apply' }`, which atomically caches all new files, swaps `ae64-meta`, deletes the old cache, and triggers `location.reload()`.
+- Production hosting (nginx): `/assets/` immutable; `index.html`, `sw.js`, and `release.json` no-cache.

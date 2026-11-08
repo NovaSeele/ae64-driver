@@ -37,6 +37,16 @@ npm run typecheck
    trạng thái hiển thị ở góc trên ("Đã lưu vào phím" / "Đang ghi…" / "Lỗi — thử lại").
 4. **Ctrl+Z / Ctrl+Y** để hoàn tác / làm lại trong phiên làm việc.
 
+## Cập nhật ứng dụng
+
+Khác với driver của nhà sản xuất vốn tự động tải phiên bản mới trong nền, AE64 Max Control **không bao giờ tự động cập nhật**. Ứng dụng tiếp tục chạy phiên bản đang có (kể cả khi ngoại tuyến) cho tới khi người dùng chủ động bấm kiểm tra và cập nhật.
+
+- Service worker (`sw.js`) là tệp tĩnh không đổi giữa các bản build, tránh việc trình duyệt tự động nạp phiên bản mới.
+- Quá trình build sinh ra `release.json` (chứa mã phiên bản, ngày giờ build và danh sách tệp của bản phát hành).
+- Khi người dùng mở hộp thoại Trợ giúp và bấm **Kiểm tra cập nhật**, ứng dụng so sánh phiên bản hiện tại với `release.json`.
+- Khi bấm **Cập nhật**, service worker tải toàn bộ các tệp của bản mới vào cache mới (theo cơ chế all-or-nothing), chuyển phiên bản và tải lại trang.
+- Máy chủ web (nginx) cấu hình `/assets/` là immutable, còn `index.html`, `sw.js` và `release.json` đặt `no-cache` / `no-store`.
+
 ## An toàn
 
 - Ứng dụng **không bao giờ** gửi lệnh cập nhật firmware (family `08`) hay khôi phục cài đặt gốc; mã
