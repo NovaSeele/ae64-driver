@@ -44,6 +44,33 @@ export function ledCount(area: number): number {
   return area === 0 ? LED_MATRIX_ROWS * LED_MATRIX_COLS : LED_STRIP_COUNT;
 }
 
+/**
+ * Request parameters the firmware echoes back at the same offsets (the decoders read data after them).
+ * A reply only answers a request when these bytes match too, so a late reply to an earlier read
+ * (e.g. Q's performance record after Q timed out) is never taken as the answer for another key.
+ */
+const ECHOED: readonly { prefix: readonly [number, number]; at: readonly number[] }[] = [
+  { prefix: [0x03, 0x01], at: [2, 3] }, // layer, row
+  { prefix: [0x03, 0x03], at: [2, 3, 4] }, // layer, row, col
+  { prefix: [0x04, 0x01], at: [2, 3] }, // row, col
+  { prefix: [0x04, 0x03], at: [2, 3] }, // axis data type, row
+  { prefix: [0x05, 0x01], at: [2, 3] }, // area, kind
+  { prefix: [0x05, 0x03], at: [2, 3] }, // area, LED page
+  { prefix: [0x06, 0x01], at: [2, 3] }, // row, col
+  { prefix: [0x07, 0x01], at: [2] }, // macro id
+  { prefix: [0x07, 0x03], at: [2, 3] }, // macro id, page
+];
+
+/** True when `reply` answers `request`: same family/command and, for the reads above, the same echoed parameters. */
+export function replyMatches(request: ArrayLike<number>, reply: ArrayLike<number>): boolean {
+  if (reply[0] !== request[0] || reply[1] !== request[1]) return false;
+  const rule = ECHOED.find((r) => r.prefix[0] === request[0] && r.prefix[1] === request[1]);
+  return !rule || rule.at.every((i) => reply[i] === request[i]);
+}
+
+/** 02 06 00 (enter) / 02 06 01 (leave calibration): the only writes allowed while calibration is locked. */
+const isCalibrationControl = (p: readonly number[]): boolean => p[0] === FAMILY.GLOBAL && p[1] === 0x06 && (p[2] === 0x00 || p[2] === 0x01);
+
 export abstract class BaseTransport implements Ae64Transport {
   abstract readonly kind: 'hid' | 'mock';
   abstract readonly productName: string;
@@ -52,6 +79,12 @@ export abstract class BaseTransport implements Ae64Transport {
   readonly stats: TransportStats = { lastLatencyMs: 0, avgLatencyMs: 0, requests: 0, timeouts: 0 };
   /** Set by getDeviceInfo(): writes are refused until the board ID is in ALLOWED_BOARDS. */
   boardAllowed = false;
+  /**
+   * True from the moment `02 06 00` is sent until `02 06 01` was acknowledged: while the keyboard is in
+   * calibration mode every write except "stop calibration" is refused (history shortcuts, profile switch,
+   * sync retries, restores…), whichever store sends it.
+   */
+  private calibrationLock = false;
 
   private queue: Promise<unknown> = Promise.resolve();
   private readonly disconnectListeners = new Set<() => void>();
@@ -86,6 +119,9 @@ export abstract class BaseTransport implements Ae64Transport {
     const run = async (): Promise<Bytes> => {
       if (!this.connected) throw new Error(t('error.notConnected'));
       if (!this.boardAllowed && isWriteCommand(payload)) throw new WriteNotAllowedError();
+      if (this.calibrationLock && isWriteCommand(payload) && !isCalibrationControl(payload)) {
+        throw new UnsafeCommandError(payload, 'the keyboard is calibrating; only "stop calibration" may be sent');
+      }
       const frame = frameOf(payload);
       this.log('out', frame);
       const t0 = performance.now();
@@ -193,11 +229,19 @@ export abstract class BaseTransport implements Ae64Transport {
   }
 
   async startCalibration(): Promise<void> {
+    // Locked before sending: if the reply is lost the keyboard may still have entered calibration.
+    this.calibrationLock = true;
     await this.write([FAMILY.GLOBAL, 0x06, 0x00]);
   }
 
+  /** Stays locked if this fails: the keyboard may still be calibrating (reconnecting clears it). */
   async stopCalibration(): Promise<void> {
     await this.write([FAMILY.GLOBAL, 0x06, 0x01]);
+    this.calibrationLock = false;
+  }
+
+  get calibrationLocked(): boolean {
+    return this.calibrationLock;
   }
 
   async getLightingAreas(): Promise<LightingAreas> {
@@ -257,7 +301,10 @@ export abstract class BaseTransport implements Ae64Transport {
   private readonly perfSeen = new Map<string, Performance[]>();
 
   async getPerformance(pos: KeyPos): Promise<Performance> {
-    const p = c.decodePerformance(await this.request([FAMILY.PERFORMANCE, 0x01, pos.row, pos.col]));
+    const d = await this.request([FAMILY.PERFORMANCE, 0x01, pos.row, pos.col]);
+    // Never record another key's sensor fields as this key's (they feed the write guard below).
+    if (d[2] !== pos.row || d[3] !== pos.col) throw new Error(`performance reply for ${d[2]},${d[3]} does not match key ${pos.row},${pos.col}`);
+    const p = c.decodePerformance(d);
     const k = `${pos.row}:${pos.col}`;
     const seen = this.perfSeen.get(k) ?? [];
     seen.push({ ...p });
@@ -277,7 +324,12 @@ export abstract class BaseTransport implements Ae64Transport {
   }
 
   async getAxisData(type: AxisDataType, row: number): Promise<AxisRow> {
-    return c.decodeAxisRow(await this.request([FAMILY.PERFORMANCE, 0x03, AXIS_DATA_TYPE[type], row]));
+    const r = c.decodeAxisRow(await this.request([FAMILY.PERFORMANCE, 0x03, AXIS_DATA_TYPE[type], row]));
+    // A stray reply for another matrix or row must never be shown (or calibrated against) as this one.
+    if (r.type !== AXIS_DATA_TYPE[type] || r.row !== row) {
+      throw new Error(`axis data reply for type ${r.type} row ${r.row}, expected type ${AXIS_DATA_TYPE[type]} row ${row}`);
+    }
+    return r;
   }
 
   // ------------------------------------------------------------------ 05 lighting

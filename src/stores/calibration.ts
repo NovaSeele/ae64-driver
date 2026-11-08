@@ -99,6 +99,8 @@ export const useCalibrationStore = defineStore('calibration', () => {
       await device.withTransport((t) => t.startCalibration());
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
+      // The start reply may be lost while the keyboard did enter calibration: always try to stop.
+      await device.withTransport((t) => t.stopCalibration()).catch(() => undefined);
       phase.value = 'idle';
       return;
     }

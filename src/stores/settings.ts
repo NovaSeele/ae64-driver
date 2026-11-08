@@ -7,6 +7,7 @@
 // the app then closes the session and reconnects once the keyboard is back.
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
+import { UnsafeCommandError, WriteNotAllowedError } from '../protocol';
 import type { Ae64Transport, LightingAreas } from '../protocol';
 import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
@@ -119,7 +120,9 @@ export const useSettingsStore = defineStore('settings', () => {
       const isDemo = device.demo;
       // The reply may or may not arrive before the USB restart; either way nothing else is sent.
       await device.withTransport((t) => t.setPollingRate(rate), { exclusive: true }).catch((err: unknown) => {
-        if (isDemo) throw err;
+        // Refused before anything was sent (safety guard, read-only board): nothing to reconnect.
+        if (isDemo || err instanceof UnsafeCommandError || err instanceof WriteNotAllowedError) throw err;
+        // Otherwise the USB restart may have beaten the reply: carry on and reconnect.
       });
       if (isDemo) {
         pollingRate.value = await device.withTransport((t) => t.getPollingRate());

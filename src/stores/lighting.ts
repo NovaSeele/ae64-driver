@@ -192,6 +192,7 @@ export const useLightingStore = defineStore('lighting', () => {
     return {
       key: `light:base:${profile}:${area}`,
       group: SAVE_GROUP.LIGHTING,
+      profile,
       label: tr('lighting.syncBase', { area: area === 0 ? tr('lighting.tabKeys') : tr('lighting.tabStrip') }),
       write: async (t: Ae64Transport) => {
         await t.setLightingBase(written);
@@ -215,6 +216,7 @@ export const useLightingStore = defineStore('lighting', () => {
     return {
       key: `light:palette:${profile}:${area}`,
       group: SAVE_GROUP.LIGHTING,
+      profile,
       label: tr('lighting.syncPalette', { area: area === 0 ? tr('lighting.tabKeys') : tr('lighting.tabStrip') }),
       write: async (t: Ae64Transport) => {
         await t.setPalette(area, written);
@@ -234,6 +236,7 @@ export const useLightingStore = defineStore('lighting', () => {
     return {
       key: `light:matrix:${profile}:${area}`,
       group: SAVE_GROUP.LIGHTING,
+      profile,
       label: tr('lighting.syncMatrix', { area: area === 0 ? tr('lighting.tabKeys') : tr('lighting.tabStrip') }),
       write: async (t: Ae64Transport) => {
         await t.writeLedMatrix(area, written);

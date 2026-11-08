@@ -48,6 +48,7 @@ describe('calibration store', () => {
 
     await cal.start();
     expect(start).toHaveBeenCalledOnce();
+    expect(cal.error).toBe(null);
     expect(cal.phase).toBe('running');
     expect(live.running).toBe(false);
 

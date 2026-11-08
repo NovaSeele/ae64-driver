@@ -82,6 +82,8 @@ export interface Ae64Transport {
   readonly stats: TransportStats;
   onDisconnect(cb: () => void): () => void;
   onPacket(cb: (e: PacketLogEntry) => void): () => void;   // diagnostics log
+  /** True from "start calibration" until "stop calibration" was acknowledged; writes are refused meanwhile. */
+  readonly calibrationLocked: boolean;
   close(): Promise<void>;
   raw(payload: number[], timeoutMs?: number): Promise<Bytes>; // diagnostics only
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Diagnostics page: device identity, protocol version, feature bitmap, transport latency stats, packet log, backup/restore JSON.
 // Note: per safety guidelines, NO raw write console is provided.
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import {
   IconCopy, IconCheck, IconDownload, IconUpload,
 } from '@tabler/icons-vue';
@@ -20,6 +20,8 @@ import { t } from '../i18n/vi';
 const device = useDeviceStore();
 const diag = useDiagnosticsStore();
 const toast = useToast();
+// Packets are only recorded while this page is open.
+onBeforeUnmount(device.watchPackets());
 
 const logFilter = ref<'all' | 'in' | 'out'>('all');
 const logSearch = ref('');

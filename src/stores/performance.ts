@@ -41,6 +41,14 @@ export function pickEdit(p: Performance): PerfEdit {
   return out as PerfEdit;
 }
 
+/**
+ * Modes this app understands (0 Standard, 1 Continuous RT, 2 RT). A key reporting anything else is left
+ * alone: apply() skips it, so an unknown firmware mode is never overwritten or retried against the guard.
+ */
+export function isKnownMode(mode: number): boolean {
+  return mode === 0 || mode === 1 || mode === 2;
+}
+
 /** The actuation point the firmware uses for this key's mode. */
 export function actuationOf(p: Performance): number {
   return isRtMode(p.mode) ? p.rtFirstTouch : p.normalPress;
@@ -134,6 +142,7 @@ export const usePerformanceStore = defineStore('performance', () => {
     return {
       key: `perf:${profile}:${id}`,
       group: SAVE_GROUP.PERFORMANCE,
+      profile,
       label: tr('perf.keyLabel', { key: device.legend(key) }),
       write: async (t: Ae64Transport) => {
         const current = values.value[id];
@@ -147,6 +156,12 @@ export const usePerformanceStore = defineStore('performance', () => {
         fresh.set(id, read);
         return written !== null && sameEdit(pickEdit(read), written);
       },
+      // Not saved: show what the key really has (last record read from it) instead of the unsaved edit.
+      onDrop: () => {
+        const real = fresh.get(id);
+        if (!real || loadedProfile.value !== profile || !values.value[id]) return;
+        values.value = { ...values.value, [id]: { ...values.value[id], ...pickEdit(real) } };
+      },
     };
   }
 
@@ -154,13 +169,15 @@ export const usePerformanceStore = defineStore('performance', () => {
     const profile = device.activeProfile;
     if (profile !== loadedProfile.value) return; // stale history entry from another profile
     const next = { ...values.value };
+    const changed: number[] = [];
     for (const [idStr, edit] of Object.entries(map)) {
       const id = Number(idStr);
-      if (!next[id]) continue;
+      if (!next[id]) continue; // not loaded (a reload is running): nothing to write it from
       next[id] = { ...next[id], ...edit };
+      changed.push(id);
     }
     values.value = next;
-    for (const id of Object.keys(map)) sync.enqueue(jobFor(Number(id), profile));
+    for (const id of changed) sync.enqueue(jobFor(id, profile));
   }
 
   /**
@@ -173,7 +190,7 @@ export const usePerformanceStore = defineStore('performance', () => {
     const after: Record<number, PerfEdit> = {};
     for (const id of ids) {
       const cur = values.value[id];
-      if (!cur) continue;
+      if (!cur || !isKnownMode(cur.mode)) continue;
       const b = pickEdit(cur);
       const a = clamp(cur, { ...b, ...patch(cur) });
       if (sameEdit(a, b)) continue;

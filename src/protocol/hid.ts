@@ -2,12 +2,15 @@
 
 import type { Ae64Transport, Bytes } from './types';
 import { CONFIG_USAGE, CONFIG_USAGE_PAGE, HID_FILTERS, REPORT_ID } from './constants';
-import { BaseTransport, TransportTimeoutError } from './client';
+import { BaseTransport, TransportTimeoutError, replyMatches } from './client';
 import { t as tr } from '../i18n/vi';
 
+/** Quiet period after a timeout: late replies to the timed-out request are dropped before the next one. */
+const QUIET_AFTER_TIMEOUT_MS = 100;
+
 interface Pending {
-  match0: number;
-  match1: number;
+  /** The request frame; replies must match it (replyMatches). */
+  frame: Uint8Array;
   resolve: (b: Bytes) => void;
   reject: (e: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -35,6 +38,7 @@ export function webHidAvailable(): boolean {
 export class HidTransport extends BaseTransport {
   readonly kind = 'hid' as const;
   private pending: Pending | null = null;
+  private quietUntil = 0;
   private readonly onReport = (e: HIDInputReportEvent) => this.handleReport(e);
   private readonly onHidDisconnect = (e: HIDConnectionEvent) => {
     if (e.device !== this.device) return;
@@ -84,19 +88,24 @@ export class HidTransport extends BaseTransport {
   private handleReport(e: HIDInputReportEvent): void {
     const bytes = new Uint8Array(e.data.buffer.slice(e.data.byteOffset, e.data.byteOffset + e.data.byteLength));
     const p = this.pending;
-    if (!p || bytes[0] !== p.match0 || bytes[1] !== p.match1) return; // unsolicited report
+    if (!p || !replyMatches(p.frame, bytes)) return; // unsolicited, or a late reply to an earlier request
     this.pending = null;
     clearTimeout(p.timer);
     p.resolve(bytes);
   }
 
-  protected exchange(frame: Uint8Array, timeoutMs: number): Promise<Bytes> {
+  protected async exchange(frame: Uint8Array, timeoutMs: number): Promise<Bytes> {
+    // After a timeout the keyboard may still answer the old request: let that reply arrive (and be
+    // dropped, nothing is pending) before asking anything else.
+    const quiet = this.quietUntil - performance.now();
+    if (quiet > 0) await new Promise((r) => setTimeout(r, quiet));
     return new Promise<Bytes>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.pending?.timer === timer) this.pending = null;
+        this.quietUntil = performance.now() + QUIET_AFTER_TIMEOUT_MS;
         reject(new TransportTimeoutError(Array.from(frame)));
       }, timeoutMs);
-      this.pending = { match0: frame[0], match1: frame[1], resolve, reject, timer };
+      this.pending = { frame, resolve, reject, timer };
       this.device.sendReport(REPORT_ID, frame as Uint8Array<ArrayBuffer>).catch((err: unknown) => {
         if (this.pending?.timer !== timer) return;
         this.pending = null;

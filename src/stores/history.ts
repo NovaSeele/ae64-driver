@@ -1,6 +1,8 @@
 // Session undo/redo. Entries mutate page-store state and enqueue the same sync jobs as the original edit.
 import { defineStore } from 'pinia';
 import { computed, shallowRef } from 'vue';
+import { useDeviceStore } from './device';
+import { useCalibrationStore } from './calibration';
 
 export interface HistoryEntry {
   label: string;
@@ -35,7 +37,13 @@ export const useHistoryStore = defineStore('history', () => {
     undoStack.value = [...undoStack.value, { ...entry, at: now }].slice(-MAX_ENTRIES);
   }
 
+  /** No undo/redo while calibrating: it would write performance records to a keyboard in calibration mode. */
+  function locked(): boolean {
+    return useDeviceStore().calibrationLocked() || useCalibrationStore().phase !== 'idle';
+  }
+
   function undo(): void {
+    if (locked()) return;
     const e = undoStack.value.at(-1);
     if (!e) return;
     undoStack.value = undoStack.value.slice(0, -1);
@@ -44,6 +52,7 @@ export const useHistoryStore = defineStore('history', () => {
   }
 
   function redo(): void {
+    if (locked()) return;
     const e = redoStack.value.at(-1);
     if (!e) return;
     redoStack.value = redoStack.value.slice(0, -1);

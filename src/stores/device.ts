@@ -47,7 +47,15 @@ export const useDeviceStore = defineStore('device', () => {
   const packetLog: PacketLogEntry[] = markRaw([]);
   const profileListeners = new Set<() => void>();
   let detach: (() => void)[] = [];
-  let lastLatencyAt = 0;
+  /** Pages that show the packet log; packets are only recorded while > 0 (live travel sends ~1,700/s). */
+  let packetWatchers = 0;
+  let detachPackets: (() => void) | null = null;
+  let latencyTimer: ReturnType<typeof setInterval> | null = null;
+  /**
+   * Bumped on every reset: an exclusive job that started on an earlier connection must not decrement the
+   * count of the current one (reset() zeroes it while that job may still be unwinding).
+   */
+  let session = 0;
 
   const activeProfileName = computed(() => profileNames.value[activeProfile.value] ?? `Profile ${activeProfile.value + 1}`);
 
@@ -59,12 +67,18 @@ export const useDeviceStore = defineStore('device', () => {
   async function withTransport<T>(fn: (t: Ae64Transport) => Promise<T>, opts: { exclusive?: boolean } = {}): Promise<T> {
     const t = transport.value;
     if (!t || status.value !== 'connected') throw new Error(tr('error.notConnected'));
+    const mine = session;
     if (opts.exclusive) exclusiveCount.value++;
     try {
       return await fn(t);
     } finally {
-      if (opts.exclusive) exclusiveCount.value--;
+      if (opts.exclusive && mine === session) exclusiveCount.value = Math.max(0, exclusiveCount.value - 1);
     }
+  }
+
+  /** True while the keyboard is (or may still be) in calibration mode: only "stop calibration" may be written. */
+  function calibrationLocked(): boolean {
+    return transport.value?.calibrationLocked ?? false;
   }
 
   function onProfileChanged(cb: () => void): () => void {
@@ -93,16 +107,37 @@ export const useDeviceStore = defineStore('device', () => {
   function handlePacket(e: PacketLogEntry): void {
     packetLog.push(e);
     if (packetLog.length > PACKET_LOG_SIZE) packetLog.splice(0, packetLog.length - PACKET_LOG_SIZE);
-    const now = performance.now();
-    if (e.dir === 'in' && transport.value && now - lastLatencyAt > LATENCY_REFRESH_MS) {
-      lastLatencyAt = now;
-      latencyMs.value = transport.value.stats.lastLatencyMs;
-    }
   }
 
-  function reset(): void {
+  function attachPackets(): void {
+    if (!detachPackets && transport.value && packetWatchers > 0) detachPackets = transport.value.onPacket(handlePacket);
+  }
+
+  /** Record packets into `packetLog` while the caller is mounted (Diagnostics). Returns the remover. */
+  function watchPackets(): () => void {
+    packetWatchers++;
+    attachPackets();
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      packetWatchers--;
+      if (packetWatchers === 0) {
+        detachPackets?.();
+        detachPackets = null;
+      }
+    };
+  }
+
+  /** Forget the connection. Returns how many unsaved edits were dropped. */
+  function reset(): number {
+    session++;
     detach.forEach((fn) => fn());
     detach = [];
+    detachPackets?.();
+    detachPackets = null;
+    if (latencyTimer) clearInterval(latencyTimer);
+    latencyTimer = null;
     transport.value = null;
     info.value = null;
     version.value = null;
@@ -112,8 +147,9 @@ export const useDeviceStore = defineStore('device', () => {
     layer0.value = [];
     profileNames.value = [];
     exclusiveCount.value = 0;
-    useSyncStore().reset();
+    const lost = useSyncStore().reset();
     useHistoryStore().clear();
+    return lost;
   }
 
   async function init(t: Ae64Transport, isDemo: boolean): Promise<void> {
@@ -121,7 +157,11 @@ export const useDeviceStore = defineStore('device', () => {
     error.value = null;
     transport.value = t;
     demo.value = isDemo;
-    detach = [t.onPacket(handlePacket), t.onDisconnect(handleDisconnect)];
+    detach = [t.onDisconnect(handleDisconnect)];
+    attachPackets();
+    latencyTimer = setInterval(() => {
+      if (transport.value === t) latencyMs.value = t.stats.lastLatencyMs;
+    }, LATENCY_REFRESH_MS);
     try {
       version.value = await t.getProtocolVersion();
       info.value = await t.getDeviceInfo();
@@ -150,9 +190,9 @@ export const useDeviceStore = defineStore('device', () => {
   }
 
   function handleDisconnect(): void {
-    reset();
+    const lost = reset();
     status.value = 'idle';
-    useToast().show(tr('device.lost'), 'error');
+    useToast().show(lost > 0 ? tr('device.unsavedLost', { n: lost }) : tr('device.lost'), 'error');
   }
 
   async function connect(): Promise<void> {
@@ -203,6 +243,8 @@ export const useDeviceStore = defineStore('device', () => {
 
   async function switchProfile(i: number): Promise<void> {
     if (i === activeProfile.value) return;
+    if (calibrationLocked()) throw new Error(tr('device.calibrating'));
+    // Rejects unless every edit of the current profile reached the keyboard: never carry one across.
     await useSyncStore().flush();
     await withTransport(async (t) => {
       activeProfile.value = await t.setActiveProfile(i);
@@ -227,7 +269,7 @@ export const useDeviceStore = defineStore('device', () => {
   return {
     transport, status, error, info, version, features, boardAllowed, demo, keys, profileCount, activeProfile,
     profileNames, rtPrecision, layer0, latencyMs, exclusiveActive, connected, hidAvailable, packetLog, activeProfileName,
-    legend, withTransport, onProfileChanged, refreshLayer0, connect, connectDemo, tryAutoReconnect, disconnect,
-    switchProfile, renameProfile,
+    legend, withTransport, calibrationLocked, watchPackets, onProfileChanged, refreshLayer0, connect, connectDemo,
+    tryAutoReconnect, disconnect, switchProfile, renameProfile,
   };
 });

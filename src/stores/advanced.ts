@@ -18,7 +18,7 @@ import type { AdvancedRecord, Ae64Transport, KeyPos, Performance, PhysicalKey } 
 import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
 import { useHistoryStore } from './history';
-import { useSyncStore } from './sync';
+import { PermanentSyncError, useSyncStore } from './sync';
 import { DEFAULT_RANGE_MM, pickEdit, usePerformanceStore } from './performance';
 
 type N4 = [number, number, number, number];
@@ -383,11 +383,12 @@ export const useAdvancedStore = defineStore('advanced', () => {
     return {
       key: `adv:${profile}:${involved.join(',')}`,
       group: SAVE_GROUP.ADVANCED,
+      profile,
       label: tr('advanced.jobLabel', { keys: names }),
       write: async (t: Ae64Transport) => {
         for (const id of involved) {
           const cur = await t.getAdvanced(keys[id]);
-          if (!allowedOn(id, cur)) throw new Error(tr('advanced.conflictDevice', { key: device.legend(keys[id]) }));
+          if (!allowedOn(id, cur)) throw new PermanentSyncError(tr('advanced.conflictDevice', { key: device.legend(keys[id]) }));
         }
         if (!tuning) {
           const snap = new Map<number, Performance>();

@@ -243,8 +243,14 @@ export const useLiveStore = defineStore('live', () => {
   let rateCount = 0;
   let rateFrom = 0;
 
+  // row/col → key, rebuilt when the layout changes (ingest runs ~1,700 times a second).
+  let keyIndex = new Map<number, PhysicalKey>();
+  watch(() => device.keys, (keys) => {
+    keyIndex = new Map(keys.map((k) => [k.row * 256 + k.col, k]));
+  }, { immediate: true });
+
   function keyAt(row: number, col: number): PhysicalKey | undefined {
-    return device.keys.find((k) => k.row === row && k.col === col);
+    return keyIndex.get(row * 256 + col);
   }
 
   function rangeRaw(id: number): number {
