@@ -5,18 +5,17 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { onBeforeRouteLeave } from 'vue-router';
 import { IconAlertTriangle, IconCheck, IconPlayerPlay, IconRefresh, IconX } from '@tabler/icons-vue';
-import PageLayout from '../components/shell/PageLayout.vue';
-import KeyboardView from '../components/keyboard/KeyboardView.vue';
-import { attachDemoPress } from '../components/live/demoPress';
-import Card from '../components/ui/Card.vue';
-import Button from '../components/ui/Button.vue';
-import Dialog from '../components/ui/Dialog.vue';
-import { useToast } from '../components/ui/toast';
-import { useDeviceStore } from '../stores/device';
-import { DEFAULT_RANGE_MM, usePerformanceStore } from '../stores/performance';
-import { useCalibrationStore } from '../stores/calibration';
-import type { MockTransport, PhysicalKey } from '../protocol';
-import { t } from '../i18n/vi';
+import KeyboardView from '../keyboard/KeyboardView.vue';
+import { attachDemoPress } from '../live/demoPress';
+import Card from '../ui/Card.vue';
+import Button from '../ui/Button.vue';
+import Dialog from '../ui/Dialog.vue';
+import { useToast } from '../ui/toast';
+import { useDeviceStore } from '../../stores/device';
+import { DEFAULT_RANGE_MM, usePerformanceStore } from '../../stores/performance';
+import { useCalibrationStore } from '../../stores/calibration';
+import type { MockTransport, PhysicalKey } from '../../protocol';
+import { t } from '../../i18n/vi';
 
 const device = useDeviceStore();
 const perf = usePerformanceStore();
@@ -114,89 +113,89 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <PageLayout :title="t('page.calibration')">
-    <section class="kbrow">
-      <div class="board" :class="{ 'board--live': running }">
-        <KeyboardView :keys="device.keys" :legend="device.legend" :sublabel="adc" :fill="fill" :color="statusColor" :led-height="LED_PX" :tone="statusTone" :status="statusText" />
-      </div>
-      <aside class="aside">
-        <span class="micro">{{ t('calibration.status') }}</span>
-        <ul class="legend">
-          <li v-for="l in legend" :key="l.label">
-            <i :style="{ background: l.color, boxShadow: `0 0 8px ${l.color}`, height: `${LED_PX}px` }" />
-            <span>{{ l.label }}</span>
-            <span class="num">{{ cal.loaded ? l.n : '—' }}</span>
-          </li>
-        </ul>
-        <p class="hint">{{ t('calibration.adcHint') }}</p>
-      </aside>
-    </section>
-
-    <div class="grid">
-      <Card :title="t('page.calibration')" :subtitle="t('calibration.intro')">
-        <span class="micro">{{ t('calibration.steps') }}</span>
-        <ol class="steps">
-          <li :class="{ done: running }"><span class="steps__n num">1</span>{{ t('calibration.step1') }}</li>
-          <li :class="{ now: running }"><span class="steps__n num">2</span>{{ t('calibration.step2') }}</li>
-          <li><span class="steps__n num">3</span>{{ t('calibration.step3') }}</li>
-        </ol>
-        <p v-if="sessionError && cal.phase === 'idle'" class="alert" role="alert"><IconAlertTriangle :size="14" />{{ sessionError }}</p>
-        <p v-if="!device.boardAllowed" class="warn">{{ t('calibration.readOnly') }}</p>
-        <p v-if="device.demo" class="hint">{{ t('calibration.demoHint') }}</p>
-        <div class="actions">
-          <template v-if="running || cal.phase === 'finishing'">
-            <Button variant="primary" :icon="IconCheck" :loading="cal.phase === 'finishing'" @click="finish">{{ t('calibration.finish') }}</Button>
-            <Button variant="ghost" :icon="IconX" :disabled="busy" @click="cancel">{{ t('calibration.cancel') }}</Button>
-          </template>
-          <Button
-            v-else
-            variant="primary"
-            :icon="IconPlayerPlay"
-            :loading="cal.phase === 'starting'"
-            :disabled="!device.boardAllowed"
-            @click="confirmOpen = true"
-          >
-            {{ t('calibration.start') }}
-          </Button>
-        </div>
-      </Card>
-
-      <Card class="progress">
-        <div v-if="loadError" class="alert" role="alert">
-          <IconAlertTriangle :size="14" />
-          <span>{{ loadError }}</span>
-          <Button size="sm" variant="ghost" :icon="IconRefresh" @click="cal.refresh()">{{ t('calibration.retry') }}</Button>
-        </div>
-        <p v-else-if="!cal.loaded" class="hint" role="status">{{ t('calibration.loading') }}</p>
-        <p v-if="running" class="running" role="status"><span class="pulse" />{{ t('calibration.running') }}</p>
-        <div class="big num">{{ cal.loaded ? progress : '—' }}<span class="of">/64</span></div>
-        <p v-if="cal.loaded" class="sub">{{ running ? t('calibration.progressSession', { n: progress }) : t('calibration.progress', { n: progress }) }}</p>
-        <div class="bar" :class="{ 'bar--new': running }"><span :style="{ transform: `scaleX(${cal.loaded ? progress / 64 : 0})` }" /></div>
-        <p v-if="allDone" class="done" role="status"><IconCheck :size="14" />{{ t('calibration.allDone') }}</p>
-        <p v-else-if="cal.loaded && !running && cal.uncalibratedCount > 0" class="warn">{{ t('calibration.uncalibrated', { n: cal.uncalibratedCount }) }}</p>
-      </Card>
+  <section class="kbrow">
+    <div class="board" :class="{ 'board--live': running }">
+      <KeyboardView :keys="device.keys" :legend="device.legend" :sublabel="adc" :fill="fill" :color="statusColor" :led-height="LED_PX" :tone="statusTone" :status="statusText" />
     </div>
+    <aside class="aside">
+      <span class="micro">{{ t('calibration.status') }}</span>
+      <ul class="legend">
+        <li v-for="l in legend" :key="l.label">
+          <i :style="{ background: l.color, boxShadow: `0 0 8px ${l.color}`, height: `${LED_PX}px` }" />
+          <span>{{ l.label }}</span>
+          <span class="num">{{ cal.loaded ? l.n : '—' }}</span>
+        </li>
+      </ul>
+      <p class="hint">{{ t('calibration.adcHint') }}</p>
+    </aside>
+  </section>
 
-    <Dialog v-model:open="confirmOpen" :title="t('calibration.confirmTitle')">
-      <p class="dlg-body">{{ t('calibration.confirmBody') }}</p>
-      <template #footer>
-        <Button variant="ghost" @click="confirmOpen = false">{{ t('calibration.cancel') }}</Button>
-        <Button variant="primary" :icon="IconPlayerPlay" @click="begin">{{ t('calibration.start') }}</Button>
-      </template>
-    </Dialog>
-  </PageLayout>
+  <div class="grid">
+    <Card :title="t('page.calibration')" :subtitle="t('calibration.intro')">
+      <span class="micro">{{ t('calibration.steps') }}</span>
+      <ol class="steps">
+        <li :class="{ done: running }"><span class="steps__n num">1</span>{{ t('calibration.step1') }}</li>
+        <li :class="{ now: running }"><span class="steps__n num">2</span>{{ t('calibration.step2') }}</li>
+        <li><span class="steps__n num">3</span>{{ t('calibration.step3') }}</li>
+      </ol>
+      <p v-if="sessionError && cal.phase === 'idle'" class="alert" role="alert"><IconAlertTriangle :size="14" />{{ sessionError }}</p>
+      <p v-if="!device.boardAllowed" class="warn">{{ t('calibration.readOnly') }}</p>
+      <p v-if="device.demo" class="hint">{{ t('calibration.demoHint') }}</p>
+      <div class="actions">
+        <template v-if="running || cal.phase === 'finishing'">
+          <Button variant="primary" :icon="IconCheck" :loading="cal.phase === 'finishing'" @click="finish">{{ t('calibration.finish') }}</Button>
+          <Button variant="ghost" :icon="IconX" :disabled="busy" @click="cancel">{{ t('calibration.cancel') }}</Button>
+        </template>
+        <Button
+          v-else
+          variant="primary"
+          :icon="IconPlayerPlay"
+          :loading="cal.phase === 'starting'"
+          :disabled="!device.boardAllowed"
+          @click="confirmOpen = true"
+        >
+          {{ t('calibration.start') }}
+        </Button>
+      </div>
+    </Card>
+
+    <Card class="progress">
+      <div v-if="loadError" class="alert" role="alert">
+        <IconAlertTriangle :size="14" />
+        <span>{{ loadError }}</span>
+        <Button size="sm" variant="ghost" :icon="IconRefresh" @click="cal.refresh()">{{ t('calibration.retry') }}</Button>
+      </div>
+      <p v-else-if="!cal.loaded" class="hint" role="status">{{ t('calibration.loading') }}</p>
+      <p v-if="running" class="running" role="status"><span class="pulse" />{{ t('calibration.running') }}</p>
+      <div class="big num">{{ cal.loaded ? progress : '—' }}<span class="of">/64</span></div>
+      <p v-if="cal.loaded" class="sub">{{ running ? t('calibration.progressSession', { n: progress }) : t('calibration.progress', { n: progress }) }}</p>
+      <div class="bar" :class="{ 'bar--new': running }"><span :style="{ transform: `scaleX(${cal.loaded ? progress / 64 : 0})` }" /></div>
+      <p v-if="allDone" class="done" role="status"><IconCheck :size="14" />{{ t('calibration.allDone') }}</p>
+      <p v-else-if="cal.loaded && !running && cal.uncalibratedCount > 0" class="warn">{{ t('calibration.uncalibrated', { n: cal.uncalibratedCount }) }}</p>
+    </Card>
+  </div>
+
+  <Dialog v-model:open="confirmOpen" :title="t('calibration.confirmTitle')">
+    <p class="dlg-body">{{ t('calibration.confirmBody') }}</p>
+    <template #footer>
+      <Button variant="ghost" @click="confirmOpen = false">{{ t('calibration.cancel') }}</Button>
+      <Button variant="primary" :icon="IconPlayerPlay" @click="begin">{{ t('calibration.start') }}</Button>
+    </template>
+  </Dialog>
 </template>
 
 <style scoped>
-.kbrow { display: flex; gap: var(--s-5); align-items: flex-start; margin-bottom: var(--s-4); }
-.board { flex: 1; min-width: 0; max-width: 940px; margin: 0 auto; border-radius: var(--r-panel); transition: box-shadow var(--t-slow) var(--ease); }
+/* The status legend is a row under the keyboard at every width, so the keyboard sits where the Switch tab's does. */
+.kbrow { display: flex; flex-direction: column; gap: var(--s-3); margin-bottom: var(--s-4); }
+.board { width: 100%; min-width: 0; max-width: 940px; margin: 0 auto; border-radius: var(--r-panel); transition: box-shadow var(--t-slow) var(--ease); }
 .board--live { box-shadow: 0 0 0 1px var(--acc-line); }
-.aside { flex: none; width: 188px; display: flex; flex-direction: column; gap: var(--s-2); }
-.legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.aside { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-5); min-height: 36px; } /* = the Switch tab's selection bar */
+.legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: row; gap: var(--s-5); }
 .legend li { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-label); color: var(--fg-2); }
 .legend li i { width: 12px; border-radius: 2px; flex: none; }
-.legend li .num { margin-left: auto; color: var(--fg-1); font-weight: 600; }
+.legend li .num { margin-left: 2px; color: var(--fg-1); font-weight: 600; }
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
+.aside .hint { margin: 0 0 0 auto; }
 .warn { color: var(--warn); font-size: var(--fs-label); }
 .alert {
   display: flex;
@@ -211,13 +210,6 @@ onBeforeUnmount(() => {
 }
 .alert svg { flex: none; margin-top: 1px; }
 .done { display: flex; align-items: center; gap: 6px; color: var(--ok); font-size: var(--fs-label); }
-
-@media (max-width: 1360px) {
-  .kbrow { flex-direction: column-reverse; align-items: stretch; }
-  .board { width: 100%; }
-  .aside { width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--s-4); }
-  .legend { flex-direction: row; gap: var(--s-4); }
-}
 
 .grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr); gap: var(--s-4); align-items: start; }
 @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }

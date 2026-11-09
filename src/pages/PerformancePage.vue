@@ -151,7 +151,6 @@ const mode = computed<PerfMode | null>(() => {
   return m.size === 1 ? [...m][0] : null;
 });
 const anyRt = computed(() => recs.value.some((p) => isRtMode(p.mode)));
-const allRt = computed(() => recs.value.length > 0 && recs.value.every((p) => isRtMode(p.mode)));
 /** Continuous RT can be turned off on protocol ≥ 1.3.0.0 (factory driver rule), or where a key already is in mode 2. */
 const intervalRt = computed(() => supportsIntervalRt(device.version) || recs.value.some((p) => p.mode === 2));
 /** Continuous RT across the selected RT keys: true (all mode 1), false (all mode 2), null (mixed / none). */
@@ -174,7 +173,17 @@ const deadFields = computed(() => [
 function setMode(m: PerfMode | null) {
   if (m === null) return;
   // Turning RT on keeps a key's Continuous setting if it is already RT; new RT keys start continuous (mode 1).
-  perf.apply(ids.value, (p) => ({ mode: m === 0 ? 0 : isRtMode(p.mode) ? p.mode : 1 }), t('perf.mode'));
+  // A key whose mode family changes carries the actuation it showed into both fields (one actuation point for Standard and RT).
+  perf.apply(
+    ids.value,
+    (p) => {
+      const mode = m === 0 ? 0 : isRtMode(p.mode) ? p.mode : 1;
+      if (isRtMode(mode) === isRtMode(p.mode)) return { mode };
+      const a = actuationOf(p);
+      return { mode, normalPress: a, rtFirstTouch: a };
+    },
+    t('perf.mode'),
+  );
 }
 function setContinuous(on: boolean) {
   perf.apply(ids.value.filter((id) => isRtMode(perf.values[id].mode)), () => ({ mode: on ? 1 : 2 }), t('perf.continuous'));
@@ -182,7 +191,14 @@ function setContinuous(on: boolean) {
 /** Relative step from a mixed field: each key moves one step from its own value (the store clamps). */
 const add = (v: number, d: number) => Number((v + d).toFixed(3));
 function stepActuation(d: number) {
-  perf.apply(ids.value, (p) => (isRtMode(p.mode) ? { rtFirstTouch: add(p.rtFirstTouch, d) } : { normalPress: add(p.normalPress, d) }), t('perf.actuation'));
+  perf.apply(
+    ids.value,
+    (p) => {
+      const v = add(actuationOf(p), d);
+      return { normalPress: v, rtFirstTouch: v };
+    },
+    t('perf.actuation'),
+  );
 }
 function stepRt(which: 'rtPress' | 'rtRelease', d: number) {
   perf.apply(
@@ -198,7 +214,7 @@ function stepDead(which: 'pressDeadStroke' | 'releaseDeadStroke', d: number) {
   perf.apply(ids.value, (p) => ({ [which]: add(p[which], d) }), t('perf.deadzones'));
 }
 function setActuation(v: number, gesture = true) {
-  perf.apply(ids.value, (p) => (isRtMode(p.mode) ? { rtFirstTouch: v } : { normalPress: v }), t('perf.actuation'), gesture ? 'act' : undefined);
+  perf.apply(ids.value, () => ({ normalPress: v, rtFirstTouch: v }), t('perf.actuation'), gesture ? 'act' : undefined);
 }
 function setRt(which: 'rtPress' | 'rtRelease', v: number, gesture = true) {
   const patch: Partial<PerfEdit> = rtLinked.value ? { rtPress: v, rtRelease: v } : { [which]: v };
@@ -293,13 +309,13 @@ const modeOptions = computed(() => [
     <EmptyState v-else-if="!hasSel" :icon="IconAdjustmentsHorizontal" :title="t('page.performance')" :body="t('perf.selectKeys')" />
 
     <!-- editors -->
-    <div v-else class="grid">
+    <div v-else class="grid" :class="{ 'grid--std': !anyRt }">
       <div v-if="unknownCount" class="unknown" role="note">
         <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />
         <span>{{ t('perf.unknownModes', { n: unknownCount }) }}</span>
       </div>
       <template v-if="recs.length">
-      <Card :title="t('perf.actuation')" :subtitle="allRt ? t('perf.actuationHintRt') : t('perf.actuationHintStandard')">
+      <Card :title="t('perf.actuation')" :subtitle="t('perf.actuationHint')">
         <div class="act">
           <TravelEditor
             :value="act.value"
@@ -337,7 +353,7 @@ const modeOptions = computed(() => [
         </div>
       </Card>
 
-      <Card :title="t('perf.mode')">
+      <Card class="c-mode" :title="t('perf.mode')">
         <Segmented :model-value="mode" :options="modeOptions" :label="t('perf.mode')" @update:model-value="setMode" />
         <p class="hint">
           {{ mode === null ? t('perf.modeMixed') : mode === 1 ? t('perf.modeHintRt') : t('perf.modeHintStandard') }}
@@ -352,7 +368,7 @@ const modeOptions = computed(() => [
         </div>
       </Card>
 
-      <Card :title="t('perf.rt')">
+      <Card v-if="anyRt" class="c-rt" :title="t('perf.rt')">
         <template #actions>
           <button
             type="button"
@@ -360,15 +376,13 @@ const modeOptions = computed(() => [
             :class="{ 'link--on': rtLinked }"
             :aria-pressed="rtLinked"
             :title="t('perf.rtLinkHint')"
-            :disabled="!anyRt"
             @click="rtLinkOverride = !rtLinked"
           >
             <component :is="rtLinked ? IconLink : IconLinkOff" :size="16" stroke-width="1.5" aria-hidden="true" />
             {{ t('perf.rtLinkLabel') }}
           </button>
         </template>
-        <p v-if="!anyRt" class="hint">{{ t('perf.rtDisabled') }}</p>
-        <div class="field" :class="{ 'field--off': !anyRt }">
+        <div class="field">
           <div class="field__row">
             <span class="field__label">{{ t('perf.rtPress') }}</span>
             <NumberField
@@ -378,7 +392,6 @@ const modeOptions = computed(() => [
               :step="0.01"
               :decimals="decimals"
               :label="t('perf.rtPress')"
-              :disabled="!anyRt"
               relative
               @update:model-value="setRt('rtPress', $event, false)"
               @step="stepRt('rtPress', $event)"
@@ -386,18 +399,17 @@ const modeOptions = computed(() => [
           </div>
           <Slider
             :model-value="rtPress.value ?? rtPress.range[0]"
-            :range="rtPress.value === null && anyRt ? rtPress.range : null"
+            :range="rtPress.value === null ? rtPress.range : null"
             :min="LIMITS.rtMin"
             :max="LIMITS.rtMax"
             :step="0.01"
             :fine-step="0.001"
             :label="t('perf.rtPress')"
-            :disabled="!anyRt"
             style="--sl-tone: var(--m-press)"
             @update:model-value="setRt('rtPress', $event)"
           />
         </div>
-        <div class="field" :class="{ 'field--off': !anyRt }">
+        <div class="field">
           <div class="field__row">
             <span class="field__label">{{ t('perf.rtRelease') }}</span>
             <NumberField
@@ -407,7 +419,6 @@ const modeOptions = computed(() => [
               :step="0.01"
               :decimals="decimals"
               :label="t('perf.rtRelease')"
-              :disabled="!anyRt"
               relative
               @update:model-value="setRt('rtRelease', $event, false)"
               @step="stepRt('rtRelease', $event)"
@@ -415,20 +426,19 @@ const modeOptions = computed(() => [
           </div>
           <Slider
             :model-value="rtRelease.value ?? rtRelease.range[0]"
-            :range="rtRelease.value === null && anyRt ? rtRelease.range : null"
+            :range="rtRelease.value === null ? rtRelease.range : null"
             :min="LIMITS.rtMin"
             :max="LIMITS.rtMax"
             :step="0.01"
             :fine-step="0.001"
             :label="t('perf.rtRelease')"
-            :disabled="!anyRt"
             style="--sl-tone: var(--m-release)"
             @update:model-value="setRt('rtRelease', $event)"
           />
         </div>
       </Card>
 
-      <Card :title="t('perf.deadzones')" :subtitle="t('perf.deadHint')">
+      <Card class="c-dead" :title="t('perf.deadzones')" :subtitle="t('perf.deadHint')">
         <div v-for="dz in deadFields" :key="dz.field" class="field">
           <div class="field__row">
             <span class="field__label">{{ dz.label }}</span>
@@ -521,12 +531,22 @@ const modeOptions = computed(() => [
 
 .grid {
   /* Balanced columns (masonry-like) so cards of different heights pack without gaps. */
-  columns: 3 280px;
+  columns: 3;
   column-gap: var(--s-4);
 }
 .grid > * { break-inside: avoid; margin-bottom: var(--s-4); }
 @media (max-width: 1360px) {
-  .grid { columns: 2 280px; }
+  .grid { columns: 2; }
+}
+@media (max-width: 760px) {
+  .grid { columns: 1; }
+}
+/* Fixed columns, so the Mode card never moves when the RT card appears or goes. Breaks only while there are ≥2 columns. */
+@media (min-width: 1361px) {
+  .grid > .c-mode, .grid > .c-dead { break-before: column; }
+}
+@media (min-width: 761px) and (max-width: 1360px) {
+  .grid > .c-rt, .grid--std > .c-dead { break-before: column; }
 }
 
 .loading { column-span: all; margin-bottom: var(--s-3); color: var(--fg-3); }
@@ -564,6 +584,7 @@ const modeOptions = computed(() => [
 .link:disabled { opacity: 0.35; cursor: not-allowed; }
 .link--on { color: var(--acc); background: var(--acc-soft); border-color: var(--acc-line); }
 .unknown {
+  column-span: all;
   display: flex;
   align-items: center;
   gap: var(--s-2);
@@ -576,8 +597,7 @@ const modeOptions = computed(() => [
 }
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
 .continuous { display: grid; gap: var(--s-2); margin-top: var(--s-4); padding-top: var(--s-4); border-top: 1px solid var(--line-1); }
-.field { display: flex; flex-direction: column; gap: var(--s-2); transition: opacity var(--t-fast) var(--ease); }
-.field--off { opacity: 0.45; }
+.field { display: flex; flex-direction: column; gap: var(--s-2); }
 .field__row { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); }
 .field__label { color: var(--fg-2); }
 .field__row :deep(.nf) { width: 132px; }

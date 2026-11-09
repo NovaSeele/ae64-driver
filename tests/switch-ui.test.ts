@@ -21,7 +21,7 @@ async function setup() {
   const mock = device.transport as MockTransport;
   const perf = usePerformanceStore();
   await perf.load();
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }, { path: '/calibration', component: { template: '<i />' } }] });
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }, { path: '/switch', component: { template: '<i />' } }] });
   w = mount(SwitchCard, { props: { ids: ALL }, global: { plugins: [router] }, attachTo: document.body });
   return { device, mock, perf };
 }

@@ -3,7 +3,7 @@ import { createRouter, createWebHashHistory } from 'vue-router';
 import type { Component } from 'vue';
 import {
   IconActivity, IconAdjustmentsHorizontal, IconBolt, IconBulb, IconKeyboard, IconListDetails, IconSettings,
-  IconStethoscope, IconTarget,
+  IconStethoscope,
 } from '@tabler/icons-vue';
 import type { MessageKey } from './i18n/vi';
 import IconSwitch from './components/ui/IconSwitch.vue';
@@ -38,7 +38,6 @@ export const NAV: { group: MessageKey; items: NavItem[] }[] = [
     items: [
       { path: '/macro', title: 'page.macro', icon: IconListDetails, tone: 'var(--f-macro)' },
       { path: '/switch', title: 'page.switch', icon: IconSwitch, tone: 'var(--f-switch)' },
-      { path: '/calibration', title: 'page.calibration', icon: IconTarget, tone: 'var(--f-calibration)' },
       { path: '/live', title: 'page.live', icon: IconActivity, tone: 'var(--f-live)' },
       { path: '/settings', title: 'page.settings', icon: IconSettings, tone: 'var(--f-settings)' },
       { path: '/diagnostics', title: 'page.diagnostics', icon: IconStethoscope, tone: 'var(--f-diagnostics)' },
@@ -58,7 +57,8 @@ export const router = createRouter({
     { path: '/macro', component: () => import('./pages/MacroPage.vue'), meta: { title: 'page.macro' } },
     { path: '/switch', component: () => import('./pages/SwitchPage.vue'), meta: { title: 'page.switch' } },
     { path: '/live', component: () => import('./pages/LiveTravelPage.vue'), meta: { title: 'page.live' } },
-    { path: '/calibration', component: () => import('./pages/CalibrationPage.vue'), meta: { title: 'page.calibration' } },
+    // Calibration is the second tab of the Switch page; old links and bookmarks land on it.
+    { path: '/calibration', redirect: { path: '/switch', query: { tab: 'calibration' } } },
     { path: '/settings', component: () => import('./pages/SettingsPage.vue'), meta: { title: 'page.settings' } },
     { path: '/diagnostics', component: () => import('./pages/DiagnosticsPage.vue'), meta: { title: 'page.diagnostics' } },
     { path: '/:pathMatch(.*)*', redirect: '/performance' },

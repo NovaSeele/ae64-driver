@@ -29,14 +29,15 @@ export const DEFAULT_RANGE_MM = 3.31;
 
 /**
  * Presets (mm). normalRelease is left untouched, like the factory driver.
+ * normalPress and rtFirstTouch are equal in every preset: one actuation point for Standard and Rapid Trigger.
  * - Gõ phím: Standard 2.0 mm — deep enough to avoid accidental presses while typing.
  * - Gaming: Rapid Trigger, first actuation 1.0 mm, 0.3/0.3 sensitivity — responsive but forgiving.
  * - Cực nhạy: Rapid Trigger, 0.3 mm first actuation, 0.1/0.1 sensitivity — fastest, needs a light touch.
  */
 export const PRESETS: { id: 'typing' | 'gaming' | 'sensitive'; values: Omit<PerfEdit, 'normalRelease'> }[] = [
-  { id: 'typing', values: { mode: 0, normalPress: 2.0, rtFirstTouch: 1.5, rtPress: 0.5, rtRelease: 0.5, pressDeadStroke: 0.2, releaseDeadStroke: 0.2 } },
-  { id: 'gaming', values: { mode: 1, normalPress: 1.2, rtFirstTouch: 1.0, rtPress: 0.3, rtRelease: 0.3, pressDeadStroke: 0.15, releaseDeadStroke: 0.15 } },
-  { id: 'sensitive', values: { mode: 1, normalPress: 0.5, rtFirstTouch: 0.3, rtPress: 0.1, rtRelease: 0.1, pressDeadStroke: 0.1, releaseDeadStroke: 0.1 } },
+  { id: 'typing', values: { mode: 0, normalPress: 2.0, rtFirstTouch: 2.0, rtPress: 0.5, rtRelease: 0.5, pressDeadStroke: 0.2, releaseDeadStroke: 0.2 } },
+  { id: 'gaming', values: { mode: 1, normalPress: 1.0, rtFirstTouch: 1.0, rtPress: 0.3, rtRelease: 0.3, pressDeadStroke: 0.15, releaseDeadStroke: 0.15 } },
+  { id: 'sensitive', values: { mode: 1, normalPress: 0.3, rtFirstTouch: 0.3, rtPress: 0.1, rtRelease: 0.1, pressDeadStroke: 0.1, releaseDeadStroke: 0.1 } },
 ];
 
 export function pickEdit(p: Performance): PerfEdit {

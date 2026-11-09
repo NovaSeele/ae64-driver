@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { flushPromises, mount } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
-import { createMemoryHistory, createRouter } from 'vue-router';
+import { defineComponent, h } from 'vue';
+import { RouterView, createMemoryHistory, createRouter } from 'vue-router';
 import { MockTransport } from '../src/protocol';
 import SwitchPage from '../src/pages/SwitchPage.vue';
 import { findSwitch } from '../src/protocol/switches';
@@ -10,6 +11,7 @@ import { useSyncStore } from '../src/stores/sync';
 import { useDeviceStore } from '../src/stores/device';
 import { useSelectionStore } from '../src/stores/selection';
 import { usePerformanceStore } from '../src/stores/performance';
+import { useCalibrationStore } from '../src/stores/calibration';
 import { groupKeys } from '../src/components/performance/switchGroups';
 import { locale } from '../src/i18n/locale';
 
@@ -64,5 +66,123 @@ describe('Switch page', () => {
     expect(change().attributes('disabled')).toBeUndefined();
 
     for (const s of writes) expect(s).not.toHaveBeenCalled();
+  });
+});
+
+describe('Switch page tabs', () => {
+  const App = defineComponent({ render: () => h(RouterView) });
+  const mountAt = async (url: string) => {
+    const device = useDeviceStore();
+    await device.connectDemo();
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/switch', component: SwitchPage },
+        { path: '/calibration', redirect: { path: '/switch', query: { tab: 'calibration' } } },
+        { path: '/other', component: { template: '<i />' } },
+      ],
+    });
+    await router.push(url);
+    w = mount(App, { global: { plugins: [router] }, attachTo: document.body });
+    await flushPromises();
+    return { router, device };
+  };
+  const tabEl = (id: string) => w!.find(`[role="tab"][data-id="${id}"]`);
+  const selected = () => w!.findAll('[role="tab"]').filter((x) => x.attributes('aria-selected') === 'true').map((x) => x.attributes('data-id'));
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    locale.value = 'vi';
+    localStorage.clear();
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private cb: (e: unknown[]) => void) {}
+      observe() { this.cb([{ contentRect: { width: 900 } }]); }
+      disconnect() {}
+    });
+  });
+  afterEach(() => {
+    useCalibrationStore().phase = 'idle'; // unmounting a running session would cancel it
+    w?.unmount(); w = null; document.body.innerHTML = ''; localStorage.clear(); vi.unstubAllGlobals();
+  });
+
+  it('opens the tab from ?tab=, then localStorage, then Switch', async () => {
+    await mountAt('/switch?tab=calibration');
+    expect(selected()).toEqual(['calibration']);
+    expect(w!.find('.kbrow').exists()).toBe(true);
+    w!.unmount(); w = null;
+
+    localStorage.setItem('ae64.switchTab', 'calibration');
+    await mountAt('/switch');
+    expect(selected()).toEqual(['calibration']);
+    w!.unmount(); w = null;
+
+    localStorage.setItem('ae64.switchTab', 'bogus');
+    await mountAt('/switch?tab=nope');
+    expect(selected()).toEqual(['switch']);
+    expect(w!.find('.swp').exists()).toBe(true);
+  });
+
+  it('a tab click saves the choice and replaces the query without adding history, and sends nothing', async () => {
+    const { router, device } = await mountAt('/switch?tab=switch');
+    const mock = device.transport as MockTransport;
+    const writes = [vi.spyOn(mock, 'setPerformance'), vi.spyOn(mock, 'commit')];
+    const len = window.history.length;
+    await tabEl('calibration').trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.query.tab).toBe('calibration');
+    expect(localStorage.getItem('ae64.switchTab')).toBe('calibration');
+    expect(selected()).toEqual(['calibration']);
+    expect(window.history.length).toBe(len);
+    for (const s of writes) expect(s).not.toHaveBeenCalled();
+  });
+
+  it('/calibration redirects to the Calibration tab', async () => {
+    const { router } = await mountAt('/calibration');
+    expect(router.currentRoute.value.path).toBe('/switch');
+    expect(router.currentRoute.value.query.tab).toBe('calibration');
+    expect(selected()).toEqual(['calibration']);
+  });
+
+  it('arrow keys skip a disabled tab', async () => {
+    await mountAt('/switch?tab=calibration');
+    useCalibrationStore().phase = 'running';
+    await flushPromises();
+    expect(tabEl('switch').attributes('disabled')).toBeDefined();
+    await tabEl('calibration').trigger('keydown', { key: 'ArrowLeft' });
+    await tabEl('calibration').trigger('keydown', { key: 'ArrowRight' });
+    expect(selected()).toEqual(['calibration']);
+  });
+
+  it('locks the Switch tab and shows the reason while calibration is busy; Calibration stays reachable', async () => {
+    await mountAt('/switch?tab=calibration');
+    expect(w!.find('[role="status"].swtabs-row__hint').exists()).toBe(false);
+    expect(tabEl('switch').attributes('disabled')).toBeUndefined();
+    for (const phase of ['starting', 'running', 'finishing'] as const) {
+      useCalibrationStore().phase = phase;
+      await flushPromises();
+      expect(tabEl('switch').attributes('disabled')).toBeDefined();
+      expect(tabEl('calibration').attributes('disabled')).toBeUndefined();
+      expect(w!.find('[role="status"].swtabs-row__hint').text()).toBe('Đang hiệu chuẩn. Hoàn tất hoặc huỷ trước khi đổi switch.');
+    }
+    await tabEl('switch').trigger('click');
+    expect(selected()).toEqual(['calibration']);
+  });
+
+  it('refuses a route update that resolves to the Switch tab while calibration is busy', async () => {
+    const { router } = await mountAt('/switch?tab=calibration');
+    useCalibrationStore().phase = 'running';
+    await router.push('/switch?tab=switch');
+    await flushPromises();
+    expect(router.currentRoute.value.query.tab).toBe('calibration');
+    expect(selected()).toEqual(['calibration']);
+    await router.push('/switch'); // the nav item: no ?tab=, keeps the current tab
+    expect(selected()).toEqual(['calibration']);
+    await router.push('/switch?tab=calibration');
+    expect(router.currentRoute.value.query.tab).toBe('calibration');
+
+    useCalibrationStore().phase = 'idle';
+    await router.push('/switch?tab=switch');
+    await flushPromises();
+    expect(selected()).toEqual(['switch']);
   });
 });

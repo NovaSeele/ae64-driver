@@ -58,7 +58,8 @@ export function attachDemoPress(mock: MockTransport): () => void {
 
   function typing(e: KeyboardEvent): boolean {
     const el = e.target as HTMLElement | null;
-    return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable || !!el.closest('[role="dialog"]'));
+    // A focused tab keeps its arrow keys (the AE64 has arrows too, so they would otherwise drive the demo).
+    return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable || !!el.closest('[role="dialog"], [role="tablist"]'));
   }
 
   function onDown(e: KeyboardEvent) {

@@ -65,4 +65,18 @@ describe('demo press and the typing-test box', () => {
     flush();
     expect(spy.mock.calls.some(([, mm]) => mm > 0)).toBe(true);
   });
+  it('leaves arrow keys to a focused tab (Switch & calibration tabs in demo mode)', () => {
+    const { spy, flush } = setup();
+    const list = document.createElement('div');
+    list.setAttribute('role', 'tablist');
+    const tab = document.createElement('button');
+    tab.setAttribute('role', 'tab');
+    list.appendChild(tab);
+    document.body.appendChild(list);
+    const ev = new KeyboardEvent('keydown', { code: 'ArrowLeft', key: 'ArrowLeft', bubbles: true, cancelable: true });
+    tab.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    flush();
+    expect(spy).not.toHaveBeenCalled();
+  });
 });

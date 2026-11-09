@@ -77,7 +77,7 @@ const rowName = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknownRow'
         <IconTarget :size="16" aria-hidden="true" />
         <span class="swc__recal-text">
           {{ t('sw.recal') }}
-          <button type="button" class="swc__recal-go" @click="router.push('/calibration')">{{ t('sw.recalGo') }}</button>
+          <button type="button" class="swc__recal-go" @click="router.replace({ path: '/switch', query: { tab: 'calibration' } })">{{ t('sw.recalGo') }}</button>
         </span>
         <button type="button" class="swc__recal-x" :aria-label="t('sw.recalHide')" @click="recal = false"><IconX :size="14" aria-hidden="true" /></button>
       </div>

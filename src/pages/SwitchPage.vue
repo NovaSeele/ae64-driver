@@ -1,9 +1,15 @@
 <script setup lang="ts">
-// Switch: which switch sits under every key, and the entry point to change it (SwitchCard -> SwitchPicker).
-import { computed, onBeforeUnmount, onMounted } from 'vue';
+// Switch and calibration: two independent tabs of one page. Switch = which switch sits under every key and the entry
+// point to change it (SwitchCard -> SwitchPicker); Calibration = CalibrationView. Switching tabs sends nothing: the tab
+// is the ?tab= query plus one localStorage key. While a calibration session runs the Switch tab is locked, because a
+// switch change would write performance records while the keyboard is in calibration mode.
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import PageLayout from '../components/shell/PageLayout.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
+import CalibrationView from '../components/calibration/CalibrationView.vue';
 import Card from '../components/ui/Card.vue';
+import Tabs from '../components/ui/Tabs.vue';
 import { formatMm } from '../components/ui/NumberField.vue';
 import SwitchCard from '../components/performance/SwitchCard.vue';
 import SwitchSwatch from '../components/performance/SwitchSwatch.vue';
@@ -13,12 +19,46 @@ import { groupName, switchBrand, switchName } from '../data/switchDisplay';
 import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
 import { isKnownMode, usePerformanceStore } from '../stores/performance';
+import { useCalibrationStore } from '../stores/calibration';
 import type { PhysicalKey } from '../protocol';
 import { t } from '../i18n/vi';
 
 const device = useDeviceStore();
 const perf = usePerformanceStore();
 const sel = useSelectionStore();
+const cal = useCalibrationStore();
+const route = useRoute();
+const router = useRouter();
+
+type Tab = 'switch' | 'calibration';
+const TAB_KEY = 'ae64.switchTab';
+const asTab = (v: unknown): Tab | null => (v === 'switch' || v === 'calibration' ? v : null);
+function storedTab(): Tab | null {
+  try { return asTab(localStorage.getItem(TAB_KEY)); } catch { return null; }
+}
+function saveTab(v: Tab) {
+  try { localStorage.setItem(TAB_KEY, v); } catch { /* storage unavailable: the tab is just not remembered */ }
+}
+const tab = ref<Tab>(asTab(route.query.tab) ?? storedTab() ?? 'switch');
+saveTab(tab.value); // opened through a link (?tab=, or /calibration) also counts as the last-used tab
+const calBusy = computed(() => cal.phase !== 'idle');
+const tabs = computed(() => [
+  { id: 'switch', label: t('swp.tabSwitch'), disabled: calBusy.value },
+  { id: 'calibration', label: t('swp.tabCalibration') },
+]);
+function pickTab(id: string) {
+  const next = asTab(id);
+  if (!next || next === tab.value || (calBusy.value && next !== 'calibration')) return;
+  tab.value = next;
+  saveTab(next);
+  void router.replace({ query: { tab: next } });
+}
+// A link or a hand-edited URL changed ?tab=. A route without a valid ?tab= keeps the current tab.
+watch(() => route.query.tab, (v) => {
+  const next = asTab(v);
+  if (next && next !== tab.value && !(calBusy.value && next !== 'calibration')) { tab.value = next; saveTab(next); }
+});
+onBeforeRouteUpdate((to) => (calBusy.value && (asTab(to.query.tab) ?? tab.value) !== 'calibration' ? false : undefined));
 
 let offProfile: (() => void) | undefined;
 onMounted(() => {
@@ -67,13 +107,19 @@ function nameOfKey(k: PhysicalKey): string | undefined {
 </script>
 
 <template>
-  <PageLayout :title="t('page.switch')" keyboard>
-    <template #keyboard>
+  <PageLayout :title="t('page.switch')" :keyboard="tab === 'switch'">
+    <template #toolbar>
+      <div class="swtabs-row">
+        <Tabs :model-value="tab" :items="tabs" :label="t('page.switch')" @update:model-value="pickTab" />
+        <span v-if="calBusy" class="swtabs-row__hint" role="status">{{ t('swp.calLocked') }}</span>
+      </div>
+    </template>
+    <template v-if="tab === 'switch'" #keyboard>
       <KeyboardView :keys="device.keys" :legend="device.legend" :color="ledOf" :led-height="3" :status="nameOfKey" :loading="perf.loading" selectable>
         <template #cap="{ key }"><SwitchSwatch :color="perf.switchOf(key.id)?.color ?? ''" :id="perf.switchOf(key.id)?.id" size="sm" /></template>
       </KeyboardView>
     </template>
-    <div class="swp-wrap">
+    <div v-if="tab === 'switch'" class="swp-wrap">
       <div class="swp">
         <Card :title="t('swp.mapTitle')" :subtitle="t('swp.mapSub', { n: device.activeProfile + 1, name: device.profileNames[device.activeProfile] })">
           <ul class="swp__list">
@@ -94,10 +140,13 @@ function nameOfKey(k: PhysicalKey): string | undefined {
         <SwitchCard :ids="ids" />
       </div>
     </div>
+    <CalibrationView v-else />
   </PageLayout>
 </template>
 
 <style scoped>
+.swtabs-row { display: flex; align-items: center; gap: var(--s-4); width: 100%; }
+.swtabs-row__hint { font-size: var(--fs-label); color: var(--fg-2); }
 .swp-wrap { container-type: inline-size; }
 .swp { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--s-4); align-items: start; }
 @container (max-width: 819.98px) { /* about 900 px windows: one column, the action card first */
