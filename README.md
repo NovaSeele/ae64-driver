@@ -5,19 +5,24 @@
 Remake web driver for the Everglide AE64 Max keyboard: tune travel (Actuation, Rapid Trigger, dead zones),
 keymap, lighting, macros and more, directly over WebHID.
 
-## Requirements
+## Use it online
 
-- Windows (or macOS/Linux) with **Node.js 22** (tested with 22.23).
+Open **<https://ae64max.novaseele.com>** in Chrome or Edge, plug in the keyboard and click **Connect keyboard**.
+Nothing to install.
+
 - **Google Chrome or Microsoft Edge, desktop version** (WebHID is only available in these browsers).
   Firefox and Safari are not supported.
 - An Everglide AE64 Max connected with a USB cable.
 
-## Everyday use
+## Run it locally (optional)
+
+Only needed if you want to run your own copy instead of the link above. Requires **Node.js 22** (tested with
+22.23) on Windows, macOS or Linux.
 
 Double-click **`start.cmd`** in the root folder. The first run installs dependencies and builds; after that it
 only starts the preview server at <http://127.0.0.1:4173> and opens the browser. Close the console window to stop it.
 
-## Development
+### Development
 
 ```bash
 npm install

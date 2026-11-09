@@ -5,19 +5,24 @@
 Driver web remake cho bàn phím Everglide AE64 Max: chỉnh hành trình (Actuation, Rapid Trigger, vùng chết),
 keymap, đèn, macro… trực tiếp qua WebHID.
 
-## Yêu cầu
+## Dùng trực tuyến
 
-- Windows (hoặc macOS/Linux) có **Node.js 22** (đã thử với 22.23).
+Mở **<https://ae64max.novaseele.com>** bằng Chrome hoặc Edge, cắm bàn phím rồi bấm **Kết nối bàn phím**.
+Không cần cài đặt gì.
+
 - Trình duyệt **Google Chrome hoặc Microsoft Edge bản desktop** (WebHID chỉ có trên các trình duyệt này).
   Firefox và Safari không hỗ trợ.
 - Bàn phím Everglide AE64 Max cắm bằng cáp USB.
 
-## Chạy hằng ngày
+## Chạy cục bộ (không bắt buộc)
+
+Chỉ cần khi bạn muốn tự chạy một bản riêng thay vì dùng link ở trên. Cần **Node.js 22** (đã thử với 22.23)
+trên Windows, macOS hoặc Linux.
 
 Bấm đúp **`start.cmd`** ở thư mục gốc. Lần đầu nó sẽ cài thư viện và build; sau đó chỉ chạy máy chủ xem
 trước tại <http://127.0.0.1:4173> và tự mở trình duyệt. Đóng cửa sổ dòng lệnh để tắt.
 
-## Dành cho phát triển
+### Dành cho phát triển
 
 ```bash
 npm install
