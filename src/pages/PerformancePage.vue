@@ -270,7 +270,7 @@ const modeOptions = computed(() => [
             :range="act.range"
             :min="LIMITS.actuationMin"
             :max="maxTravel"
-            :step="0.05"
+            :step="0.01"
             :dead-top="deadTop.value"
             :dead-bottom="deadBottom.value"
             :label="t('perf.actuation')"
@@ -288,7 +288,7 @@ const modeOptions = computed(() => [
               :model-value="act.value"
               :min="LIMITS.actuationMin"
               :max="maxTravel"
-              :step="0.05"
+              :step="0.01"
               :decimals="decimals"
               :label="t('perf.actuation')"
               relative
@@ -296,6 +296,7 @@ const modeOptions = computed(() => [
               @step="stepActuation"
             />
             <span class="hint num">{{ t('perf.range', { max: fmt(maxTravel) }) }}</span>
+            <span v-if="decimals === 3" class="hint">{{ t('perf.fineHint') }}</span>
           </div>
         </div>
       </Card>
@@ -338,7 +339,7 @@ const modeOptions = computed(() => [
               :model-value="rtPress.value"
               :min="LIMITS.rtMin"
               :max="LIMITS.rtMax"
-              :step="0.05"
+              :step="0.01"
               :decimals="decimals"
               :label="t('perf.rtPress')"
               :disabled="!anyRt"
@@ -352,8 +353,8 @@ const modeOptions = computed(() => [
             :range="rtPress.value === null && anyRt ? rtPress.range : null"
             :min="LIMITS.rtMin"
             :max="LIMITS.rtMax"
-            :step="0.05"
-            :fine-step="0.01"
+            :step="0.01"
+            :fine-step="0.001"
             :label="t('perf.rtPress')"
             :disabled="!anyRt"
             @update:model-value="setRt('rtPress', $event)"
@@ -366,7 +367,7 @@ const modeOptions = computed(() => [
               :model-value="rtRelease.value"
               :min="LIMITS.rtMin"
               :max="LIMITS.rtMax"
-              :step="0.05"
+              :step="0.01"
               :decimals="decimals"
               :label="t('perf.rtRelease')"
               :disabled="!anyRt"
@@ -380,8 +381,8 @@ const modeOptions = computed(() => [
             :range="rtRelease.value === null && anyRt ? rtRelease.range : null"
             :min="LIMITS.rtMin"
             :max="LIMITS.rtMax"
-            :step="0.05"
-            :fine-step="0.01"
+            :step="0.01"
+            :fine-step="0.001"
             :label="t('perf.rtRelease')"
             :disabled="!anyRt"
             @update:model-value="setRt('rtRelease', $event)"
@@ -397,7 +398,7 @@ const modeOptions = computed(() => [
               :model-value="dz.s.value"
               :min="0"
               :max="LIMITS.deadMax"
-              :step="0.05"
+              :step="0.01"
               :decimals="decimals"
               :label="dz.label"
               relative
@@ -410,8 +411,8 @@ const modeOptions = computed(() => [
             :range="dz.s.value === null ? dz.s.range : null"
             :min="0"
             :max="LIMITS.deadMax"
-            :step="0.05"
-            :fine-step="0.01"
+            :step="0.01"
+            :fine-step="0.001"
             :label="dz.label"
             @update:model-value="setDead(dz.field, $event)"
           />

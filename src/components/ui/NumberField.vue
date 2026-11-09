@@ -11,7 +11,7 @@ export function formatMm(v: number, max: number): string {
 
 <script setup lang="ts">
 // Numeric input with unit suffix. `null` shows the mixed-values placeholder. Commits on Enter/blur,
-// ArrowUp/Down step (Shift = fine), and the − / + buttons. Accepts "," as decimal separator.
+// ArrowUp/Down step and the − / + buttons (Shift = fine, a tenth of the step). Accepts "," as decimal separator.
 // On a mixed value (null) − / + / arrows are off, since there is no base to step from, unless `relative`
 // is set: then they emit `step` with the signed delta and the parent moves each item from its own value.
 import { computed, ref, watch } from 'vue';
@@ -66,7 +66,7 @@ function onKey(e: KeyboardEvent) {
 
 <template>
   <div class="nf" :class="{ 'nf--disabled': disabled, 'nf--focus': focused }">
-    <button type="button" class="nf__btn" :aria-label="`${t('ui.decrease')} ${label}`" tabindex="-1" :disabled="stepOff" @click="nudge(-1)">
+    <button type="button" class="nf__btn" :aria-label="`${t('ui.decrease')} ${label}`" tabindex="-1" :disabled="stepOff" @click="nudge(-1, $event.shiftKey)">
       <IconMinus :size="14" stroke-width="1.5" />
     </button>
     <input
@@ -81,7 +81,7 @@ function onKey(e: KeyboardEvent) {
       @keydown="onKey"
     >
     <span v-if="unit" class="nf__unit">{{ unit }}</span>
-    <button type="button" class="nf__btn" :aria-label="`${t('ui.increase')} ${label}`" tabindex="-1" :disabled="stepOff" @click="nudge(1)">
+    <button type="button" class="nf__btn" :aria-label="`${t('ui.increase')} ${label}`" tabindex="-1" :disabled="stepOff" @click="nudge(1, $event.shiftKey)">
       <IconPlus :size="14" stroke-width="1.5" />
     </button>
   </div>

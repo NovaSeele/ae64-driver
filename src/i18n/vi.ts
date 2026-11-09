@@ -139,6 +139,7 @@ export const base = {
   'perf.editLabel': 'Hành trình · {what} ({n} phím)',
   'perf.travel': 'Hành trình phím',
   'perf.range': 'Tối đa {max} mm',
+  'perf.fineHint': 'Giữ Shift khi bấm − / +, phím mũi tên hoặc kéo để chỉnh từng 0.001 mm, hoặc gõ thẳng giá trị.',
   'perf.keyLabel': 'Hành trình {key}',
 
   // ui kit

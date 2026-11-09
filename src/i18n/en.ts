@@ -136,6 +136,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'perf.editLabel': 'Travel · {what} ({n|# key|# keys})',
   'perf.travel': 'Key travel',
   'perf.range': 'Up to {max} mm',
+  'perf.fineHint': 'Hold Shift with − / +, the arrow keys or while dragging for 0.001 mm steps, or type a value.',
   'perf.keyLabel': 'Travel {key}',
 
   // ui kit
