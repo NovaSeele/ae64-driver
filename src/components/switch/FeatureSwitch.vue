@@ -46,7 +46,7 @@ function onKey(e: KeyboardEvent) {
       :tabindex="it.id === model || (idx === 0 && !items.some((x) => x.id === model)) ? 0 : -1"
       @click="model = it.id"
     >
-      <span class="feat__tile" :style="{ '--f': it.tone }"><component :is="it.icon" :size="20" stroke-width="1.75" aria-hidden="true" /></span>
+      <span class="feat__tile" :style="{ '--f': it.disabled ? 'var(--fg-3)' : it.tone }"><component :is="it.icon" :size="20" stroke-width="1.75" aria-hidden="true" /></span>
       <span class="feat__text">
         <span class="feat__title">{{ it.title }}</span>
         <span class="feat__sub">{{ it.sub }}</span>
@@ -85,7 +85,6 @@ function onKey(e: KeyboardEvent) {
 .feat__opt[aria-selected='true'] .feat__dot { border-color: var(--acc); background: var(--acc); }
 .feat__opt[aria-selected='true'] .feat__dot::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--on-acc); }
 .feat__opt:disabled { cursor: not-allowed; background: transparent; border-style: dashed; } /* locked: readable, not faded */
-.feat__opt:disabled .feat__tile { --f: var(--fg-3); }
 .feat__opt:disabled .feat__title,
 .feat__opt:disabled .feat__sub { color: var(--fg-2); }
 .feat__lock { flex: none; display: grid; place-items: center; width: 18px; height: 18px; margin-left: var(--s-2); color: var(--fg-2); }

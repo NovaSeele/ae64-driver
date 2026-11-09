@@ -171,6 +171,7 @@ describe('Switch page tabs', () => {
     expect(tabEl('switch').find('.feat__sub').text()).toBe('Xem và đổi switch của từng phím');
     expect(tabEl('switch').find('.feat__lock').exists()).toBe(false);
     expect(tabEl('switch').attributes('title')).toBeUndefined();
+    expect((tabEl('switch').find('.feat__tile').element as HTMLElement).style.getPropertyValue('--f')).toBe('var(--f-switch)');
     for (const phase of ['starting', 'running', 'finishing'] as const) {
       useCalibrationStore().phase = phase;
       await flushPromises();
@@ -179,6 +180,8 @@ describe('Switch page tabs', () => {
       expect(tabEl('switch').find('.feat__sub').text()).toBe('Đang khoá trong lúc hiệu chuẩn');
       expect(tabEl('switch').find('.feat__lock svg').exists()).toBe(true);
       expect(tabEl('switch').find('.feat__dot').exists()).toBe(false);
+      // the tile turns grey too (an inline --f would otherwise beat the stylesheet)
+      expect((tabEl('switch').find('.feat__tile').element as HTMLElement).style.getPropertyValue('--f')).toBe('var(--fg-3)');
       expect(tabEl('switch').attributes('title')).toBe('Đang hiệu chuẩn. Hoàn tất hoặc huỷ trước khi đổi switch.');
       expect(w!.find('.feat-row').element.children).toHaveLength(1); // no hint row
     }
