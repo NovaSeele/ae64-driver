@@ -1,10 +1,16 @@
+<script lang="ts">
+/** One line of a multi-line sublabel, optionally in its own colour. */
+export type SubLine = { text: string; tone?: string };
+</script>
+
 <script setup lang="ts">
 // One CSS keycap. Geometry is set by KeyboardView; this renders legend, value line, fill, LED colour and state.
 import type { Component } from 'vue';
 
 defineProps<{
   legend: string;
-  sublabel?: string;
+  /** A string, or several lines each with an optional colour. */
+  sublabel?: string | SubLine[];
   /** Small accent value on the bottom-left (e.g. Rapid Trigger press/release sensitivity). */
   badge?: string;
   /** Accessible name / tooltip of the badge when its text alone is not meaningful (e.g. a lock icon). */
@@ -41,7 +47,10 @@ defineProps<{
           <component :is="badgeIcon" :size="11" :stroke-width="1.8" aria-hidden="true" />
         </span>
         <span v-else-if="badge" class="cap__badge num" :title="badgeTitle" :aria-label="badgeTitle">{{ badge }}</span>
-        <span v-if="sublabel !== undefined" class="cap__sub num">{{ sublabel }}</span>
+        <span v-if="typeof sublabel === 'string'" class="cap__sub num">{{ sublabel }}</span>
+        <span v-else-if="sublabel" class="cap__sub cap__sub--lines num">
+          <span v-for="(line, i) in sublabel" :key="i" class="cap__line" :style="line.tone ? { '--sub-tone': line.tone } : undefined">{{ line.text }}</span>
+        </span>
       </span>
     </span>
   </span>
@@ -125,7 +134,9 @@ defineProps<{
   text-align: right;
   white-space: pre; /* a line break stacks two values (dead zones) */
 }
-.cap--sel .cap__sub, .cap--sel .cap__badge { color: var(--fg-1); }
+.cap__sub--lines { display: flex; flex-direction: column; align-items: flex-end; font-size: 10.5px; }
+.cap__line { color: var(--sub-tone, var(--metric, var(--fg-2))); }
+.cap--sel .cap__sub, .cap--sel .cap__badge, .cap--sel .cap__line { color: var(--fg-1); }
 .cap__foot {
   position: relative;
   display: flex;

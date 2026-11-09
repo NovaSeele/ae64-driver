@@ -5,6 +5,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { Component } from 'vue';
 import Keycap from './Keycap.vue';
+import type { SubLine } from './Keycap.vue';
 import { layoutBounds } from '../../protocol';
 import type { PhysicalKey } from '../../protocol';
 import { useFlashStore } from '../../stores/flash';
@@ -15,7 +16,7 @@ import { t } from '../../i18n/vi';
 const props = defineProps<{
   keys: PhysicalKey[];
   legend?: (key: PhysicalKey) => string;
-  sublabel?: (key: PhysicalKey) => string | undefined;
+  sublabel?: (key: PhysicalKey) => string | SubLine[] | undefined;
   /** Small accent value on the keycap's bottom-left. */
   badge?: (key: PhysicalKey) => string | undefined;
   /** Accessible name / tooltip for a key's badge (replaces the badge text in the key's aria-label). */
@@ -167,6 +168,13 @@ onBeforeUnmount(() => {
   window.removeEventListener('blur', cancelDrag);
 });
 
+/** Plain text of a key's sublabel for its aria-label (lines joined by spaces). */
+function subText(k: PhysicalKey): string {
+  const s = props.sublabel?.(k);
+  if (!s) return '';
+  return typeof s === 'string' ? s.replace(/\n/g, ' ') : s.map((l) => l.text).join(' ');
+}
+
 const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id);
 </script>
 
@@ -192,7 +200,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
         :data-key="k.id"
         :tabindex="k.id === tabStop ? 0 : -1"
         :aria-pressed="selectable ? isSelected(k.id) : undefined"
-        :aria-label="`${legend ? legend(k) : k.name}${sublabel?.(k) ? ` · ${sublabel(k)!.replace(/\n/g, ' ')}` : ''}${badge?.(k) || badgeIcon?.(k) ? ` · ${badgeTitle?.(k) ?? badge?.(k)}` : ''}`"
+        :aria-label="`${legend ? legend(k) : k.name}${subText(k) ? ` · ${subText(k)}` : ''}${badge?.(k) || badgeIcon?.(k) ? ` · ${badgeTitle?.(k) ?? badge?.(k)}` : ''}`"
         :style="{ left: `${k.x * unit}px`, top: `${k.y * unit}px`, width: `${k.w * unit}px`, height: `${unit}px` }"
         @keydown="onKeyDown($event, k)"
         @focus="focusId = k.id"

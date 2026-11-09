@@ -93,10 +93,13 @@ const baseEn: Record<keyof typeof base, string> = {
 
   // performance
   'perf.metric': 'Display',
-  'perf.rtBadgeHint': 'Rapid Trigger keys: the right number is the first actuation point, the green one on the left is press/release sensitivity (mm).',
+  'perf.rtBadgeHint': 'Keys tagged RT use Rapid Trigger. See their press/release sensitivity in the Rapid Trigger view, or hover a key.',
+  'perf.rtViewHint': '↓ press sensitivity · ↑ release sensitivity (mm). Keys without Rapid Trigger show —.',
+  'perf.rtTagTitle': 'Rapid Trigger · press {press} mm · release {release} mm',
+  'perf.depthShading': 'Actuation depth shading',
+  'perf.depthShadingHint': 'Shades each key from the top down to its actuation point: the longer the shading, the deeper you press.',
   'perf.metricActuation': 'Actuation',
-  'perf.metricRtPress': 'RT press',
-  'perf.metricRtRelease': 'RT release',
+  'perf.metricRt': 'Rapid Trigger',
   'perf.metricDeadzone': 'Deadzone',
   'perf.mode': 'Mode',
   'perf.modeStandard': 'Standard',

@@ -32,8 +32,9 @@ import type { Performance, PerfMode, PhysicalKey } from '../protocol';
 import { useToast } from '../components/ui/toast';
 import { t } from '../i18n/vi';
 import type { MessageKey } from '../i18n/vi';
+import type { SubLine } from '../components/keyboard/Keycap.vue';
 
-type Metric = 'actuation' | 'rtPress' | 'rtRelease' | 'deadzone';
+type Metric = 'actuation' | 'rt' | 'deadzone';
 
 const device = useDeviceStore();
 const sel = useSelectionStore();
@@ -44,16 +45,32 @@ const toast = useToast();
 const metric = ref<Metric>('actuation');
 const METRIC_TONE: Record<Metric, string> = {
   actuation: 'var(--m-actuation)',
-  rtPress: 'var(--m-press)',
-  rtRelease: 'var(--m-release)',
+  rt: 'var(--m-press)',
   deadzone: 'var(--m-deadzone)',
 };
 const METRICS: { id: Metric; label: MessageKey }[] = [
   { id: 'actuation', label: 'perf.metricActuation' },
-  { id: 'rtPress', label: 'perf.metricRtPress' },
-  { id: 'rtRelease', label: 'perf.metricRtRelease' },
+  { id: 'rt', label: 'perf.metricRt' },
   { id: 'deadzone', label: 'perf.metricDeadzone' },
 ];
+
+// Display preference only (never sent to the keyboard).
+const SHADING_KEY = 'ae64.perf.depthShading';
+function loadShading(): boolean {
+  try {
+    return localStorage.getItem(SHADING_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+const depthShading = ref(loadShading());
+watch(depthShading, (on) => {
+  try {
+    localStorage.setItem(SHADING_KEY, on ? '1' : '0');
+  } catch {
+    // ignore storage error
+  }
+});
 const PRESET_TEXT: Record<(typeof PRESETS)[number]['id'], [MessageKey, MessageKey]> = {
   typing: ['perf.presetTyping', 'perf.presetTypingDesc'],
   gaming: ['perf.presetGaming', 'perf.presetGamingDesc'],
@@ -76,23 +93,22 @@ function fmt(v: number): string {
 }
 
 // ----- keyboard
-/** Short keycap form: no leading zero (".125"). */
-const short = (v: number) => fmt(v).replace(/^0(?=\.)/, '');
-function sublabel(k: PhysicalKey): string | undefined {
+function sublabel(k: PhysicalKey): string | SubLine[] | undefined {
   const p = perf.values[k.id];
   if (!p) return undefined;
   switch (metric.value) {
     case 'actuation': return fmt(actuationOf(p));
-    case 'rtPress': return isRtMode(p.mode) ? fmt(p.rtPress) : '—';
-    case 'rtRelease': return isRtMode(p.mode) ? fmt(p.rtRelease) : '—';
-    case 'deadzone': return `↑${short(p.pressDeadStroke)}\n↓${short(p.releaseDeadStroke)}`;
+    case 'rt':
+      return isRtMode(p.mode)
+        ? [{ text: `↓${fmt(p.rtPress)}`, tone: 'var(--m-press)' }, { text: `↑${fmt(p.rtRelease)}`, tone: 'var(--m-release)' }]
+        : '—';
+    case 'deadzone': return [{ text: `↑${fmt(p.pressDeadStroke)}` }, { text: `↓${fmt(p.releaseDeadStroke)}` }];
   }
 }
-/** Rapid Trigger keys also show press/release sensitivity, like the factory driver's keycaps. */
+/** Rapid Trigger keys carry an "RT" tag in the actuation view; the full numbers are in its title. */
 function badge(k: PhysicalKey): string | undefined {
   const p = perf.values[k.id];
-  if (!p || !isRtMode(p.mode) || metric.value !== 'actuation') return undefined;
-  return `${short(p.rtPress)}/${short(p.rtRelease)}`;
+  return p && isRtMode(p.mode) && metric.value === 'actuation' ? 'RT' : undefined;
 }
 function badgeIcon(k: PhysicalKey) {
   const p = perf.values[k.id];
@@ -100,11 +116,13 @@ function badgeIcon(k: PhysicalKey) {
 }
 function badgeTitle(k: PhysicalKey): string | undefined {
   const p = perf.values[k.id];
-  return p && !isKnownMode(p.mode) ? t('perf.unsupportedMode') : undefined;
+  if (!p) return undefined;
+  if (!isKnownMode(p.mode)) return t('perf.unsupportedMode');
+  return badge(k) ? t('perf.rtTagTitle', { press: fmt(p.rtPress), release: fmt(p.rtRelease) }) : undefined;
 }
 function fill(k: PhysicalKey): number | undefined {
   const p = perf.values[k.id];
-  return p && metric.value === 'actuation' ? actuationOf(p) / rangeMm(p) : undefined;
+  return p && depthShading.value && metric.value === 'actuation' ? actuationOf(p) / rangeMm(p) : undefined;
 }
 
 // ----- selection summary
@@ -237,10 +255,17 @@ const modeOptions = computed(() => [
           :aria-checked="metric === m.id"
           @click="metric = m.id"
         >
-          <span class="chip__dot" aria-hidden="true" />{{ t(m.label) }}
+          <span class="chip__dot" :class="{ 'chip__dot--rt': m.id === 'rt' }" aria-hidden="true" />{{ t(m.label) }}
         </button>
       </div>
-      <p v-if="metric === 'actuation'" class="aside-hint">{{ t('perf.rtBadgeHint') }}</p>
+      <template v-if="metric === 'actuation'">
+        <p class="aside-hint">{{ t('perf.rtBadgeHint') }}</p>
+        <div class="shading">
+          <Switch v-model="depthShading" :label="t('perf.depthShading')" />
+          <p class="shading__hint">{{ t('perf.depthShadingHint') }}</p>
+        </div>
+      </template>
+      <p v-else-if="metric === 'rt'" class="aside-hint">{{ t('perf.rtViewHint') }}</p>
       <Button class="try" variant="secondary" size="sm" :icon="IconFlask" :disabled="!hasSel" :title="t('perf.tryNowHint')" @click="tryNow">
         {{ t('perf.tryNow') }}
       </Button>
@@ -468,6 +493,11 @@ const modeOptions = computed(() => [
 }
 .chip:hover { color: var(--fg-1); border-color: var(--line-3); }
 .chip__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--chip); flex: none; }
+.chip__dot--rt { background: linear-gradient(90deg, var(--m-press) 50%, var(--m-release) 50%); }
+.shading { display: flex; flex-direction: column; gap: 4px; max-width: 160px; margin-top: var(--s-2); }
+.shading__hint { margin: 0; font-size: var(--fs-caption); line-height: 1.4; color: var(--fg-3); }
+/* The RT tag on a keycap (actuation view). */
+.kb :deep(.cap__badge) { font-size: 10px; font-weight: 600; opacity: 1; }
 .chip[aria-checked='true'] { background: var(--bg-3); border-color: color-mix(in srgb, var(--chip) 55%, transparent); color: var(--fg-1); }
 .try { margin-top: var(--s-2); }
 
@@ -477,6 +507,8 @@ const modeOptions = computed(() => [
   .try { margin-top: 0; }
   /* The hint gets its own full-width line below the chips. */
   .aside-hint { order: 1; flex: 0 0 100%; max-width: none; margin: 0; text-align: right; }
+  .shading { order: 1; flex: 0 0 100%; max-width: none; margin: 0; align-items: flex-end; }
+  .shading__hint { text-align: right; }
 }
 
 .grid {
