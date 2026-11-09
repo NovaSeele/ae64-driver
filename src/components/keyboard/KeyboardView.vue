@@ -25,6 +25,8 @@ const props = defineProps<{
   badgeIcon?: (key: PhysicalKey) => Component | undefined;
   fill?: (key: PhysicalKey) => number | undefined;
   color?: (key: PhysicalKey) => string | undefined;
+  /** Draws the key's LED bar thicker (see Keycap ledWide). */
+  ledWide?: (key: PhysicalKey) => boolean;
   /** Status text appended to a key's accessible name (e.g. when the state is shown only by colour). */
   status?: (key: PhysicalKey) => string | undefined;
   /** CSS colour (e.g. 'var(--k-dks)') for a key's values; sets --metric on the keycap. */
@@ -215,6 +217,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
           :badge-icon="badgeIcon?.(k)"
           :fill="fill?.(k)"
           :color="color?.(k)"
+          :led-wide="ledWide?.(k)"
           :tone="tone?.(k)"
           :state="state?.(k)"
           :selected="selectable && isSelected(k.id)"
