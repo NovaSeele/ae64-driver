@@ -142,6 +142,7 @@ export const base = {
   'perf.loadFailed': 'Không đọc được cài đặt hành trình.',
   'perf.reload': 'Đọc lại',
   'perf.editLabel': 'Hành trình · {what} ({n} phím)',
+  'perf.switchLabel': 'Đổi switch · {name} ({n} phím)',
   'perf.travel': 'Hành trình phím',
   'perf.range': 'Tối đa {max} mm',
   'perf.fineHint': 'Giữ Shift khi bấm − / +, phím mũi tên hoặc kéo để chỉnh từng 0.001 mm, hoặc gõ thẳng giá trị.',

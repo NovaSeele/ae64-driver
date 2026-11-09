@@ -70,6 +70,18 @@ describe('performance', () => {
     pressDeadStroke: 0.1, releaseDeadStroke: 0.1, axis: 0, calibrate: 1, axisV2Id: 12432, axisRangeMax: 3310, axisCoefficient: 20500,
   };
 
+  it('a switch change differs only at the triple and the clamped distance bytes', () => {
+    const long: Performance = { ...snapshot, mode: 0, normalPress: 3.3, normalRelease: 3.25 };
+    const apollo: Performance = { ...long, axisV2Id: 4208, axisRangeMax: 3130, axisCoefficient: 24500, normalPress: 3.13, normalRelease: 3.13 };
+    const a = c.encodePerformance({ row: 2, col: 2 }, long);
+    const b = c.encodePerformance({ row: 2, col: 2 }, apollo);
+    const diff = a.map((v, i) => (v === b[i] ? -1 : i)).filter((i) => i >= 0);
+    // Allowed: 5–6 normalPress, 7–8 normalRelease, 21–22 axisV2Id, 23–24 axisRangeMax, 25–26 axisCoefficient.
+    // 3300 and 3130 µm share their high byte (0x0c), so offsets 6, 8 and 24 happen not to differ.
+    expect(diff).toEqual([5, 7, 21, 22, 23, 25, 26]);
+    expect(b.slice(21, 27)).toEqual([0x70, 0x10, 0x3a, 0x0c, 0xb4, 0x5f]);
+  });
+
   it('encodes the snapshot record to the documented byte layout', () => {
     const p = c.encodePerformance({ row: 2, col: 2 }, snapshot);
     expect(p).toEqual([

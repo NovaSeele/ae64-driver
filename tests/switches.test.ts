@@ -1,0 +1,46 @@
+import { describe, expect, it } from 'vitest';
+import { SWITCH_GROUPS, findSwitch, isCatalogTriple, switchCatalogFor } from '../src/protocol/switches';
+
+describe('switch catalog', () => {
+  const catalog = switchCatalogFor('0030000d')!;
+
+  it('has 76 unique switches in 1/31/19/25 groups', () => {
+    expect(catalog).toHaveLength(76);
+    expect(new Set(catalog.map((e) => e.id)).size).toBe(76);
+    expect(SWITCH_GROUPS).toEqual(['JIANGWAN', 'GATERON', 'TTC', 'Other']);
+    expect(SWITCH_GROUPS.map((g) => catalog.filter((e) => e.group === g).length)).toEqual([1, 31, 19, 25]);
+  });
+
+  it('freezes every entry', () => {
+    expect(Object.isFrozen(catalog[0])).toBe(true);
+  });
+
+  it('lists 星瞳轴 once, under GATERON', () => {
+    const star = catalog.filter((e) => e.id === 2128);
+    expect(star).toHaveLength(1);
+    expect(star[0].group).toBe('GATERON');
+  });
+
+  it('uses the detail range, not the top-level one', () => {
+    expect(catalog.find((e) => e.name === '磁玉Pro')!.rangeMax).toBe(3390);
+  });
+
+  it('has both 天际线轴 entries', () => {
+    const sky = catalog.filter((e) => e.name === '天际线轴');
+    expect(sky.map((e) => e.id).sort()).toEqual([12608, 13472]);
+  });
+
+  it('knows the UR冰磁轴 and 阿波罗轴 triples', () => {
+    expect(findSwitch(catalog, 12432)).toMatchObject({ rangeMax: 3310, coefficient: 20500, group: 'Other' });
+    expect(isCatalogTriple(catalog, { axisV2Id: 4208, axisRangeMax: 3130, axisCoefficient: 24500 })).toBe(true);
+    expect(isCatalogTriple(catalog, { axisV2Id: 4208, axisRangeMax: 3310, axisCoefficient: 24500 })).toBe(false);
+    expect(isCatalogTriple(null, { axisV2Id: 4208, axisRangeMax: 3130, axisCoefficient: 24500 })).toBe(false);
+  });
+
+  it('is only available for board 0030000d', () => {
+    expect(switchCatalogFor('0030000a')).toBeNull();
+    expect(switchCatalogFor('0030000D')).toBe(catalog);
+    expect(switchCatalogFor(undefined)).toBeNull();
+    expect(switchCatalogFor(null)).toBeNull();
+  });
+});

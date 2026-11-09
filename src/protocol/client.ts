@@ -177,9 +177,13 @@ export abstract class BaseTransport implements Ae64Transport {
     return this.protocol;
   }
 
+  /** Board id read by getDeviceInfo(), lowercase: selects the switch catalog in the performance write guard. */
+  private boardIdHex: string | undefined;
+
   async getDeviceInfo(): Promise<DeviceInfo> {
     const info = c.decodeDeviceInfo(await this.request([FAMILY.DEVICE, 0x02]));
     this.boardAllowed = ALLOWED_BOARDS.includes(info.boardIdHex);
+    this.boardIdHex = info.boardIdHex.toLowerCase();
     return info;
   }
 
@@ -323,6 +327,7 @@ export abstract class BaseTransport implements Ae64Transport {
     const payload = c.encodePerformance(pos, p);
     const why = checkPerformanceWrite(p, this.perfSeen.get(`${pos.row}:${pos.col}`) ?? [], {
       intervalRt: c.supportsIntervalRt(this.protocol),
+      boardIdHex: this.boardIdHex,
     });
     if (why) throw new UnsafeCommandError(payload, why);
     await this.write(payload);

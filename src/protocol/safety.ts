@@ -6,6 +6,7 @@
 
 import type { Performance } from './types';
 import { decodeCombo, isKnownKeycode } from './keycodes';
+import { isCatalogTriple, switchCatalogFor } from './switches';
 
 export class UnsafeCommandError extends Error {
   constructor(readonly payload: readonly number[], readonly reason: string) {
@@ -161,16 +162,23 @@ export function isWriteCommand(payload: readonly number[]): boolean {
   return ruleFor(payload)?.write ?? false;
 }
 
-/** Sensor/calibration fields of a performance record that the app must never change. */
-const PRESERVED: readonly (keyof Performance)[] = ['axis', 'calibrate', 'axisV2Id', 'axisRangeMax', 'axisCoefficient'];
+/** Sensor fields that are never changed by this app (the switch triple is checked separately). */
+const PRESERVED: readonly (keyof Performance)[] = ['axis', 'calibrate'];
+
+/** The three fields that together identify the switch under a key. */
+const TRIPLE: readonly (keyof Performance)[] = ['axisV2Id', 'axisRangeMax', 'axisCoefficient'];
+const sameTriple = (a: Performance, b: Performance): boolean => TRIPLE.every((f) => a[f] === b[f]);
 
 /** Upper bound for any travel distance (mm): the key's range, or 4.0 mm if the range is unknown. */
 const MAX_TRAVEL_MM = 4.0;
 
 /**
  * Checks a performance write against the records read from the same key during this connection
- * (`seen`, newest last). Each sensor field must equal a value the device reported for it: the firmware
+ * (`seen`, newest last). `axis` and `calibrate` must equal a value the device reported for them: the firmware
  * itself may change them (calibration, advanced-key assignment), and restoring an earlier value is allowed.
+ * The switch triple (axisV2Id, axisRangeMax, axisCoefficient) is checked as one unit: it must equal the triple
+ * of a record the device reported, or one exact entry of the catalog of the connected board (`boardIdHex`).
+ * When the triple changes, every distance must fit the new range, changed or not.
  * Mode 2 (Rapid Trigger without Continuous RT) is written only when the firmware advertises it
  * (`intervalRt`: protocol ≥ 1.3.0.0, like the factory driver) or the key itself already reported mode 2.
  * Returns a reason to refuse, or null when the write is safe.
@@ -178,22 +186,30 @@ const MAX_TRAVEL_MM = 4.0;
 export function checkPerformanceWrite(
   next: Performance,
   seen: readonly Performance[],
-  opts: { intervalRt?: boolean } = {},
+  opts: { intervalRt?: boolean; boardIdHex?: string } = {},
 ): string | null {
   if (!seen.length) return 'performance must be read from the key before it is written';
   const current = seen[seen.length - 1];
   for (const f of PRESERVED) {
     if (!seen.some((s) => s[f] === next[f])) return `sensor field ${f} would change (${current[f]} → ${next[f]})`;
   }
+  const tripleChanged = !sameTriple(next, current);
+  if (tripleChanged && !seen.some((s) => sameTriple(s, next)) && !isCatalogTriple(switchCatalogFor(opts.boardIdHex), next)) {
+    return `switch fields axisV2Id/axisRangeMax/axisCoefficient would change (${current.axisV2Id}/${current.axisRangeMax}/${current.axisCoefficient}`
+      + ` → ${next.axisV2Id}/${next.axisRangeMax}/${next.axisCoefficient}): not a triple the key reported or a catalog switch of this board`;
+  }
   if (next.mode !== 0 && next.mode !== 1 && next.mode !== 2) return `mode ${String(next.mode)} invalid`;
   if (next.mode === 2 && !opts.intervalRt && !seen.some((s) => s.mode === 2)) {
     return 'mode 2 (Rapid Trigger without Continuous RT) needs protocol 1.3.0.0 or later';
   }
-  const max = current.axisRangeMax > 0 ? Math.min(current.axisRangeMax / 1000, MAX_TRAVEL_MM) : MAX_TRAVEL_MM;
+  if (tripleChanged && !(next.axisRangeMax > 0)) return `axisRangeMax ${next.axisRangeMax} must be above 0`;
+  const max = tripleChanged
+    ? Math.min(next.axisRangeMax / 1000, MAX_TRAVEL_MM)
+    : current.axisRangeMax > 0 ? Math.min(current.axisRangeMax / 1000, MAX_TRAVEL_MM) : MAX_TRAVEL_MM;
   const dist: (keyof Performance)[] = ['normalPress', 'normalRelease', 'rtFirstTouch', 'rtPress', 'rtRelease', 'pressDeadStroke', 'releaseDeadStroke'];
   for (const f of dist) {
     const v = next[f] as number;
-    if (v === current[f]) continue; // unchanged from what the device reported
+    if (!tripleChanged && v === current[f]) continue; // unchanged from what the device reported
     if (!Number.isFinite(v) || v < 0 || v > max + 1e-9) return `${f} ${v} mm outside 0–${max} mm`;
   }
   if (next.normalPress <= 0 && next.normalPress !== current.normalPress) return 'actuation point must be above 0 mm';

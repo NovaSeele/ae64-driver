@@ -1,6 +1,6 @@
 <script setup lang="ts">
 const model = defineModel<string>({ required: true });
-const props = defineProps<{ items: { id: string; label: string }[]; label: string }>();
+const props = defineProps<{ items: { id: string; label: string; count?: number }[]; label: string }>();
 
 function onKey(e: KeyboardEvent) {
   const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
@@ -27,7 +27,7 @@ function onKey(e: KeyboardEvent) {
       :tabindex="it.id === model || (idx === 0 && !items.some((x) => x.id === model)) ? 0 : -1"
       @click="model = it.id"
     >
-      {{ it.label }}
+      {{ it.label }}<span v-if="it.count != null" class="tabs__n">{{ it.count }}</span>
     </button>
   </div>
 </template>
@@ -58,6 +58,7 @@ function onKey(e: KeyboardEvent) {
   transform: scaleX(0);
   transition: transform var(--t-med) var(--ease);
 }
+.tabs__n { margin-left: 6px; color: var(--fg-3); font-weight: 500; font-variant-numeric: tabular-nums; }
 .tabs__tab[aria-selected='true'] { color: var(--fg-1); }
 .tabs__tab[aria-selected='true']::after { transform: scaleX(1); }
 </style>

@@ -44,3 +44,13 @@
     --t-slow: 0ms;
   }
 }
+
+:root {
+  /* Switch names are Chinese; Inter has no CJK glyphs, so name the system CJK faces explicitly. */
+  --font-cjk: 'Inter Variable', Inter, 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans SC', 'Noto Sans CJK SC', system-ui, sans-serif;
+  /* SwitchSwatch housing: always dark, so pale stem colours (#fff, #eaeaea, #f0f6bb) stay visible. */
+  --swatch-housing: var(--bg-1);
+}
+/* If a light theme is added later, add it to this list. */
+:root[data-theme='light'],
+:root[data-theme='indigo-light'] { --swatch-housing: #2a2f38; }

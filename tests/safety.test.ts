@@ -121,6 +121,70 @@ describe('checkPerformanceWrite', () => {
   });
 });
 
+describe('switch triple guard', () => {
+  // UR冰磁轴 as the demo keys report it; 阿波罗轴 from the catalog.
+  const ur: Performance = {
+    mode: 0, normalPress: 2, normalRelease: 2, rtFirstTouch: 1, rtPress: 0.5, rtRelease: 0.5,
+    pressDeadStroke: 0.1, releaseDeadStroke: 0.1, axis: 0, calibrate: 1, axisV2Id: 12432, axisRangeMax: 3310, axisCoefficient: 20500,
+  };
+  const apollo = { axisV2Id: 4208, axisRangeMax: 3130, axisCoefficient: 24500 };
+  const BOARD = '0030000d';
+
+  it('passes a valid catalog triple', () => {
+    expect(checkPerformanceWrite({ ...ur, ...apollo }, [ur], { boardIdHex: BOARD })).toBeNull();
+  });
+
+  it('matches the board id case-insensitively', () => {
+    expect(checkPerformanceWrite({ ...ur, ...apollo }, [ur], { boardIdHex: '0030000D' })).toBeNull();
+  });
+
+  it('refuses a mixed triple', () => {
+    const mixed = { ...ur, axisV2Id: 4208 }; // 阿波罗轴's id with UR冰磁轴's range and coefficient
+    expect(checkPerformanceWrite(mixed, [ur], { boardIdHex: BOARD })).toMatch(/switch fields/);
+    const mixed2 = { ...ur, ...apollo, axisRangeMax: 3310 };
+    expect(checkPerformanceWrite(mixed2, [ur], { boardIdHex: BOARD })).toMatch(/switch fields/);
+  });
+
+  it('refuses an unknown id', () => {
+    expect(checkPerformanceWrite({ ...ur, axisV2Id: 9999 }, [ur], { boardIdHex: BOARD })).toMatch(/switch fields/);
+  });
+
+  it('refuses a known id with the wrong coefficient', () => {
+    expect(checkPerformanceWrite({ ...ur, ...apollo, axisCoefficient: 24501 }, [ur], { boardIdHex: BOARD })).toMatch(/switch fields/);
+  });
+
+  it('refuses a smaller range with an unclamped actuation, even when it is unchanged', () => {
+    const long = { ...ur, normalPress: 3.3 };
+    expect(checkPerformanceWrite({ ...long, ...apollo }, [long], { boardIdHex: BOARD })).toMatch(/normalPress 3\.3 mm/);
+  });
+
+  it('passes the same values clamped to the new range', () => {
+    const long = { ...ur, normalPress: 3.3, normalRelease: 3.2 };
+    expect(checkPerformanceWrite({ ...long, ...apollo, normalPress: 3.13, normalRelease: 3.13 }, [long], { boardIdHex: BOARD })).toBeNull();
+  });
+
+  it('refuses a catalog triple on another board or without a board', () => {
+    expect(checkPerformanceWrite({ ...ur, ...apollo }, [ur], { boardIdHex: '0030000a' })).toMatch(/switch fields/);
+    expect(checkPerformanceWrite({ ...ur, ...apollo }, [ur])).toMatch(/switch fields/);
+  });
+
+  it('allows restoring a triple the device reported, even without a catalog', () => {
+    const switched = { ...ur, ...apollo };
+    expect(checkPerformanceWrite(ur, [ur, switched], { boardIdHex: '0030000a' })).toBeNull();
+    expect(checkPerformanceWrite(ur, [ur, switched])).toBeNull();
+  });
+
+  it('refuses a mixed triple assembled from reported fields', () => {
+    const switched = { ...ur, ...apollo };
+    expect(checkPerformanceWrite({ ...ur, axisV2Id: 4208 }, [ur, switched])).toMatch(/switch fields/);
+  });
+
+  it('still refuses changes to axis or calibrate', () => {
+    expect(checkPerformanceWrite({ ...ur, ...apollo, axis: 1 }, [ur], { boardIdHex: BOARD })).toMatch(/axis/);
+    expect(checkPerformanceWrite({ ...ur, ...apollo, calibrate: 0 }, [ur], { boardIdHex: BOARD })).toMatch(/calibrate/);
+  });
+});
+
 describe('keycode guard for combos and firmware codes', () => {
   const setKey = (code: number) => [0x03, 0x04, 0, 1, 1, code & 0xff, code >> 8];
 
