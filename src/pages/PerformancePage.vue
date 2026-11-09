@@ -90,12 +90,14 @@ if (typeof ResizeObserver !== 'undefined') {
       const w = Math.round(e.borderBoxSize?.[0]?.inlineSize ?? e.contentRect.width);
       if (gridWidth !== null && w !== gridWidth) {
         gridWidth = null;
-        resetGridMinH(); // this height was laid out under the old min-height: measure again
+        // This height was laid out under the old min-height: measure again, from the next frame rather than inside
+        // this callback (re-observing here makes the browser report a "ResizeObserver loop" error).
+        requestAnimationFrame(resetGridMinH);
         return;
       }
       gridWidth = w;
       const h = e.borderBoxSize?.[0]?.blockSize ?? e.contentRect.height;
-      gridMinH.value = Math.max(gridMinH.value, Math.ceil(h));
+      gridMinH.value = Math.max(gridMinH.value, h); // exact: rounding up would grow the grid and notify again
     }
   });
 }

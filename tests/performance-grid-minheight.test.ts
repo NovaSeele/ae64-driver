@@ -103,6 +103,7 @@ describe('Performance grid never gets shorter', () => {
     await flushPromises();
     expect(grid().style.minHeight).toBe('829px');
     report(829, 1176); // sidebar folded: wider grid, old height is stale
+    await new Promise((r) => requestAnimationFrame(() => r(null))); // the reset runs on the next frame
     await flushPromises();
     expect(grid().style.minHeight).toBe('');
     report(683, 1176); // fresh measurement at the new width
