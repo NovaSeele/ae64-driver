@@ -40,7 +40,6 @@ const COLOURS: Record<string, string> = {
   press: 'var(--m-press)',
   'press-fill': 'color-mix(in srgb, var(--m-press) 14%, transparent)',
   deadzone: 'var(--m-deadzone)',
-  'deadzone-bottom': 'var(--m-deadzone-alt)',
 };
 
 function readColours() {
@@ -108,7 +107,6 @@ function draw(now: number) {
     c.fillStyle = col.deadzone;
     c.globalAlpha = 0.14;
     if (st.pressDeadStroke > 0) c.fillRect(x0, Y(0), x1 - x0, Y(st.pressDeadStroke) - Y(0));
-    c.fillStyle = col['deadzone-bottom'];
     if (st.releaseDeadStroke > 0) c.fillRect(x0, Y(range - st.releaseDeadStroke), x1 - x0, Y(range) - Y(range - st.releaseDeadStroke));
     c.globalAlpha = 1;
     const line = (mm: number, colour: string, dash: number[]) => {

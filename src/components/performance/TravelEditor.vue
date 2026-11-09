@@ -78,7 +78,7 @@ const CAP_TRAVEL = 46; // px the illustrated cap moves at full travel
       </div>
       <div class="te__track">
         <div v-if="deadTop" class="te__dead" :style="{ top: '0', height: pct(deadTop) }" />
-        <div v-if="deadBottom" class="te__dead te__dead--bottom" :style="{ bottom: '0', height: deadBottomPct }" />
+        <div v-if="deadBottom" class="te__dead" :style="{ bottom: '0', height: deadBottomPct }" />
         <div class="te__mark" :style="{ top: pct(shown) }" />
         <Slider
           :model-value="shown"
@@ -129,9 +129,6 @@ const CAP_TRAVEL = 46; // px the illustrated cap moves at full travel
   right: 0;
   background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--m-deadzone) 34%, transparent) 0 3px, transparent 3px 6px);
   border-radius: 3px;
-}
-.te__dead--bottom {
-  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--m-deadzone-alt) 34%, transparent) 0 3px, transparent 3px 6px);
 }
 .te__mark {
   position: absolute;

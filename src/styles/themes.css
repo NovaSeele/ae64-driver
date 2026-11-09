@@ -25,7 +25,6 @@
   --sel-pct: 35%;
   --m-press: #2cdcaf;
   --m-release: #f5d240;
-  --m-deadzone: #fe7c75;
   --ok: #4ade80;
   --warn: #ff9f43;
   --danger: #ff7a7a;
@@ -86,7 +85,6 @@
   --sel-pct: 18%;
   --m-press: #087970;
   --m-release: #8d6300;
-  --m-deadzone: #ba0329;
   --ok: #127035;
   --warn: #9a4a07;
   --danger: #c21f1f;
@@ -147,7 +145,6 @@
   --sel-pct: 35%;
   --m-press: #2cdcaf;
   --m-release: #f5d240;
-  --m-deadzone: #fe7c75;
   --ok: #6fe0a8;
   --warn: #ffbe6b;
   --danger: #ff8fa0;
@@ -208,7 +205,6 @@
   --sel-pct: 18%;
   --m-press: #087970;
   --m-release: #8e6503;
-  --m-deadzone: #ba0329;
   --ok: #0f6e3d;
   --warn: #9a4a07;
   --danger: #c2264a;
@@ -269,7 +265,6 @@
   --sel-pct: 35%;
   --m-press: #05ebf5;
   --m-release: #d0a9fe;
-  --m-deadzone: #fe7c75;
   --ok: #4ade80;
   --warn: #ff9f43;
   --danger: #ff7a7a;
@@ -330,7 +325,6 @@
   --sel-pct: 35%;
   --m-press: #05ebf5;
   --m-release: #f5d240;
-  --m-deadzone: #fd6289;
   --ok: #4ade80;
   --warn: #ffc53d;
   --danger: #ff5c5c;
@@ -391,7 +385,6 @@
   --sel-pct: 35%;
   --m-press: #05ebf5;
   --m-release: #f5d240;
-  --m-deadzone: #fd5a85;
   --ok: #4ade80;
   --warn: #fbbf24;
   --danger: #ff5f6d;
@@ -452,7 +445,6 @@
   --sel-pct: 35%;
   --m-press: #8cc3fc;
   --m-release: #f5d240;
-  --m-deadzone: #fea69f;
   --ok: #86efac;
   --warn: #fcd34d;
   --danger: #ffa3a3;
@@ -513,7 +505,6 @@
   --sel-pct: 35%;
   --m-press: #ccb1fe;
   --m-release: #f5d240;
-  --m-deadzone: #fea69f;
   --ok: #b4d39b;
   --warn: #ebcb8b;
   --danger: #f6b0b6;
@@ -574,7 +565,6 @@
   --sel-pct: 35%;
   --m-press: #2cdcaf;
   --m-release: #f5d240;
-  --m-deadzone: #fc9d95;
   --ok: #50fa7b;
   --warn: #ffb86c;
   --danger: #ff9696;
@@ -635,7 +625,6 @@
   --sel-pct: 35%;
   --m-press: #8cc3fc;
   --m-release: #f5d240;
-  --m-deadzone: #fe796b;
   --ok: #8bd5a6;
   --warn: #f5c27a;
   --danger: #ff7f8a;
@@ -701,9 +690,10 @@
   --f-diagnostics: var(--hue-indigo);
 
   /* performance metrics (chips, values on keycaps, travel editor marks, live graph lines) */
-  /* first actuation = the theme's own colour; RT press/release and the dead-zone red (top) are set per theme (above) */
+  /* first actuation = the theme's own colour; RT press/release are set per theme (above);
+     the dead zone (top and bottom) is neutral grey: travel the switch ignores */
   --m-actuation: var(--acc);
-  --m-deadzone-alt: var(--fg-2); /* bottom dead zone: grey */
+  --m-deadzone: var(--fg-2);
 
   /* advanced key kinds (type tiles, list items, keycap badges) */
   --k-dks: var(--hue-purple);

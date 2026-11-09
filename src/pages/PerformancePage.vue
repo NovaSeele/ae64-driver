@@ -102,7 +102,7 @@ function sublabel(k: PhysicalKey): string | SubLine[] | undefined {
       return isRtMode(p.mode)
         ? [{ text: `↓${fmt(p.rtPress)}`, tone: 'var(--m-press)' }, { text: `↑${fmt(p.rtRelease)}`, tone: 'var(--m-release)' }]
         : '—';
-    case 'deadzone': return [{ text: `↑${fmt(p.pressDeadStroke)}`, tone: 'var(--m-deadzone)' }, { text: `↓${fmt(p.releaseDeadStroke)}`, tone: 'var(--m-deadzone-alt)' }];
+    case 'deadzone': return [{ text: `↑${fmt(p.pressDeadStroke)}`, tone: 'var(--m-deadzone)' }, { text: `↓${fmt(p.releaseDeadStroke)}`, tone: 'var(--m-deadzone)' }];
   }
 }
 /** Rapid Trigger keys carry an "RT" tag in the actuation view; the full numbers are in its title. */
@@ -255,7 +255,7 @@ const modeOptions = computed(() => [
           :aria-checked="metric === m.id"
           @click="metric = m.id"
         >
-          <span class="chip__dot" :class="{ 'chip__dot--rt': m.id === 'rt', 'chip__dot--dz': m.id === 'deadzone' }" aria-hidden="true" />{{ t(m.label) }}
+          <span class="chip__dot" :class="{ 'chip__dot--rt': m.id === 'rt' }" aria-hidden="true" />{{ t(m.label) }}
         </button>
       </div>
       <div class="aside-sub">
@@ -452,7 +452,7 @@ const modeOptions = computed(() => [
             :step="0.01"
             :fine-step="0.001"
             :label="dz.label"
-            :style="{ '--sl-tone': dz.field === 'pressDeadStroke' ? 'var(--m-deadzone)' : 'var(--m-deadzone-alt)' }"
+            :style="{ '--sl-tone': 'var(--m-deadzone)' }"
             @update:model-value="setDead(dz.field, $event)"
           />
         </div>
@@ -501,7 +501,6 @@ const modeOptions = computed(() => [
 .chip:hover { color: var(--fg-1); border-color: var(--line-3); }
 .chip__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--chip); flex: none; }
 .chip__dot--rt { background: linear-gradient(90deg, var(--m-press) 50%, var(--m-release) 50%); }
-.chip__dot--dz { background: linear-gradient(90deg, var(--m-deadzone) 50%, var(--m-deadzone-alt) 50%); }
 .shading { display: flex; flex-direction: column; gap: 4px; max-width: 160px; margin-top: var(--s-2); }
 .shading__hint { margin: 0; font-size: var(--fs-caption); line-height: 1.4; color: var(--fg-3); }
 /* The RT tag on a keycap (actuation view). */
