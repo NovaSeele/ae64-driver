@@ -29,6 +29,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'page.macro': 'Macro',
   'page.live': 'Live travel',
   'page.calibration': 'Calibration',
+  'page.switch': 'Switches',
   'page.settings': 'Device settings',
   'page.diagnostics': 'Diagnostics',
   'page.wip': 'Work in progress',

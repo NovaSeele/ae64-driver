@@ -6,6 +6,7 @@ import {
   IconStethoscope, IconTarget,
 } from '@tabler/icons-vue';
 import type { MessageKey } from './i18n/vi';
+import IconSwitch from './components/ui/IconSwitch.vue';
 import PerformancePage from './pages/PerformancePage.vue';
 
 declare module 'vue-router' {
@@ -36,8 +37,9 @@ export const NAV: { group: MessageKey; items: NavItem[] }[] = [
     group: 'nav.groupDevice',
     items: [
       { path: '/macro', title: 'page.macro', icon: IconListDetails, tone: 'var(--f-macro)' },
-      { path: '/live', title: 'page.live', icon: IconActivity, tone: 'var(--f-live)' },
+      { path: '/switch', title: 'page.switch', icon: IconSwitch, tone: 'var(--f-switch)' },
       { path: '/calibration', title: 'page.calibration', icon: IconTarget, tone: 'var(--f-calibration)' },
+      { path: '/live', title: 'page.live', icon: IconActivity, tone: 'var(--f-live)' },
       { path: '/settings', title: 'page.settings', icon: IconSettings, tone: 'var(--f-settings)' },
       { path: '/diagnostics', title: 'page.diagnostics', icon: IconStethoscope, tone: 'var(--f-diagnostics)' },
     ],
@@ -54,6 +56,7 @@ export const router = createRouter({
     { path: '/advanced', component: () => import('./pages/AdvancedPage.vue'), meta: { title: 'page.advanced' } },
     { path: '/lighting', component: () => import('./pages/LightingPage.vue'), meta: { title: 'page.lighting' } },
     { path: '/macro', component: () => import('./pages/MacroPage.vue'), meta: { title: 'page.macro' } },
+    { path: '/switch', component: () => import('./pages/SwitchPage.vue'), meta: { title: 'page.switch' } },
     { path: '/live', component: () => import('./pages/LiveTravelPage.vue'), meta: { title: 'page.live' } },
     { path: '/calibration', component: () => import('./pages/CalibrationPage.vue'), meta: { title: 'page.calibration' } },
     { path: '/settings', component: () => import('./pages/SettingsPage.vue'), meta: { title: 'page.settings' } },

@@ -32,6 +32,7 @@ export const base = {
   'page.macro': 'Macro',
   'page.live': 'Đo hành trình',
   'page.calibration': 'Hiệu chuẩn',
+  'page.switch': 'Switch',
   'page.settings': 'Cài đặt thiết bị',
   'page.diagnostics': 'Chẩn đoán',
   'page.wip': 'Đang phát triển',

@@ -686,6 +686,7 @@
   --f-macro: var(--hue-cyan);
   --f-live: var(--hue-green);
   --f-calibration: var(--hue-yellow);
+  --f-switch: var(--hue-red);
   --f-settings: var(--fg-2);
   --f-diagnostics: var(--hue-indigo);
 

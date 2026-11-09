@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Switch card of the Performance page: the switch fitted in the selected keys. Picking happens in SwitchPicker.
+// Switch card of the Switch page: the switch fitted in the selected keys. Picking happens in SwitchPicker.
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { IconAlertTriangle, IconInfoCircle, IconReplace, IconTarget, IconX } from '@tabler/icons-vue';
@@ -44,12 +44,13 @@ const rowName = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknownRow'
 </script>
 
 <template>
-  <Card :title="t('sw.title')" :subtitle="t('sw.hint')">
+  <Card :title="t('swp.selTitle')" :subtitle="t('sw.hint')">
     <template #actions>
-      <Button variant="secondary" size="sm" :icon="IconReplace" :disabled="!perf.catalog" :title="perf.catalog ? undefined : unsupportedText" @click="open = true">{{ t('sw.change') }}</Button>
+      <Button variant="secondary" size="sm" :icon="IconReplace" :disabled="!perf.catalog || !ids.length" :title="perf.catalog ? undefined : unsupportedText" @click="open = true">{{ t('sw.change') }}</Button>
     </template>
     <div class="swc">
-      <div v-if="groups.length === 1" class="swc__current">
+      <p v-if="!ids.length" class="swc__note">{{ t('swp.selEmpty') }}</p>
+      <div v-else-if="groups.length === 1" class="swc__current">
         <SwitchSwatch :color="groups[0].entry?.color ?? ''" :id="groups[0].entry?.id" size="lg" />
         <div class="swc__text">
           <span class="swc__name swc__name--wrap" :title="nameOf(groups[0])">{{ nameOf(groups[0]) }}</span>

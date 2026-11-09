@@ -42,6 +42,7 @@ defineProps<{
     <span class="cap__face" :style="ledHeight ? { paddingBottom: `${ledHeight + 5}px` } : undefined">
       <span v-if="fill !== undefined" class="cap__fill" :style="{ transform: `scaleY(${Math.min(1, Math.max(0, fill))})` }" />
       <span v-if="color" class="cap__led" :style="{ background: color, boxShadow: `0 0 10px ${color}`, height: ledHeight ? `${ledHeight}px` : undefined }" />
+      <span v-if="$slots.default" class="cap__extra" :style="color && ledHeight ? { bottom: `${ledHeight + 6}px` } : undefined"><slot /></span>
       <span class="cap__legend">{{ legend }}</span>
       <span v-if="loading" class="cap__sub cap__sub--skeleton skeleton" />
       <span v-else-if="sublabel !== undefined || badge || badgeIcon" class="cap__foot">
@@ -161,6 +162,8 @@ defineProps<{
   color: var(--metric, var(--fg-2));
   opacity: 1;
 }
+.cap__extra { position: absolute; right: 5px; bottom: 5px; line-height: 0; pointer-events: none; }
+.cap__extra :deep(.swatch) { width: 20px; height: 20px; }
 .cap__sub--skeleton { width: 60%; height: 9px; }
 
 /* Compact keycap: faces under 52px tall (narrow windows) keep a 3-row foot inside the face. */
@@ -170,5 +173,7 @@ defineProps<{
   .cap__badge { font-size: 9.5px; }
   .cap__foot { gap: 1px; }
   .cap__sub, .cap__sub--lines { font-size: 10px; }
+  .cap__extra { right: 4px; bottom: 4px; }
+  .cap__extra :deep(.swatch) { width: 18px; height: 18px; }
 }
 </style>

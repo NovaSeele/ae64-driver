@@ -223,7 +223,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
           :selected="selectable && isSelected(k.id)"
           :flashing="flashStore.isFlashing(k.id)"
           :loading="loading"
-        />
+        ><template v-if="$slots.cap" #default><slot name="cap" :key="k" /></template></Keycap>
       </button>
       <div
         v-if="box"

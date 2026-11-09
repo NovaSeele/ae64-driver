@@ -16,7 +16,6 @@ import PageLayout from '../components/shell/PageLayout.vue';
 import EmptyState from '../components/shell/EmptyState.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import TravelEditor from '../components/performance/TravelEditor.vue';
-import SwitchCard from '../components/performance/SwitchCard.vue';
 import Card from '../components/ui/Card.vue';
 import Button from '../components/ui/Button.vue';
 import Segmented from '../components/ui/Segmented.vue';
@@ -467,8 +466,6 @@ const modeOptions = computed(() => [
           </button>
         </div>
       </Card>
-
-      <SwitchCard :ids="ids" />
       </template>
     </div>
   </PageLayout>
