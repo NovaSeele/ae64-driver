@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SWITCH_GROUPS, findSwitch, isCatalogTriple, switchCatalogFor } from '../src/protocol/switches';
-import { switchImage, switchName } from '../src/data/switchDisplay';
+import { switchBrand, switchImage, switchName } from '../src/data/switchDisplay';
 
 describe('switch catalog', () => {
   const catalog = switchCatalogFor('0030000d')!;
@@ -74,5 +74,18 @@ describe('switch photos', () => {
   it('falls back to the drawn swatch when there is no photo', () => {
     expect(switchImage(12432)).toBeUndefined(); // UR Ice HE-Ex
     expect(switchImage(1)).toBeUndefined();
+    expect(switchImage(4416)).toBeUndefined(); // maker photo did not match the stem colour
+    expect(switchImage(4528)).toBeUndefined(); // same
+  });
+});
+
+describe('switch makers', () => {
+  const catalog = switchCatalogFor('0030000d')!;
+
+  it('names a maker unless it is unknown', () => {
+    expect(switchBrand(12432)).toBe('Ur Studio'); // UR Ice HE-Ex
+    expect(catalog.filter((e) => switchBrand(e.id) === null).length).toBeGreaterThan(0);
+    expect(catalog.some((e) => switchBrand(e.id) === 'Unknown')).toBe(false);
+    expect(switchBrand(1)).toBeNull();
   });
 });

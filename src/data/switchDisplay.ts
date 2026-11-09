@@ -20,3 +20,9 @@ const IMAGES: Readonly<Record<string, string>> = Object.fromEntries(
 export function switchImage(id: number): string | undefined {
   return IMAGES[String(id)];
 }
+
+/** The maker to show, or null when it is unknown. */
+export function switchBrand(id: number): string | null {
+  const b = NAMES[String(id)]?.brand;
+  return b && b !== 'Unknown' ? b : null;
+}

@@ -10,7 +10,7 @@ import { useToast } from '../ui/toast';
 import SwitchSwatch from './SwitchSwatch.vue';
 import { groupKeys } from './switchGroups';
 import { SWITCH_GROUPS } from '../../protocol/switches';
-import { switchName } from '../../data/switchDisplay';
+import { switchBrand, switchName } from '../../data/switchDisplay';
 import type { SwitchEntry } from '../../protocol/switches';
 import { isRtMode } from '../../protocol';
 import { useDeviceStore } from '../../stores/device';
@@ -31,6 +31,11 @@ const tabs = computed(() => SWITCH_GROUPS.map((g) => ({ id: g, label: groupLabel
 
 const keyGroups = computed(() => groupKeys(props.ids, perf.values, () => 0));
 const single = computed(() => keyGroups.value.length === 1);
+/** The maker eyebrow, only where the tab does not already name it (GATERON, TTC). */
+const brandOf = (e: SwitchEntry) => {
+  const b = switchBrand(e.id);
+  return b && b.toLowerCase() !== e.group.toLowerCase() ? b : null;
+};
 const inUse = computed(() => new Map(keyGroups.value.map((g) => [g.axisV2Id, g.ids.length] as const)));
 const known = (id: number) => entries.value.find((e) => e.id === id);
 /** Group of the most-used known switch among the keys, else the first group. */
@@ -128,6 +133,7 @@ function apply() {
         >
           <SwitchSwatch :color="e.color" :id="e.id" />
           <span class="sw-opt__text">
+            <span v-if="brandOf(e)" class="sw-opt__brand">{{ brandOf(e) }}</span>
             <span class="sw-opt__name" :title="switchName(e)">{{ switchName(e) }}</span>
             <span class="sw-opt__meta">
               <span class="sw-opt__mm">{{ mm(e.rangeMax) }} mm</span>
@@ -154,8 +160,8 @@ function apply() {
           </div>
           <p v-if="clampLines.act" class="swp__warn"><IconAlertTriangle :size="15" aria-hidden="true" />{{ t('sw.clampAct', { n: clampLines.act, max: limit }) }}</p>
           <p v-if="clampLines.other" class="swp__warn"><IconAlertTriangle :size="15" aria-hidden="true" />{{ t('sw.clampOther', { n: clampLines.other, max: limit }) }}</p>
-          <p class="swp__info"><IconInfoCircle :size="15" aria-hidden="true" />{{ t('sw.profileOnly', { profile: device.activeProfileName }) }}</p>
         </template>
+        <p class="swp__info"><IconInfoCircle :size="15" aria-hidden="true" />{{ t('sw.profileOnly', { profile: device.activeProfileName }) }}</p>
       </div>
     </div>
     <template #footer>
@@ -173,7 +179,7 @@ function apply() {
 .swp__for b { color: var(--fg-1); font-weight: 600; }
 .swp__list {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--s-2);
-  max-height: min(372px, calc(100vh - 380px)); overflow-y: auto;
+  max-height: min(372px, calc(100vh - 460px)); overflow-y: auto; /* the summary reserve below takes the rest */
   padding: 2px; margin: -2px; /* room for the focus ring */
   scrollbar-gutter: stable;
 }
@@ -191,6 +197,9 @@ function apply() {
 .sw-opt:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
 .sw-opt[aria-checked='true'] { background: var(--sel-bg); border-color: var(--acc); box-shadow: inset 0 0 0 1px var(--acc); }
 .sw-opt__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+/* maker eyebrow: only when the tab does not already name the maker, never "Unknown" */
+.sw-opt__brand { display: block; font-size: 10px; font-weight: 600; line-height: 14px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-opt:hover .sw-opt__brand, .sw-opt[aria-checked='true'] .sw-opt__brand { color: var(--fg-2); }
 .sw-opt__name { font-size: var(--fs-body); font-weight: 500; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
 .sw-opt__mm { flex: none; white-space: nowrap; font-size: var(--fs-label); color: var(--fg-2); font-variant-numeric: tabular-nums; }
 .sw-opt[aria-checked='true'] .sw-opt__mm { color: var(--fg-1); }
@@ -201,6 +210,8 @@ function apply() {
   color: var(--fg-2); background: var(--bg-2); border: 1px solid var(--line-2);
 }
 .swp__sum { display: flex; flex-direction: column; gap: var(--s-2); padding-top: var(--s-3); border-top: 1px solid var(--line-1); }
+/* reserve the tallest common summary (change row with 22px photos + two warnings + profile line) so the centred dialog never moves */
+.swp__sum { min-height: 112px; }
 .swp__change { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-size: var(--fs-body); color: var(--fg-1); }
 .swp__change .nm { font-weight: 600; }
 .swp__change .mm { color: var(--fg-2); font-variant-numeric: tabular-nums; }

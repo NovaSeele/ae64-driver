@@ -40,7 +40,7 @@ describe('switch selector UI', () => {
   it('card shows the current switch of all keys in demo', async () => {
     await setup();
     expect(w!.find('.swc__name').text()).toBe('UR Ice HE-Ex');
-    expect(w!.find('.swc__meta').text()).toBe('Khác · 64 phím');
+    expect(w!.find('.swc__meta').text()).toBe('Ur Studio · 64 phím');
     expect(w!.find('.swc__mm').text()).toBe('3.31mm');
     expect(w!.find('.card__actions button').attributes('disabled')).toBeUndefined();
   });
