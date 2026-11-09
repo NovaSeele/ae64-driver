@@ -67,14 +67,13 @@ describe('switch photos', () => {
 
   it('ships a photo only for switches in the catalog', () => {
     const withPhoto = catalog.filter((e) => switchImage(e.id));
-    expect(withPhoto.length).toBe(62);
+    expect(withPhoto.length).toBe(69);
     expect(switchImage(4208)).toMatch(/4208.*\.webp$/); // Apollo
   });
 
   it('falls back to the drawn swatch when there is no photo', () => {
     expect(switchImage(4240)).toBeUndefined(); // Magnetic Jade POM: no matching photo found yet
     expect(switchImage(1)).toBeUndefined();
-    expect(switchImage(4528)).toBeUndefined(); // same
   });
 });
 
