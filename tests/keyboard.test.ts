@@ -60,3 +60,25 @@ describe('KeyboardView box select', () => {
     w.unmount();
   });
 });
+
+describe('KeyboardView accessible status', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private cb: (e: unknown[]) => void) {}
+      observe() { this.cb([{ contentRect: { width: 400 } }]); }
+      disconnect() {}
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('appends the status text to each key name, with no badge on the key', () => {
+    const w = mount(KeyboardView, {
+      props: { keys: [key(0, 0), key(1, 1)], color: () => 'red', status: (k: PhysicalKey) => (k.id === 0 ? 'Chưa hiệu chuẩn' : 'Vừa hiệu chuẩn') },
+    });
+    const labels = w.findAll('[data-key]').map((e) => e.attributes('aria-label'));
+    expect(labels).toEqual(['K0 · Chưa hiệu chuẩn', 'K1 · Vừa hiệu chuẩn']);
+    expect(w.find('.cap__badge').exists()).toBe(false);
+    w.unmount();
+  });
+});

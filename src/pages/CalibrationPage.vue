@@ -28,12 +28,21 @@ const running = computed(() => cal.phase === 'running');
 const busy = computed(() => cal.phase === 'starting' || cal.phase === 'finishing');
 let unmounted = false;
 
-const STATUS_COLOR = ['var(--danger)', 'var(--info)', 'var(--ok)'];
-/** Not colour-only: each state also has a glyph on the key (○ none, ✓ calibrated, ✓✓ newly calibrated). */
-const STATUS_GLYPH = ['○', '✓', '✓✓'];
+/**
+ * Status is shown by the key's LED colour, and the three colours also differ in lightness (not only hue), so
+ * red-green colour blindness still tells them apart: none = dimmed red (toward the page background),
+ * calibrated = info blue, newly calibrated = bright green (toward the text colour). Each key's accessible name
+ * also carries the status text.
+ */
+const STATUS_COLOR = [
+  'color-mix(in srgb, var(--danger) 55%, var(--bg-1))',
+  'var(--info)',
+  'color-mix(in srgb, var(--ok) 60%, var(--fg-1))',
+];
+const STATUS_TEXT = ['calibration.legendNone', 'calibration.legendDone', 'calibration.legendNew'] as const;
 // Until a real frame is read every status would be 0 ("uncalibrated"): show neutral keys instead.
 const statusColor = (k: PhysicalKey) => (cal.loaded ? STATUS_COLOR[cal.frame.status[k.id]] ?? STATUS_COLOR[0] : 'var(--fg-4)');
-const statusGlyph = (k: PhysicalKey) => (cal.loaded ? STATUS_GLYPH[cal.frame.status[k.id]] ?? STATUS_GLYPH[0] : undefined);
+const statusText = (k: PhysicalKey) => (cal.loaded ? t(STATUS_TEXT[cal.frame.status[k.id]] ?? STATUS_TEXT[0]) : undefined);
 function fill(k: PhysicalKey) {
   if (!cal.loaded) return 0;
   if (cal.frame.status[k.id] === 2) return 1;
@@ -44,9 +53,9 @@ const adc = (k: PhysicalKey) => (cal.loaded ? String(cal.frame.adc[k.id]) : unde
 
 const progress = computed(() => (running.value ? cal.newCount : cal.calibratedCount));
 const legend = computed(() => [
-  { color: STATUS_COLOR[0], glyph: STATUS_GLYPH[0], label: t('calibration.legendNone'), n: cal.uncalibratedCount },
-  { color: STATUS_COLOR[1], glyph: STATUS_GLYPH[1], label: t('calibration.legendDone'), n: cal.calibratedCount - cal.newCount },
-  { color: STATUS_COLOR[2], glyph: STATUS_GLYPH[2], label: t('calibration.legendNew'), n: cal.newCount },
+  { color: STATUS_COLOR[0], label: t('calibration.legendNone'), n: cal.uncalibratedCount },
+  { color: STATUS_COLOR[1], label: t('calibration.legendDone'), n: cal.calibratedCount - cal.newCount },
+  { color: STATUS_COLOR[2], label: t('calibration.legendNew'), n: cal.newCount },
 ]);
 const allDone = computed(() => cal.loaded && !running.value && cal.calibratedCount === 64);
 /** Failure text for a session that ended badly: says whether the keyboard may still be calibrating. */
@@ -108,14 +117,13 @@ onBeforeUnmount(() => {
   <PageLayout :title="t('page.calibration')">
     <section class="kbrow">
       <div class="board" :class="{ 'board--live': running }">
-        <KeyboardView :keys="device.keys" :legend="device.legend" :sublabel="adc" :fill="fill" :color="statusColor" :badge="statusGlyph" />
+        <KeyboardView :keys="device.keys" :legend="device.legend" :sublabel="adc" :fill="fill" :color="statusColor" :status="statusText" />
       </div>
       <aside class="aside">
         <span class="micro">{{ t('calibration.status') }}</span>
         <ul class="legend">
           <li v-for="l in legend" :key="l.label">
             <i :style="{ background: l.color, boxShadow: `0 0 8px ${l.color}` }" />
-            <span class="glyph" aria-hidden="true">{{ l.glyph }}</span>
             <span>{{ l.label }}</span>
             <span class="num">{{ cal.loaded ? l.n : '—' }}</span>
           </li>
@@ -190,7 +198,6 @@ onBeforeUnmount(() => {
 .legend li .num { margin-left: auto; color: var(--fg-1); font-weight: 600; }
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
 .warn { color: var(--warn); font-size: var(--fs-label); }
-.legend .glyph { width: 18px; text-align: center; color: var(--fg-3); }
 .alert {
   display: flex;
   gap: 6px;

@@ -25,6 +25,8 @@ const props = defineProps<{
   badgeIcon?: (key: PhysicalKey) => Component | undefined;
   fill?: (key: PhysicalKey) => number | undefined;
   color?: (key: PhysicalKey) => string | undefined;
+  /** Status text appended to a key's accessible name (e.g. when the state is shown only by colour). */
+  status?: (key: PhysicalKey) => string | undefined;
   /** CSS colour (e.g. 'var(--k-dks)') for a key's values; sets --metric on the keycap. */
   tone?: (key: PhysicalKey) => string | undefined;
   state?: (key: PhysicalKey) => 'pressed' | undefined;
@@ -200,7 +202,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
         :data-key="k.id"
         :tabindex="k.id === tabStop ? 0 : -1"
         :aria-pressed="selectable ? isSelected(k.id) : undefined"
-        :aria-label="`${legend ? legend(k) : k.name}${subText(k) ? ` · ${subText(k)}` : ''}${badge?.(k) || badgeIcon?.(k) ? ` · ${badgeTitle?.(k) ?? badge?.(k)}` : ''}`"
+        :aria-label="`${legend ? legend(k) : k.name}${subText(k) ? ` · ${subText(k)}` : ''}${badge?.(k) || badgeIcon?.(k) ? ` · ${badgeTitle?.(k) ?? badge?.(k)}` : ''}${status?.(k) ? ` · ${status(k)}` : ''}`"
         :style="{ left: `${k.x * unit}px`, top: `${k.y * unit}px`, width: `${k.w * unit}px`, height: `${unit}px` }"
         @keydown="onKeyDown($event, k)"
         @focus="focusId = k.id"
