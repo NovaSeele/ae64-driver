@@ -78,13 +78,22 @@ const PRESET_TEXT: Record<(typeof PRESETS)[number]['id'], [MessageKey, MessageKe
 };
 
 // The editor grid never gets shorter while the user stays on the page at the same width (the RT card coming and going
-// must not move the Mode card under the pointer); it only grows. Reset on a width change and a profile change.
+// must not move the Mode card under the pointer); it only grows. Reset when the grid's own width changes (window
+// resize or folding the sidebar: the column layout differs) and on a profile change.
 const gridEl = ref<HTMLElement | null>(null);
 const gridMinH = ref(0);
+let gridWidth: number | null = null; // the width the held height was measured at
 let gridObserver: ResizeObserver | null = null;
 if (typeof ResizeObserver !== 'undefined') {
   gridObserver = new ResizeObserver((entries) => {
     for (const e of entries) {
+      const w = Math.round(e.borderBoxSize?.[0]?.inlineSize ?? e.contentRect.width);
+      if (gridWidth !== null && w !== gridWidth) {
+        gridWidth = null;
+        resetGridMinH(); // this height was laid out under the old min-height: measure again
+        return;
+      }
+      gridWidth = w;
       const h = e.borderBoxSize?.[0]?.blockSize ?? e.contentRect.height;
       gridMinH.value = Math.max(gridMinH.value, Math.ceil(h));
     }
@@ -93,6 +102,7 @@ if (typeof ResizeObserver !== 'undefined') {
 /** Forget the held height and measure again (re-observing delivers a fresh initial measurement). */
 function resetGridMinH() {
   gridMinH.value = 0;
+  gridWidth = null;
   if (gridObserver && gridEl.value) {
     gridObserver.unobserve(gridEl.value);
     gridObserver.observe(gridEl.value);
@@ -102,6 +112,7 @@ watch(gridEl, (el, old) => {
   if (old) gridObserver?.unobserve(old);
   if (el) {
     gridMinH.value = 0; // a freshly mounted grid (after load / reload) measures itself
+    gridWidth = null;
     gridObserver?.observe(el);
   }
 });

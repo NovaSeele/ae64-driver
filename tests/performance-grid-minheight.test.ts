@@ -22,11 +22,11 @@ class FakeRO {
   observe(el: Element) { this.targets.add(el); }
   unobserve(el: Element) { this.targets.delete(el); }
   disconnect() { this.targets.clear(); }
-  report(h: number) {
-    for (const target of this.targets) this.cb([{ target, borderBoxSize: [{ blockSize: h, inlineSize: 0 }], contentRect: { height: h } }]);
+  report(h: number, w = 0) {
+    for (const target of [...this.targets]) this.cb([{ target, borderBoxSize: [{ blockSize: h, inlineSize: w }], contentRect: { height: h, width: w } }]);
   }
 }
-const report = (h: number) => observers.forEach((o) => o.report(h));
+const report = (h: number, w = 0) => observers.forEach((o) => o.report(h, w));
 const grid = () => document.body.querySelector<HTMLElement>('.grid')!;
 const seg = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>('.seg button')].find((b) => b.textContent?.trim() === label)!;
 
@@ -93,5 +93,23 @@ describe('Performance grid never gets shorter', () => {
     report(300);
     await flushPromises();
     expect(grid().style.minHeight).toBe('300px');
+  });
+  it('resets when the grid itself gets wider or narrower (folding the sidebar keeps the window width)', async () => {
+    await setup();
+    report(829, 1000);
+    await flushPromises();
+    expect(grid().style.minHeight).toBe('829px');
+    report(829, 1000); // the same width: still held
+    await flushPromises();
+    expect(grid().style.minHeight).toBe('829px');
+    report(829, 1176); // sidebar folded: wider grid, old height is stale
+    await flushPromises();
+    expect(grid().style.minHeight).toBe('');
+    report(683, 1176); // fresh measurement at the new width
+    await flushPromises();
+    expect(grid().style.minHeight).toBe('683px');
+    report(600, 1176);
+    await flushPromises();
+    expect(grid().style.minHeight).toBe('683px'); // held again
   });
 });
