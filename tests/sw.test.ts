@@ -201,6 +201,23 @@ describe('Service Worker (public/sw.js)', () => {
       const meta = await metaMatch!.json();
       expect(meta.version).toBe('0.1.0+20261109002016');
     });
+
+    it('fetches unhashed files past the HTTP cache, hashed assets from it', async () => {
+      const seen = new Map<string, RequestCache>();
+      vi.stubGlobal('fetch', vi.fn().mockImplementation(async (req: any) => {
+        const url = typeof req === 'string' ? req : req.url;
+        if (url.includes('/release.json')) {
+          return { ok: true, status: 200, json: async () => ({ version: '0.1.0+20261109002016', files: ['./', 'index.html', 'manifest.webmanifest', 'favicon.svg', 'assets/index-abc.js', 'assets/inter-latin-wght-normal-x.woff2'] }) };
+        }
+        seen.set(new URL(url).pathname, (req as Request).cache);
+        return new Response('x', { status: 200 });
+      }));
+
+      await triggerInstall();
+
+      for (const p of ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg']) expect(seen.get(p)).toBe('no-cache');
+      for (const p of ['/assets/index-abc.js', '/assets/inter-latin-wght-normal-x.woff2']) expect(seen.get(p)).toBe('default');
+    });
   });
 
   describe('check', () => {

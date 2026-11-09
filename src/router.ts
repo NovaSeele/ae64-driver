@@ -1,4 +1,4 @@
-// Hash router. Every page is lazy-loaded into its own chunk.
+// Hash router. The default page (Performance) is bundled with the app; every other page is lazy-loaded into its own chunk.
 import { createRouter, createWebHashHistory } from 'vue-router';
 import type { Component } from 'vue';
 import {
@@ -6,6 +6,7 @@ import {
   IconStethoscope, IconTarget,
 } from '@tabler/icons-vue';
 import type { MessageKey } from './i18n/vi';
+import PerformancePage from './pages/PerformancePage.vue';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -42,7 +43,8 @@ export const router = createRouter({
   routes: [
     { path: '/', redirect: '/performance' },
     { path: '/keymap', component: () => import('./pages/KeymapPage.vue'), meta: { title: 'page.keymap' } },
-    { path: '/performance', component: () => import('./pages/PerformancePage.vue'), meta: { title: 'page.performance' } },
+    // The default page is bundled with the app (no extra round trip on a first visit); the others stay lazy.
+    { path: '/performance', component: PerformancePage, meta: { title: 'page.performance' } },
     { path: '/advanced', component: () => import('./pages/AdvancedPage.vue'), meta: { title: 'page.advanced' } },
     { path: '/lighting', component: () => import('./pages/LightingPage.vue'), meta: { title: 'page.lighting' } },
     { path: '/macro', component: () => import('./pages/MacroPage.vue'), meta: { title: 'page.macro' } },

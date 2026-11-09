@@ -101,10 +101,18 @@ async function setCurrentVersion(version, previous = null) {
   await cache.put(META_KEY, res);
 }
 
-/** Release files are fetched past the HTTP cache (a CDN may add a long browser TTL to index.html). */
+/**
+ * Unhashed release files (index.html, manifest, favicon) are fetched past the HTTP cache: a CDN may add a long
+ * browser TTL to them. Files under /assets/ have a content hash in their name, so the copy the page just loaded
+ * is the right one and comes from the HTTP cache instead of a second download.
+ */
 function freshRequests(files) {
   const base = (self.location && self.location.origin) ? self.location.origin : 'http://127.0.0.1';
-  return files.map((f) => new Request(new URL(normalizePath(f), base).href, { cache: 'no-cache' }));
+  return files.map((f) => {
+    const path = normalizePath(f);
+    const hashed = path.startsWith('/assets/');
+    return new Request(new URL(path, base).href, hashed ? {} : { cache: 'no-cache' });
+  });
 }
 
 function normalizePath(p) {

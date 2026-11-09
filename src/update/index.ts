@@ -16,11 +16,19 @@ export interface AvailableVersion {
 }
 
 export function registerServiceWorker(): void {
-  if (import.meta.env.PROD && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+  if (!import.meta.env.PROD || typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  // After `load` and when idle: the first visit's precache must not compete with the page's own chunks and font.
+  const register = () => {
     navigator.serviceWorker.register('/sw.js').catch((err) => {
       console.error('ServiceWorker registration failed:', err);
     });
-  }
+  };
+  const whenIdle = () => {
+    if ('requestIdleCallback' in window) window.requestIdleCallback(register, { timeout: 3000 });
+    else setTimeout(register, 0);
+  };
+  if (document.readyState === 'complete') whenIdle();
+  else window.addEventListener('load', whenIdle, { once: true });
 }
 
 export const useUpdateStore = defineStore('update', () => {
