@@ -106,8 +106,8 @@ const field = computed(() => 0.12 + ratio.value * 0.7);
         <stop offset="1" stop-color="var(--ill-house-bottom)" />
       </linearGradient>
       <linearGradient id="sim-fill" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="var(--m-press)" stop-opacity=".06" />
-        <stop offset="1" stop-color="var(--m-press)" stop-opacity=".38" />
+        <stop offset="0" stop-color="var(--m-actuation)" stop-opacity=".06" />
+        <stop offset="1" stop-color="var(--m-actuation)" stop-opacity=".38" />
       </linearGradient>
       <pattern id="sim-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
         <rect width="3" height="6" fill="var(--m-deadzone)" opacity=".26" />
@@ -181,12 +181,12 @@ const field = computed(() => 0.12 + ratio.value * 0.7);
 <style scoped>
 .sim { display: block; width: 100%; max-width: 484px; height: auto; overflow: visible; }
 .sim__cap { stroke: var(--line-3); transition: stroke var(--t-fast) var(--ease); }
-.sim--on .sim__cap { stroke: var(--m-press); }
+.sim--on .sim__cap { stroke: var(--m-actuation); }
 .sim__magnet { fill: var(--fg-4); transition: fill var(--t-fast) var(--ease); }
-.sim--on .sim__magnet { fill: var(--m-press); }
+.sim--on .sim__magnet { fill: var(--m-actuation); }
 .sim__sensor { fill: var(--fg-4); transition: fill var(--t-fast) var(--ease); }
-.sim--on .sim__sensor { fill: var(--m-press); }
-.sim__field path { fill: none; stroke: var(--m-press); stroke-width: 1; stroke-dasharray: 3 3; }
+.sim--on .sim__sensor { fill: var(--m-actuation); }
+.sim__field path { fill: none; stroke: var(--m-actuation); stroke-width: 1; stroke-dasharray: 3 3; }
 .sim__ticks path { stroke: var(--fg-4); }
 .sim__ticks path.major { stroke: var(--fg-3); }
 .sim__ticks text { font-size: 10px; fill: var(--fg-3); font-variant-numeric: tabular-nums; }
@@ -196,8 +196,8 @@ const field = computed(() => 0.12 + ratio.value * 0.7);
 .sim__marker--act text { fill: var(--m-actuation); }
 .sim__marker--rel path { stroke: var(--m-release); stroke-dasharray: 4 3; }
 .sim__marker--rel text { fill: var(--m-release); }
-.sim__marker--reset path { stroke: var(--info); stroke-dasharray: 4 3; }
-.sim__marker--reset text { fill: var(--info); }
+.sim__marker--reset path { stroke: var(--m-release); stroke-dasharray: 4 3; }
+.sim__marker--reset text { fill: var(--m-release); }
 .sim__marker--react path { stroke: var(--m-press); stroke-dasharray: 4 3; }
 .sim__marker--react text { fill: var(--m-press); }
 .sim__marker--dead path { stroke: var(--m-deadzone); stroke-width: 1; opacity: 0.5; }

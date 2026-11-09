@@ -240,7 +240,7 @@ const simLabel = computed(() => t('live.simLabel', { key: keyName.value, mm: vie
 
       <Card class="graphcard" :title="t('live.graph')">
         <template #actions>
-          <span class="legend"><i class="dot dot--press" />{{ t('live.legendPress') }}</span>
+          <span class="legend"><i class="dot dot--act" />{{ t('live.legendPress') }}</span>
           <span class="legend"><i class="dot dot--release" />{{ t('live.legendRelease') }}</span>
           <IconButton
             :icon="graphPaused ? IconPlayerPlay : IconPlayerPause"
@@ -332,10 +332,10 @@ const simLabel = computed(() => t('live.simLabel', { key: keyName.value, mm: vie
 }
 .lamp__text { font-weight: 600; letter-spacing: 0.06em; color: var(--fg-3); font-size: var(--fs-body); }
 .lamp__src { font-size: var(--fs-caption); color: var(--fg-4); }
-.lamp--on { background: color-mix(in srgb, var(--m-press) var(--soft-pct), transparent); border-color: color-mix(in srgb, var(--m-press) 45%, transparent); }
-.lamp--on .lamp__light { background: var(--m-press); box-shadow: 0 0 12px var(--m-press), 0 0 2px var(--m-press); }
+.lamp--on { background: color-mix(in srgb, var(--m-actuation) var(--soft-pct), transparent); border-color: color-mix(in srgb, var(--m-actuation) 45%, transparent); }
+.lamp--on .lamp__light { background: var(--m-actuation); box-shadow: 0 0 12px var(--m-actuation), 0 0 2px var(--m-actuation); }
 .lamp--on .lamp__text { color: var(--fg-1); }
-.lamp--on .lamp__src { color: var(--fg-3); }
+.lamp--on .lamp__src { color: var(--fg-2); }
 
 .mismatch {
   display: flex;
@@ -354,7 +354,7 @@ const simLabel = computed(() => t('live.simLabel', { key: keyName.value, mm: vie
 .big { font-size: 56px; font-weight: 600; letter-spacing: -0.03em; line-height: 1; }
 .big .unit { margin-left: 6px; font-size: var(--fs-card); font-weight: 500; color: var(--fg-3); letter-spacing: 0; }
 .bar { height: 4px; border-radius: 2px; background: var(--bg-4); overflow: hidden; }
-.bar span { display: block; height: 100%; background: var(--m-press); transform-origin: left; }
+.bar span { display: block; height: 100%; background: var(--m-actuation); transform-origin: left; }
 
 .stats {
   display: grid;
@@ -375,6 +375,6 @@ const simLabel = computed(() => t('live.simLabel', { key: keyName.value, mm: vie
 
 .legend { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-label); color: var(--fg-3); margin-right: var(--s-2); }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.dot--press { background: var(--m-press); }
+.dot--act { background: var(--m-actuation); }
 .dot--release { border: 1.5px solid var(--m-release); }
 </style>

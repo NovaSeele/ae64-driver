@@ -37,8 +37,7 @@ const COLOURS: Record<string, string> = {
   'bg-2': 'var(--bg-2)',
   actuation: 'var(--m-actuation)',
   release: 'var(--m-release)',
-  press: 'var(--m-press)',
-  'press-fill': 'color-mix(in srgb, var(--m-press) 14%, transparent)',
+  'actuation-fill': 'color-mix(in srgb, var(--m-actuation) 14%, transparent)',
   deadzone: 'var(--m-deadzone)',
 };
 
@@ -144,7 +143,7 @@ function draw(now: number) {
     c.lineTo(lastX, y0);
     c.lineTo(firstX, y0);
     c.closePath();
-    c.fillStyle = col['press-fill'];
+    c.fillStyle = col['actuation-fill'];
     c.fill();
   }
 
@@ -156,7 +155,7 @@ function draw(now: number) {
     c.beginPath();
     c.arc(x, y, e.kind === 'press' ? 4 : 3.5, 0, Math.PI * 2);
     if (e.kind === 'press') {
-      c.fillStyle = col.press;
+      c.fillStyle = col.actuation;
       c.fill();
     } else {
       c.fillStyle = col['bg-2'];
