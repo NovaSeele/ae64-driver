@@ -128,7 +128,15 @@ describe('ProfileSelect double-click on another profile', () => {
     await w.get('.ps__trigger').trigger('click');
     await w.findAll('[role="option"]')[2].trigger('click'); // first click: switches and closes
     expect(spy).toHaveBeenCalledWith(2);
-    link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); // second click of the double-click
+    const onDown = vi.fn();
+    link.addEventListener('pointerdown', onDown);
+    link.addEventListener('mousedown', onDown);
+    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    link.dispatchEvent(new Event('pointerdown', { bubbles: true, cancelable: true }));
+    link.dispatchEvent(down); // second press of the double-click: focus would move here
+    link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(onDown).not.toHaveBeenCalled();
+    expect(down.defaultPrevented).toBe(true);
     expect(onLink).not.toHaveBeenCalled();
     await new Promise((r) => setTimeout(r, 320));
     link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));

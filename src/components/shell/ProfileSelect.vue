@@ -159,17 +159,16 @@ function pick(i: number, now = false) {
   void choose(i);
 }
 
+const SWALLOWED = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'dblclick'] as const;
+
 /** After a mouse pick closes the popover, the rest of a double-click would land on whatever was under it
  *  (in the sidebar, a nav link): ignore clicks for a moment. */
 function swallowClicks() {
   const until = performance.now() + 300;
+  // Down events too: focus moves on mousedown and the keyboard view selects keys on pointer events.
   const stop = (e: Event) => { if (performance.now() < until) { e.preventDefault(); e.stopPropagation(); } };
-  document.addEventListener('click', stop, true);
-  document.addEventListener('dblclick', stop, true);
-  window.setTimeout(() => {
-    document.removeEventListener('click', stop, true);
-    document.removeEventListener('dblclick', stop, true);
-  }, 300);
+  for (const type of SWALLOWED) document.addEventListener(type, stop, true);
+  window.setTimeout(() => { for (const type of SWALLOWED) document.removeEventListener(type, stop, true); }, 300);
 }
 
 function onRowDblclick(i: number) {
