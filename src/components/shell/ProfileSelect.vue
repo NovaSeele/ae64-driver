@@ -155,7 +155,21 @@ function pick(i: number, now = false) {
     return;
   }
   close(true);
+  if (!now) swallowClicks();
   void choose(i);
+}
+
+/** After a mouse pick closes the popover, the rest of a double-click would land on whatever was under it
+ *  (in the sidebar, a nav link): ignore clicks for a moment. */
+function swallowClicks() {
+  const until = performance.now() + 300;
+  const stop = (e: Event) => { if (performance.now() < until) { e.preventDefault(); e.stopPropagation(); } };
+  document.addEventListener('click', stop, true);
+  document.addEventListener('dblclick', stop, true);
+  window.setTimeout(() => {
+    document.removeEventListener('click', stop, true);
+    document.removeEventListener('dblclick', stop, true);
+  }, 300);
 }
 
 function onRowDblclick(i: number) {

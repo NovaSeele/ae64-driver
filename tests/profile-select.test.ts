@@ -116,3 +116,22 @@ describe('ProfileSelect', () => {
     expect(names).toEqual(device.profileNames);
   });
 });
+
+describe('ProfileSelect double-click on another profile', () => {
+  it('ignores the second click that lands under the closed popover', async () => {
+    const { spy, w } = await setup();
+    const link = document.createElement('a');
+    link.href = '#/keymap';
+    const onLink = vi.fn((e: Event) => e.preventDefault());
+    link.addEventListener('click', onLink);
+    document.body.appendChild(link);
+    await w.get('.ps__trigger').trigger('click');
+    await w.findAll('[role="option"]')[2].trigger('click'); // first click: switches and closes
+    expect(spy).toHaveBeenCalledWith(2);
+    link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); // second click of the double-click
+    expect(onLink).not.toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 320));
+    link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(onLink).toHaveBeenCalledTimes(1); // later clicks work again
+  });
+});
