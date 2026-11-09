@@ -88,7 +88,12 @@ Updates run strictly on demand when requested by the user:
 
 - `public/sw.js` is byte-static across builds. Browsers check service worker scripts byte-by-byte and find no differences, preventing silent auto-reloads.
 - Builds emit `dist/release.json` via `build/release.ts`: `{ version, builtAt, files }`, where `version` matches `__APP_VERSION__` (`package.json` version + UTC timestamp).
-- On initial install, `sw.js` fetches `release.json` (no-store), populates cache `ae64-app-<version>`, and records the version in `ae64-meta`.
+- The page registers `sw.js` only after `load`, when idle, so the first visit's precache does not compete with the page's own chunks and font.
+- On initial install, `sw.js` fetches `release.json` (no-store), populates cache `ae64-app-<version>`, and records the version in `ae64-meta`. Unhashed files (`/`, `index.html`, manifest, favicon) are fetched `no-cache`; hashed `/assets/` files may come from the HTTP cache (install and apply alike).
 - Fetch interceptor: navigations return cached `index.html`; app assets return cache-first; `release.json` always fetches network `no-store`.
 - Update flow: the user clicks "Check for updates" in Rail help; page posts `{ type: 'check' }` to SW via MessageChannel. If a new version exists, the user can click "Update", triggering `{ type: 'apply' }`, which atomically caches all new files, swaps `ae64-meta`, deletes the old cache, and triggers `location.reload()`.
-- Production hosting (nginx): `/assets/` immutable; `index.html`, `sw.js`, and `release.json` no-cache.
+- An `apply` without a `version` (pages built before da1f195) takes the latest release, still only when it is newer.
+- Production hosting (nginx, `/etc/nginx/sites-available/ae64max` on the VPS, not in this repo): `/assets/` immutable; `index.html`, `sw.js`, and `release.json` no-cache.
+- Content-Security-Policy (set twice in that file: server block and the `index.html` location):
+  `default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none'`.
+  `https://static.cloudflareinsights.com` is there on purpose: Cloudflare Web Analytics auto-injects its beacon (visitor statistics), served from `/beacon.min.js/v<hash>`, so the source is the whole host, not a path. The beacon reports to `/cdn-cgi/rum` on this origin, so `connect-src` stays `'self'`. Do not remove it, and do not widen the policy beyond it (no inline scripts, no `unsafe-*` for scripts).
