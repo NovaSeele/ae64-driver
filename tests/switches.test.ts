@@ -67,7 +67,7 @@ describe('switch photos', () => {
 
   it('ships a photo only for switches in the catalog', () => {
     const withPhoto = catalog.filter((e) => switchImage(e.id));
-    expect(withPhoto.length).toBe(46);
+    expect(withPhoto.length).toBe(50);
     expect(switchImage(4208)).toMatch(/4208.*\.webp$/); // Apollo
   });
 
@@ -84,6 +84,7 @@ describe('switch makers', () => {
 
   it('names a maker unless it is unknown', () => {
     expect(switchBrand(12432)).toBe('Ur Studio'); // UR Ice HE-Ex
+    expect(switchBrand(2128)).toBe('HUANO'); // Star Eye, filed under GATERON by the driver
     expect(catalog.filter((e) => switchBrand(e.id) === null).length).toBeGreaterThan(0);
     expect(catalog.some((e) => switchBrand(e.id) === 'Unknown')).toBe(false);
     expect(switchBrand(1)).toBeNull();
