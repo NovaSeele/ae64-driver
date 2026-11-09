@@ -15,6 +15,7 @@ import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
 import { useSyncStore } from '../stores/sync';
 import { hexToRgb, rgbToHex, useLightingStore } from '../stores/lighting';
+import { inkFor } from '../colorInk';
 import { LED_MATRIX_COLS, LED_STRIP_COUNT } from '../protocol';
 import type { PhysicalKey } from '../protocol';
 import { t } from '../i18n/vi';
@@ -272,9 +273,7 @@ function swatchInk(index: number): 'dark' | 'light' {
   const hex = swatchHex(index);
   if (!hex) return 'light';
   const { r, g, b } = hexToRgb(hex);
-  // WCAG relative luminance of the LED colour itself (never of the theme).
-  const lin = (c: number) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
-  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b) > 0.35 ? 'dark' : 'light';
+  return inkFor(r, g, b); // from the LED colour itself, never the theme
 }
 
 // ------------------------------------------------------------------ Per-key / per-LED colours
@@ -946,7 +945,7 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
-/* Light swatches (luminance > 0.35: yellow, cyan, white...): dark number, no halo */
+/* Swatches where the dark ink contrasts more (yellow, cyan, white, magenta...): dark number, no halo */
 .palette-swatch--dark-ink .palette-swatch__num {
   color: #111318;
   text-shadow: none;
