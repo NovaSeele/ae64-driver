@@ -138,8 +138,37 @@ describe('ProfileSelect double-click on another profile', () => {
     expect(onDown).not.toHaveBeenCalled();
     expect(down.defaultPrevented).toBe(true);
     expect(onLink).not.toHaveBeenCalled();
-    await new Promise((r) => setTimeout(r, 320));
+    await new Promise((r) => setTimeout(r, 520));
+    link.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
     link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    expect(onLink).toHaveBeenCalledTimes(1); // later clicks work again
+    expect(onLink).toHaveBeenCalledTimes(1); // a new press after the 500 ms window works again
+  });
+
+  it('a press that starts inside the window stays swallowed through its late release and click', async () => {
+    const { spy, w } = await setup();
+    const link = document.createElement('a');
+    link.href = '#/performance';
+    const onLink = vi.fn((e: Event) => e.preventDefault());
+    const onUp = vi.fn();
+    link.addEventListener('click', onLink);
+    link.addEventListener('mouseup', onUp);
+    link.addEventListener('pointerup', onUp);
+    document.body.appendChild(link);
+    await w.get('.ps__trigger').trigger('click');
+    await w.findAll('[role="option"]')[2].trigger('click');
+    expect(spy).toHaveBeenCalledWith(2);
+    await new Promise((r) => setTimeout(r, 400)); // a slow double-click: second press at +400 ms
+    link.dispatchEvent(new Event('pointerdown', { bubbles: true, cancelable: true }));
+    link.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 200)); // released after the window has ended
+    link.dispatchEvent(new Event('pointerup', { bubbles: true, cancelable: true }));
+    link.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+    link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    link.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    expect(onUp).not.toHaveBeenCalled();
+    expect(onLink).not.toHaveBeenCalled();
+    link.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(onLink).toHaveBeenCalledTimes(1); // the next real press goes through
   });
 });

@@ -162,13 +162,26 @@ function pick(i: number, now = false) {
 const SWALLOWED = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'dblclick'] as const;
 
 /** After a mouse pick closes the popover, the rest of a double-click would land on whatever was under it
- *  (in the sidebar, a nav link): ignore clicks for a moment. */
+ *  (a keycap, a nav link). Presses that start within SWALLOW_MS are ignored, together with their release and
+ *  click even when those come later; everything stops after SWALLOW_CAP_MS. */
+const SWALLOW_MS = 500; // Windows' default double-click time
+const SWALLOW_CAP_MS = 1000;
 function swallowClicks() {
-  const until = performance.now() + 300;
-  // Down events too: focus moves on mousedown and the keyboard view selects keys on pointer events.
-  const stop = (e: Event) => { if (performance.now() < until) { e.preventDefault(); e.stopPropagation(); } };
+  const until = performance.now() + SWALLOW_MS;
+  let held = false; // a swallowed press whose release/click has not come yet
+  const stop = (e: Event) => {
+    const isDown = e.type === 'pointerdown' || e.type === 'mousedown';
+    const inWindow = performance.now() < until;
+    if (isDown && !inWindow) { held = false; return; } // a new press after the window is real input
+    // dblclick stays swallowed until the cap: only profile rows use it, and the popover is closed
+    if (!inWindow && !held && e.type !== 'dblclick') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (isDown) held = true;
+    else if (e.type === 'click') held = false;
+  };
   for (const type of SWALLOWED) document.addEventListener(type, stop, true);
-  window.setTimeout(() => { for (const type of SWALLOWED) document.removeEventListener(type, stop, true); }, 300);
+  window.setTimeout(() => { for (const type of SWALLOWED) document.removeEventListener(type, stop, true); }, SWALLOW_CAP_MS);
 }
 
 function onRowDblclick(i: number) {
