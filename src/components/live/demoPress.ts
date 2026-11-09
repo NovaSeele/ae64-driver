@@ -63,19 +63,28 @@ export function attachDemoPress(mock: MockTransport): () => void {
 
   function onDown(e: KeyboardEvent) {
     const id = keyIdForCode(e.code);
-    if (id === undefined || typing(e)) return;
+    if (id === undefined) return;
+    const el = e.target as HTMLElement | null;
+    const inTest = !!el?.closest?.('[data-keytest]');
+    if (!inTest && typing(e)) return;
     // Leave shortcuts (Ctrl+Z…) alone: modifiers only count when pressed on their own.
     if ((e.ctrlKey && e.code !== 'ControlLeft') || (e.metaKey && e.code !== 'MetaLeft')) return;
-    e.preventDefault();
-    e.stopPropagation();
+    if (!inTest) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (!e.repeat) go(id, BOTTOM_MM);
   }
 
   function onUp(e: KeyboardEvent) {
     const id = keyIdForCode(e.code);
     if (id === undefined || !anims.has(id)) return;
-    e.preventDefault();
-    e.stopPropagation();
+    const el = e.target as HTMLElement | null;
+    const inTest = !!el?.closest?.('[data-keytest]');
+    if (!inTest) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     go(id, 0);
   }
 

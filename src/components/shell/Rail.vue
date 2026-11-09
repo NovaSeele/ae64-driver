@@ -163,7 +163,6 @@ function formatUpdateDate(iso: string): string {
           <dt><kbd>Ctrl</kbd>+<kbd>Z</kbd> · <kbd>Ctrl</kbd>+<kbd>Y</kbd></dt><dd>{{ t('help.shortcutUndo') }}</dd>
           <dt><kbd>Esc</kbd></dt><dd>{{ t('help.shortcutSelect') }}</dd>
         </dl>
-        <p class="help__safe">{{ t('help.safety') }}</p>
       </div>
     </Dialog>
   </nav>
@@ -258,7 +257,6 @@ function formatUpdateDate(iso: string): string {
   border: 1px solid var(--line-2);
   background: var(--bg-3);
 }
-.help__safe { color: var(--fg-3); font-size: var(--fs-label); }
 .help__update {
   display: flex;
   flex-direction: column;

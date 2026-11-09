@@ -156,7 +156,7 @@ function onKeyDown(e: KeyboardEvent, key: PhysicalKey) {
 function onWindowKey(e: KeyboardEvent) {
   if (e.key !== 'Escape' || !props.selectable || e.defaultPrevented) return;
   const el = e.target as HTMLElement | null;
-  if (el?.closest('[role="dialog"]') || el?.tagName === 'INPUT') return;
+  if (el?.closest('[role="dialog"]') || el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA' || el?.isContentEditable) return;
   sel.clear();
 }
 

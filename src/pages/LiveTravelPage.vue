@@ -3,7 +3,7 @@
 // from the key's settings. Polling lives in stores/live.ts; this page renders from one rAF loop.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { IconAdjustmentsHorizontal, IconAlertTriangle, IconPlayerPause, IconPlayerPlay, IconRefresh, IconTrash } from '@tabler/icons-vue';
+import { IconAdjustmentsHorizontal, IconAlertTriangle, IconEraser, IconPlayerPause, IconPlayerPlay, IconRefresh, IconTrash } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import SwitchSim from '../components/live/SwitchSim.vue';
@@ -149,6 +149,29 @@ const followOptions = computed(() => [
   { value: 'pin' as const, label: t('live.followPinned'), title: t('live.followPinnedHint') },
 ]);
 const simLabel = computed(() => t('live.simLabel', { key: keyName.value, mm: view.value.current.toFixed(2) }));
+
+// ----- typing test box (pure UI, no HID traffic)
+const typed = ref('');
+const lastKey = ref('');
+const boxRef = ref<HTMLTextAreaElement | null>(null);
+
+function clearTyped() {
+  typed.value = '';
+  lastKey.value = '';
+  boxRef.value?.focus();
+}
+
+function onTypeKey(e: KeyboardEvent) {
+  if (e.key === ' ') {
+    lastKey.value = 'Space';
+  } else if (e.key === 'Unidentified' || e.key === 'Dead' || e.key === 'Process') {
+    lastKey.value = e.code;
+  } else if (e.key.length === 1) {
+    lastKey.value = e.key.toUpperCase();
+  } else {
+    lastKey.value = e.key;
+  }
+}
 </script>
 
 <template>
@@ -236,6 +259,28 @@ const simLabel = computed(() => t('live.simLabel', { key: keyName.value, mm: vie
           <div><dt>{{ t('live.lastRelease') }}</dt><dd class="num">{{ fmt(view.lastRelease) }}<small>{{ unit(view.lastRelease) }}</small></dd></div>
           <div><dt>{{ t('live.rate') }}</dt><dd class="num">{{ Math.round(view.rate) }}<small>Hz</small></dd></div>
         </dl>
+
+        <div class="typetest">
+          <div class="typetest__head">
+            <span class="micro">{{ t('live.typeTest') }}</span>
+            <span v-if="lastKey" class="typetest__last num">{{ t('live.typeTestLast') }}: <b>{{ lastKey }}</b></span>
+            <IconButton :icon="IconEraser" :label="t('live.typeTestClear')" size="sm" :disabled="!typed && !lastKey" @click="clearTyped" />
+          </div>
+          <textarea
+            ref="boxRef"
+            v-model="typed"
+            data-keytest
+            class="typetest__box"
+            rows="3"
+            maxlength="2000"
+            spellcheck="false"
+            autocomplete="off"
+            autocapitalize="off"
+            :placeholder="t('live.typeTestPlaceholder')"
+            :aria-label="t('live.typeTest')"
+            @keydown="onTypeKey"
+          />
+        </div>
       </Card>
 
       <Card class="graphcard" :title="t('live.graph')">
@@ -377,4 +422,43 @@ const simLabel = computed(() => t('live.simLabel', { key: keyName.value, mm: vie
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot--act { background: var(--m-actuation); }
 .dot--release { border: 1.5px solid var(--m-release); }
+
+.typetest__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-4);
+}
+.typetest__last {
+  margin-left: auto;
+  font-size: var(--fs-caption);
+  color: var(--fg-3);
+}
+.typetest__last b {
+  color: var(--fg-1);
+  font-weight: 600;
+}
+.typetest__box {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 72px;
+  margin-top: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  background: var(--bg-2);
+  color: var(--fg-1);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-control);
+  font: inherit;
+  font-size: var(--fs-body);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.typetest__box:focus {
+  outline: none;
+  border-color: var(--acc-line);
+  box-shadow: var(--focus-ring);
+}
+.typetest__box::placeholder {
+  color: var(--fg-4);
+}
 </style>

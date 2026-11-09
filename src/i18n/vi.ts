@@ -170,7 +170,6 @@ export const base = {
   'help.shortcuts': 'Phím tắt',
   'help.shortcutUndo': 'Hoàn tác / Làm lại',
   'help.shortcutSelect': 'Bỏ chọn phím',
-  'help.safety': 'Ứng dụng không bao giờ gửi lệnh firmware (family 08) hay khôi phục cài đặt gốc.',
 
   // language
   'lang.switch': 'Ngôn ngữ / Language',

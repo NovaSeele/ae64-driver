@@ -81,4 +81,30 @@ describe('KeyboardView accessible status', () => {
     expect(w.find('.cap__badge').exists()).toBe(false);
     w.unmount();
   });
+
+  it('Escape keydown on a textarea does not clear the selection store', () => {
+    const sel = useSelectionStore();
+    sel.select(0);
+    expect(sel.ids).toEqual([0]);
+
+    const w = mount(KeyboardView, {
+      props: { keys: [key(0, 0), key(1, 1)], selectable: true },
+      attachTo: document.body,
+    });
+
+    const textarea = document.createElement('textarea');
+    document.body.appendChild(textarea);
+    textarea.focus();
+
+    const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    textarea.dispatchEvent(ev);
+    expect(sel.ids).toEqual([0]);
+
+    const escBody = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(escBody);
+    expect(sel.ids).toEqual([]);
+
+    textarea.remove();
+    w.unmount();
+  });
 });

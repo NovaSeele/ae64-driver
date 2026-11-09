@@ -44,4 +44,8 @@ export const liveVi = {
   'live.loadingSettings': 'Đang đọc cài đặt hành trình…',
   'live.modeContinuous': 'liên tục',
   'live.simLabel': 'Switch của phím {key}, đang ở {mm} mm',
+  'live.typeTest': 'Gõ thử',
+  'live.typeTestPlaceholder': 'Bấm vào đây rồi gõ: ký tự mỗi phím gửi sẽ hiện ở đây.',
+  'live.typeTestLast': 'Phím vừa bấm',
+  'live.typeTestClear': 'Xoá chữ',
 } as const;

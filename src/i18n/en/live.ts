@@ -46,4 +46,8 @@ export const liveEn: Record<keyof typeof liveVi, string> = {
   'live.loadingSettings': 'Loading travel settings…',
   'live.modeContinuous': 'continuous',
   'live.simLabel': 'Switch for {key}, at {mm} mm',
+  'live.typeTest': 'Typing test',
+  'live.typeTestPlaceholder': 'Click here and type: what each key sends shows up here.',
+  'live.typeTestLast': 'Last key',
+  'live.typeTestClear': 'Clear text',
 };

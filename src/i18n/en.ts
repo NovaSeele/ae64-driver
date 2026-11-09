@@ -167,7 +167,6 @@ const baseEn: Record<keyof typeof base, string> = {
   'help.shortcuts': 'Shortcuts',
   'help.shortcutUndo': 'Undo / Redo',
   'help.shortcutSelect': 'Deselect keys',
-  'help.safety': 'The app never sends firmware commands (family 08) or factory resets.',
 
   // language
   'lang.switch': 'Language / Ngôn ngữ',
