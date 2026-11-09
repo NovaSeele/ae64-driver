@@ -10,7 +10,7 @@ import { useToast } from '../ui/toast';
 import SwitchSwatch from './SwitchSwatch.vue';
 import { groupKeys } from './switchGroups';
 import { SWITCH_GROUPS } from '../../protocol/switches';
-import { switchBrand, switchName } from '../../data/switchDisplay';
+import { groupName, switchBrand, switchName } from '../../data/switchDisplay';
 import type { SwitchEntry } from '../../protocol/switches';
 import { isRtMode } from '../../protocol';
 import { useDeviceStore } from '../../stores/device';
@@ -24,17 +24,17 @@ const emit = defineEmits<{ applied: [] }>();
 const perf = usePerformanceStore();
 const device = useDeviceStore();
 
-const groupLabel = (g: string) => (g === 'Other' ? t('sw.groupOther') : g);
+const groupLabel = (g: string) => (g === 'Other' ? t('sw.groupOther') : groupName(g));
 const entries = computed(() => perf.catalog ?? []);
 const entriesOf = (g: string) => entries.value.filter((e) => e.group === g);
 const tabs = computed(() => SWITCH_GROUPS.map((g) => ({ id: g, label: groupLabel(g), count: entriesOf(g).length })));
 
 const keyGroups = computed(() => groupKeys(props.ids, perf.values, () => 0));
 const single = computed(() => keyGroups.value.length === 1);
-/** The maker eyebrow, only where the tab does not already name it (GATERON, TTC). */
+/** The maker eyebrow, only where the tab does not already name it (EVERGLIDE, GATERON, TTC). */
 const brandOf = (e: SwitchEntry) => {
   const b = switchBrand(e.id);
-  return b && b.toLowerCase() !== e.group.toLowerCase() ? b : null;
+  return b && b.toLowerCase() !== groupName(e.group).toLowerCase() ? b : null;
 };
 const inUse = computed(() => new Map(keyGroups.value.map((g) => [g.axisV2Id, g.ids.length] as const)));
 const known = (id: number) => entries.value.find((e) => e.id === id);

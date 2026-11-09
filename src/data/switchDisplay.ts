@@ -26,3 +26,8 @@ export function switchBrand(id: number): string | null {
   const b = NAMES[String(id)]?.brand;
   return b && b !== 'Unknown' ? b : null;
 }
+
+/** Display name of a catalog group (internal key unchanged): the driver files Everglide under 江湾, romanised JIANGWAN. */
+export function groupName(group: string): string {
+  return group === 'JIANGWAN' ? 'EVERGLIDE' : group;
+}

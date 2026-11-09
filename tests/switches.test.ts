@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SWITCH_GROUPS, findSwitch, isCatalogTriple, switchCatalogFor } from '../src/protocol/switches';
-import { switchBrand, switchImage, switchName } from '../src/data/switchDisplay';
+import { groupName, switchBrand, switchImage, switchName } from '../src/data/switchDisplay';
 
 describe('switch catalog', () => {
   const catalog = switchCatalogFor('0030000d')!;
@@ -67,12 +67,12 @@ describe('switch photos', () => {
 
   it('ships a photo only for switches in the catalog', () => {
     const withPhoto = catalog.filter((e) => switchImage(e.id));
-    expect(withPhoto.length).toBe(50);
+    expect(withPhoto.length).toBe(54);
     expect(switchImage(4208)).toMatch(/4208.*\.webp$/); // Apollo
   });
 
   it('falls back to the drawn swatch when there is no photo', () => {
-    expect(switchImage(8496)).toBeUndefined(); // KTEK Magnetic: background could not be removed cleanly
+    expect(switchImage(4240)).toBeUndefined(); // Magnetic Jade POM: no matching photo found yet
     expect(switchImage(1)).toBeUndefined();
     expect(switchImage(4416)).toBeUndefined(); // maker photo did not match the stem colour
     expect(switchImage(4528)).toBeUndefined(); // same
@@ -85,8 +85,17 @@ describe('switch makers', () => {
   it('names a maker unless it is unknown', () => {
     expect(switchBrand(12432)).toBe('Ur Studio'); // UR Ice HE-Ex
     expect(switchBrand(2128)).toBe('HUANO'); // Star Eye, filed under GATERON by the driver
+    expect(switchBrand(19504)).toBe('Everglide'); // Cullinan, in the driver's 江湾 group
     expect(catalog.filter((e) => switchBrand(e.id) === null).length).toBeGreaterThan(0);
     expect(catalog.some((e) => switchBrand(e.id) === 'Unknown')).toBe(false);
     expect(switchBrand(1)).toBeNull();
+  });
+});
+
+describe('switch group names', () => {
+  it('shows JIANGWAN (the Chinese name of Everglide) as EVERGLIDE and keeps the others', () => {
+    expect(groupName('JIANGWAN')).toBe('EVERGLIDE');
+    expect(groupName('GATERON')).toBe('GATERON');
+    expect(groupName('TTC')).toBe('TTC');
   });
 });
