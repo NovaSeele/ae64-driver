@@ -176,7 +176,8 @@ export class MockTransport extends BaseTransport {
       if (t <= s.extreme - p.rtRelease) { s.pressed = false; s.extreme = t; }
     } else {
       s.extreme = Math.min(s.extreme, t);
-      if (t >= s.extreme + p.rtPress) { s.pressed = true; s.extreme = t; }
+      // Never past the bottom: lifting near the bottom and pressing back down re-actuates, as on the real board.
+      if (t >= Math.min(s.extreme + p.rtPress, rangeMax)) { s.pressed = true; s.extreme = t; }
     }
     s.travel = t;
     this.live.set(keyId, s);

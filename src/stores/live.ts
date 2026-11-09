@@ -106,7 +106,7 @@ export class ActuationModel {
       return null;
     }
     this.trough = Math.min(this.trough, e);
-    if (e >= this.trough + s.rtPress - EPS) {
+    if (e >= this.reactuateThreshold() - EPS) {
       this.peak = e;
       return this.transition(true);
     }
@@ -123,7 +123,13 @@ export class ActuationModel {
   /** RT, released after a first actuation: the key re-actuates when it goes below this depth (mm). */
   get reactuateAt(): number | null {
     const s = this.settings;
-    return isRtMode(s.mode) && this.armed && !this.actuated ? Math.min(this.trough + s.rtPress, s.range) : null;
+    return isRtMode(s.mode) && this.armed && !this.actuated ? this.reactuateThreshold() : null;
+  }
+
+  /** trough + rtPress, but never past the bottom: a key lifted near the bottom re-actuates on reaching it
+   *  (the bottom dead zone reads as full travel), as the firmware does. Shared by update() and reactuateAt. */
+  reactuateThreshold(): number {
+    return Math.min(this.trough + this.settings.rtPress, this.settings.range);
   }
 
   /** Record a transition (public only so Pinia's unwrapped store type stays assignable). */

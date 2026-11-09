@@ -285,3 +285,39 @@ describe('live store (poller over MockTransport)', () => {
     await until(() => !live.running);
   });
 });
+
+describe('ActuationModel — Rapid Trigger near the bottom', () => {
+  // The real keyboard's defaults (device snapshot of the S key): Continuous RT, first touch 1.00,
+  // rtPress 0.80, rtRelease 0.30, dead zones 0.10, range 3.31.
+  const S: ActuationSettings = {
+    mode: 1, normalPress: 2, normalRelease: 0, rtFirstTouch: 1, rtPress: 0.8, rtRelease: 0.3,
+    pressDeadStroke: 0.1, releaseDeadStroke: 0.1, range: 3.31,
+  };
+  /** 0.05 mm steps through the waypoints, rounded to 0.01 like device samples. */
+  function path(points: number[]): number[] {
+    const out: number[] = [points[0]];
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1], b = points[i], n = Math.max(1, Math.round(Math.abs(b - a) / 0.05));
+      for (let k = 1; k <= n; k++) out.push(Math.round((a + ((b - a) * k) / n) * 100) / 100);
+    }
+    return out;
+  }
+
+  it('re-actuates on reaching the bottom after a lift whose trough + rtPress is past the bottom', () => {
+    const m = new ActuationModel(S);
+    const events = run(m, path([0, 2.87, 2.02, 2.87, 2.55, 3.27]));
+    expect(events.slice(0, 4).map((e) => e[0])).toEqual(['P', 'R', 'P', 'R']);
+    expect(events.at(-1)?.[0]).toBe('P'); // 2.55 + 0.80 = 3.35 > 3.31: the bottom band re-actuates
+    expect(m.actuated).toBe(true);
+    expect(m.reactuateAt).toBeNull();
+  });
+
+  it('shows the same re-actuation point it uses', () => {
+    const m = new ActuationModel(S);
+    run(m, path([0, 3.0, 2.55]));
+    expect(m.actuated).toBe(false);
+    expect(m.reactuateAt).toBeCloseTo(3.31);
+    expect(run(m, [3.2])).toEqual([]); // 3.2 is above the bottom dead zone and short of 3.35
+    expect(run(m, [3.25])).toEqual(['P@3.25']); // inside the bottom dead zone (≥ 3.21) = full travel
+  });
+});

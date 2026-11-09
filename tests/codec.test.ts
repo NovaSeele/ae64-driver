@@ -293,6 +293,21 @@ describe('mock transport', () => {
     expect((await t.getAxisData('keyStatus', 2)).values[w.col]).toBe(0);
   });
 
+  it('simulatePress re-actuates at the bottom after a lift whose trough + rtPress is past it', async () => {
+    const t = new MockTransport({ latencyMs: 0 });
+    const s = PHYSICAL_KEYS.find((k) => k.name === 'S')!;
+    const status = async () => (await t.getAxisData('keyStatus', s.row)).values[s.col];
+    const perf = await t.getPerformance({ row: s.row, col: s.col });
+    expect(perf.mode).toBe(1); // demo default: Continuous RT, rtPress 0.8, rtRelease 0.3
+    expect(perf.rtPress).toBeCloseTo(0.8);
+    for (const mm of [1.5, 3.31]) t.simulatePress(s.id, mm);
+    expect(await status()).toBe(1);
+    t.simulatePress(s.id, 2.55); // 3.31 − 0.3 → released, trough 2.55
+    expect(await status()).toBe(0);
+    t.simulatePress(s.id, 3.31); // 2.55 + 0.8 = 3.35 > 3.31: the bottom still re-actuates
+    expect(await status()).toBe(1);
+  });
+
   it('refuses writes until the board is identified as allowed', async () => {
     const t = new MockTransport({ latencyMs: 0 });
     await expect(t.commit(SAVE_GROUP.ALL)).rejects.toThrow();
