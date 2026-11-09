@@ -172,7 +172,7 @@ function onKey(e: KeyboardEvent) {
   border-radius: 50%;
   background: var(--fg-1);
   border: 3px solid var(--acc);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 1px 4px var(--cap-shade);
   transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
 .sl--v .sl__thumb { left: 50%; margin: -8px 0 0 -8px; }

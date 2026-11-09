@@ -16,7 +16,8 @@ const baseEn: Record<keyof typeof base, string> = {
   // navigation
   'nav.configure': 'Configure',
   'nav.live': 'Live travel',
-  'nav.help': 'About & help',
+  'nav.update': 'Updates & version',
+  'nav.updateAvailableSuffix': ', update available',
   'nav.collapse': 'Collapse sidebar',
   'nav.expand': 'Expand sidebar',
   'nav.groupProfile': 'Profile settings',

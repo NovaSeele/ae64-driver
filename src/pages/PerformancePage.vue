@@ -42,6 +42,12 @@ const router = useRouter();
 const toast = useToast();
 
 const metric = ref<Metric>('actuation');
+const METRIC_TONE: Record<Metric, string> = {
+  actuation: 'var(--m-actuation)',
+  rtPress: 'var(--m-press)',
+  rtRelease: 'var(--m-release)',
+  deadzone: 'var(--m-deadzone)',
+};
 const METRICS: { id: Metric; label: MessageKey }[] = [
   { id: 'actuation', label: 'perf.metricActuation' },
   { id: 'rtPress', label: 'perf.metricRtPress' },
@@ -213,6 +219,7 @@ const modeOptions = computed(() => [
         :badge-icon="badgeIcon"
         :fill="fill"
         :loading="perf.loading"
+        :style="{ '--metric': METRIC_TONE[metric] }"
         selectable
       />
     </template>
@@ -226,10 +233,11 @@ const modeOptions = computed(() => [
           type="button"
           role="radio"
           class="chip"
+          :style="{ '--chip': METRIC_TONE[m.id] }"
           :aria-checked="metric === m.id"
           @click="metric = m.id"
         >
-          {{ t(m.label) }}
+          <span class="chip__dot" aria-hidden="true" />{{ t(m.label) }}
         </button>
       </div>
       <p v-if="metric === 'actuation'" class="aside-hint">{{ t('perf.rtBadgeHint') }}</p>
@@ -443,6 +451,9 @@ const modeOptions = computed(() => [
 .aside-label { padding: 0 2px; }
 .chips { display: flex; flex-direction: column; gap: 4px; }
 .chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   height: 30px;
   padding: 0 12px;
   border-radius: var(--r-control);
@@ -456,7 +467,8 @@ const modeOptions = computed(() => [
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
 .chip:hover { color: var(--fg-1); border-color: var(--line-3); }
-.chip[aria-checked='true'] { background: var(--acc-soft); border-color: var(--acc-line); color: var(--acc); }
+.chip__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--chip); flex: none; }
+.chip[aria-checked='true'] { background: var(--bg-3); border-color: color-mix(in srgb, var(--chip) 55%, transparent); color: var(--fg-1); }
 .try { margin-top: var(--s-2); }
 
 @media (max-width: 1360px) {

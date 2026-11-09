@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { IconActivity, IconAdjustments, IconHelpCircle, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconSettings } from '@tabler/icons-vue';
+import { IconActivity, IconAdjustments, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconRefresh, IconSettings } from '@tabler/icons-vue';
 import Dialog from '../ui/Dialog.vue';
 import Button from '../ui/Button.vue';
 import Segmented from '../ui/Segmented.vue';
@@ -43,6 +43,10 @@ const LANG_OPTIONS = computed<{ value: Locale; label: string; title: string }[]>
   { value: 'en', label: 'EN', title: t('lang.en') },
 ]);
 
+const updatePending = computed(() => update.state === 'available' || update.state === 'deferred');
+const updateBusy = computed(() => update.state === 'checking' || update.state === 'downloading');
+const updateLabel = computed(() => t('nav.update') + (updatePending.value ? t('nav.updateAvailableSuffix') : ''));
+
 function formatUpdateDate(iso: string): string {
   try {
     const d = new Date(iso);
@@ -57,10 +61,20 @@ function formatUpdateDate(iso: string): string {
 <template>
   <nav class="rail" :aria-label="t('app.name')">
     <div class="rail__mark" aria-hidden="true">
-      <svg viewBox="0 0 32 32" width="28" height="28">
-        <rect x="3" y="5" width="26" height="22" rx="6" fill="var(--bg-3)" stroke="var(--acc)" stroke-width="1.6" />
-        <path d="M11 21 L16 11 L21 21" fill="none" stroke="var(--acc)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
-        <path d="M13.3 17.5h5.4" stroke="var(--acc)" stroke-width="2" stroke-linecap="round" />
+      <svg viewBox="0 0 32 32" width="30" height="30">
+        <rect x="2.5" y="7.5" width="27" height="17" rx="4.5" fill="var(--bg-3)" stroke="var(--acc)" stroke-width="1.6" />
+        <g fill="var(--acc)">
+          <rect x="6" y="11" width="3" height="3" rx="0.9" />
+          <rect x="10.5" y="11" width="3" height="3" rx="0.9" />
+          <rect x="15" y="11" width="3" height="3" rx="0.9" />
+          <rect x="19.5" y="11" width="3" height="3" rx="0.9" />
+          <rect x="24" y="11" width="2.5" height="3" rx="0.9" opacity="0.55" />
+          <rect x="6" y="15.5" width="5" height="3" rx="0.9" opacity="0.55" />
+          <rect x="12.5" y="15.5" width="3" height="3" rx="0.9" />
+          <rect x="17" y="15.5" width="3" height="3" rx="0.9" />
+          <rect x="21.5" y="15.5" width="5" height="3" rx="0.9" />
+          <rect x="10" y="20" width="12" height="2.2" rx="1.1" />
+        </g>
       </svg>
     </div>
     <button
@@ -86,8 +100,9 @@ function formatUpdateDate(iso: string): string {
       <Segmented v-model="currentLocale" :options="LANG_OPTIONS" :label="t('lang.switch')" size="sm" />
     </div>
 
-    <button type="button" class="rail__icon" :aria-label="t('nav.help')" :title="t('nav.help')" @click="help = true">
-      <IconHelpCircle :size="19" stroke-width="1.5" />
+    <button type="button" class="rail__icon" :aria-label="updateLabel" :title="updateLabel" @click="help = true">
+      <IconRefresh class="rail__refresh" :class="{ 'rail__refresh--spin': updateBusy }" :size="19" stroke-width="1.5" />
+      <span v-if="updatePending" class="rail__dot" aria-hidden="true" />
     </button>
 
     <Dialog v-model:open="help" :title="t('help.title')" :width="480">
@@ -183,9 +198,10 @@ function formatUpdateDate(iso: string): string {
   text-align: center;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
-.rail__btn:hover:not(:disabled) { color: var(--fg-1); background: var(--bg-3); }
+.rail__btn:hover:not(:disabled) { color: var(--fg-1); background: var(--bg-2); }
 .rail__btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.rail__btn--on { color: var(--acc); background: var(--acc-soft); }
+.rail__btn--on, .rail__btn--on:hover:not(:disabled) { color: var(--fg-1); background: var(--bg-3); }
+.rail__btn--on :deep(svg) { color: var(--acc); }
 .rail__spacer { flex: 1; }
 .rail__lang {
   display: flex;
@@ -203,6 +219,7 @@ function formatUpdateDate(iso: string): string {
   font-weight: 600;
 }
 .rail__icon {
+  position: relative;
   display: grid;
   place-items: center;
   width: 36px;
@@ -214,6 +231,21 @@ function formatUpdateDate(iso: string): string {
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 .rail__icon:hover { color: var(--fg-1); background: var(--bg-3); }
+.rail__dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--acc);
+  box-shadow: 0 0 0 2px var(--bg-1);
+}
+.rail__refresh--spin { animation: rail-spin 1s linear infinite; }
+@keyframes rail-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .rail__refresh--spin { animation: none; }
+}
 .help { display: flex; flex-direction: column; gap: var(--s-3); }
 .help dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
 .help dt { color: var(--fg-1); }

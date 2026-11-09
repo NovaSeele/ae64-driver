@@ -560,12 +560,12 @@ async function doRestore() {
   flex: none;
 }
 .diag-log-line__dir--in {
-  color: #60a5fa;
-  background: rgba(96, 165, 250, 0.12);
+  color: var(--d-in);
+  background: color-mix(in srgb, var(--d-in) 14%, transparent);
 }
 .diag-log-line__dir--out {
-  color: #3fe0c5;
-  background: rgba(63, 224, 197, 0.12);
+  color: var(--d-out);
+  background: color-mix(in srgb, var(--d-out) 14%, transparent);
 }
 .diag-log-line__hex {
   color: var(--fg-2);

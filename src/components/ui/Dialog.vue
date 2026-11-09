@@ -65,7 +65,7 @@ function trap(e: KeyboardEvent) {
   z-index: 100;
   display: grid;
   place-items: center;
-  background: rgba(5, 6, 8, 0.6);
+  background: var(--scrim);
   backdrop-filter: blur(3px);
 }
 .dlg__panel {

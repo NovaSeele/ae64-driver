@@ -91,7 +91,7 @@ const LANG_OPTIONS = computed<{ value: Locale; label: string; title: string }[]>
   display: grid;
   place-items: center;
   padding: var(--s-8);
-  background: radial-gradient(ellipse 60% 50% at 50% 35%, rgba(63, 224, 197, 0.06), transparent 70%);
+  background: radial-gradient(ellipse 60% 50% at 50% 35%, color-mix(in srgb, var(--acc) 6%, transparent), transparent 70%);
   position: relative;
 }
 .cs__lang {
@@ -110,7 +110,7 @@ const LANG_OPTIONS = computed<{ value: Locale; label: string; title: string }[]>
   animation: rise var(--t-slow) var(--ease) both;
 }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
-.cs__art { margin-bottom: var(--s-3); filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.4)); }
+.cs__art { margin-bottom: var(--s-3); filter: drop-shadow(0 20px 40px var(--cap-shade)); }
 .cs__title { font-size: var(--fs-hero); }
 .cs__sub { color: var(--fg-2); max-width: 440px; }
 .cs__actions { display: flex; gap: var(--s-3); margin: var(--s-3) 0; flex-wrap: wrap; justify-content: center; }

@@ -327,14 +327,14 @@ const simLabel = computed(() => t('live.simLabel', { key: keyName.value, mm: vie
   height: 14px;
   border-radius: 50%;
   background: var(--fg-4);
-  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.4);
+  box-shadow: inset 0 1px 1px var(--cap-shade);
   transition: background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
 .lamp__text { font-weight: 600; letter-spacing: 0.06em; color: var(--fg-3); font-size: var(--fs-body); }
 .lamp__src { font-size: var(--fs-caption); color: var(--fg-4); }
-.lamp--on { background: var(--acc-soft); border-color: var(--acc-line); }
-.lamp--on .lamp__light { background: var(--acc); box-shadow: 0 0 12px var(--acc), 0 0 2px var(--acc); }
-.lamp--on .lamp__text { color: var(--acc); }
+.lamp--on { background: color-mix(in srgb, var(--m-press) 16%, transparent); border-color: color-mix(in srgb, var(--m-press) 45%, transparent); }
+.lamp--on .lamp__light { background: var(--m-press); box-shadow: 0 0 12px var(--m-press), 0 0 2px var(--m-press); }
+.lamp--on .lamp__text { color: var(--fg-1); }
 .lamp--on .lamp__src { color: var(--fg-3); }
 
 .mismatch {
@@ -354,7 +354,7 @@ const simLabel = computed(() => t('live.simLabel', { key: keyName.value, mm: vie
 .big { font-size: 56px; font-weight: 600; letter-spacing: -0.03em; line-height: 1; }
 .big .unit { margin-left: 6px; font-size: var(--fs-card); font-weight: 500; color: var(--fg-3); letter-spacing: 0; }
 .bar { height: 4px; border-radius: 2px; background: var(--bg-4); overflow: hidden; }
-.bar span { display: block; height: 100%; background: var(--acc); transform-origin: left; }
+.bar span { display: block; height: 100%; background: var(--m-press); transform-origin: left; }
 
 .stats {
   display: grid;
@@ -371,10 +371,10 @@ const simLabel = computed(() => t('live.simLabel', { key: keyName.value, mm: vie
 .stats dt { font-size: var(--fs-caption); color: var(--fg-3); }
 .stats dd { margin: 0; font-size: var(--fs-hero); font-weight: 600; letter-spacing: -0.01em; }
 .stats dd small { margin-left: 4px; font-size: var(--fs-label); font-weight: 500; color: var(--fg-3); }
-.stats dd.acc { color: var(--acc); }
+.stats dd.acc { color: var(--m-actuation); }
 
 .legend { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-label); color: var(--fg-3); margin-right: var(--s-2); }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.dot--press { background: var(--acc); }
-.dot--release { border: 1.5px solid var(--fg-2); }
+.dot--press { background: var(--m-press); }
+.dot--release { border: 1.5px solid var(--m-release); }
 </style>

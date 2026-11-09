@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // Last 3 s of the focused key's travel on a canvas, redrawn every animation frame straight from the live
 // store's ring buffer (no Vue reactivity per sample). Depth grows downwards, like the switch gauge.
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { ActuationSettings, LiveData } from '../../stores/live';
 import { releasePoint } from '../../stores/live';
 import { isRtMode } from '../../protocol';
+import { resolvedTheme } from '../../theme';
 
 const props = defineProps<{
   data: LiveData;
@@ -18,6 +19,7 @@ const WINDOW_MS = 3000;
 const PAD = { l: 34, r: 10, t: 10, b: 10 };
 
 const canvas = ref<HTMLCanvasElement | null>(null);
+const probeEl = ref<HTMLSpanElement | null>(null);
 let ctx: CanvasRenderingContext2D | null = null;
 let raf = 0;
 let ro: ResizeObserver | null = null;
@@ -26,10 +28,27 @@ let h = 0;
 let frozenAt = 0;
 const col: Record<string, string> = {};
 
+// Canvas cannot take var() or color-mix(): resolve each colour through a hidden probe element's computed colour.
+const COLOURS: Record<string, string> = {
+  'line-1': 'var(--line-1)',
+  'fg-1': 'var(--fg-1)',
+  'fg-2': 'var(--fg-2)',
+  'fg-3': 'var(--fg-3)',
+  'bg-2': 'var(--bg-2)',
+  actuation: 'var(--m-actuation)',
+  release: 'var(--m-release)',
+  press: 'var(--m-press)',
+  'press-fill': 'color-mix(in srgb, var(--m-press) 14%, transparent)',
+  deadzone: 'var(--m-deadzone)',
+};
+
 function readColours() {
-  const cs = getComputedStyle(document.documentElement);
-  for (const name of ['acc', 'acc-line', 'acc-soft', 'fg-1', 'fg-2', 'fg-3', 'fg-4', 'line-1', 'line-2', 'warn', 'bg-2']) {
-    col[name] = cs.getPropertyValue(`--${name}`).trim() || '#888';
+  const probe = probeEl.value;
+  if (!probe) return;
+  for (const [name, value] of Object.entries(COLOURS)) {
+    probe.style.color = '';
+    probe.style.color = value;
+    col[name] = getComputedStyle(probe).color || '#888';
   }
 }
 
@@ -85,8 +104,8 @@ function draw(now: number) {
   // settings: dead zones + trigger lines
   const st = props.settings;
   if (st) {
-    c.fillStyle = col.warn;
-    c.globalAlpha = 0.08;
+    c.fillStyle = col.deadzone;
+    c.globalAlpha = 0.14;
     if (st.pressDeadStroke > 0) c.fillRect(x0, Y(0), x1 - x0, Y(st.pressDeadStroke) - Y(0));
     if (st.releaseDeadStroke > 0) c.fillRect(x0, Y(range - st.releaseDeadStroke), x1 - x0, Y(range) - Y(range - st.releaseDeadStroke));
     c.globalAlpha = 1;
@@ -97,11 +116,11 @@ function draw(now: number) {
       c.beginPath(); c.moveTo(x0, y); c.lineTo(x1, y); c.stroke();
       c.setLineDash([]);
     };
-    if (isRtMode(st.mode)) line(st.rtFirstTouch, col.acc, [5, 4]);
+    if (isRtMode(st.mode)) line(st.rtFirstTouch, col.actuation, [5, 4]);
     else {
-      line(st.normalPress, col.acc, [5, 4]);
+      line(st.normalPress, col.actuation, [5, 4]);
       const rel = releasePoint(st);
-      if (Math.abs(rel - st.normalPress) > 0.0005) line(rel, col['fg-3'], [3, 4]);
+      if (Math.abs(rel - st.normalPress) > 0.0005) line(rel, col.release, [3, 4]);
     }
   }
 
@@ -125,10 +144,8 @@ function draw(now: number) {
     c.lineTo(lastX, y0);
     c.lineTo(firstX, y0);
     c.closePath();
-    c.globalAlpha = 0.5;
-    c.fillStyle = col['acc-soft'];
+    c.fillStyle = col['press-fill'];
     c.fill();
-    c.globalAlpha = 1;
   }
 
   // events
@@ -139,17 +156,19 @@ function draw(now: number) {
     c.beginPath();
     c.arc(x, y, e.kind === 'press' ? 4 : 3.5, 0, Math.PI * 2);
     if (e.kind === 'press') {
-      c.fillStyle = col.acc;
+      c.fillStyle = col.press;
       c.fill();
     } else {
       c.fillStyle = col['bg-2'];
       c.fill();
-      c.strokeStyle = col['fg-2'];
+      c.strokeStyle = col.release;
       c.lineWidth = 1.5;
       c.stroke();
     }
   }
 }
+
+watch(resolvedTheme, () => readColours(), { flush: 'post' });
 
 onMounted(() => {
   readColours();
@@ -166,8 +185,10 @@ onBeforeUnmount(() => {
 
 <template>
   <canvas ref="canvas" class="graph" role="img" :aria-label="label" />
+  <span ref="probeEl" class="probe" aria-hidden="true" />
 </template>
 
 <style scoped>
 .graph { display: block; width: 100%; height: 220px; }
+.probe { display: none; }
 </style>

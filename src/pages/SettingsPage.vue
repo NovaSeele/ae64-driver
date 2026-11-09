@@ -9,6 +9,7 @@ import Switch from '../components/ui/Switch.vue';
 import NumberField from '../components/ui/NumberField.vue';
 import Button from '../components/ui/Button.vue';
 import Dialog from '../components/ui/Dialog.vue';
+import ThemePicker from '../components/settings/ThemePicker.vue';
 import { POLLING_RATE_HZ } from '../protocol';
 import { useDeviceStore } from '../stores/device';
 import { PROFILE_NAME_MAX_BYTES, truncateUtf8, useSettingsStore, utf8Bytes } from '../stores/settings';
@@ -104,6 +105,13 @@ async function saveProfileName(i: number) {
 <template>
   <PageLayout :title="t('page.settings')">
     <p v-if="!device.boardAllowed" class="settings-warn" role="note">{{ t('settings.readOnly') }}</p>
+
+    <!-- Appearance: app preference only, always available (no device access) -->
+    <div class="settings-appearance">
+      <Card :title="t('settings.appearance')" :subtitle="t('settings.appearanceDesc')">
+        <ThemePicker />
+      </Card>
+    </div>
 
     <!-- load error -->
     <Card v-if="settings.loadError" :title="t('settings.loadFailed')" :subtitle="settings.loadError">
@@ -281,6 +289,11 @@ async function saveProfileName(i: number) {
   width: 100%;
   color: var(--warn);
   font-size: var(--fs-label);
+}
+.settings-appearance {
+  max-width: 1200px;
+  margin: 0 auto var(--s-4);
+  width: 100%;
 }
 .settings-loading {
   grid-column: 1 / -1;

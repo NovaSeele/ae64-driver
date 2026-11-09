@@ -24,6 +24,8 @@ const props = defineProps<{
   badgeIcon?: (key: PhysicalKey) => Component | undefined;
   fill?: (key: PhysicalKey) => number | undefined;
   color?: (key: PhysicalKey) => string | undefined;
+  /** CSS colour (e.g. 'var(--k-dks)') for a key's values; sets --metric on the keycap. */
+  tone?: (key: PhysicalKey) => string | undefined;
   state?: (key: PhysicalKey) => 'pressed' | undefined;
   selectable?: boolean;
   /** Shows skeleton value lines while page data loads. */
@@ -203,6 +205,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
           :badge-icon="badgeIcon?.(k)"
           :fill="fill?.(k)"
           :color="color?.(k)"
+          :tone="tone?.(k)"
           :state="state?.(k)"
           :selected="selectable && isSelected(k.id)"
           :flashing="flashStore.isFlashing(k.id)"
@@ -233,7 +236,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
   border-radius: var(--r-panel);
   background: var(--bg-1);
   border: 1px solid var(--line-1);
-  box-shadow: var(--shadow-case), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  box-shadow: var(--shadow-case), inset 0 1px 0 var(--line-1);
   user-select: none;
   touch-action: none;
 }
@@ -252,8 +255,8 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
 .kb__key:active :deep(.cap) { transform: translateY(1px); }
 .kb__box {
   position: absolute;
-  border: 1px solid var(--acc);
-  background: rgba(63, 224, 197, 0.08);
+  border: 1px solid var(--sel);
+  background: color-mix(in srgb, var(--sel) 12%, transparent);
   border-radius: 4px;
   pointer-events: none;
 }

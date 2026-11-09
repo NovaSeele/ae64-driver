@@ -77,7 +77,7 @@ function onKey(e: KeyboardEvent) {
 .seg__opt[aria-checked='true'] {
   background: var(--bg-4);
   color: var(--fg-1);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 1px 0 var(--cap-hi), 0 1px 2px var(--cap-shade);
 }
 /* Declared after the checked shadow so the focus ring is not overridden. */
 .seg__opt:focus-visible,

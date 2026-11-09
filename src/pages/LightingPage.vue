@@ -895,13 +895,13 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
   border-radius: var(--r-control);
   border: none;
   cursor: pointer;
-  box-shadow: 0 0 0 1px var(--line-2), inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+  box-shadow: 0 0 0 1px var(--line-2), inset 0 0 0 1px var(--line-2);
   transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
 
 .palette-swatch:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 0 0 1px var(--line-3), inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 0 1px var(--line-3), inset 0 0 0 1px var(--line-3);
 }
 
 .palette-swatch:focus-visible {
@@ -919,7 +919,7 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 }
 
 .palette-swatch--editing:not(.palette-swatch--active) {
-  box-shadow: 0 0 0 2px var(--line-3), inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 0 2px var(--line-3), inset 0 0 0 1px var(--line-3);
 }
 
 .palette-swatch--rainbow {

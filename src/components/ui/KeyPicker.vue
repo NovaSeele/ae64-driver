@@ -182,7 +182,7 @@ const isCurrent = (e: KeycodeEntry) => props.current === e.code || comboOf(props
   border: 1px solid var(--line-1);
   background: var(--bg-3);
   text-align: left;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -2px 0 rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 1px 0 var(--cap-hi), inset 0 -2px 0 var(--cap-shade);
   transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
 }
 .kp__key:hover:not(:disabled) { background: var(--bg-4); border-color: var(--line-3); }

@@ -14,26 +14,32 @@ declare module 'vue-router' {
   }
 }
 
-export interface NavItem { path: string; title: MessageKey; icon: Component }
+export interface NavItem {
+  path: string;
+  title: MessageKey;
+  icon: Component;
+  /** Feature colour (CSS value) of the sidebar icon tile and the top-bar title tile. */
+  tone: string;
+}
 
 export const NAV: { group: MessageKey; items: NavItem[] }[] = [
   {
     group: 'nav.groupProfile',
     items: [
-      { path: '/keymap', title: 'page.keymap', icon: IconKeyboard },
-      { path: '/performance', title: 'page.performance', icon: IconAdjustmentsHorizontal },
-      { path: '/advanced', title: 'page.advanced', icon: IconBolt },
-      { path: '/lighting', title: 'page.lighting', icon: IconBulb },
+      { path: '/keymap', title: 'page.keymap', icon: IconKeyboard, tone: 'var(--f-keymap)' },
+      { path: '/performance', title: 'page.performance', icon: IconAdjustmentsHorizontal, tone: 'var(--f-performance)' },
+      { path: '/advanced', title: 'page.advanced', icon: IconBolt, tone: 'var(--f-advanced)' },
+      { path: '/lighting', title: 'page.lighting', icon: IconBulb, tone: 'var(--f-lighting)' },
     ],
   },
   {
     group: 'nav.groupDevice',
     items: [
-      { path: '/macro', title: 'page.macro', icon: IconListDetails },
-      { path: '/live', title: 'page.live', icon: IconActivity },
-      { path: '/calibration', title: 'page.calibration', icon: IconTarget },
-      { path: '/settings', title: 'page.settings', icon: IconSettings },
-      { path: '/diagnostics', title: 'page.diagnostics', icon: IconStethoscope },
+      { path: '/macro', title: 'page.macro', icon: IconListDetails, tone: 'var(--f-macro)' },
+      { path: '/live', title: 'page.live', icon: IconActivity, tone: 'var(--f-live)' },
+      { path: '/calibration', title: 'page.calibration', icon: IconTarget, tone: 'var(--f-calibration)' },
+      { path: '/settings', title: 'page.settings', icon: IconSettings, tone: 'var(--f-settings)' },
+      { path: '/diagnostics', title: 'page.diagnostics', icon: IconStethoscope, tone: 'var(--f-diagnostics)' },
     ],
   },
 ];

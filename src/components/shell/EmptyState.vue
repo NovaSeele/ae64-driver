@@ -26,7 +26,7 @@ withDefaults(defineProps<{ icon: Component; title?: string; body?: string }>(), 
   padding: 72px var(--s-6);
   border: 1px dashed var(--line-2);
   border-radius: var(--r-panel);
-  background: radial-gradient(ellipse at top, rgba(63, 224, 197, 0.05), transparent 60%);
+  background: radial-gradient(ellipse at top, color-mix(in srgb, var(--acc) 5%, transparent), transparent 60%);
 }
 .empty__icon {
   display: grid;

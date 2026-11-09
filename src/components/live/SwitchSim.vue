@@ -98,19 +98,19 @@ const field = computed(() => 0.12 + ratio.value * 0.7);
   <svg class="sim" :class="{ 'sim--on': actuated }" viewBox="0 0 440 380" role="img" :aria-label="label">
     <defs>
       <linearGradient id="sim-cap" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#323840" />
-        <stop offset="1" stop-color="#22262c" />
+        <stop offset="0" stop-color="var(--ill-cap-top)" />
+        <stop offset="1" stop-color="var(--ill-cap-bottom)" />
       </linearGradient>
       <linearGradient id="sim-house" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#20242a" />
-        <stop offset="1" stop-color="#16191d" />
+        <stop offset="0" stop-color="var(--ill-house-top)" />
+        <stop offset="1" stop-color="var(--ill-house-bottom)" />
       </linearGradient>
       <linearGradient id="sim-fill" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="var(--acc)" stop-opacity=".06" />
-        <stop offset="1" stop-color="var(--acc)" stop-opacity=".38" />
+        <stop offset="0" stop-color="var(--m-press)" stop-opacity=".06" />
+        <stop offset="1" stop-color="var(--m-press)" stop-opacity=".38" />
       </linearGradient>
       <pattern id="sim-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-        <rect width="3" height="6" fill="var(--warn)" opacity=".22" />
+        <rect width="3" height="6" fill="var(--m-deadzone)" opacity=".22" />
       </pattern>
     </defs>
 
@@ -130,20 +130,20 @@ const field = computed(() => 0.12 + ratio.value * 0.7);
 
     <!-- moving part: keycap + stem + magnet -->
     <g :transform="`translate(0 ${d})`">
-      <rect x="91" y="84" width="18" height="118" rx="3" fill="#3a4049" />
+      <rect x="91" y="84" width="18" height="118" rx="3" fill="var(--ill-stem)" />
       <rect x="84" y="200" width="32" height="16" rx="3" class="sim__magnet" />
-      <path d="M84 208 h32" stroke="rgba(0,0,0,.35)" />
+      <path d="M84 208 h32" stroke="var(--ill-shade)" />
       <path
         class="sim__cap"
         d="M22 34 a9 9 0 0 1 9 -9 h138 a9 9 0 0 1 9 9 l-5 44 a7 7 0 0 1 -7 6 h-132 a7 7 0 0 1 -7 -6 z"
         fill="url(#sim-cap)"
       />
-      <path d="M34 30 h132" stroke="rgba(255,255,255,.08)" stroke-width="2" stroke-linecap="round" />
+      <path d="M34 30 h132" stroke="var(--ill-hi)" stroke-width="2" stroke-linecap="round" />
     </g>
     <!-- top housing over the stem (cut-away: stem shows through the slot) -->
     <path d="M40 118 h120 l10 34 h-140 z" fill="url(#sim-house)" stroke="var(--line-2)" />
     <rect x="89" y="118" width="22" height="34" fill="var(--bg-1)" opacity=".55" />
-    <rect x="91" :y="Math.max(118, 84 + d)" width="18" :height="152 - Math.max(118, 84 + d)" rx="1" fill="#3a4049" />
+    <rect x="91" :y="Math.max(118, 84 + d)" width="18" :height="152 - Math.max(118, 84 + d)" rx="1" fill="var(--ill-stem)" />
 
     <!-- divider -->
     <path d="M204 20 V360" stroke="var(--line-1)" />
@@ -181,27 +181,27 @@ const field = computed(() => 0.12 + ratio.value * 0.7);
 <style scoped>
 .sim { display: block; width: 100%; max-width: 484px; height: auto; overflow: visible; }
 .sim__cap { stroke: var(--line-3); transition: stroke var(--t-fast) var(--ease); }
-.sim--on .sim__cap { stroke: var(--acc); }
+.sim--on .sim__cap { stroke: var(--m-press); }
 .sim__magnet { fill: var(--fg-4); transition: fill var(--t-fast) var(--ease); }
-.sim--on .sim__magnet { fill: var(--acc-strong); }
+.sim--on .sim__magnet { fill: var(--m-press); }
 .sim__sensor { fill: var(--fg-4); transition: fill var(--t-fast) var(--ease); }
-.sim--on .sim__sensor { fill: var(--acc); }
-.sim__field path { fill: none; stroke: var(--acc); stroke-width: 1; stroke-dasharray: 3 3; }
+.sim--on .sim__sensor { fill: var(--m-press); }
+.sim__field path { fill: none; stroke: var(--m-press); stroke-width: 1; stroke-dasharray: 3 3; }
 .sim__ticks path { stroke: var(--fg-4); }
 .sim__ticks path.major { stroke: var(--fg-3); }
 .sim__ticks text { font-size: 10px; fill: var(--fg-3); font-variant-numeric: tabular-nums; }
 .sim__marker path { stroke-width: 1.5; }
 .sim__marker text { font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }
-.sim__marker--act path { stroke: var(--acc); }
-.sim__marker--act text { fill: var(--acc); }
-.sim__marker--rel path { stroke: var(--fg-2); stroke-dasharray: 4 3; }
-.sim__marker--rel text { fill: var(--fg-2); }
+.sim__marker--act path { stroke: var(--m-actuation); }
+.sim__marker--act text { fill: var(--m-actuation); }
+.sim__marker--rel path { stroke: var(--m-release); stroke-dasharray: 4 3; }
+.sim__marker--rel text { fill: var(--m-release); }
 .sim__marker--reset path { stroke: var(--info); stroke-dasharray: 4 3; }
 .sim__marker--reset text { fill: var(--info); }
 .sim__marker--react path { stroke: var(--acc-line); stroke-dasharray: 4 3; }
 .sim__marker--react text { fill: var(--acc); opacity: 0.8; }
-.sim__marker--dead path { stroke: var(--warn); stroke-width: 1; opacity: 0.5; }
-.sim__marker--dead text { fill: var(--warn); opacity: 0.75; font-size: 10px; }
+.sim__marker--dead path { stroke: var(--m-deadzone); stroke-width: 1; opacity: 0.5; }
+.sim__marker--dead text { fill: var(--m-deadzone); opacity: 0.75; font-size: 10px; }
 .sim__head { stroke: var(--fg-1); stroke-width: 2; stroke-linecap: round; }
 .sim--on .sim__head { stroke: var(--acc); }
 </style>

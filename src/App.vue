@@ -81,7 +81,8 @@ onBeforeUnmount(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg-0);
+  background-color: var(--bg-0);
+  background-image: var(--bg-art);
 }
 .main__scroll {
   flex: 1;
@@ -97,7 +98,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: var(--s-3);
-  background: rgba(12, 13, 15, 0.82);
+  background: var(--glass);
   backdrop-filter: blur(2px);
   color: var(--fg-1);
   font-size: var(--fs-card);

@@ -8,6 +8,7 @@ import { useCalibrationStore } from '../../stores/calibration';
 import { useDeviceStore } from '../../stores/device';
 import { useHistoryStore } from '../../stores/history';
 import { useSyncStore } from '../../stores/sync';
+import { NAV } from '../../router';
 import { t } from '../../i18n/vi';
 
 const route = useRoute();
@@ -27,12 +28,16 @@ const undoLabel = computed(() => histBlock.value
 const redoLabel = computed(() => histBlock.value
   ?? (history.redoLabel ? `${t('history.redo')}: ${history.redoLabel} (Ctrl+Y)` : `${t('history.redo')} (Ctrl+Y)`));
 const title = computed(() => (route.meta.title ? t(route.meta.title) : ''));
+const nav = computed(() => NAV.flatMap((g) => g.items).find((it) => it.path === route.path));
 const busy = computed(() => sync.state === 'pending' || sync.state === 'writing');
 </script>
 
 <template>
   <header class="top">
-    <h2 class="top__title">{{ title }}</h2>
+    <div class="top__head">
+      <span v-if="nav" class="tile" :style="{ '--f': nav.tone }"><component :is="nav.icon" :size="18" stroke-width="1.5" aria-hidden="true" /></span>
+      <h2 class="top__title">{{ title }}</h2>
+    </div>
     <div class="top__right">
       <div class="pill" :class="`pill--${sync.state}`" role="status" aria-live="polite">
         <IconLoader2 v-if="busy" class="pill__spin" :size="15" stroke-width="1.5" aria-hidden="true" />
@@ -76,9 +81,20 @@ const busy = computed(() => sync.state === 'pending' || sync.state === 'writing'
   height: var(--topbar-h);
   padding: 0 var(--s-6) 0 var(--s-7);
   border-bottom: 1px solid var(--line-1);
-  background: rgba(12, 13, 15, 0.8);
+  background: var(--glass);
   backdrop-filter: blur(8px);
   flex: none;
+}
+.top__head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tile {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--f) 16%, transparent);
+  color: var(--f);
 }
 .top__title { font-size: var(--fs-section); }
 .top__right { display: flex; align-items: center; gap: var(--s-4); }
@@ -99,7 +115,7 @@ const busy = computed(() => sync.state === 'pending' || sync.state === 'writing'
 }
 .pill--saved { color: var(--ok); }
 .pill--pending, .pill--writing { color: var(--fg-1); }
-.pill--error { color: var(--danger); background: var(--danger-soft); border-color: rgba(248, 113, 113, 0.3); padding-right: 4px; }
+.pill--error { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-line); padding-right: 4px; }
 .pill__spin { animation: spin 0.9s linear infinite; color: var(--acc); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .pill__retry {
@@ -109,8 +125,8 @@ const busy = computed(() => sync.state === 'pending' || sync.state === 'writing'
   height: 22px;
   border: 0;
   border-radius: 11px;
-  background: rgba(248, 113, 113, 0.18);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger);
 }
-.pill__retry:hover { background: rgba(248, 113, 113, 0.3); }
+.pill__retry:hover { background: color-mix(in srgb, var(--danger) 22%, transparent); }
 </style>

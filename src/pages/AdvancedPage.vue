@@ -158,6 +158,16 @@ function sublabel(k: PhysicalKey): string | undefined {
   if (a.type === 'SOCD' || a.type === 'RS') return `${shortOf(a)}·${a.keys[0] === k.id ? 'A' : 'B'}`;
   return shortOf(a);
 }
+/** The colour of the kind a key's sublabel names (same precedence as the sublabel). */
+const kindVar = (kind: string) => (['DKS', 'MPT', 'SOCD', 'RS', 'MT', 'TGL', 'END'].includes(kind) ? `var(--k-${kind.toLowerCase()})` : undefined);
+function tone(k: PhysicalKey): string | undefined {
+  const d = draft.value;
+  if (d && d.keys.includes(k.id)) return kindVar(d.type);
+  const a = adv.byKey.get(k.id);
+  if (!a || (editing.value && sameSlot(a, editing.value))) return undefined;
+  return kindVar(a.type === 'READONLY' ? a.record.type : a.type);
+}
+const kindStyle = (kind: string) => ({ '--k': kindVar(kind) });
 const highlighted = computed(() => new Set(sel.ids.map((id) => adv.byKey.get(id)).filter(Boolean)));
 
 // ----- editor
@@ -362,7 +372,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
 <template>
   <PageLayout :title="t('page.advanced')" keyboard>
     <template #keyboard>
-      <KeyboardView :keys="device.keys" :legend="device.legend" :sublabel="sublabel" :loading="adv.loading" selectable />
+      <KeyboardView :keys="device.keys" :legend="device.legend" :sublabel="sublabel" :tone="tone" :loading="adv.loading" selectable />
     </template>
 
     <Card v-if="adv.loadError" :title="t('advanced.loadFailed')" :subtitle="adv.loadError">
@@ -384,7 +394,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
     <Card v-else-if="draft" class="editor">
       <header class="ed__head">
         <IconButton :icon="IconArrowLeft" :label="t('advanced.back')" size="sm" @click="guard(close)" />
-        <span class="ed__icon"><component :is="ICONS[draft.type]" :size="20" stroke-width="1.6" /></span>
+        <span class="ed__icon" :style="kindStyle(draft.type)"><component :is="ICONS[draft.type]" :size="20" stroke-width="1.6" /></span>
         <div class="ed__titles">
           <h2 class="ed__title" tabindex="-1">{{ editing ? t('advanced.editTitle', { type: t(`advanced.type${draft.type}`) }) : t('advanced.newTitle', { type: t(`advanced.type${draft.type}`) }) }}</h2>
           <p class="ed__sub">{{ t(`advanced.desc${draft.type}`) }}</p>
@@ -428,7 +438,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
     <div v-else class="cols">
       <Card :title="t('advanced.types')" :subtitle="t('advanced.typesHint')">
         <div class="types">
-          <button v-for="x in TYPES" :key="x.type" type="button" class="type" :data-type="x.type" @click="start(x.type)">
+          <button v-for="x in TYPES" :key="x.type" type="button" class="type" :data-type="x.type" :style="kindStyle(x.type)" @click="start(x.type)">
             <span class="type__icon"><component :is="x.icon" :size="20" stroke-width="1.6" /></span>
             <span class="type__text">
               <span class="type__name">{{ t(`advanced.type${x.type}`) }}
@@ -449,7 +459,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
           <p class="muted">{{ t('advanced.noneHint') }}</p>
         </div>
         <ul v-else class="list">
-          <li v-for="a in adv.assignments" :key="`${a.type}:${a.keys.join(',')}`" class="item" :data-item="`${a.type === 'READONLY' ? a.record.type : a.type}:${[...a.keys].sort((x, y) => x - y).join(',')}`" :class="{ 'item--hl': highlighted.has(a) }">
+          <li v-for="a in adv.assignments" :key="`${a.type}:${a.keys.join(',')}`" class="item" :data-item="`${a.type === 'READONLY' ? a.record.type : a.type}:${[...a.keys].sort((x, y) => x - y).join(',')}`" :class="{ 'item--hl': highlighted.has(a) }" :style="kindStyle(a.type === 'READONLY' ? a.record.type : a.type)">
             <span class="item__icon"><component :is="ICONS[a.type === 'READONLY' ? a.record.type : a.type] ?? IconTimeline" :size="18" stroke-width="1.6" /></span>
             <button type="button" class="item__main" :disabled="a.type === 'READONLY'" @click="edit(a)">
               <span class="item__top">
@@ -523,8 +533,8 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: var(--acc-soft);
-  color: var(--acc);
+  background: color-mix(in srgb, var(--k, var(--acc)) 16%, transparent);
+  color: var(--k, var(--acc));
 }
 .type__text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .type__name { font-weight: 600; display: flex; align-items: center; gap: var(--s-2); }
@@ -559,12 +569,13 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
   transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
 }
 .item:hover { border-color: var(--line-3); }
-.item--hl { border-color: var(--acc-line); background: var(--acc-soft); }
-.item__icon { color: var(--acc); display: grid; place-items: center; }
+.item--hl { border-color: color-mix(in srgb, var(--k, var(--acc)) 45%, transparent); background: color-mix(in srgb, var(--k, var(--acc)) 10%, transparent); }
+.item__icon { color: var(--k, var(--acc)); display: grid; place-items: center; }
 .item__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; border: 0; background: transparent; text-align: left; }
 .item__main:disabled { cursor: default; }
 .item__top { display: flex; align-items: center; gap: var(--s-2); }
-.item__type { font-size: var(--fs-caption); font-weight: 700; letter-spacing: 0.04em; color: var(--acc); }
+.item__type { font-size: var(--fs-caption); font-weight: 700; letter-spacing: 0.04em; color: var(--k, var(--acc)); }
+.item--hl .item__type { color: var(--fg-1); }
 .item__keys { font-weight: 600; color: var(--fg-1); }
 .item__detail { font-size: var(--fs-label); color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -572,7 +583,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
 .editor { animation: rise var(--t-slow) var(--ease); }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .ed__head { display: flex; align-items: center; gap: var(--s-3); }
-.ed__icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 9px; background: var(--acc-soft); color: var(--acc); flex: none; }
+.ed__icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 9px; background: color-mix(in srgb, var(--k, var(--acc)) 16%, transparent); color: var(--k, var(--acc)); flex: none; }
 .ed__titles { flex: 1; min-width: 0; }
 .ed__title { margin: 0; font-size: var(--fs-section); font-weight: 600; }
 .ed__sub { margin: 2px 0 0; color: var(--fg-3); font-size: var(--fs-label); }

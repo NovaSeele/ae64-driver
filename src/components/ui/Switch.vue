@@ -44,7 +44,7 @@ defineProps<{ label?: string; disabled?: boolean }>();
   height: 14px;
   border-radius: 50%;
   background: var(--fg-1);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 1px 2px var(--cap-shade);
   transition: transform var(--t-med) var(--ease), background var(--t-med) var(--ease);
 }
 .sw__track[aria-checked='true'] .sw__thumb { transform: translateX(14px); background: var(--on-acc); }

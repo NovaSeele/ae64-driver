@@ -24,8 +24,9 @@ const device = useDeviceStore();
           active-class="side__link--on"
           :tabindex="device.connected ? 0 : -1"
           :aria-disabled="!device.connected || undefined"
+          :style="{ '--f': it.tone }"
         >
-          <component :is="it.icon" :size="18" stroke-width="1.5" aria-hidden="true" />
+          <span class="tile"><component :is="it.icon" :size="18" stroke-width="1.5" aria-hidden="true" /></span>
           <span>{{ t(it.title) }}</span>
         </RouterLink>
       </div>
@@ -52,13 +53,23 @@ const device = useDeviceStore();
   align-items: center;
   gap: 10px;
   height: 34px;
-  padding: 0 10px;
+  padding: 0 8px;
   border-radius: var(--r-control);
   color: var(--fg-2);
   font-weight: 500;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
-.side__link:hover { background: var(--bg-3); color: var(--fg-1); }
-.side__link--on { background: var(--acc-soft); color: var(--acc); }
+.tile {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--f) 16%, transparent);
+  color: var(--f);
+}
+.side__link:hover { background: var(--bg-2); color: var(--fg-1); }
+.side__link--on { background: var(--bg-3); color: var(--fg-1); font-weight: 600; }
 .side__link[aria-disabled='true'] { opacity: 0.4; pointer-events: none; }
 </style>

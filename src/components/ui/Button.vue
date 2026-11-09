@@ -49,8 +49,8 @@ withDefaults(defineProps<{
 .btn--lg { height: 44px; padding: 0 22px; font-size: 14px; border-radius: 8px; }
 
 .btn--primary { background: var(--acc); color: var(--on-acc); }
-.btn--primary:hover:not(:disabled) { background: #5ae8d0; }
-.btn--primary:active:not(:disabled) { background: var(--acc-strong); }
+.btn--primary:hover:not(:disabled) { background: var(--acc-hover); }
+.btn--primary:active:not(:disabled) { background: var(--acc-hover); }
 
 .btn--secondary { background: var(--bg-3); border-color: var(--line-2); color: var(--fg-1); }
 .btn--secondary:hover:not(:disabled) { background: var(--bg-4); border-color: var(--line-3); }
@@ -58,8 +58,8 @@ withDefaults(defineProps<{
 .btn--ghost { background: transparent; color: var(--fg-2); }
 .btn--ghost:hover:not(:disabled) { background: var(--bg-3); color: var(--fg-1); }
 
-.btn--danger { background: var(--danger-soft); color: var(--danger); border-color: rgba(248, 113, 113, 0.3); }
-.btn--danger:hover:not(:disabled) { background: rgba(248, 113, 113, 0.22); }
+.btn--danger { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-line); }
+.btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 22%, transparent); }
 
 .btn__icon { flex: none; }
 .spinner {

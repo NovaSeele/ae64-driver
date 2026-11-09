@@ -3,8 +3,8 @@
   "short_name": "AE64 Max",
   "start_url": "/",
   "display": "standalone",
-  "theme_color": "#0c0d0f",
-  "background_color": "#0c0d0f",
+  "theme_color": "#111213",
+  "background_color": "#111213",
   "icons": [
     {
       "src": "favicon.svg",

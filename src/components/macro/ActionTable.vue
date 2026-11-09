@@ -277,7 +277,7 @@ function endDrag() {
   background: var(--bg-3);
   border: 1px solid var(--line-2);
   border-radius: var(--r-control);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+  box-shadow: var(--shadow-pop);
 }
 .menu__it {
   display: flex;
@@ -322,8 +322,8 @@ function endDrag() {
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 .dir__opt:hover:not(:disabled) { color: var(--fg-1); }
-.dir__opt[aria-checked='true'] { background: var(--bg-4); color: var(--fg-1); }
-.row--down .dir__opt[aria-checked='true'] { background: var(--acc-soft); color: var(--acc); }
+.dir__opt[aria-checked='true'] { background: color-mix(in srgb, var(--m-release) 16%, transparent); color: var(--fg-1); }
+.row--down .dir__opt[aria-checked='true'] { background: color-mix(in srgb, var(--m-press) 16%, transparent); }
 
 .row-enter-from { opacity: 0; transform: translateY(-4px); }
 .row-enter-active { transition: all var(--t-med) var(--ease); }

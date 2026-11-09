@@ -38,29 +38,29 @@ const CAP_TRAVEL = 46; // px the illustrated cap moves at full travel
     <svg class="te__switch" viewBox="0 0 132 236" aria-hidden="true">
       <defs>
         <linearGradient id="te-cap" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="#323840" />
-          <stop offset="1" stop-color="#252a31" />
+          <stop offset="0" stop-color="var(--ill-cap-top)" />
+          <stop offset="1" stop-color="var(--ill-cap-bottom)" />
         </linearGradient>
         <linearGradient id="te-house" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="#22262c" />
-          <stop offset="1" stop-color="#1a1d22" />
+          <stop offset="0" stop-color="var(--ill-house-top)" />
+          <stop offset="1" stop-color="var(--ill-house-bottom)" />
         </linearGradient>
       </defs>
       <!-- plate -->
-      <rect x="4" y="150" width="124" height="6" rx="2" fill="#2a2f36" />
+      <rect x="4" y="150" width="124" height="6" rx="2" fill="var(--ill-plate)" />
       <!-- housing -->
-      <path d="M26 118 h80 l6 32 v52 a6 6 0 0 1 -6 6 h-80 a6 6 0 0 1 -6 -6 v-52 z" fill="url(#te-house)" stroke="rgba(255,255,255,.1)" />
+      <path d="M26 118 h80 l6 32 v52 a6 6 0 0 1 -6 6 h-80 a6 6 0 0 1 -6 -6 v-52 z" fill="url(#te-house)" stroke="var(--ill-edge)" />
       <!-- magnet + sensor hint -->
-      <rect x="56" y="196" width="20" height="5" rx="2" fill="var(--acc)" opacity=".55" />
-      <rect x="50" y="214" width="32" height="6" rx="2" fill="#3a4049" />
+      <rect x="56" y="196" width="20" height="5" rx="2" fill="var(--m-actuation)" opacity=".55" />
+      <rect x="50" y="214" width="32" height="6" rx="2" fill="var(--ill-stem)" />
       <g class="te__moving" :style="{ transform: `translateY(${ratio * CAP_TRAVEL}px)` }">
         <!-- stem -->
-        <rect x="58" y="68" width="16" height="74" rx="3" fill="#3a4049" />
+        <rect x="58" y="68" width="16" height="74" rx="3" fill="var(--ill-stem)" />
         <!-- spring hint -->
-        <path d="M60 142 l12 -6 l-12 -6 l12 -6 l-12 -6 l12 -6" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1.5" />
+        <path d="M60 142 l12 -6 l-12 -6 l12 -6 l-12 -6 l12 -6" fill="none" stroke="var(--ill-edge)" stroke-width="1.5" />
         <!-- keycap -->
-        <path d="M14 34 a8 8 0 0 1 8 -8 h88 a8 8 0 0 1 8 8 l-4 36 a6 6 0 0 1 -6 5 h-84 a6 6 0 0 1 -6 -5 z" fill="url(#te-cap)" stroke="rgba(255,255,255,.12)" />
-        <path d="M24 30 h84" stroke="rgba(255,255,255,.08)" stroke-width="2" stroke-linecap="round" />
+        <path d="M14 34 a8 8 0 0 1 8 -8 h88 a8 8 0 0 1 8 8 l-4 36 a6 6 0 0 1 -6 5 h-84 a6 6 0 0 1 -6 -5 z" fill="url(#te-cap)" stroke="var(--ill-edge)" />
+        <path d="M24 30 h84" stroke="var(--ill-hi)" stroke-width="2" stroke-linecap="round" />
       </g>
       <!-- resting reference -->
       <path d="M2 75 h10" stroke="var(--fg-4)" stroke-dasharray="2 2" />
@@ -127,7 +127,7 @@ const CAP_TRAVEL = 46; // px the illustrated cap moves at full travel
   position: absolute;
   left: 0;
   right: 0;
-  background: repeating-linear-gradient(135deg, rgba(251, 191, 36, 0.18) 0 3px, transparent 3px 6px);
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--m-deadzone) 22%, transparent) 0 3px, transparent 3px 6px);
   border-radius: 3px;
 }
 .te__mark {
@@ -135,7 +135,7 @@ const CAP_TRAVEL = 46; // px the illustrated cap moves at full travel
   left: -4px;
   right: -8px;
   height: 1px;
-  background: var(--acc-line);
+  background: var(--m-actuation);
   transition: top var(--t-fast) var(--ease);
 }
 </style>
