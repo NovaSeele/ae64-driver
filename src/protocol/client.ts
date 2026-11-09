@@ -317,7 +317,9 @@ export abstract class BaseTransport implements Ae64Transport {
     const k = `${pos.row}:${pos.col}`;
     const seen = this.perfSeen.get(k) ?? [];
     seen.push({ ...p });
-    if (seen.length > 8) seen.splice(0, seen.length - 8);
+    // Keep the first read of this connection plus the 7 newest: the key's original record (e.g. its switch before a
+    // switch change) stays restorable by undo however many reads follow.
+    if (seen.length > 8) seen.splice(1, seen.length - 8);
     this.perfSeen.set(k, seen);
     return p;
   }

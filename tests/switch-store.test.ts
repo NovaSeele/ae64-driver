@@ -136,3 +136,19 @@ describe('switch selector store', () => {
     expect(perf.switchNotices).toEqual([]);
   });
 });
+
+describe('write guard memory', () => {
+  beforeEach(() => setActivePinia(createPinia()));
+
+  it('keeps the first read of a key, so its original triple stays restorable after many reads', async () => {
+    const { mock, perf } = await setup();
+    const apollo = findSwitch(perf.catalog, 4208)!;
+    perf.applySwitch([W.id], apollo);
+    await useSyncStore().flush();
+    for (let i = 0; i < 12; i++) await mock.getPerformance(W);
+    const seen = (mock as unknown as { perfSeen: Map<string, { axisV2Id: number }[]> }).perfSeen.get(`${W.row}:${W.col}`)!;
+    expect(seen).toHaveLength(8);
+    expect(seen[0].axisV2Id).toBe(UR.axisV2Id);
+    expect(seen[seen.length - 1].axisV2Id).toBe(APOLLO.axisV2Id);
+  });
+});
