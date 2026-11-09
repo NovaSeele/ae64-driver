@@ -288,10 +288,10 @@ function formatUpdateDate(iso: string): string {
   color: var(--fg-2);
 }
 .help__status-row--ok {
-  color: var(--acc); /* "up to date" is information, not a keyboard write: theme colour, like "available" */
+  color: var(--ok);
 }
 .help__status-row--avail {
-  color: var(--acc);
+  color: var(--ok); /* new version info reads green like "up to date"; the Update button keeps the theme colour */
 }
 .help__status-row--info {
   color: var(--info);
