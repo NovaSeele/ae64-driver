@@ -23,8 +23,8 @@ defineProps<{
   tone?: string;
   /** LED colour (CSS colour). */
   color?: string;
-  /** Thicker LED bar: a non-colour cue for a state that must stand out (e.g. not calibrated). */
-  ledWide?: boolean;
+  /** LED bar height in px (default 2). A thicker bar also raises the value line so the bar never covers it. */
+  ledHeight?: number;
   state?: 'pressed';
   selected?: boolean;
   /** Briefly outlined in the danger colour (a write for this key was dropped). */
@@ -39,9 +39,9 @@ defineProps<{
     :class="{ 'cap--sel': selected, 'cap--pressed': state === 'pressed', 'cap--flash': flashing }"
     :style="tone ? { '--metric': tone } : undefined"
   >
-    <span class="cap__face">
+    <span class="cap__face" :style="ledHeight ? { paddingBottom: `${ledHeight + 5}px` } : undefined">
       <span v-if="fill !== undefined" class="cap__fill" :style="{ transform: `scaleY(${Math.min(1, Math.max(0, fill))})` }" />
-      <span v-if="color" class="cap__led" :class="{ 'cap__led--wide': ledWide }" :style="{ background: color, boxShadow: `0 0 10px ${color}` }" />
+      <span v-if="color" class="cap__led" :style="{ background: color, boxShadow: `0 0 10px ${color}`, height: ledHeight ? `${ledHeight}px` : undefined }" />
       <span class="cap__legend">{{ legend }}</span>
       <span v-if="loading" class="cap__sub cap__sub--skeleton skeleton" />
       <span v-else-if="sublabel !== undefined || badge || badgeIcon" class="cap__foot">
@@ -117,7 +117,6 @@ defineProps<{
   opacity: 0.9;
   pointer-events: none;
 }
-.cap__led--wide { height: 4px; opacity: 1; }
 .cap__legend {
   position: relative;
   font-size: 12px;

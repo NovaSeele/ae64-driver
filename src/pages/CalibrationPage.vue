@@ -29,17 +29,17 @@ const busy = computed(() => cal.phase === 'starting' || cal.phase === 'finishing
 let unmounted = false;
 
 /**
- * Status is shown by the key's LED bar. "Not calibrated", the state people look for, is the strongest: full
- * --danger and a thicker bar (a cue that does not depend on colour). Calibrated = info blue; newly calibrated =
- * green pushed toward the text colour (lighter on dark themes, darker on light ones) plus a full fill, so it
- * differs from "not calibrated" in lightness for red-green colour blindness. Each key's accessible name also
- * carries the status text.
+ * Status is shown by the key's LED bar, the same thickness for all three states (user's choice). Not calibrated =
+ * full --danger; calibrated = info blue; newly calibrated = green pushed toward the text colour (lighter on dark
+ * themes, darker on light ones) and its key is fully filled. Each key's accessible name also carries the status
+ * text, so the state is not colour-only.
  */
 const STATUS_COLOR = ['var(--danger)', 'var(--info)', 'color-mix(in srgb, var(--ok) 60%, var(--fg-1))'];
+/** Status bar thickness on every key and in the legend. */
+const LED_PX = 5;
 const STATUS_TEXT = ['calibration.legendNone', 'calibration.legendDone', 'calibration.legendNew'] as const;
 // Until a real frame is read every status would be 0 ("uncalibrated"): show neutral keys instead.
 const statusColor = (k: PhysicalKey) => (cal.loaded ? STATUS_COLOR[cal.frame.status[k.id]] ?? STATUS_COLOR[0] : 'var(--fg-4)');
-const statusWide = (k: PhysicalKey) => cal.loaded && (cal.frame.status[k.id] ?? 0) === 0;
 const statusText = (k: PhysicalKey) => (cal.loaded ? t(STATUS_TEXT[cal.frame.status[k.id]] ?? STATUS_TEXT[0]) : undefined);
 function fill(k: PhysicalKey) {
   if (!cal.loaded) return 0;
@@ -51,9 +51,9 @@ const adc = (k: PhysicalKey) => (cal.loaded ? String(cal.frame.adc[k.id]) : unde
 
 const progress = computed(() => (running.value ? cal.newCount : cal.calibratedCount));
 const legend = computed(() => [
-  { color: STATUS_COLOR[0], wide: true, label: t('calibration.legendNone'), n: cal.uncalibratedCount },
-  { color: STATUS_COLOR[1], wide: false, label: t('calibration.legendDone'), n: cal.calibratedCount - cal.newCount },
-  { color: STATUS_COLOR[2], wide: false, label: t('calibration.legendNew'), n: cal.newCount },
+  { color: STATUS_COLOR[0], label: t('calibration.legendNone'), n: cal.uncalibratedCount },
+  { color: STATUS_COLOR[1], label: t('calibration.legendDone'), n: cal.calibratedCount - cal.newCount },
+  { color: STATUS_COLOR[2], label: t('calibration.legendNew'), n: cal.newCount },
 ]);
 const allDone = computed(() => cal.loaded && !running.value && cal.calibratedCount === 64);
 /** Failure text for a session that ended badly: says whether the keyboard may still be calibrating. */
@@ -115,13 +115,13 @@ onBeforeUnmount(() => {
   <PageLayout :title="t('page.calibration')">
     <section class="kbrow">
       <div class="board" :class="{ 'board--live': running }">
-        <KeyboardView :keys="device.keys" :legend="device.legend" :sublabel="adc" :fill="fill" :color="statusColor" :led-wide="statusWide" :status="statusText" />
+        <KeyboardView :keys="device.keys" :legend="device.legend" :sublabel="adc" :fill="fill" :color="statusColor" :led-height="LED_PX" :status="statusText" />
       </div>
       <aside class="aside">
         <span class="micro">{{ t('calibration.status') }}</span>
         <ul class="legend">
           <li v-for="l in legend" :key="l.label">
-            <i :class="{ wide: l.wide }" :style="{ background: l.color, boxShadow: `0 0 8px ${l.color}` }" />
+            <i :style="{ background: l.color, boxShadow: `0 0 8px ${l.color}`, height: `${LED_PX}px` }" />
             <span>{{ l.label }}</span>
             <span class="num">{{ cal.loaded ? l.n : '—' }}</span>
           </li>
@@ -192,8 +192,7 @@ onBeforeUnmount(() => {
 .aside { flex: none; width: 188px; display: flex; flex-direction: column; gap: var(--s-2); }
 .legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .legend li { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-label); color: var(--fg-2); }
-.legend li i { width: 12px; height: 2px; border-radius: 2px; flex: none; }
-.legend li i.wide { height: 4px; }
+.legend li i { width: 12px; border-radius: 2px; flex: none; }
 .legend li .num { margin-left: auto; color: var(--fg-1); font-weight: 600; }
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
 .warn { color: var(--warn); font-size: var(--fs-label); }
