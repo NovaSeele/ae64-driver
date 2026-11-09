@@ -67,7 +67,7 @@ describe('switch photos', () => {
 
   it('ships a photo only for switches in the catalog', () => {
     const withPhoto = catalog.filter((e) => switchImage(e.id));
-    expect(withPhoto.length).toBe(71);
+    expect(withPhoto.length).toBe(73);
     expect(switchImage(4208)).toMatch(/4208.*\.webp$/); // Apollo
   });
 
