@@ -56,7 +56,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'connect.button': 'Connect keyboard',
   'connect.demo': 'Demo mode',
   'connect.demoHint': 'Try with a simulated keyboard, no hardware required.',
-  'connect.noHid': 'This browser does not support WebHID. Please use desktop Chrome or Edge (over http://127.0.0.1).',
+  'connect.noHid': 'This browser does not support WebHID. Please open it in desktop Chrome or Edge.',
   'connect.reconnecting': 'Reconnecting automatically…',
   'connect.failed': 'Connection failed',
 

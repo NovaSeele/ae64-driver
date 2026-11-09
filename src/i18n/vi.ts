@@ -59,7 +59,7 @@ export const base = {
   'connect.button': 'Kết nối bàn phím',
   'connect.demo': 'Chế độ demo',
   'connect.demoHint': 'Dùng thử với bàn phím giả lập, không cần thiết bị.',
-  'connect.noHid': 'Trình duyệt này không hỗ trợ WebHID. Hãy mở bằng Chrome hoặc Edge bản desktop (qua http://127.0.0.1).',
+  'connect.noHid': 'Trình duyệt này không hỗ trợ WebHID. Hãy mở bằng Chrome hoặc Edge bản desktop.',
   'connect.reconnecting': 'Đang tự kết nối lại…',
   'connect.failed': 'Kết nối thất bại',
 
