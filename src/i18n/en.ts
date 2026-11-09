@@ -163,7 +163,7 @@ const baseEn: Record<keyof typeof base, string> = {
 
   // help
   'help.title': 'AE64 Max Control',
-  'help.body': 'Remake web driver for Everglide AE64 Max. Connects via WebHID, offline capable, no data collection. Changes are saved automatically to the keyboard and support undo/redo (Ctrl+Z / Ctrl+Y).',
+  'help.body': 'Remake web driver for Everglide AE64 Max. Connects via WebHID. Changes are saved automatically to the keyboard and support undo/redo (Ctrl+Z / Ctrl+Y).',
   'help.shortcuts': 'Shortcuts',
   'help.shortcutUndo': 'Undo / Redo',
   'help.shortcutSelect': 'Deselect keys',

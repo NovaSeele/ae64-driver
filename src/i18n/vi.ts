@@ -166,7 +166,7 @@ export const base = {
 
   // help
   'help.title': 'AE64 Max Control',
-  'help.body': 'Driver web remake cho Everglide AE64 Max. Kết nối qua WebHID, không cần mạng, không thu thập dữ liệu. Mọi thay đổi được ghi tự động vào phím và có thể hoàn tác (Ctrl+Z / Ctrl+Y).',
+  'help.body': 'Driver web remake cho Everglide AE64 Max. Kết nối qua WebHID. Mọi thay đổi được ghi tự động vào phím và có thể hoàn tác (Ctrl+Z / Ctrl+Y).',
   'help.shortcuts': 'Phím tắt',
   'help.shortcutUndo': 'Hoàn tác / Làm lại',
   'help.shortcutSelect': 'Bỏ chọn phím',

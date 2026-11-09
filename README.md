@@ -1,75 +1,83 @@
 # AE64 Max Control
 
-Driver web chạy **cục bộ** cho bàn phím Everglide AE64 Max: chỉnh hành trình (Actuation, Rapid Trigger,
-vùng chết), keymap, đèn, macro… trực tiếp qua WebHID. Không cần tài khoản, không gửi dữ liệu ra ngoài,
-dùng được cả khi không có mạng sau lần mở đầu tiên.
+**English** · [Tiếng Việt](README.vi.md)
 
-## Yêu cầu
+Remake web driver for the Everglide AE64 Max keyboard: tune travel (Actuation, Rapid Trigger, dead zones),
+keymap, lighting, macros and more, directly over WebHID.
 
-- Windows (hoặc macOS/Linux) có **Node.js 22** (đã thử với 22.23).
-- Trình duyệt **Google Chrome hoặc Microsoft Edge bản desktop** (WebHID chỉ có trên các trình duyệt này).
-  Firefox và Safari không hỗ trợ.
-- Bàn phím Everglide AE64 Max cắm bằng cáp USB.
+## Requirements
 
-## Chạy hằng ngày
+- Windows (or macOS/Linux) with **Node.js 22** (tested with 22.23).
+- **Google Chrome or Microsoft Edge, desktop version** (WebHID is only available in these browsers).
+  Firefox and Safari are not supported.
+- An Everglide AE64 Max connected with a USB cable.
 
-Bấm đúp **`start.cmd`** ở thư mục gốc. Lần đầu nó sẽ cài thư viện và build; sau đó chỉ chạy máy chủ xem
-trước tại <http://127.0.0.1:4173> và tự mở trình duyệt. Đóng cửa sổ dòng lệnh để tắt.
+## Everyday use
 
-## Dành cho phát triển
+Double-click **`start.cmd`** in the root folder. The first run installs dependencies and builds; after that it
+only starts the preview server at <http://127.0.0.1:4173> and opens the browser. Close the console window to stop it.
+
+## Development
 
 ```bash
 npm install
 npm run dev        # http://127.0.0.1:5173
-npm run build      # kiểm tra kiểu + build vào dist/
+npm run build      # type check + build into dist/
 npm run preview    # http://127.0.0.1:4173
 npm test           # vitest
 npm run typecheck
 ```
 
-## Sử dụng
+## Usage
 
-1. Bấm **Kết nối bàn phím** và chọn `AE64-MAX` trong hộp thoại của trình duyệt. Lần sau ứng dụng tự kết
-   nối lại với bàn phím đã cấp quyền.
-2. Không có bàn phím? Bấm **Chế độ demo** để dùng thử với bàn phím giả lập.
-3. Chọn phím trên hình bàn phím (Ctrl/Shift để chọn thêm, kéo chuột để quét vùng, Esc để bỏ chọn) rồi chỉnh
-   ở các thẻ bên dưới. Thay đổi được **tự động ghi vào phím** sau ~0,35 giây và được đọc lại để xác minh;
-   trạng thái hiển thị ở góc trên ("Đã lưu vào phím" / "Đang ghi…" / "Lỗi — thử lại").
-4. **Ctrl+Z / Ctrl+Y** để hoàn tác / làm lại trong phiên làm việc.
+1. Click **Connect keyboard** and pick `AE64-MAX` in the browser dialog. Next time the app reconnects to the
+   keyboard you already granted access to.
+2. No keyboard? Click **Demo mode** to try it with a simulated keyboard.
+3. Select keys on the keyboard picture (Ctrl/Shift to add more, drag to box-select, Esc to clear), then adjust
+   them in the tabs below. Changes are **written to the keyboard automatically** after ~0.35 s; the status shows
+   at the top ("Saved to keyboard" / "Writing…" / "Error — retry").
+4. **Ctrl+Z / Ctrl+Y** to undo / redo within the session.
 
-## Cập nhật ứng dụng
+## App updates
 
-Khác với driver của nhà sản xuất vốn tự động tải phiên bản mới trong nền, AE64 Max Control **không bao giờ tự động cập nhật**. Ứng dụng tiếp tục chạy phiên bản đang có (kể cả khi ngoại tuyến) cho tới khi người dùng chủ động bấm kiểm tra và cập nhật.
+Unlike the manufacturer's driver, which downloads new versions in the background, AE64 Max Control **never
+updates itself**. The app keeps running the version it has until the user checks for and applies an update.
 
-- Service worker (`sw.js`) là tệp tĩnh không đổi giữa các bản build, tránh việc trình duyệt tự động nạp phiên bản mới.
-- Quá trình build sinh ra `release.json` (chứa mã phiên bản, ngày giờ build và danh sách tệp của bản phát hành).
-- Khi người dùng mở hộp thoại Trợ giúp và bấm **Kiểm tra cập nhật**, ứng dụng so sánh phiên bản hiện tại với `release.json`.
-- Khi bấm **Cập nhật**, service worker tải toàn bộ các tệp của bản mới vào cache mới (theo cơ chế all-or-nothing), chuyển phiên bản và tải lại trang.
-- Máy chủ web (nginx) cấu hình `/assets/` là immutable, còn `index.html`, `sw.js` và `release.json` đặt `no-cache` / `no-store`.
+- The service worker (`sw.js`) is a static file that does not change between builds, so the browser never picks
+  up a new version on its own.
+- The build produces `release.json` (version, build time and the release's file list).
+- When the user opens the Help dialog and clicks **Check for updates**, the app compares its version with
+  `release.json`.
+- On **Update**, the service worker downloads every file of the new release into a new cache (all-or-nothing),
+  switches versions and reloads the page.
+- The web server (nginx) serves `/assets/` as immutable, and `index.html`, `sw.js` and `release.json` as
+  `no-cache` / `no-store`.
 
-## An toàn
+## Safety
 
-- Ứng dụng **không bao giờ** gửi lệnh cập nhật firmware (family `08`) hay khôi phục cài đặt gốc; mã
-  "Factory reset" cũng không có trong bộ chọn phím.
-- Chỉ ghi khi bảng mạch là `0030000D` (AE64 Max) hoặc `0030000A` (AE64 Pro); bàn phím khác được mở ở chế
-  độ chỉ đọc.
-- Mỗi lần ghi hành trình đều giữ nguyên các thông số trục/calibrate đọc từ phím, rồi đọc lại để so sánh.
-- Lớp bảo vệ cuối cùng nằm trong transport (`src/protocol/safety.ts`): mọi gói tin phải nằm trong danh sách
-  lệnh được phép, kèm kiểm tra phạm vi đối số (profile, layer, hàng/cột, nhóm lưu…). Gói không khớp bị chặn
-  trước khi tới bàn phím, bất kể trang nào tạo ra nó.
-- Ghi hành trình bị từ chối nếu chưa đọc phím đó trước, nếu làm thay đổi trường cảm biến (`axis`,
-  `calibrate`, `axisV2Id`, `axisRangeMax`, `axisCoefficient`), hoặc nếu khoảng cách vượt hành trình của phím.
-- Chế độ hành trình: `0` Standard, `1` Rapid Trigger liên tục (Continuous RT), `2` Rapid Trigger không liên
-  tục (IntervalRT của driver gốc). Ứng dụng đọc nguyên giá trị từ phím và giữ nguyên khi ghi lại; chế độ `2`
-  chỉ được ghi khi phím báo protocol ≥ 1.3.0.0 (đúng điều kiện của driver gốc) hoặc phím đó vốn đang ở chế độ `2`.
-- Các keycode nguy hiểm (Factory reset F200, chuyển chế độ không dây, xoá ghép nối) không bao giờ được ghi —
-  kể cả khi nhập từ file sao lưu hay khôi phục layer mặc định.
-- Cài đặt chung (OS, tắt đèn, chống rung) ghi trực tiếp như driver gốc, không commit. Đổi polling rate luôn là
-  lệnh cuối cùng của phiên (bàn phím khởi động lại cổng USB), sau đó ứng dụng tự kết nối lại; polling rate
-  không được khôi phục từ file sao lưu.
-- Nếu calibrate bị gián đoạn, ứng dụng vẫn gửi lệnh dừng calibrate (không lưu).
-- Nếu đang mở driver gốc (hub.xsyd.top) ở tab khác, hãy đóng nó trước khi kết nối.
+- The app **never** sends firmware update commands (family `08`) or a factory reset; the "Factory reset" keycode
+  is not in the key picker either.
+- It writes only when the board is `0030000D` (AE64 Max) or `0030000A` (AE64 Pro); other keyboards open
+  read-only.
+- Every travel write keeps the switch/calibrate values read from the keyboard, then reads back to compare.
+- The last line of defence lives in the transport (`src/protocol/safety.ts`): every packet must be in the list of
+  allowed commands and pass argument range checks (profile, layer, row/column, save group…). A packet that does
+  not match is blocked before it reaches the keyboard, whichever page built it.
+- A travel write is refused if that key was not read first, if it changes the sensor fields (`axis`,
+  `calibrate`), if it changes the switch fields (`axisV2Id`, `axisRangeMax`, `axisCoefficient`) to anything but
+  a value the key reported or a whole entry from the board's switch list, or if a distance exceeds the switch's
+  travel.
+- Travel modes: `0` Standard, `1` Continuous Rapid Trigger, `2` Interval Rapid Trigger (IntervalRT in the
+  original driver). The app reads the raw value from the key and keeps it on write; mode `2` is written only
+  when the keyboard reports protocol ≥ 1.3.0.0 (the original driver's condition) or the key is already in mode `2`.
+- Dangerous keycodes (Factory reset F200, wireless mode switches, clear pairing) are never written, including
+  from a backup file or when restoring a default layer.
+- Global settings (OS, lights off, debounce) are written directly like the original driver, without a commit.
+  A polling rate change is always the last command of a session (the keyboard restarts its USB port), after
+  which the app reconnects; the polling rate is not restored from backup files.
+- If a calibration is interrupted, the app still sends the stop-calibration command (without saving).
+- If the original driver (hub.xsyd.top) is open in another tab, close it before connecting.
 
-## Tài liệu
+## Docs
 
-- `docs/ARCHITECTURE.md` — cấu trúc thư mục, mô hình trang theo từng phím, cách thêm trang mới.
+- `docs/ARCHITECTURE.md` — folder layout, the per-key page model, how to add a new page.
