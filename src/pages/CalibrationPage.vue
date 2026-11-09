@@ -31,8 +31,8 @@ let unmounted = false;
 /**
  * Status is shown by the key's LED bar, the same thickness for all three states (user's choice). Not calibrated =
  * full --danger; calibrated = info blue; newly calibrated = green pushed toward the text colour (lighter on dark
- * themes, darker on light ones) and its key is fully filled. Each key's accessible name also carries the status
- * text, so the state is not colour-only.
+ * themes, darker on light ones) and its key is fully filled in that green, number included. Each key's accessible
+ * name also carries the status text, so the state is not colour-only.
  */
 const STATUS_COLOR = ['var(--danger)', 'var(--info)', 'color-mix(in srgb, var(--ok) 60%, var(--fg-1))'];
 /** Status bar thickness on every key and in the legend. */
@@ -40,6 +40,8 @@ const LED_PX = 5;
 const STATUS_TEXT = ['calibration.legendNone', 'calibration.legendDone', 'calibration.legendNew'] as const;
 // Until a real frame is read every status would be 0 ("uncalibrated"): show neutral keys instead.
 const statusColor = (k: PhysicalKey) => (cal.loaded ? STATUS_COLOR[cal.frame.status[k.id]] ?? STATUS_COLOR[0] : 'var(--fg-4)');
+// A just-calibrated key turns green (fill and number), as step 2 says; otherwise the lavender fill reads as "selected".
+const statusTone = (k: PhysicalKey) => (cal.loaded && cal.frame.status[k.id] === 2 ? STATUS_COLOR[2] : undefined);
 const statusText = (k: PhysicalKey) => (cal.loaded ? t(STATUS_TEXT[cal.frame.status[k.id]] ?? STATUS_TEXT[0]) : undefined);
 function fill(k: PhysicalKey) {
   if (!cal.loaded) return 0;
@@ -115,7 +117,7 @@ onBeforeUnmount(() => {
   <PageLayout :title="t('page.calibration')">
     <section class="kbrow">
       <div class="board" :class="{ 'board--live': running }">
-        <KeyboardView :keys="device.keys" :legend="device.legend" :sublabel="adc" :fill="fill" :color="statusColor" :led-height="LED_PX" :status="statusText" />
+        <KeyboardView :keys="device.keys" :legend="device.legend" :sublabel="adc" :fill="fill" :color="statusColor" :led-height="LED_PX" :tone="statusTone" :status="statusText" />
       </div>
       <aside class="aside">
         <span class="micro">{{ t('calibration.status') }}</span>
