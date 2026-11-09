@@ -143,26 +143,44 @@ describe('Switch page tabs', () => {
     expect(selected()).toEqual(['calibration']);
   });
 
-  it('arrow keys skip a disabled tab', async () => {
+  it('arrow keys skip the locked option; Home/End pick an enabled one', async () => {
     await mountAt('/switch?tab=calibration');
     useCalibrationStore().phase = 'running';
     await flushPromises();
     expect(tabEl('switch').attributes('disabled')).toBeDefined();
-    await tabEl('calibration').trigger('keydown', { key: 'ArrowLeft' });
-    await tabEl('calibration').trigger('keydown', { key: 'ArrowRight' });
+    for (const key of ['ArrowLeft', 'ArrowRight', 'Home', 'End']) await tabEl('calibration').trigger('keydown', { key });
     expect(selected()).toEqual(['calibration']);
   });
 
-  it('locks the Switch tab and shows the reason while calibration is busy; Calibration stays reachable', async () => {
+  it('Home, End and arrows move between the two options when idle', async () => {
     await mountAt('/switch?tab=calibration');
-    expect(w!.find('[role="status"].swtabs-row__hint').exists()).toBe(false);
+    await tabEl('calibration').trigger('keydown', { key: 'Home' });
+    await flushPromises();
+    expect(selected()).toEqual(['switch']);
+    await tabEl('switch').trigger('keydown', { key: 'End' });
+    await flushPromises();
+    expect(selected()).toEqual(['calibration']);
+    await tabEl('calibration').trigger('keydown', { key: 'ArrowLeft' });
+    await flushPromises();
+    expect(selected()).toEqual(['switch']);
+  });
+
+  it('locks the Switch option inside its card while calibration is busy (no hint row); Calibration stays reachable', async () => {
+    await mountAt('/switch?tab=calibration');
     expect(tabEl('switch').attributes('disabled')).toBeUndefined();
+    expect(tabEl('switch').find('.feat__sub').text()).toBe('Xem và đổi switch của từng phím');
+    expect(tabEl('switch').find('.feat__lock').exists()).toBe(false);
+    expect(tabEl('switch').attributes('title')).toBeUndefined();
     for (const phase of ['starting', 'running', 'finishing'] as const) {
       useCalibrationStore().phase = phase;
       await flushPromises();
       expect(tabEl('switch').attributes('disabled')).toBeDefined();
       expect(tabEl('calibration').attributes('disabled')).toBeUndefined();
-      expect(w!.find('[role="status"].swtabs-row__hint').text()).toBe('Đang hiệu chuẩn. Hoàn tất hoặc huỷ trước khi đổi switch.');
+      expect(tabEl('switch').find('.feat__sub').text()).toBe('Đang khoá trong lúc hiệu chuẩn');
+      expect(tabEl('switch').find('.feat__lock svg').exists()).toBe(true);
+      expect(tabEl('switch').find('.feat__dot').exists()).toBe(false);
+      expect(tabEl('switch').attributes('title')).toBe('Đang hiệu chuẩn. Hoàn tất hoặc huỷ trước khi đổi switch.');
+      expect(w!.find('.feat-row').element.children).toHaveLength(1); // no hint row
     }
     await tabEl('switch').trigger('click');
     expect(selected()).toEqual(['calibration']);

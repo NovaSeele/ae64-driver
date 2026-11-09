@@ -9,7 +9,9 @@ import PageLayout from '../components/shell/PageLayout.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import CalibrationView from '../components/calibration/CalibrationView.vue';
 import Card from '../components/ui/Card.vue';
-import Tabs from '../components/ui/Tabs.vue';
+import FeatureSwitch from '../components/switch/FeatureSwitch.vue';
+import IconSwitch from '../components/ui/IconSwitch.vue';
+import { IconTarget } from '@tabler/icons-vue';
 import { formatMm } from '../components/ui/NumberField.vue';
 import SwitchCard from '../components/performance/SwitchCard.vue';
 import SwitchSwatch from '../components/performance/SwitchSwatch.vue';
@@ -43,8 +45,11 @@ const tab = ref<Tab>(asTab(route.query.tab) ?? storedTab() ?? 'switch');
 saveTab(tab.value); // opened through a link (?tab=, or /calibration) also counts as the last-used tab
 const calBusy = computed(() => cal.phase !== 'idle');
 const tabs = computed(() => [
-  { id: 'switch', label: t('swp.tabSwitch'), disabled: calBusy.value },
-  { id: 'calibration', label: t('swp.tabCalibration') },
+  {
+    id: 'switch', title: t('swp.tabSwitch'), sub: calBusy.value ? t('swp.calLockedShort') : t('swp.tabSwitchSub'),
+    icon: IconSwitch, tone: 'var(--f-switch)', disabled: calBusy.value, hint: calBusy.value ? t('swp.calLocked') : undefined,
+  },
+  { id: 'calibration', title: t('swp.tabCalibration'), sub: t('swp.tabCalibrationSub'), icon: IconTarget, tone: 'var(--f-calibration)' },
 ]);
 function pickTab(id: string) {
   const next = asTab(id);
@@ -109,9 +114,8 @@ function nameOfKey(k: PhysicalKey): string | undefined {
 <template>
   <PageLayout :title="t('page.switch')" :keyboard="tab === 'switch'">
     <template #toolbar>
-      <div class="swtabs-row">
-        <Tabs :model-value="tab" :items="tabs" :label="t('page.switch')" @update:model-value="pickTab" />
-        <span v-if="calBusy" class="swtabs-row__hint" role="status">{{ t('swp.calLocked') }}</span>
+      <div class="feat-row">
+        <FeatureSwitch :model-value="tab" :items="tabs" :label="t('page.switch')" @update:model-value="pickTab" />
       </div>
     </template>
     <template v-if="tab === 'switch'" #keyboard>
@@ -145,8 +149,7 @@ function nameOfKey(k: PhysicalKey): string | undefined {
 </template>
 
 <style scoped>
-.swtabs-row { display: flex; align-items: center; gap: var(--s-4); width: 100%; }
-.swtabs-row__hint { font-size: var(--fs-label); color: var(--fg-2); }
+.feat-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-2) var(--s-4); width: 100%; }
 .swp-wrap { container-type: inline-size; }
 .swp { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--s-4); align-items: start; }
 @container (max-width: 819.98px) { /* about 900 px windows: one column, the action card first */

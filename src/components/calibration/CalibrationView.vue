@@ -230,7 +230,7 @@ onBeforeUnmount(() => {
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
 .steps li.done { color: var(--fg-3); }
-.steps li.done .steps__n { background: var(--bg-4); }
+.steps li.done .steps__n { background: var(--bg-4); color: var(--fg-2); }
 .steps li.now { color: var(--fg-1); }
 .steps li.now .steps__n { background: var(--acc); border-color: var(--acc); color: var(--on-acc); }
 .actions { display: flex; gap: var(--s-2); margin-top: var(--s-4); }
