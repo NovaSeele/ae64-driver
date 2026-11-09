@@ -312,6 +312,8 @@ function onTypeKey(e: KeyboardEvent) {
 .kbrow { display: flex; gap: var(--s-5); align-items: flex-start; }
 .board { flex: 1; min-width: 0; max-width: 940px; margin: 0 auto; }
 .aside { flex: none; width: 188px; display: flex; flex-direction: column; gap: var(--s-2); }
+.aside :deep(.seg__opt) { flex: 1; }
+.aside .hint { text-wrap: pretty; }
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
 .toggle { font-size: var(--fs-label); }
 

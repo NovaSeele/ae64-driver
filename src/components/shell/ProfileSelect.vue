@@ -7,6 +7,8 @@ import { useDeviceStore } from '../../stores/device';
 import { useToast } from '../ui/toast';
 import { t } from '../../i18n/vi';
 
+const props = defineProps<{ compact?: boolean }>();
+
 const device = useDeviceStore();
 const calibration = useCalibrationStore();
 const toast = useToast();
@@ -29,7 +31,7 @@ async function choose(i: number) {
 }
 
 async function startRename(i: number) {
-  if (!device.boardAllowed) return;
+  if (props.compact || !device.boardAllowed) return;
   editing.value = i;
   draft.value = device.profileNames[i] ?? '';
   await nextTick();
@@ -49,7 +51,7 @@ async function finishRename(save: boolean) {
 </script>
 
 <template>
-  <div class="ps">
+  <div class="ps" :class="{ 'ps--compact': compact }">
     <div class="micro ps__label">{{ t('device.profile') }}</div>
     <ul class="ps__list" role="listbox" :aria-label="t('device.profile')">
       <li
@@ -60,7 +62,8 @@ async function finishRename(save: boolean) {
         role="option"
         :aria-selected="i === device.activeProfile"
         :aria-disabled="calibrating && i !== device.activeProfile ? true : undefined"
-        :title="calibrating && i !== device.activeProfile ? t('device.calibrating') : undefined"
+        :aria-label="compact ? name : undefined"
+        :title="compact ? name : (calibrating && i !== device.activeProfile ? t('device.calibrating') : undefined)"
         :tabindex="i === device.activeProfile ? 0 : -1"
         @click="choose(i)"
         @dblclick="startRename(i)"
@@ -68,29 +71,31 @@ async function finishRename(save: boolean) {
         @keydown.f2="startRename(i)"
       >
         <span class="ps__idx num">{{ i + 1 }}</span>
-        <input
-          v-if="editing === i"
-          ref="input"
-          v-model="draft"
-          class="ps__input"
-          maxlength="32"
-          :aria-label="t('device.rename')"
-          @click.stop
-          @keydown.enter.stop="finishRename(true)"
-          @keydown.esc.stop="finishRename(false)"
-          @blur="finishRename(true)"
-        >
-        <span v-else class="ps__name">{{ name }}</span>
-        <button
-          v-if="editing !== i && device.boardAllowed"
-          type="button"
-          class="ps__edit"
-          :aria-label="`${t('device.rename')} ${name}`"
-          :title="t('device.rename')"
-          @click.stop="startRename(i)"
-        >
-          <IconPencil :size="13" stroke-width="1.5" />
-        </button>
+        <template v-if="!compact">
+          <input
+            v-if="editing === i"
+            ref="input"
+            v-model="draft"
+            class="ps__input"
+            maxlength="32"
+            :aria-label="t('device.rename')"
+            @click.stop
+            @keydown.enter.stop="finishRename(true)"
+            @keydown.esc.stop="finishRename(false)"
+            @blur="finishRename(true)"
+          >
+          <span v-else class="ps__name">{{ name }}</span>
+          <button
+            v-if="editing !== i && device.boardAllowed"
+            type="button"
+            class="ps__edit"
+            :aria-label="`${t('device.rename')} ${name}`"
+            :title="t('device.rename')"
+            @click.stop="startRename(i)"
+          >
+            <IconPencil :size="13" stroke-width="1.5" />
+          </button>
+        </template>
       </li>
     </ul>
   </div>
@@ -99,6 +104,17 @@ async function finishRename(save: boolean) {
 <style scoped>
 .ps { display: flex; flex-direction: column; gap: var(--s-2); }
 .ps__label { padding: 0 4px; }
+.ps--compact .ps__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 .ps__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .ps__item {
   display: flex;
@@ -110,6 +126,11 @@ async function finishRename(save: boolean) {
   color: var(--fg-2);
   cursor: pointer;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.ps--compact .ps__item {
+  justify-content: center;
+  padding: 0;
+  height: 32px;
 }
 .ps__item:hover { background: var(--bg-3); color: var(--fg-1); }
 .ps__item--on { background: var(--sel-bg); color: var(--fg-1); box-shadow: inset 2px 0 0 var(--acc); }

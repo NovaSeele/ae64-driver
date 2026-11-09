@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { createPinia, setActivePinia } from 'pinia';
+import { createMemoryHistory, createRouter } from 'vue-router';
+import Sidebar from '../src/components/shell/Sidebar.vue';
+import { NAV } from '../src/router';
+import { t } from '../src/i18n/vi';
 import KeyPicker from '../src/components/ui/KeyPicker.vue';
 import Slider from '../src/components/ui/Slider.vue';
 import ColorPicker from '../src/components/ui/ColorPicker.vue';
@@ -134,5 +139,32 @@ describe('RT link derivation', () => {
     expect(deriveRtLinked([rec(1, 0.8, 0.3)], isRt)).toBe(false);
     expect(deriveRtLinked([rec(1, 0.3, 0.3), rec(1, 0.8, 0.3)], isRt)).toBe(false);
     expect(deriveRtLinked([rec(0, 0.8, 0.3), rec(1, 0.3, 0.3)], isRt)).toBe(true); // standard keys' RT fields are not edited
+  });
+});
+
+
+describe('Sidebar', () => {
+  it('renders every nav link with a title in compact mode and toggles compact on fold button click', async () => {
+    setActivePinia(createPinia());
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/keymap', component: { template: '<div />' } }],
+    });
+    const w = mount(Sidebar, {
+      props: { compact: true },
+      global: { plugins: [router], stubs: { teleport: true } },
+    });
+    expect(w.classes()).toContain('side--compact');
+    const links = w.findAll('.side__link');
+    const allItems = NAV.flatMap((g) => g.items);
+    expect(links.length).toBe(allItems.length);
+    for (let i = 0; i < links.length; i++) {
+      expect(links[i].attributes('title')).toBe(t(allItems[i].title));
+    }
+
+    // Fold button toggles the model
+    const foldBtn = w.findAll('.side-foot__btn').at(-1)!;
+    await foldBtn.trigger('click');
+    expect(w.emitted('update:compact')?.[0]).toEqual([false]);
   });
 });

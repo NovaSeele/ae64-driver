@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { IconLoader2 } from '@tabler/icons-vue';
-import Rail from './components/shell/Rail.vue';
 import Sidebar from './components/shell/Sidebar.vue';
 import TopBar from './components/shell/TopBar.vue';
 import ConnectScreen from './components/shell/ConnectScreen.vue';
@@ -43,10 +42,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="shell" :class="{ 'shell--collapsed': collapsed }">
-    <Rail v-model:collapsed="collapsed" />
-    <Transition name="side">
-      <Sidebar v-show="!collapsed" />
-    </Transition>
+    <Sidebar v-model:compact="collapsed" />
     <main class="main">
       <template v-if="device.connected || usbRestarting">
         <TopBar />
@@ -72,7 +68,7 @@ onBeforeUnmount(() => {
 .shell {
   display: flex;
   height: 100%;
-  min-width: 1100px;
+  min-width: 1044px;
 }
 .shell--collapsed { min-width: 900px; }
 .main {
@@ -105,6 +101,4 @@ onBeforeUnmount(() => {
 }
 .main__spin { color: var(--acc); animation: main-spin 0.9s linear infinite; }
 @keyframes main-spin { to { transform: rotate(360deg); } }
-.side-enter-active, .side-leave-active { transition: opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease); }
-.side-enter-from, .side-leave-to { opacity: 0; transform: translateX(-8px); }
 </style>

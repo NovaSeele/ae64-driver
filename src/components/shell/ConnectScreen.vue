@@ -2,35 +2,17 @@
 import { computed } from 'vue';
 import { IconAlertTriangle, IconPlayerPlay, IconUsb } from '@tabler/icons-vue';
 import Button from '../ui/Button.vue';
-import Segmented from '../ui/Segmented.vue';
 import { useDeviceStore } from '../../stores/device';
 import { useSettingsStore } from '../../stores/settings';
 import { t } from '../../i18n/vi';
-import { locale, setLocale, type Locale } from '../../i18n/locale';
 
 const device = useDeviceStore();
 const settings = useSettingsStore();
 const usbRestarting = computed(() => settings.pollingState === 'applying' || settings.pollingState === 'reconnecting');
-
-const currentLocale = computed({
-  get: () => locale.value,
-  set: (val: Locale | null) => {
-    if (val === 'vi' || val === 'en') setLocale(val);
-  },
-});
-
-const LANG_OPTIONS = computed<{ value: Locale; label: string; title: string }[]>(() => [
-  { value: 'vi', label: 'VI', title: t('lang.vi') },
-  { value: 'en', label: 'EN', title: t('lang.en') },
-]);
 </script>
 
 <template>
   <div class="cs">
-    <div class="cs__lang" :title="t('lang.switch')">
-      <Segmented v-model="currentLocale" :options="LANG_OPTIONS" :label="t('lang.switch')" size="sm" />
-    </div>
-
     <div class="cs__card">
       <div class="cs__art" aria-hidden="true">
         <svg viewBox="0 0 240 92" width="240" height="92">
@@ -90,12 +72,6 @@ const LANG_OPTIONS = computed<{ value: Locale; label: string; title: string }[]>
   padding: var(--s-8);
   background: radial-gradient(ellipse 60% 50% at 50% 35%, color-mix(in srgb, var(--acc) 6%, transparent), transparent 70%);
   position: relative;
-}
-.cs__lang {
-  position: absolute;
-  top: var(--s-4);
-  right: var(--s-4);
-  z-index: 10;
 }
 .cs__card {
   display: flex;

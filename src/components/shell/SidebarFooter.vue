@@ -1,35 +1,16 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import { IconActivity, IconAdjustments, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconRefresh, IconSettings } from '@tabler/icons-vue';
+import { computed, ref } from 'vue';
+import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconRefresh } from '@tabler/icons-vue';
 import Dialog from '../ui/Dialog.vue';
 import Button from '../ui/Button.vue';
 import Segmented from '../ui/Segmented.vue';
 import { t } from '../../i18n/vi';
 import { locale, setLocale, type Locale } from '../../i18n/locale';
 import { useUpdateStore } from '../../update';
-import { useDeviceStore } from '../../stores/device';
 
-const collapsed = defineModel<boolean>('collapsed', { required: true });
-const route = useRoute();
-const router = useRouter();
+const compact = defineModel<boolean>('compact', { default: false });
 const update = useUpdateStore();
-const device = useDeviceStore();
 const help = ref(false);
-
-// The rail switches between three modes; each remembers the last page opened inside it.
-const MODES = [
-  { id: 'configure', label: 'nav.configure', icon: IconAdjustments, home: '/performance', paths: ['/keymap', '/performance', '/advanced', '/lighting', '/macro'] },
-  { id: 'live', label: 'nav.live', icon: IconActivity, home: '/live', paths: ['/live'] },
-  { id: 'device', label: 'nav.groupDevice', icon: IconSettings, home: '/settings', paths: ['/calibration', '/settings', '/diagnostics'] },
-] as const;
-const last = reactive<Record<string, string>>(Object.fromEntries(MODES.map((m) => [m.id, m.home])));
-const activeMode = computed(() => MODES.find((m) => (m.paths as readonly string[]).includes(route.path))?.id);
-const removeHook = router.afterEach((to) => {
-  const m = MODES.find((x) => (x.paths as readonly string[]).includes(to.path));
-  if (m) last[m.id] = to.fullPath;
-});
-onBeforeUnmount(removeHook);
 
 const currentLocale = computed({
   get: () => locale.value,
@@ -59,50 +40,26 @@ function formatUpdateDate(iso: string): string {
 </script>
 
 <template>
-  <nav class="rail" :aria-label="t('app.name')">
-    <div class="rail__mark" aria-hidden="true">
-      <svg viewBox="0 0 32 32" width="30" height="30">
-        <rect x="2.5" y="7.5" width="27" height="17" rx="4.5" fill="var(--bg-3)" stroke="var(--acc)" stroke-width="1.6" />
-        <g fill="var(--acc)">
-          <rect x="6" y="11" width="3" height="3" rx="0.9" />
-          <rect x="10.5" y="11" width="3" height="3" rx="0.9" />
-          <rect x="15" y="11" width="3" height="3" rx="0.9" />
-          <rect x="19.5" y="11" width="3" height="3" rx="0.9" />
-          <rect x="24" y="11" width="2.5" height="3" rx="0.9" opacity="0.55" />
-          <rect x="6" y="15.5" width="5" height="3" rx="0.9" opacity="0.55" />
-          <rect x="12.5" y="15.5" width="3" height="3" rx="0.9" />
-          <rect x="17" y="15.5" width="3" height="3" rx="0.9" />
-          <rect x="21.5" y="15.5" width="5" height="3" rx="0.9" />
-          <rect x="10" y="20" width="12" height="2.2" rx="1.1" />
-        </g>
-      </svg>
-    </div>
-    <button
-      v-for="m in MODES"
-      :key="m.id"
-      type="button"
-      class="rail__btn"
-      :class="{ 'rail__btn--on': activeMode === m.id }"
-      :aria-current="activeMode === m.id ? 'page' : undefined"
-      :disabled="!device.connected"
-      @click="router.push(last[m.id])"
-    >
-      <component :is="m.icon" :size="20" stroke-width="1.5" aria-hidden="true" />
-      <span>{{ t(m.label) }}</span>
-    </button>
-    <div class="rail__spacer" />
-
-    <button type="button" class="rail__icon" :aria-label="collapsed ? t('nav.expand') : t('nav.collapse')" :title="collapsed ? t('nav.expand') : t('nav.collapse')" @click="collapsed = !collapsed">
-      <component :is="collapsed ? IconLayoutSidebarLeftExpand : IconLayoutSidebarLeftCollapse" :size="19" stroke-width="1.5" />
-    </button>
-
-    <div class="rail__lang" :title="t('lang.switch')">
+  <div class="side-foot" :class="{ 'side-foot--compact': compact }">
+    <div class="side-foot__lang" :title="t('lang.switch')">
       <Segmented v-model="currentLocale" :options="LANG_OPTIONS" :label="t('lang.switch')" size="sm" />
     </div>
 
-    <button type="button" class="rail__icon" :aria-label="updateLabel" :title="updateLabel" @click="help = true">
-      <IconRefresh class="rail__refresh" :class="{ 'rail__refresh--spin': updateBusy }" :size="19" stroke-width="1.5" />
-      <span v-if="updatePending" class="rail__dot" aria-hidden="true" />
+    <div class="side-foot__gap" />
+
+    <button type="button" class="side-foot__btn" :aria-label="updateLabel" :title="updateLabel" @click="help = true">
+      <IconRefresh class="side-foot__refresh" :class="{ 'side-foot__refresh--spin': updateBusy }" :size="19" stroke-width="1.5" />
+      <span v-if="updatePending" class="side-foot__dot" aria-hidden="true" />
+    </button>
+
+    <button
+      type="button"
+      class="side-foot__btn"
+      :aria-label="compact ? t('nav.expand') : t('nav.collapse')"
+      :title="compact ? t('nav.expand') : t('nav.collapse')"
+      @click="compact = !compact"
+    >
+      <component :is="compact ? IconLayoutSidebarLeftExpand : IconLayoutSidebarLeftCollapse" :size="19" stroke-width="1.5" />
     </button>
 
     <Dialog v-model:open="help" :title="t('help.title')" :width="480">
@@ -165,86 +122,60 @@ function formatUpdateDate(iso: string): string {
         </dl>
       </div>
     </Dialog>
-  </nav>
+  </div>
 </template>
 
 <style scoped>
-.rail {
+.side-foot {
+  margin-top: auto;
+  position: sticky;
+  bottom: calc(-1 * var(--s-3));
+  z-index: 1;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: var(--s-2);
-  width: var(--rail-w);
-  padding: var(--s-3) 0;
+  gap: 2px;
+  margin-bottom: calc(-1 * var(--s-3));
+  padding: var(--s-2) 0 var(--s-3);
   background: var(--bg-1);
-  border-right: 1px solid var(--line-1);
+  border-top: 1px solid var(--line-1);
 }
-.rail__mark { display: grid; place-items: center; height: 40px; margin-bottom: var(--s-3); }
-.rail__btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  width: 48px;
-  padding: 7px 0 6px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--fg-3);
-  font-size: 9.5px;
-  font-weight: 500;
-  line-height: 1.1;
-  text-align: center;
-  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
-}
-.rail__btn:hover:not(:disabled) { color: var(--fg-1); background: var(--bg-2); }
-.rail__btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.rail__btn--on, .rail__btn--on:hover:not(:disabled) { color: var(--fg-1); background: var(--sel-bg); }
-.rail__btn--on :deep(svg) { color: var(--acc); }
-.rail__spacer { flex: 1; }
-.rail__lang {
-  display: flex;
-  justify-content: center;
-  width: 100%;
-}
-.rail__lang :deep(.seg) {
-  padding: 2px;
-  gap: 1px;
-}
-.rail__lang :deep(.seg__opt) {
-  height: 20px;
-  padding: 0 4px;
-  font-size: 10px;
-  font-weight: 600;
-}
-.rail__icon {
+.side-foot__gap { flex: 1; }
+.side-foot__btn {
   position: relative;
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--fg-3);
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
-.rail__icon:hover { color: var(--fg-1); background: var(--bg-3); }
-.rail__dot {
+.side-foot__btn:hover { color: var(--fg-1); background: var(--bg-2); }
+.side-foot__dot {
   position: absolute;
-  top: 5px;
-  right: 5px;
+  top: 4px;
+  right: 4px;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--acc);
   box-shadow: 0 0 0 2px var(--bg-1);
 }
-.rail__refresh--spin { animation: rail-spin 1s linear infinite; }
-@keyframes rail-spin { to { transform: rotate(360deg); } }
+.side-foot__refresh--spin { animation: side-foot-spin 1s linear infinite; }
+@keyframes side-foot-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .rail__refresh--spin { animation: none; }
+  .side-foot__refresh--spin { animation: none; }
 }
+
+/* compact: stacked, VI|EN shrunk to fit the 40px column */
+.side-foot--compact { flex-direction: column; gap: 4px; }
+.side-foot--compact .side-foot__gap { display: none; }
+.side-foot--compact :deep(.seg) { padding: 2px; gap: 1px; }
+.side-foot--compact :deep(.seg__opt) { height: 20px; padding: 0 4px; font-size: 10px; font-weight: 600; }
+
+/* About dialog */
 .help { display: flex; flex-direction: column; gap: var(--s-3); }
 .help dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
 .help dt { color: var(--fg-1); }
