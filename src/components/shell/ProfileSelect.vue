@@ -144,7 +144,11 @@ watch(() => route.fullPath, () => close());
 onBeforeUnmount(removeListeners);
 
 function pick(i: number, now = false) {
-  if (i === device.activeProfile && !now) {
+  if (i === device.activeProfile && now) {
+    close(true); // nothing to switch
+    return;
+  }
+  if (i === device.activeProfile) {
     // Nothing to switch: wait a moment so a double-click can still open the rename on this row.
     clearTimeout(closeTimer);
     closeTimer = window.setTimeout(() => { if (editing.value === null) close(true); }, 250);
@@ -177,6 +181,14 @@ async function startRename(i: number) {
   draft.value = device.profileNames[i] ?? '';
   await nextTick();
   input.value[0]?.select();
+}
+
+/** Enter/Esc in the rename input: the input unmounts, so put focus back on its row while the popover is open. */
+async function endRename(i: number, save: boolean) {
+  const done = finishRename(save);
+  await nextTick();
+  if (open.value) focusRow(i);
+  await done;
 }
 
 async function finishRename(save: boolean) {
@@ -237,8 +249,8 @@ async function finishRename(save: boolean) {
             maxlength="32"
             :aria-label="t('device.rename')"
             @click.stop
-            @keydown.enter.stop="finishRename(true)"
-            @keydown.esc.stop="finishRename(false)"
+            @keydown.enter.stop="endRename(i, true)"
+            @keydown.esc.stop="endRename(i, false)"
             @blur="finishRename(true)"
           >
           <span v-else class="ps__name">{{ name }}</span>

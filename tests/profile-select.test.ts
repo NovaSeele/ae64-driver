@@ -82,6 +82,33 @@ describe('ProfileSelect', () => {
     expect(w.find('.ps__pop').exists()).toBe(false);
   });
 
+  it('Enter on the already-active row only closes (no switchProfile)', async () => {
+    const { device, spy, w } = await setup();
+    await w.get('.ps__trigger').trigger('keydown', { key: 'ArrowDown' });
+    await flushPromises();
+    await w.findAll('[role="option"]')[device.activeProfile].trigger('keydown', { key: 'Enter' });
+    expect(spy).not.toHaveBeenCalled();
+    expect(w.find('.ps__pop').exists()).toBe(false);
+    expect(document.activeElement).toBe(w.get('.ps__trigger').element);
+  });
+
+  it.each([['Enter', true], ['Escape', false]] as const)('%s in the rename input puts focus back on the row, popover still open', async (key, saved) => {
+    const { device, w } = await setup();
+    const rename = vi.spyOn(device, 'renameProfile').mockResolvedValue(undefined as never);
+    await w.get('.ps__trigger').trigger('keydown', { key: 'ArrowDown' });
+    await flushPromises();
+    await w.findAll('[role="option"]')[2].trigger('keydown', { key: 'F2' });
+    await flushPromises();
+    const input = w.get('.ps__input');
+    await input.setValue('Renamed');
+    await input.trigger('keydown', { key });
+    await flushPromises();
+    expect(w.find('.ps__input').exists()).toBe(false);
+    expect(w.find('.ps__pop').exists()).toBe(true);
+    expect(document.activeElement).toBe(w.findAll('[role="option"]')[2].element);
+    expect(rename).toHaveBeenCalledTimes(saved ? 1 : 0);
+  });
+
   it('compact mode still lists profile names in the popover', async () => {
     const { device, w } = await setup(true);
     await w.get('.ps__trigger').trigger('click');
