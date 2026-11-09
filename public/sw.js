@@ -289,7 +289,9 @@ self.addEventListener('message', (event) => {
           if (current && latest === current) {
             throw new Error(`Already running latest version ${current}`);
           }
-          if (!offered || latest !== offered) {
+          // Pages built before the offered version existed send a bare { type: 'apply' }: the user still pressed
+          // Update, so they get the latest release (newer than theirs, checked below) instead of being stuck.
+          if (offered && latest !== offered) {
             throw new Error(`Offered version ${offered} does not match latest ${latest}`);
           }
           if (current && !isNewerVersion(latest, current)) {

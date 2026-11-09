@@ -289,6 +289,25 @@ describe('Service Worker (public/sw.js)', () => {
       expect(await match?.text()).toBe('<html>current</html>');
     });
 
+    it('apply from an old page (no offered version) updates to the latest newer release', async () => {
+      const metaCache = await mockCaches.open('ae64-meta');
+      await metaCache.put('/__ae64_version__', new Response(JSON.stringify({ version: '0.1.0+202611081700' })));
+      const appCache = await mockCaches.open('ae64-app-0.1.0+202611081700');
+      await appCache.put('/index.html', new Response('<html>old</html>'));
+      vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => ({
+        ok: true,
+        clone() { return this; },
+        json: async () => ({ version: '0.1.0+20261108201715', files: ['/index.html'] }),
+        text: async () => '<html>new</html>',
+      })));
+
+      const reply = await triggerMessage({ type: 'apply' });
+
+      expect(reply.ok).toBe(true);
+      const meta = await (await metaCache.match('/__ae64_version__'))!.json();
+      expect(meta.version).toBe('0.1.0+20261108201715');
+    });
+
     it('apply addAll failure keeps current cache and deletes only new cache', async () => {
       const metaCache = await mockCaches.open('ae64-meta');
       await metaCache.put('/__ae64_version__', new Response(JSON.stringify({ version: '0.1.0' })));
