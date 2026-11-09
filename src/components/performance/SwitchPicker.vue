@@ -136,7 +136,7 @@ function apply() {
             <span v-if="brandOf(e)" class="sw-opt__brand">{{ brandOf(e) }}</span>
             <span class="sw-opt__name" :title="switchName(e)">{{ switchName(e) }}</span>
             <span class="sw-opt__meta">
-              <span class="sw-opt__mm">{{ mm(e.rangeMax) }} mm</span>
+              <span class="sw-opt__mm">{{ mm(e.rangeMax) }}<small>mm</small></span>
               <span v-if="inUse.get(e.id)" class="sw-opt__tag">{{ single ? t('sw.inUse') : t('sw.keys', { n: inUse.get(e.id)! }) }}</span>
             </span>
           </span>
@@ -205,10 +205,11 @@ function apply() {
 .sw-opt:hover .sw-opt__brand, .sw-opt[aria-checked='true'] .sw-opt__brand { color: var(--fg-2); }
 .sw-opt__name { font-size: var(--fs-body); font-weight: 500; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
 .sw-opt__mm { flex: none; white-space: nowrap; font-size: var(--fs-label); color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.sw-opt__mm small { font-size: 10px; margin-left: 1px; }
 .sw-opt[aria-checked='true'] .sw-opt__mm { color: var(--fg-1); }
-.sw-opt__meta { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sw-opt__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; min-width: 0; } /* the tag wraps on 170-180px tiles instead of overflowing */
 .sw-opt__tag {
-  padding: 0 5px; border-radius: 4px; white-space: nowrap;
+  padding: 0 4px; border-radius: 4px; white-space: nowrap;
   font-size: 10px; font-weight: 600; line-height: 16px;
   color: var(--fg-2); background: var(--bg-2); border: 1px solid var(--line-2);
 }

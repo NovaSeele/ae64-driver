@@ -23,7 +23,7 @@ export const performanceVi = {
   'sw.forProfile': 'profile',
   'sw.groups': 'Hãng switch',
   'sw.groupOther': 'Khác',
-  'sw.inUse': 'Đang dùng',
+  'sw.inUse': 'Hiện tại',
   'sw.kinds': '{n} loại',
   'sw.idle': 'Chọn loại switch đang lắp trên các phím này.',
   'sw.same': 'Các phím đã dùng switch này.',

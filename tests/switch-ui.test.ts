@@ -51,7 +51,7 @@ describe('switch selector UI', () => {
     const tabs = [...body().querySelectorAll('[role=tab]')];
     expect(tabs.map((x) => x.querySelector('.tabs__n')?.textContent)).toEqual(['1', '31', '19', '25']);
     expect(body().querySelector('[role=tab][aria-selected=true]')?.textContent).toContain('Khác');
-    expect(opt('UR Ice HE-Ex').querySelector('.sw-opt__tag')?.textContent).toBe('Đang dùng');
+    expect(opt('UR Ice HE-Ex').querySelector('.sw-opt__tag')?.textContent).toBe('Hiện tại');
   });
 
   it('choosing writes nothing; clamp warning, Apply to N keys, then exactly those keys are written', async () => {
