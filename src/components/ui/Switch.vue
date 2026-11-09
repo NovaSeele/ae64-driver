@@ -1,6 +1,6 @@
 <script setup lang="ts">
 const model = defineModel<boolean>({ required: true });
-defineProps<{ label?: string; disabled?: boolean }>();
+defineProps<{ label?: string; disabled?: boolean; /** id of an element that describes the switch */ describedby?: string }>();
 </script>
 
 <template>
@@ -11,6 +11,7 @@ defineProps<{ label?: string; disabled?: boolean }>();
       class="sw__track"
       :aria-checked="model"
       :aria-label="label"
+      :aria-describedby="describedby"
       :disabled="disabled"
       @click="model = !model"
     >

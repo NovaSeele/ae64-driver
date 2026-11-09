@@ -24,19 +24,21 @@ beforeEach(() => {
 });
 
 describe('theme', () => {
-  it('parses stored values; anything unknown becomes graphite', async () => {
+  it('parses stored values; anything unknown becomes auto', async () => {
     const { parseThemeChoice, THEMES } = await load();
     expect(parseThemeChoice('auto')).toBe('auto');
     for (const id of THEMES) expect(parseThemeChoice(id)).toBe(id);
-    for (const bad of ['', 'Light', 'solarized', null, undefined, 3, {}]) expect(parseThemeChoice(bad)).toBe('graphite');
+    for (const bad of ['', 'Light', 'solarized', null, undefined, 3, {}]) expect(parseThemeChoice(bad)).toBe('auto');
   });
 
-  it('reads the stored choice at load and defaults to graphite', async () => {
+  it('reads the stored choice at load and defaults to auto', async () => {
     localStorage.setItem('ae64.theme', 'nord');
     expect((await load()).themeChoice.value).toBe('nord');
+    localStorage.setItem('ae64.theme', 'graphite');
+    expect((await load()).themeChoice.value).toBe('graphite');
     localStorage.setItem('ae64.theme', 'bogus');
     const m = await load();
-    expect(m.themeChoice.value).toBe('graphite');
+    expect(m.themeChoice.value).toBe('auto');
     expect(document.documentElement.dataset.theme).toBe('graphite');
   });
 
@@ -72,7 +74,7 @@ describe('theme', () => {
       throw new Error('denied');
     });
     const m = await load();
-    expect(m.themeChoice.value).toBe('graphite');
+    expect(m.themeChoice.value).toBe('auto');
     expect(() => m.setTheme('mint')).not.toThrow();
     expect(m.resolvedTheme.value).toBe('mint');
   });

@@ -258,14 +258,17 @@ const modeOptions = computed(() => [
           <span class="chip__dot" :class="{ 'chip__dot--rt': m.id === 'rt' }" aria-hidden="true" />{{ t(m.label) }}
         </button>
       </div>
-      <template v-if="metric === 'actuation'">
-        <p class="aside-hint">{{ t('perf.rtBadgeHint') }}</p>
-        <div class="shading">
-          <Switch v-model="depthShading" :label="t('perf.depthShading')" />
-          <p class="shading__hint">{{ t('perf.depthShadingHint') }}</p>
-        </div>
-      </template>
-      <p v-else-if="metric === 'rt'" class="aside-hint">{{ t('perf.rtViewHint') }}</p>
+      <div class="aside-sub">
+        <template v-if="metric === 'actuation'">
+          <p class="aside-hint">{{ t('perf.rtBadgeHint') }}</p>
+          <div class="shading">
+            <Switch v-model="depthShading" :label="t('perf.depthShading')" :title="t('perf.depthShadingHint')" describedby="perf-shading-hint" />
+            <p id="perf-shading-hint" class="shading__hint">{{ t('perf.depthShadingHint') }}</p>
+          </div>
+        </template>
+        <p v-else-if="metric === 'rt'" class="aside-hint">{{ t('perf.rtViewHint') }}</p>
+        <p v-else-if="metric === 'deadzone'" class="aside-hint">{{ t('perf.deadzoneViewHint') }}</p>
+      </div>
       <Button class="try" variant="secondary" size="sm" :icon="IconFlask" :disabled="!hasSel" :title="t('perf.tryNowHint')" @click="tryNow">
         {{ t('perf.tryNow') }}
       </Button>
@@ -466,6 +469,7 @@ const modeOptions = computed(() => [
 </template>
 
 <style scoped>
+.aside-sub { display: contents; }
 .aside-hint {
   margin: 2px 0 0;
   max-width: 160px;
@@ -498,17 +502,18 @@ const modeOptions = computed(() => [
 .shading__hint { margin: 0; font-size: var(--fs-caption); line-height: 1.4; color: var(--fg-3); }
 /* The RT tag on a keycap (actuation view). */
 .kb :deep(.cap__badge) { font-size: 10px; font-weight: 600; opacity: 1; }
-.chip[aria-checked='true'] { background: var(--bg-3); border-color: color-mix(in srgb, var(--chip) 55%, transparent); color: var(--fg-1); }
+.chip[aria-checked='true'] { background: var(--sel-bg); border-color: var(--acc-line); color: var(--fg-1); }
 .try { margin-top: var(--s-2); }
 
 @media (max-width: 1360px) {
   .chips { flex-direction: row; }
   .aside-label, .chips, .try { align-self: center; }
   .try { margin-top: 0; }
-  /* The hint gets its own full-width line below the chips. */
-  .aside-hint { order: 1; flex: 0 0 100%; max-width: none; margin: 0; text-align: right; }
-  .shading { order: 1; flex: 0 0 100%; max-width: none; margin: 0; align-items: flex-end; }
-  .shading__hint { text-align: right; }
+  /* Hint and switch share one fixed-height line below the chips, so the board never moves between views. */
+  .aside-sub { order: 1; flex: 0 0 100%; display: flex; justify-content: flex-end; align-items: center; gap: var(--s-4); min-height: 28px; }
+  .aside-hint { max-width: none; margin: 0; text-align: right; }
+  .shading { flex-direction: row; align-items: center; margin: 0; max-width: none; }
+  .shading__hint { display: none; }
 }
 
 .grid {

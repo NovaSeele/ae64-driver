@@ -561,11 +561,11 @@ async function doRestore() {
 }
 .diag-log-line__dir--in {
   color: var(--d-in);
-  background: color-mix(in srgb, var(--d-in) 14%, transparent);
+  background: color-mix(in srgb, var(--d-in) var(--soft-pct), transparent);
 }
 .diag-log-line__dir--out {
   color: var(--d-out);
-  background: color-mix(in srgb, var(--d-out) 14%, transparent);
+  background: color-mix(in srgb, var(--d-out) var(--soft-pct), transparent);
 }
 .diag-log-line__hex {
   color: var(--fg-2);

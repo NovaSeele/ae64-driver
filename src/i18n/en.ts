@@ -95,6 +95,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'perf.metric': 'Display',
   'perf.rtBadgeHint': 'Keys tagged RT use Rapid Trigger. See their press/release sensitivity in the Rapid Trigger view, or hover a key.',
   'perf.rtViewHint': '↓ press sensitivity · ↑ release sensitivity (mm). Keys without Rapid Trigger show —.',
+  'perf.deadzoneViewHint': '↑ top dead zone · ↓ bottom dead zone (mm).',
   'perf.rtTagTitle': 'Rapid Trigger · press {press} mm · release {release} mm',
   'perf.depthShading': 'Actuation depth shading',
   'perf.depthShadingHint': 'Shades each key from the top down to its actuation point: the longer the shading, the deeper you press.',

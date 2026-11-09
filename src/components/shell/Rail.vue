@@ -200,7 +200,7 @@ function formatUpdateDate(iso: string): string {
 }
 .rail__btn:hover:not(:disabled) { color: var(--fg-1); background: var(--bg-2); }
 .rail__btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.rail__btn--on, .rail__btn--on:hover:not(:disabled) { color: var(--fg-1); background: var(--bg-3); }
+.rail__btn--on, .rail__btn--on:hover:not(:disabled) { color: var(--fg-1); background: var(--sel-bg); }
 .rail__btn--on :deep(svg) { color: var(--acc); }
 .rail__spacer { flex: 1; }
 .rail__lang {

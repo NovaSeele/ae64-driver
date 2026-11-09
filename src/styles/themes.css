@@ -1,7 +1,7 @@
 /* Theme tokens (generated from the palette sheet; contrast checked: text >= 4.5:1, icons >= 3:1).
-   Graphite is the default. Order matters: theme blocks come after the default and before the derived block. */
+   Graphite is the default (dark); Auto resolves to graphite / light. Both use the Seele violet for every selected/on state. In every theme the selection colour (--sel) is the accent hue. Order matters: theme blocks come after the default and before the derived block. */
 
-/* Graphite (default) */
+/* Graphite (default, dark) */
 :root,
 [data-theme='graphite'] {
   color-scheme: dark;
@@ -17,10 +17,10 @@
   --fg-2: #b6b9bf;
   --fg-3: #9da1a8;
   --fg-4: #93979f;
-  --acc: #ffd45c;
-  --acc-hover: #ffe08a;
-  --on-acc: #211a05;
-  --sel: #6c63ff;
+  --acc: #a597ff;
+  --acc-hover: #bdb3ff;
+  --on-acc: #140f33;
+  --sel: #6b5cff;
   --soft-pct: 14%;
   --sel-pct: 35%;
   --ok: #4ade80;
@@ -60,7 +60,7 @@
   --bg-art: none;
 }
 
-/* Light */
+/* Light (default, light) */
 [data-theme='light'] {
   color-scheme: light;
   --bg-0: #eef0f4;
@@ -75,10 +75,10 @@
   --fg-2: #3b4556;
   --fg-3: #4f596a;
   --fg-4: #5a6474;
-  --acc: #4f45e6;
-  --acc-hover: #4038d0;
+  --acc: #5b4bd8;
+  --acc-hover: #4a3bc2;
   --on-acc: #ffffff;
-  --sel: #5b51ff;
+  --sel: #6b5cff;
   --soft-pct: 10%;
   --sel-pct: 18%;
   --ok: #127035;
@@ -118,6 +118,180 @@
   --bg-art: none;
 }
 
+/* Seele */
+[data-theme='seele'] {
+  color-scheme: dark;
+  --bg-0: #161729;
+  --bg-1: #101120;
+  --bg-2: #1e2036;
+  --bg-3: #282b45;
+  --bg-4: #353958;
+  --line-1: rgba(255, 255, 255, 0.06);
+  --line-2: rgba(255, 255, 255, 0.1);
+  --line-3: rgba(255, 255, 255, 0.16);
+  --fg-1: #ecedf8;
+  --fg-2: #b9bcd8;
+  --fg-3: #a2a6c8;
+  --fg-4: #979bbe;
+  --acc: #a597ff;
+  --acc-hover: #bdb3ff;
+  --on-acc: #140f33;
+  --sel: #6b5cff;
+  --soft-pct: 14%;
+  --sel-pct: 35%;
+  --ok: #6fe0a8;
+  --warn: #ffbe6b;
+  --danger: #ff8fa0;
+  --info: #9ec5ff;
+  --hue-yellow: #ffd36b;
+  --hue-orange: #ffa36b;
+  --hue-red: #ff8fa0;
+  --hue-pink: #f5a3d8;
+  --hue-purple: #b9a3ff;
+  --hue-indigo: #a3a5ff;
+  --hue-blue: #7fb0ff;
+  --hue-cyan: #7fd8f0;
+  --hue-green: #6fe0a8;
+  --cap-top: #33364e;
+  --cap-bottom: #282b45;
+  --cap-hover-top: #3e4058;
+  --cap-hover-bottom: #33364e;
+  --cap-off-top: #1f2236;
+  --cap-off-bottom: #1c1e30;
+  --cap-skirt: #1a1c2d;
+  --cap-hi: rgba(255, 255, 255, 0.06);
+  --cap-shade: rgba(0, 0, 0, 0.35);
+  --ill-cap-top: #3e4058;
+  --ill-cap-bottom: #2e314b;
+  --ill-house-top: #24273e;
+  --ill-house-bottom: #1c1e30;
+  --ill-plate: #353958;
+  --ill-stem: #454965;
+  --ill-edge: rgba(255, 255, 255, 0.1);
+  --ill-hi: rgba(255, 255, 255, 0.08);
+  --ill-shade: rgba(0, 0, 0, 0.35);
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow-case: 0 20px 60px rgba(0, 0, 0, 0.35);
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--line-2);
+  --bg-art: radial-gradient(42% 48% at 92% -4%, rgba(107, 92, 255, 0.16), transparent 70%), radial-gradient(46% 52% at -4% 104%, rgba(111, 168, 245, 0.11), transparent 70%);
+}
+
+/* Seele Light */
+[data-theme='seele-light'] {
+  color-scheme: light;
+  --bg-0: #eff0f8;
+  --bg-1: #f8f8fd;
+  --bg-2: #ffffff;
+  --bg-3: #e6e7f3;
+  --bg-4: #d8daec;
+  --line-1: rgba(16, 24, 40, 0.08);
+  --line-2: rgba(16, 24, 40, 0.13);
+  --line-3: rgba(16, 24, 40, 0.2);
+  --fg-1: #1c1d33;
+  --fg-2: #3d4063;
+  --fg-3: #4d5178;
+  --fg-4: #565a81;
+  --acc: #5b4bd8;
+  --acc-hover: #4a3bc2;
+  --on-acc: #ffffff;
+  --sel: #6b5cff;
+  --soft-pct: 10%;
+  --sel-pct: 18%;
+  --ok: #0f6e3d;
+  --warn: #9a4a07;
+  --danger: #c2264a;
+  --info: #2f5fd0;
+  --hue-yellow: #8a5a06;
+  --hue-orange: #b03a0a;
+  --hue-red: #c2264a;
+  --hue-pink: #b0177a;
+  --hue-purple: #6d3fd6;
+  --hue-indigo: #4f46e5;
+  --hue-blue: #2f5fd0;
+  --hue-cyan: #0b6a80;
+  --hue-green: #0f6e3d;
+  --cap-top: #ffffff;
+  --cap-bottom: #eef1f5;
+  --cap-hover-top: #ffffff;
+  --cap-hover-bottom: #e4e8ef;
+  --cap-off-top: #e3e7ed;
+  --cap-off-bottom: #dde2e9;
+  --cap-skirt: #c5ccd8;
+  --cap-hi: rgba(255, 255, 255, 0.9);
+  --cap-shade: rgba(16, 24, 40, 0.14);
+  --ill-cap-top: #ffffff;
+  --ill-cap-bottom: #e7eaf0;
+  --ill-house-top: #d5dbe4;
+  --ill-house-bottom: #c3cbd7;
+  --ill-plate: #b9c1ce;
+  --ill-stem: #aab3c1;
+  --ill-edge: rgba(16, 24, 40, 0.18);
+  --ill-hi: rgba(255, 255, 255, 0.7);
+  --ill-shade: rgba(16, 24, 40, 0.2);
+  --scrim: rgba(16, 24, 40, 0.35);
+  --shadow-case: 0 16px 40px rgba(16, 24, 40, 0.12);
+  --shadow-pop: 0 12px 32px rgba(16, 24, 40, 0.16), 0 0 0 1px var(--line-2);
+  --bg-art: radial-gradient(42% 48% at 92% -4%, rgba(107, 92, 255, 0.09), transparent 70%), radial-gradient(46% 52% at -4% 104%, rgba(58, 95, 208, 0.07), transparent 70%);
+}
+
+/* Gold */
+[data-theme='gold'] {
+  color-scheme: dark;
+  --bg-0: #18191b;
+  --bg-1: #111213;
+  --bg-2: #212325;
+  --bg-3: #2b2d31;
+  --bg-4: #383b40;
+  --line-1: rgba(255, 255, 255, 0.06);
+  --line-2: rgba(255, 255, 255, 0.1);
+  --line-3: rgba(255, 255, 255, 0.16);
+  --fg-1: #e8e9ec;
+  --fg-2: #b6b9bf;
+  --fg-3: #9da1a8;
+  --fg-4: #93979f;
+  --acc: #ffd45c;
+  --acc-hover: #ffe08a;
+  --on-acc: #211a05;
+  --sel: #ad903f;
+  --soft-pct: 14%;
+  --sel-pct: 35%;
+  --ok: #4ade80;
+  --warn: #ff9f43;
+  --danger: #ff7a7a;
+  --info: #60a5fa;
+  --hue-yellow: #ffd45c;
+  --hue-orange: #ff9f43;
+  --hue-red: #ff7a7a;
+  --hue-pink: #f472b6;
+  --hue-purple: #b18cff;
+  --hue-indigo: #a09cff;
+  --hue-blue: #5aa9ff;
+  --hue-cyan: #3dd6e0;
+  --hue-green: #4ade80;
+  --cap-top: #36383b;
+  --cap-bottom: #2b2d31;
+  --cap-hover-top: #404246;
+  --cap-hover-bottom: #36383b;
+  --cap-off-top: #222326;
+  --cap-off-bottom: #1e1f22;
+  --cap-skirt: #1c1d20;
+  --cap-hi: rgba(255, 255, 255, 0.06);
+  --cap-shade: rgba(0, 0, 0, 0.35);
+  --ill-cap-top: #404246;
+  --ill-cap-bottom: #313337;
+  --ill-house-top: #27292c;
+  --ill-house-bottom: #1e1f22;
+  --ill-plate: #383b40;
+  --ill-stem: #484b4f;
+  --ill-edge: rgba(255, 255, 255, 0.1);
+  --ill-hi: rgba(255, 255, 255, 0.08);
+  --ill-shade: rgba(0, 0, 0, 0.35);
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow-case: 0 20px 60px rgba(0, 0, 0, 0.35);
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--line-2);
+  --bg-art: none;
+}
+
 /* Ember */
 [data-theme='ember'] {
   color-scheme: dark;
@@ -136,7 +310,7 @@
   --acc: #ff6a3d;
   --acc-hover: #ff8a65;
   --on-acc: #1f0a03;
-  --sel: #ffb547;
+  --sel: #ff6a3d;
   --soft-pct: 14%;
   --sel-pct: 35%;
   --ok: #4ade80;
@@ -194,7 +368,7 @@
   --acc: #ff7a45;
   --acc-hover: #ff9a70;
   --on-acc: #230b02;
-  --sel: #8b5cf6;
+  --sel: #ff7a45;
   --soft-pct: 14%;
   --sel-pct: 35%;
   --ok: #4ade80;
@@ -252,7 +426,7 @@
   --acc: #98fbcb;
   --acc-hover: #b8fcdb;
   --on-acc: #0b2a1d;
-  --sel: #7cc7ff;
+  --sel: #61a182;
   --soft-pct: 14%;
   --sel-pct: 35%;
   --ok: #86efac;
@@ -310,7 +484,7 @@
   --acc: #8fd0e0;
   --acc-hover: #a9dce9;
   --on-acc: #1f2530;
-  --sel: #81a1c1;
+  --sel: #78afbc;
   --soft-pct: 14%;
   --sel-pct: 35%;
   --ok: #b4d39b;
@@ -368,7 +542,7 @@
   --acc: #c9a6fa;
   --acc-hover: #d9c0fc;
   --on-acc: #1c1230;
-  --sel: #ff79c6;
+  --sel: #b595e1;
   --soft-pct: 14%;
   --sel-pct: 35%;
   --ok: #50fa7b;
@@ -426,7 +600,7 @@
   --acc: #f4b6c0;
   --acc-hover: #f8cdd4;
   --on-acc: #2b1418;
-  --sel: #c9a7e8;
+  --sel: #be8e96;
   --soft-pct: 14%;
   --sel-pct: 35%;
   --ok: #8bd5a6;
@@ -477,6 +651,8 @@
   --danger-line: color-mix(in srgb, var(--danger) 30%, transparent);
   --info-soft: color-mix(in srgb, var(--info) var(--soft-pct), transparent);
   --sel-fill: color-mix(in srgb, var(--sel) var(--sel-pct), var(--cap-bottom));
+  /* selected rows/segments/chips: the same tint as a selected key, on an opaque card base */
+  --sel-bg: color-mix(in srgb, var(--sel) var(--sel-pct), var(--bg-2));
   --glass: color-mix(in srgb, var(--bg-0) 82%, transparent);
   --focus-ring: 0 0 0 2px var(--acc-line);
 

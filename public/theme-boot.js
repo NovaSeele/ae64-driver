@@ -3,6 +3,9 @@
    The table holds each theme's colour-scheme and --bg-1 (themes.css) because the stylesheet is not loaded yet. */
 (function () {
   var THEMES = {
+    seele: ['dark', '#101120'],
+    'seele-light': ['light', '#f8f8fd'],
+    gold: ['dark', '#111213'],
     graphite: ['dark', '#111213'],
     light: ['light', '#f8f9fb'],
     ember: ['dark', '#0b0b0b'],
@@ -12,7 +15,7 @@
     dracula: ['dark', '#21222c'],
     rose: ['dark', '#141213'],
   };
-  var choice = 'graphite';
+  var choice = 'auto';
   try {
     var v = localStorage.getItem('ae64.theme');
     if (v === 'auto' || Object.prototype.hasOwnProperty.call(THEMES, v)) choice = v;

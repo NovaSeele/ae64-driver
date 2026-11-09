@@ -201,7 +201,7 @@ const field = computed(() => 0.12 + ratio.value * 0.7);
 .sim__marker--react path { stroke: var(--acc-line); stroke-dasharray: 4 3; }
 .sim__marker--react text { fill: var(--acc); opacity: 0.8; }
 .sim__marker--dead path { stroke: var(--m-deadzone); stroke-width: 1; opacity: 0.5; }
-.sim__marker--dead text { fill: var(--m-deadzone); opacity: 0.75; font-size: 10px; }
+.sim__marker--dead text { fill: var(--m-deadzone); font-size: 10px; }
 .sim__head { stroke: var(--fg-1); stroke-width: 2; stroke-linecap: round; }
 .sim--on .sim__head { stroke: var(--acc); }
 </style>

@@ -569,7 +569,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
   transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
 }
 .item:hover { border-color: var(--line-3); }
-.item--hl { border-color: color-mix(in srgb, var(--k, var(--acc)) 45%, transparent); background: color-mix(in srgb, var(--k, var(--acc)) 10%, transparent); }
+.item--hl { border-color: color-mix(in srgb, var(--k, var(--acc)) 45%, transparent); background: color-mix(in srgb, var(--k, var(--acc)) var(--soft-pct), transparent); }
 .item__icon { color: var(--k, var(--acc)); display: grid; place-items: center; }
 .item__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; border: 0; background: transparent; text-align: left; }
 .item__main:disabled { cursor: default; }

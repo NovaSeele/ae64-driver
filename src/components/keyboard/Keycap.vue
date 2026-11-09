@@ -63,6 +63,7 @@ defineProps<{
   display: block;
   border-radius: var(--r-key);
   background: var(--cap-skirt);
+  container-type: size; /* compact layout below 52px face height, see the container query at the end */
   transition: transform var(--t-fast) var(--ease);
 }
 .cap__face {
@@ -151,7 +152,6 @@ defineProps<{
   font-weight: 500;
   line-height: 1;
   color: var(--m-press);
-  opacity: 0.85;
   white-space: nowrap;
 }
 .cap__badge--icon {
@@ -160,4 +160,13 @@ defineProps<{
   opacity: 1;
 }
 .cap__sub--skeleton { width: 60%; height: 9px; }
+
+/* Compact keycap: faces under 52px tall (narrow windows) keep a 3-row foot inside the face. */
+@container (max-height: 51.99px) {
+  .cap__face { padding: 4px 6px 4px; }
+  .cap__legend { font-size: 11px; line-height: 1.05; }
+  .cap__badge { font-size: 9.5px; }
+  .cap__foot { gap: 1px; }
+  .cap__sub, .cap__sub--lines { font-size: 10px; }
+}
 </style>

@@ -112,7 +112,7 @@ async function finishRename(save: boolean) {
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 .ps__item:hover { background: var(--bg-3); color: var(--fg-1); }
-.ps__item--on { background: var(--bg-3); color: var(--fg-1); box-shadow: inset 2px 0 0 var(--acc); }
+.ps__item--on { background: var(--sel-bg); color: var(--fg-1); box-shadow: inset 2px 0 0 var(--acc); }
 .ps__item--busy { opacity: 0.6; }
 .ps__item--off { opacity: 0.45; cursor: not-allowed; }
 .ps__item--off:hover { background: transparent; color: var(--fg-2); }

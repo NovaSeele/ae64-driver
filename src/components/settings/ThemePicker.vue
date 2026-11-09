@@ -5,8 +5,10 @@ import { setTheme, themeChoice, THEMES, type ThemeChoice } from '../../theme';
 import { t, type MessageKey } from '../../i18n/vi';
 
 const CHOICES: readonly ThemeChoice[] = ['auto', ...THEMES];
-const name = (c: ThemeChoice) => t(`theme.${c}` as MessageKey);
-const desc = (c: ThemeChoice) => t(`theme.${c}Desc` as MessageKey);
+// 'seele-light' -> message key 'seeleLight'
+const key = (c: ThemeChoice) => c.replace(/-([a-z])/g, (_, ch: string) => ch.toUpperCase());
+const name = (c: ThemeChoice) => t(`theme.${key(c)}` as MessageKey);
+const desc = (c: ThemeChoice) => t(`theme.${key(c)}Desc` as MessageKey);
 
 function onKey(e: KeyboardEvent) {
   const i = CHOICES.indexOf(themeChoice.value);
@@ -38,8 +40,16 @@ function onKey(e: KeyboardEvent) {
     >
       <span class="tp__prev" aria-hidden="true">
         <template v-if="c === 'auto'">
-          <span class="tp__half tp__half--a" data-theme="graphite" />
-          <span class="tp__half tp__half--b" data-theme="light" />
+          <span class="tp__scene" data-theme="graphite">
+            <span class="tp__strip"><i /><i /><i /></span>
+            <span class="tp__card"><b /><b class="tp__cap--sel" /><b /></span>
+            <span class="tp__pill" />
+          </span>
+          <span class="tp__scene tp__scene--cut" data-theme="light">
+            <span class="tp__strip"><i /><i /><i /></span>
+            <span class="tp__card"><b /><b class="tp__cap--sel" /><b /></span>
+            <span class="tp__pill" />
+          </span>
         </template>
         <span v-else class="tp__scene" :data-theme="c">
           <span class="tp__strip"><i /><i /><i /></span>
@@ -83,14 +93,12 @@ function onKey(e: KeyboardEvent) {
   border-radius: var(--r-control);
   border: 1px solid var(--line-2);
 }
-.tp__scene,
-.tp__half {
+.tp__scene {
   position: absolute;
   inset: 0;
   background: var(--bg-0);
 }
-.tp__half--a { clip-path: polygon(0 0, 100% 0, 0 100%); }
-.tp__half--b { clip-path: polygon(100% 0, 100% 100%, 0 100%); }
+.tp__scene--cut { clip-path: polygon(100% 0, 100% 100%, 0 100%); }
 .tp__strip {
   position: absolute;
   left: 0;

@@ -272,7 +272,9 @@ function swatchInk(index: number): 'dark' | 'light' {
   const hex = swatchHex(index);
   if (!hex) return 'light';
   const { r, g, b } = hexToRgb(hex);
-  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? 'dark' : 'light';
+  // WCAG relative luminance of the LED colour itself (never of the theme).
+  const lin = (c: number) => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b) > 0.35 ? 'dark' : 'light';
 }
 
 // ------------------------------------------------------------------ Per-key / per-LED colours
@@ -929,21 +931,24 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 .palette-swatch__label {
   font-size: 11px;
   font-weight: 700;
-  color: var(--fg-1);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #ffffff;
   letter-spacing: 0.05em;
 }
 
 .palette-swatch__num {
   font-size: 11px;
   font-weight: 700;
-  color: var(--fg-1);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  /* Ink follows the LED colour, not the theme. */
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
-/* Light swatches (yellow, cyan, white): dark number, no halo */
+/* Light swatches (luminance > 0.35: yellow, cyan, white...): dark number, no halo */
 .palette-swatch--dark-ink .palette-swatch__num {
-  color: var(--bg-0);
+  color: #111318;
   text-shadow: none;
 }
 
@@ -967,8 +972,8 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
   font-weight: 700;
   padding: 2px 6px;
   border-radius: var(--r-control);
-  background: linear-gradient(135deg, #ff0055, #0099ff);
-  color: var(--fg-1);
+  background: linear-gradient(rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.45)), linear-gradient(135deg, #ff0055, #0099ff);
+  color: #ffffff;
   letter-spacing: 0.05em;
 }
 

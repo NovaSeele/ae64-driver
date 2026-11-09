@@ -332,7 +332,7 @@ const simLabel = computed(() => t('live.simLabel', { key: keyName.value, mm: vie
 }
 .lamp__text { font-weight: 600; letter-spacing: 0.06em; color: var(--fg-3); font-size: var(--fs-body); }
 .lamp__src { font-size: var(--fs-caption); color: var(--fg-4); }
-.lamp--on { background: color-mix(in srgb, var(--m-press) 16%, transparent); border-color: color-mix(in srgb, var(--m-press) 45%, transparent); }
+.lamp--on { background: color-mix(in srgb, var(--m-press) var(--soft-pct), transparent); border-color: color-mix(in srgb, var(--m-press) 45%, transparent); }
 .lamp--on .lamp__light { background: var(--m-press); box-shadow: 0 0 12px var(--m-press), 0 0 2px var(--m-press); }
 .lamp--on .lamp__text { color: var(--fg-1); }
 .lamp--on .lamp__src { color: var(--fg-3); }

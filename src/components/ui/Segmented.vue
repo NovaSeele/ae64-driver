@@ -75,9 +75,9 @@ function onKey(e: KeyboardEvent) {
 .seg__opt:disabled { cursor: not-allowed; }
 .seg__opt:hover:not(:disabled) { color: var(--fg-1); }
 .seg__opt[aria-checked='true'] {
-  background: var(--bg-4);
+  background: var(--sel-bg);
   color: var(--fg-1);
-  box-shadow: inset 0 1px 0 var(--cap-hi), 0 1px 2px var(--cap-shade);
+  box-shadow: inset 0 0 0 1px var(--acc-line);
 }
 /* Declared after the checked shadow so the focus ring is not overridden. */
 .seg__opt:focus-visible,

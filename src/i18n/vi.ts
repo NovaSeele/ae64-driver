@@ -98,6 +98,7 @@ export const base = {
   'perf.metric': 'Hiển thị',
   'perf.rtBadgeHint': 'Phím có nhãn RT đang bật Rapid Trigger. Xem độ nhạy nhấn/nhả ở mục Rapid Trigger, hoặc rê chuột lên phím.',
   'perf.rtViewHint': '↓ độ nhạy nhấn · ↑ độ nhạy nhả (mm). Phím không bật Rapid Trigger hiện —.',
+  'perf.deadzoneViewHint': '↑ vùng chết trên · ↓ vùng chết dưới (mm).',
   'perf.rtTagTitle': 'Rapid Trigger · nhấn {press} mm · nhả {release} mm',
   'perf.depthShading': 'Tô độ sâu kích hoạt',
   'perf.depthShadingHint': 'Tô từ mặt phím xuống tới vạch kích hoạt: phần tô càng dài, phím càng phải nhấn sâu.',

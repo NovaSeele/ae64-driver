@@ -1,18 +1,17 @@
 import { computed, ref, watch, type Ref } from 'vue';
 
-export type ThemeId = 'graphite' | 'light' | 'ember' | 'aurora' | 'mint' | 'nord' | 'dracula' | 'rose';
+export type ThemeId = 'graphite' | 'light' | 'seele' | 'seele-light' | 'gold' | 'ember' | 'aurora' | 'mint' | 'nord' | 'dracula' | 'rose';
 export type ThemeChoice = 'auto' | ThemeId;
 
 /** Picker order. */
-export const THEMES: readonly ThemeId[] = ['graphite', 'light', 'ember', 'aurora', 'mint', 'nord', 'dracula', 'rose'];
+export const THEMES: readonly ThemeId[] = ['graphite', 'light', 'seele', 'seele-light', 'gold', 'ember', 'aurora', 'mint', 'nord', 'dracula', 'rose'];
 
 const STORAGE_KEY = 'ae64.theme';
-const DEFAULT_THEME: ThemeId = 'graphite';
+const DEFAULT_CHOICE: ThemeChoice = 'auto';
 const LIGHT_QUERY = '(prefers-color-scheme: light)';
 
 export function parseThemeChoice(v: unknown): ThemeChoice {
-  if (v === 'auto') return 'auto';
-  return THEMES.find((id) => id === v) ?? DEFAULT_THEME;
+  return THEMES.find((id) => id === v) ?? DEFAULT_CHOICE;
 }
 
 function readStored(): ThemeChoice {
@@ -21,7 +20,7 @@ function readStored(): ThemeChoice {
   } catch {
     // localStorage may be disabled or throw
   }
-  return DEFAULT_THEME;
+  return DEFAULT_CHOICE;
 }
 
 const media: MediaQueryList | null =
@@ -35,7 +34,7 @@ export const themeChoice: Ref<ThemeChoice> = ref(readStored());
 
 /** What is applied now: `auto` resolved against the OS scheme (live). */
 export const resolvedTheme = computed<ThemeId>(() =>
-  themeChoice.value === 'auto' ? (osLight.value ? 'light' : DEFAULT_THEME) : themeChoice.value,
+  themeChoice.value === 'auto' ? (osLight.value ? 'light' : 'graphite') : themeChoice.value,
 );
 
 function setMeta(name: string, content: string): void {
