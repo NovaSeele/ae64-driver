@@ -77,12 +77,55 @@ const PRESET_TEXT: Record<(typeof PRESETS)[number]['id'], [MessageKey, MessageKe
   sensitive: ['perf.presetSensitive', 'perf.presetSensitiveDesc'],
 };
 
+// The editor grid never gets shorter while the user stays on the page at the same width (the RT card coming and going
+// must not move the Mode card under the pointer); it only grows. Reset on a width change and a profile change.
+const gridEl = ref<HTMLElement | null>(null);
+const gridMinH = ref(0);
+let gridObserver: ResizeObserver | null = null;
+if (typeof ResizeObserver !== 'undefined') {
+  gridObserver = new ResizeObserver((entries) => {
+    for (const e of entries) {
+      const h = e.borderBoxSize?.[0]?.blockSize ?? e.contentRect.height;
+      gridMinH.value = Math.max(gridMinH.value, Math.ceil(h));
+    }
+  });
+}
+/** Forget the held height and measure again (re-observing delivers a fresh initial measurement). */
+function resetGridMinH() {
+  gridMinH.value = 0;
+  if (gridObserver && gridEl.value) {
+    gridObserver.unobserve(gridEl.value);
+    gridObserver.observe(gridEl.value);
+  }
+}
+watch(gridEl, (el, old) => {
+  if (old) gridObserver?.unobserve(old);
+  if (el) {
+    gridMinH.value = 0; // a freshly mounted grid (after load / reload) measures itself
+    gridObserver?.observe(el);
+  }
+});
+let lastWidth = window.innerWidth;
+function onWindowResize() {
+  if (window.innerWidth === lastWidth) return;
+  lastWidth = window.innerWidth;
+  resetGridMinH();
+}
+
 let offProfile: (() => void) | null = null;
 onMounted(() => {
   void perf.load();
-  offProfile = device.onProfileChanged(() => void perf.load(true));
+  offProfile = device.onProfileChanged(() => {
+    resetGridMinH();
+    void perf.load(true);
+  });
+  window.addEventListener('resize', onWindowResize);
 });
-onBeforeUnmount(() => offProfile?.());
+onBeforeUnmount(() => {
+  offProfile?.();
+  window.removeEventListener('resize', onWindowResize);
+  gridObserver?.disconnect();
+});
 
 const decimals = computed(() => (device.rtPrecision < 0.01 ? 3 : 2));
 /** Editor value text: 2 decimals unless the value needs the third. */
@@ -309,7 +352,7 @@ const modeOptions = computed(() => [
     <EmptyState v-else-if="!hasSel" :icon="IconAdjustmentsHorizontal" :title="t('page.performance')" :body="t('perf.selectKeys')" />
 
     <!-- editors -->
-    <div v-else class="grid" :class="{ 'grid--std': !anyRt }">
+    <div v-else ref="gridEl" class="grid" :class="{ 'grid--std': !anyRt }" :style="{ minHeight: gridMinH ? gridMinH + 'px' : undefined }">
       <div v-if="unknownCount" class="unknown" role="note">
         <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />
         <span>{{ t('perf.unknownModes', { n: unknownCount }) }}</span>
