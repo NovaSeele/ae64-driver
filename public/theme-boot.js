@@ -3,8 +3,8 @@
    The table holds each theme's colour-scheme and --bg-1 (themes.css) because the stylesheet is not loaded yet. */
 (function () {
   var THEMES = {
-    seele: ['dark', '#101120'],
-    'seele-light': ['light', '#f8f8fd'],
+    indigo: ['dark', '#101120'],
+    'indigo-light': ['light', '#f8f8fd'],
     gold: ['dark', '#111213'],
     graphite: ['dark', '#111213'],
     light: ['light', '#f8f9fb'],
@@ -15,10 +15,14 @@
     dracula: ['dark', '#21222c'],
     rose: ['dark', '#141213'],
   };
+  var LEGACY = { seele: 'indigo', 'seele-light': 'indigo-light' };
   var choice = 'auto';
   try {
     var v = localStorage.getItem('ae64.theme');
-    if (v === 'auto' || Object.prototype.hasOwnProperty.call(THEMES, v)) choice = v;
+    if (Object.prototype.hasOwnProperty.call(LEGACY, v)) {
+      choice = LEGACY[v];
+      localStorage.setItem('ae64.theme', choice);
+    } else if (v === 'auto' || Object.prototype.hasOwnProperty.call(THEMES, v)) choice = v;
   } catch (e) {}
   var id = choice;
   if (choice === 'auto') {

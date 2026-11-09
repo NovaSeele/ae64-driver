@@ -157,11 +157,11 @@ function onKey(e: KeyboardEvent) {
   left: 0;
   top: 0;
   bottom: 0;
-  background: var(--acc);
+  background: var(--sl-tone, var(--acc));
   border-radius: 2px;
 }
 .sl--v .sl__fill, .sl--v .sl__band { right: 0; bottom: auto; }
-.sl__band { background: var(--acc-line); }
+.sl__band { background: color-mix(in srgb, var(--sl-tone, var(--acc)) 45%, transparent); }
 .sl:not(.sl--drag) .sl__fill { transition: width var(--t-fast) var(--ease), height var(--t-fast) var(--ease); }
 .sl__thumb {
   position: absolute;
@@ -171,7 +171,7 @@ function onKey(e: KeyboardEvent) {
   margin: -8px 0 0 -8px;
   border-radius: 50%;
   background: var(--fg-1);
-  border: 3px solid var(--acc);
+  border: 3px solid var(--sl-tone, var(--acc));
   box-shadow: 0 1px 4px var(--cap-shade);
   transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }

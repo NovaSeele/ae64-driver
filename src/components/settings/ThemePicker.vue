@@ -5,7 +5,7 @@ import { setTheme, themeChoice, THEMES, type ThemeChoice } from '../../theme';
 import { t, type MessageKey } from '../../i18n/vi';
 
 const CHOICES: readonly ThemeChoice[] = ['auto', ...THEMES];
-// 'seele-light' -> message key 'seeleLight'
+// 'indigo-light' -> message key 'indigoLight'
 const key = (c: ThemeChoice) => c.replace(/-([a-z])/g, (_, ch: string) => ch.toUpperCase());
 const name = (c: ThemeChoice) => t(`theme.${key(c)}` as MessageKey);
 const desc = (c: ThemeChoice) => t(`theme.${key(c)}Desc` as MessageKey);

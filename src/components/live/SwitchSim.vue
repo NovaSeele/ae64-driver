@@ -46,7 +46,7 @@ const ticks = computed(() => {
   return out;
 });
 
-type Kind = 'act' | 'rel' | 'reset' | 'react' | 'dead';
+type Kind = 'act' | 'rel' | 'reset' | 'react' | 'dead-top' | 'dead-bottom';
 interface Marker { mm: number; text: string; kind: Kind }
 
 const markers = computed<Marker[]>(() => {
@@ -63,9 +63,9 @@ const markers = computed<Marker[]>(() => {
     const rel = releasePoint(s);
     if (Math.abs(rel - s.normalPress) > 0.0005) out.push({ mm: rel, text: `${t('live.mRelease')} ${f(rel)}`, kind: 'rel' });
   }
-  if (s.pressDeadStroke > 0) out.push({ mm: s.pressDeadStroke, text: `${t('live.mDeadTop')} ${f(s.pressDeadStroke)}`, kind: 'dead' });
+  if (s.pressDeadStroke > 0) out.push({ mm: s.pressDeadStroke, text: `${t('live.mDeadTop')} ${f(s.pressDeadStroke)}`, kind: 'dead-top' });
   if (s.releaseDeadStroke > 0) {
-    out.push({ mm: s.range - s.releaseDeadStroke, text: `${t('live.mDeadBottom')} ${f(s.releaseDeadStroke)}`, kind: 'dead' });
+    out.push({ mm: s.range - s.releaseDeadStroke, text: `${t('live.mDeadBottom')} ${f(s.releaseDeadStroke)}`, kind: 'dead-bottom' });
   }
   return out;
 });
@@ -109,8 +109,11 @@ const field = computed(() => 0.12 + ratio.value * 0.7);
         <stop offset="0" stop-color="var(--m-press)" stop-opacity=".06" />
         <stop offset="1" stop-color="var(--m-press)" stop-opacity=".38" />
       </linearGradient>
-      <pattern id="sim-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-        <rect width="3" height="6" fill="var(--m-deadzone)" opacity=".22" />
+      <pattern id="sim-hatch-top" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <rect width="3" height="6" fill="var(--m-deadzone)" opacity=".26" />
+      </pattern>
+      <pattern id="sim-hatch-bottom" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <rect width="3" height="6" fill="var(--m-deadzone-alt)" opacity=".26" />
       </pattern>
     </defs>
 
@@ -156,10 +159,10 @@ const field = computed(() => 0.12 + ratio.value * 0.7);
       </template>
     </g>
     <rect :x="TRACK_X" :y="GY0" :width="TRACK_W" :height="GY1 - GY0" rx="4" fill="var(--bg-3)" stroke="var(--line-1)" />
-    <rect v-if="deadTop > 0" :x="TRACK_X" :y="GY0" :width="TRACK_W" :height="deadTop" fill="url(#sim-hatch)">
+    <rect v-if="deadTop > 0" :x="TRACK_X" :y="GY0" :width="TRACK_W" :height="deadTop" fill="url(#sim-hatch-top)">
       <title>{{ t('live.mDeadTop') }}</title>
     </rect>
-    <rect v-if="deadBottom > 0" :x="TRACK_X" :y="GY1 - deadBottom" :width="TRACK_W" :height="deadBottom" fill="url(#sim-hatch)">
+    <rect v-if="deadBottom > 0" :x="TRACK_X" :y="GY1 - deadBottom" :width="TRACK_W" :height="deadBottom" fill="url(#sim-hatch-bottom)">
       <title>{{ t('live.mDeadBottom') }}</title>
     </rect>
     <!-- live fill -->
@@ -198,10 +201,12 @@ const field = computed(() => 0.12 + ratio.value * 0.7);
 .sim__marker--rel text { fill: var(--m-release); }
 .sim__marker--reset path { stroke: var(--info); stroke-dasharray: 4 3; }
 .sim__marker--reset text { fill: var(--info); }
-.sim__marker--react path { stroke: var(--acc-line); stroke-dasharray: 4 3; }
-.sim__marker--react text { fill: var(--acc); opacity: 0.8; }
-.sim__marker--dead path { stroke: var(--m-deadzone); stroke-width: 1; opacity: 0.5; }
-.sim__marker--dead text { fill: var(--m-deadzone); font-size: 10px; }
+.sim__marker--react path { stroke: var(--m-press); stroke-dasharray: 4 3; }
+.sim__marker--react text { fill: var(--m-press); }
+.sim__marker--dead-top path { stroke: var(--m-deadzone); stroke-width: 1; opacity: 0.5; }
+.sim__marker--dead-top text { fill: var(--m-deadzone); font-size: 10px; }
+.sim__marker--dead-bottom path { stroke: var(--m-deadzone-alt); stroke-width: 1; opacity: 0.5; }
+.sim__marker--dead-bottom text { fill: var(--m-deadzone-alt); font-size: 10px; }
 .sim__head { stroke: var(--fg-1); stroke-width: 2; stroke-linecap: round; }
 .sim--on .sim__head { stroke: var(--acc); }
 </style>

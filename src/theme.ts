@@ -1,22 +1,31 @@
 import { computed, ref, watch, type Ref } from 'vue';
 
-export type ThemeId = 'graphite' | 'light' | 'seele' | 'seele-light' | 'gold' | 'ember' | 'aurora' | 'mint' | 'nord' | 'dracula' | 'rose';
+export type ThemeId = 'graphite' | 'light' | 'indigo' | 'indigo-light' | 'gold' | 'ember' | 'aurora' | 'mint' | 'nord' | 'dracula' | 'rose';
 export type ThemeChoice = 'auto' | ThemeId;
 
 /** Picker order. */
-export const THEMES: readonly ThemeId[] = ['graphite', 'light', 'seele', 'seele-light', 'gold', 'ember', 'aurora', 'mint', 'nord', 'dracula', 'rose'];
+export const THEMES: readonly ThemeId[] = ['graphite', 'light', 'indigo', 'indigo-light', 'gold', 'ember', 'aurora', 'mint', 'nord', 'dracula', 'rose'];
 
 const STORAGE_KEY = 'ae64.theme';
 const DEFAULT_CHOICE: ThemeChoice = 'auto';
 const LIGHT_QUERY = '(prefers-color-scheme: light)';
 
+// Saved choices from before the rename.
+const LEGACY: Record<string, ThemeId> = { seele: 'indigo', 'seele-light': 'indigo-light' };
+
 export function parseThemeChoice(v: unknown): ThemeChoice {
+  if (typeof v === 'string' && Object.prototype.hasOwnProperty.call(LEGACY, v)) return LEGACY[v];
   return THEMES.find((id) => id === v) ?? DEFAULT_CHOICE;
 }
 
 function readStored(): ThemeChoice {
   try {
-    if (typeof localStorage !== 'undefined') return parseThemeChoice(localStorage.getItem(STORAGE_KEY));
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const choice = parseThemeChoice(raw);
+      if (raw !== null && Object.prototype.hasOwnProperty.call(LEGACY, raw)) localStorage.setItem(STORAGE_KEY, choice);
+      return choice;
+    }
   } catch {
     // localStorage may be disabled or throw
   }
