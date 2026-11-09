@@ -9,6 +9,19 @@ import { useSyncStore } from '../src/stores/sync';
 import { useHistoryStore } from '../src/stores/history';
 import { formatBuildTime, useDiagnosticsStore } from '../src/stores/diagnostics';
 
+// Backups are thousands of exchanges. The demo answers each one after a timer (>= 1 ms in Node), which
+// made this file take ~77 s and pushed some tests near the 5 s default timeout under full-suite load.
+// Same mock and same replies, answered on the next microtask instead.
+vi.mock('../src/protocol', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/protocol')>();
+  class InstantMock extends actual.MockTransport {
+    protected override exchange(frame: Uint8Array): Promise<Uint8Array> {
+      return Promise.resolve((this as unknown as { handle(req: number[]): Uint8Array }).handle(Array.from(frame)));
+    }
+  }
+  return { ...actual, createMockTransport: () => new InstantMock() };
+});
+
 async function connectMock(): Promise<MockTransport> {
   const device = useDeviceStore();
   await device.connectDemo();
@@ -56,7 +69,7 @@ describe('diagnostics store', () => {
 
     // Macros: 16 slots
     expect(backup.macros.length).toBe(16);
-  });
+  }, 15000);
 
   it('rejects invalid JSON, wrong schema, or disallowed board ID', async () => {
     await connectMock();
@@ -87,7 +100,7 @@ describe('diagnostics store', () => {
     expect(diff.keymapDiffCount).toBe(1);
     expect(diff.perfDiffCount).toBe(1);
     expect(diff.settingsDiffCount).toBe(1);
-  });
+  }, 15000);
 
   it('restores keymap, performance and global settings from backup', async () => {
     const mock = await connectMock();
@@ -171,13 +184,17 @@ describe('diagnostics store', () => {
 
     const backup = await diag.generateBackup();
     backup.keymap[0][esc.id] = 0x0014; // Key 'Q'
+    // The backup holds a different value for W than the pending edit: if the edit were flushed after the
+    // restore writes, it would overwrite the restored 1.6 with 1.1.
+    backup.performance[wKey.id] = { ...backup.performance[wKey.id], normalPress: 1.6 };
     const diff = await diag.parseAndDiffBackup(JSON.stringify(backup));
 
     await diag.applyRestore(diff);
 
-    // Verify pending perf edit was flushed and saved
+    // The pending edit was flushed first, then the restore wrote over it.
     expect(sync.state).toBe('saved');
-    expect(perfStore.values[wKey.id].normalPress).toBeCloseTo(1.1);
+    expect(perfStore.values[wKey.id].normalPress).toBeCloseTo(1.6);
+    expect((await useDeviceStore().transport!.getPerformance(wKey)).normalPress).toBeCloseTo(1.6);
     expect(history.canUndo).toBe(false);
   }, 15000);
 
@@ -264,7 +281,7 @@ describe('diagnostics store', () => {
 
     backup.boardIdHex = '0030000D'; // same board, other case: accepted
     await expect(diag.parseAndDiffBackup(JSON.stringify(backup))).resolves.toBeDefined();
-  });
+  }, 15000);
 
   it('formats the board build time', () => {
     expect(formatBuildTime('2026101215:13:41')).toBe('2026-10-12 15:13:41');
