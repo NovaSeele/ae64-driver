@@ -184,15 +184,26 @@ describe('diagnostics store', () => {
 
     const backup = await diag.generateBackup();
     backup.keymap[0][esc.id] = 0x0014; // Key 'Q'
-    // The backup holds a different value for W than the pending edit: if the edit were flushed after the
-    // restore writes, it would overwrite the restored 1.6 with 1.1.
+    // The backup holds a different value for W than the pending edit, so W's writes show the order.
     backup.performance[wKey.id] = { ...backup.performance[wKey.id], normalPress: 1.6 };
     const diff = await diag.parseAndDiffBackup(JSON.stringify(backup));
 
-    await diag.applyRestore(diff);
+    const t = useDeviceStore().transport!;
+    const wWrites: number[] = [];
+    const setPerformance = t.setPerformance.bind(t);
+    t.setPerformance = (pos, p) => {
+      if (pos.row === wKey.row && pos.col === wKey.col) wWrites.push(Math.round(p.normalPress * 10) / 10);
+      return setPerformance(pos, p);
+    };
 
-    // The pending edit was flushed first, then the restore wrote over it.
-    expect(sync.state).toBe('saved');
+    await diag.applyRestore(diff);
+    const stateAfter = sync.state;
+    await sync.flush(); // anything still queued behind the restore lands now
+
+    // The pending edit is written first (not dropped), then the restore, and nothing lands after it.
+    // Without the flush the queued write would land behind the restore ([1.6, 1.6]); a discarded queue gives [1.6].
+    expect(wWrites).toEqual([1.1, 1.6]);
+    expect(stateAfter).toBe('saved');
     expect(perfStore.values[wKey.id].normalPress).toBeCloseTo(1.6);
     expect((await useDeviceStore().transport!.getPerformance(wKey)).normalPress).toBeCloseTo(1.6);
     expect(history.canUndo).toBe(false);
