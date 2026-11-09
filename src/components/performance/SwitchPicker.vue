@@ -10,6 +10,7 @@ import { useToast } from '../ui/toast';
 import SwitchSwatch from './SwitchSwatch.vue';
 import { groupKeys } from './switchGroups';
 import { SWITCH_GROUPS } from '../../protocol/switches';
+import { switchName } from '../../data/switchDisplay';
 import type { SwitchEntry } from '../../protocol/switches';
 import { isRtMode } from '../../protocol';
 import { useDeviceStore } from '../../stores/device';
@@ -103,7 +104,7 @@ function apply() {
   if (!entry || !n) return;
   perf.applySwitch(props.ids, entry);
   open.value = false;
-  useToast().show(t('sw.applied', { n, name: entry.name }), 'success');
+  useToast().show(t('sw.applied', { n, name: switchName(entry) }), 'success');
   emit('applied');
 }
 </script>
@@ -127,7 +128,7 @@ function apply() {
         >
           <SwitchSwatch :color="e.color" />
           <span class="sw-opt__text">
-            <span class="sw-opt__name" lang="zh-Hans" :title="e.name">{{ e.name }}</span>
+            <span class="sw-opt__name" :title="switchName(e)">{{ switchName(e) }}</span>
             <span class="sw-opt__meta">
               <span class="sw-opt__mm">{{ mm(e.rangeMax) }} mm</span>
               <span v-if="inUse.get(e.id)" class="sw-opt__tag">{{ single ? t('sw.inUse') : t('sw.keys', { n: inUse.get(e.id)! }) }}</span>
@@ -142,13 +143,13 @@ function apply() {
           <div class="swp__change">
             <template v-if="single">
               <SwitchSwatch :color="from.entry?.color ?? ''" size="sm" />
-              <span class="nm" :lang="from.entry ? 'zh-Hans' : undefined">{{ from.entry?.name ?? t('sw.unknown') }}</span>
+              <span class="nm">{{ from.entry ? switchName(from.entry) : t('sw.unknown') }}</span>
               <span class="mm">{{ mm(from.rangeMax) }} mm</span>
             </template>
             <span v-else class="nm">{{ t('sw.kinds', { n: keyGroups.length }) }}</span>
             <IconArrowRight class="arrow" :size="16" aria-hidden="true" />
             <SwitchSwatch :color="chosen.color" size="sm" />
-            <span class="nm" lang="zh-Hans">{{ chosen.name }}</span>
+            <span class="nm">{{ switchName(chosen) }}</span>
             <span class="mm">{{ mm(chosen.rangeMax) }} mm</span>
           </div>
           <p v-if="clampLines.act" class="swp__warn"><IconAlertTriangle :size="15" aria-hidden="true" />{{ t('sw.clampAct', { n: clampLines.act, max: limit }) }}</p>
@@ -190,7 +191,7 @@ function apply() {
 .sw-opt:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
 .sw-opt[aria-checked='true'] { background: var(--sel-bg); border-color: var(--acc); box-shadow: inset 0 0 0 1px var(--acc); }
 .sw-opt__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
-.sw-opt__name { font-family: var(--font-cjk); font-size: var(--fs-body); font-weight: 500; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-opt__name { font-size: var(--fs-body); font-weight: 500; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
 .sw-opt__mm { flex: none; white-space: nowrap; font-size: var(--fs-label); color: var(--fg-2); font-variant-numeric: tabular-nums; }
 .sw-opt[aria-checked='true'] .sw-opt__mm { color: var(--fg-1); }
 .sw-opt__meta { display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -201,7 +202,7 @@ function apply() {
 }
 .swp__sum { display: flex; flex-direction: column; gap: var(--s-2); padding-top: var(--s-3); border-top: 1px solid var(--line-1); }
 .swp__change { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-size: var(--fs-body); color: var(--fg-1); }
-.swp__change .nm { font-family: var(--font-cjk); font-weight: 600; }
+.swp__change .nm { font-weight: 600; }
 .swp__change .mm { color: var(--fg-2); font-variant-numeric: tabular-nums; }
 .swp__change .arrow { color: var(--fg-3); }
 .swp__idle { margin: 0; font-size: var(--fs-body); color: var(--fg-3); }

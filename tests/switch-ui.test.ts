@@ -39,7 +39,7 @@ describe('switch selector UI', () => {
 
   it('card shows the current switch of all keys in demo', async () => {
     await setup();
-    expect(w!.find('.swc__name').text()).toBe('UR冰磁轴');
+    expect(w!.find('.swc__name').text()).toBe('UR Ice HE-Ex');
     expect(w!.find('.swc__meta').text()).toBe('Khác · 64 phím');
     expect(w!.find('.swc__mm').text()).toBe('3.31mm');
     expect(w!.find('.card__actions button').attributes('disabled')).toBeUndefined();
@@ -51,7 +51,7 @@ describe('switch selector UI', () => {
     const tabs = [...body().querySelectorAll('[role=tab]')];
     expect(tabs.map((x) => x.querySelector('.tabs__n')?.textContent)).toEqual(['1', '31', '19', '25']);
     expect(body().querySelector('[role=tab][aria-selected=true]')?.textContent).toContain('Khác');
-    expect(opt('UR冰磁轴').querySelector('.sw-opt__tag')?.textContent).toBe('Đang dùng');
+    expect(opt('UR Ice HE-Ex').querySelector('.sw-opt__tag')?.textContent).toBe('Đang dùng');
   });
 
   it('choosing writes nothing; clamp warning, Apply to N keys, then exactly those keys are written', async () => {
@@ -65,12 +65,12 @@ describe('switch selector UI', () => {
     await openDialog();
     [...body().querySelectorAll<HTMLElement>('[role=tab]')].find((x) => x.textContent?.includes('GATERON'))!.click();
     await flushPromises();
-    opt('阿波罗轴').click();
+    opt('Apollo').click();
     await flushPromises();
     expect(body().querySelector('.swp__warn')?.textContent).toBe('3 phím có actuation lớn hơn 3.13 mm sẽ được hạ về 3.13 mm.');
     expect(btn('Áp dụng')!.textContent?.trim()).toBe('Áp dụng cho 64 phím');
     // Enter on an option must not apply
-    opt('阿波罗轴').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    opt('Apollo').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await flushPromises();
     await useSyncStore().flush();
     expect(setPerf).not.toHaveBeenCalled();
@@ -83,14 +83,14 @@ describe('switch selector UI', () => {
     expect(setPerf).toHaveBeenCalledTimes(64);
     expect(new Set(setPerf.mock.calls.map((c) => `${c[0].row}:${c[0].col}`))).toEqual(new Set(PHYSICAL_KEYS.map((k) => `${k.row}:${k.col}`)));
     expect(perf.switchOf(ALL[0])?.name).toBe('阿波罗轴');
-    expect(w!.find('.swc__name').text()).toBe('阿波罗轴');
+    expect(w!.find('.swc__name').text()).toBe('Apollo');
     expect(w!.find('.swc__recal').exists()).toBe(true);
   });
 
   it('choosing the current switch disables Apply', async () => {
     await setup();
     await openDialog();
-    opt('UR冰磁轴').click();
+    opt('UR Ice HE-Ex').click();
     await flushPromises();
     expect(body().querySelector('.swp__idle')?.textContent).toBe('Các phím đã dùng switch này.');
     const apply = btn('Áp dụng')!;

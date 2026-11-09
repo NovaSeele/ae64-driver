@@ -6,6 +6,7 @@ import { SAVE_GROUP, isRtMode } from '../protocol';
 import type { Ae64Transport, Performance, PhysicalKey } from '../protocol';
 import { findSwitch, switchCatalogFor } from '../protocol/switches';
 import type { SwitchEntry, SwitchTriple } from '../protocol/switches';
+import { switchName } from '../data/switchDisplay';
 import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
 import { useHistoryStore } from './history';
@@ -333,7 +334,7 @@ export const usePerformanceStore = defineStore('performance', () => {
     if (!Object.keys(after).length) return;
     commitSwitch(after);
     history.push({
-      label: tr('perf.switchLabel', { name: entry.name, n: Object.keys(after).length }),
+      label: tr('perf.switchLabel', { name: switchName(entry), n: Object.keys(after).length }),
       undo: () => commitSwitch(before),
       redo: () => commitSwitch(after),
     });

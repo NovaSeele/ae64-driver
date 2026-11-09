@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SWITCH_GROUPS, findSwitch, isCatalogTriple, switchCatalogFor } from '../src/protocol/switches';
+import { switchName } from '../src/data/switchDisplay';
 
 describe('switch catalog', () => {
   const catalog = switchCatalogFor('0030000d')!;
@@ -42,5 +43,21 @@ describe('switch catalog', () => {
     expect(switchCatalogFor('0030000D')).toBe(catalog);
     expect(switchCatalogFor(undefined)).toBeNull();
     expect(switchCatalogFor(null)).toBeNull();
+  });
+});
+
+describe('switch display names', () => {
+  const catalog = switchCatalogFor('0030000d')!;
+
+  it('has a unique English (ASCII) name for every catalog switch', () => {
+    const names = catalog.map((e) => switchName(e));
+    expect(names.every((n) => n.length > 0 && /^[ -~]+$/.test(n))).toBe(true);
+    expect(new Set(names).size).toBe(catalog.length);
+  });
+
+  it('names the switches used in the demo flow and tells the two Skylines apart', () => {
+    expect(switchName(findSwitch(catalog, 12432)!)).toBe('UR Ice HE-Ex');
+    expect(switchName(findSwitch(catalog, 4208)!)).toBe('Apollo');
+    expect(switchName(findSwitch(catalog, 12608)!)).not.toBe(switchName(findSwitch(catalog, 13472)!));
   });
 });

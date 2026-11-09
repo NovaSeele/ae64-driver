@@ -9,6 +9,7 @@ import { formatMm } from '../ui/NumberField.vue';
 import SwitchSwatch from './SwitchSwatch.vue';
 import SwitchPicker from './SwitchPicker.vue';
 import { groupKeys } from './switchGroups';
+import { switchName } from '../../data/switchDisplay';
 import { useDeviceStore } from '../../stores/device';
 import { usePerformanceStore } from '../../stores/performance';
 import { t } from '../../i18n/vi';
@@ -34,12 +35,12 @@ const normalisedN = computed(() => new Set(perf.switchNotices.map((x) => x.id)).
 
 const mm = (rangeMax: number) => formatMm(rangeMax / 1000, 3);
 const groupLabel = (g: 'JIANGWAN' | 'GATERON' | 'TTC' | 'Other') => (g === 'Other' ? t('sw.groupOther') : g);
-const nameOf = (g: Group) => g.entry?.name ?? t('sw.unknown');
+const nameOf = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknown'));
 const metaOf = (g: Group) => {
   const what = g.entry ? groupLabel(g.entry.group) : perf.catalog ? t('sw.unknownMeta', { id: g.axisV2Id }) : t('sw.idMeta', { id: g.axisV2Id });
   return `${what} · ${t('sw.keys', { n: g.n })}`;
 };
-const rowName = (g: Group) => g.entry?.name ?? t('sw.unknownRow', { id: g.axisV2Id });
+const rowName = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknownRow', { id: g.axisV2Id }));
 </script>
 
 <template>
@@ -51,7 +52,7 @@ const rowName = (g: Group) => g.entry?.name ?? t('sw.unknownRow', { id: g.axisV2
       <div v-if="groups.length === 1" class="swc__current">
         <SwitchSwatch :color="groups[0].entry?.color ?? ''" size="lg" />
         <div class="swc__text">
-          <span class="swc__name" :lang="groups[0].entry ? 'zh-Hans' : undefined">{{ nameOf(groups[0]) }}</span>
+          <span class="swc__name swc__name--wrap" :title="nameOf(groups[0])">{{ nameOf(groups[0]) }}</span>
           <span class="swc__meta">{{ metaOf(groups[0]) }}</span>
         </div>
         <span class="swc__mm">{{ mm(groups[0].rangeMax) }}<small>mm</small></span>
@@ -60,7 +61,7 @@ const rowName = (g: Group) => g.entry?.name ?? t('sw.unknownRow', { id: g.axisV2
         <ul class="swc__rows">
           <li v-for="g in groups.slice(0, 3)" :key="`${g.axisV2Id}:${g.rangeMax}`" class="swc__row">
             <SwitchSwatch :color="g.entry?.color ?? ''" size="sm" />
-            <span class="swc__name" :lang="g.entry ? 'zh-Hans' : undefined">{{ rowName(g) }}</span>
+            <span class="swc__name" :title="rowName(g)">{{ rowName(g) }}</span>
             <span class="swc__mm">{{ mm(g.rangeMax) }}<small>mm</small></span>
             <span class="swc__count">{{ t('sw.keys', { n: g.n }) }}</span>
           </li>
@@ -88,7 +89,9 @@ const rowName = (g: Group) => g.entry?.name ?? t('sw.unknownRow', { id: g.axisV2
 .swc { display: flex; flex-direction: column; gap: var(--s-3); }
 .swc__current { display: flex; align-items: center; gap: var(--s-3); }
 .swc__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.swc__name { font-family: var(--font-cjk); font-size: var(--fs-card); font-weight: 600; color: var(--fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.swc__name { font-size: var(--fs-card); font-weight: 600; color: var(--fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The single-switch name may take two lines (English names run up to 31 characters). */
+.swc__name--wrap { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; line-height: 1.25; }
 .swc__meta { font-size: var(--fs-label); color: var(--fg-3); }
 .swc__mm { font-size: var(--fs-card); font-weight: 600; color: var(--fg-1); white-space: nowrap; }
 .swc__mm small { font-size: var(--fs-label); font-weight: 500; color: var(--fg-3); margin-left: 2px; }

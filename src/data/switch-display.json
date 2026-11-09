@@ -1,0 +1,306 @@
+{
+ "2128": {
+  "name": "Star Eye",
+  "brand": "Unknown"
+ },
+ "4112": {
+  "name": "Magnetic Jade",
+  "brand": "Gateron"
+ },
+ "4128": {
+  "name": "Magnetic Jade Pro",
+  "brand": "Gateron"
+ },
+ "4144": {
+  "name": "Magnetic Jade Gaming",
+  "brand": "Gateron"
+ },
+ "4160": {
+  "name": "Magnetic Jade Air",
+  "brand": "Gateron"
+ },
+ "4176": {
+  "name": "Yujingzi",
+  "brand": "Gateron"
+ },
+ "4192": {
+  "name": "Magnetic Green Dragon",
+  "brand": "Gateron"
+ },
+ "4208": {
+  "name": "Apollo",
+  "brand": "Gateron"
+ },
+ "4224": {
+  "name": "Magnetic Jade Max",
+  "brand": "Gateron"
+ },
+ "4240": {
+  "name": "Magnetic Jade POM",
+  "brand": "Gateron"
+ },
+ "4256": {
+  "name": "Magnetic Spark",
+  "brand": "Gateron"
+ },
+ "4272": {
+  "name": "Magnetic Purple Dragon",
+  "brand": "Gateron"
+ },
+ "4288": {
+  "name": "Magnetic Red Dragon (Pre-Lubed)",
+  "brand": "Gateron"
+ },
+ "4304": {
+  "name": "Star Trail",
+  "brand": "Gateron"
+ },
+ "4320": {
+  "name": "Magnetic Gold Dragon",
+  "brand": "Gateron"
+ },
+ "4336": {
+  "name": "Snow Blade (Closed Bottom)",
+  "brand": "Gateron"
+ },
+ "4352": {
+  "name": "Qilin",
+  "brand": "Gateron"
+ },
+ "4368": {
+  "name": "Magnetic Jade Sakura",
+  "brand": "Gateron"
+ },
+ "4384": {
+  "name": "Grey Jade Pro",
+  "brand": "Gateron"
+ },
+ "4400": {
+  "name": "Xuanwu (Fully Lubed)",
+  "brand": "Gateron"
+ },
+ "4416": {
+  "name": "KS-37B Dual-Rail Magnetic White",
+  "brand": "Gateron"
+ },
+ "4432": {
+  "name": "KS-20 Dual-Rail Magnetic Orange",
+  "brand": "Gateron"
+ },
+ "4464": {
+  "name": "Magnetic Yellow",
+  "brand": "Gateron"
+ },
+ "4480": {
+  "name": "Magnetic Black",
+  "brand": "Gateron"
+ },
+ "4496": {
+  "name": "KS-20 Magnetic Orange",
+  "brand": "Gateron"
+ },
+ "4512": {
+  "name": "Magnetic Green",
+  "brand": "Gateron"
+ },
+ "4528": {
+  "name": "Magnetic Genty Silent",
+  "brand": "Gateron"
+ },
+ "4544": {
+  "name": "Pink Jade Pro",
+  "brand": "Gateron"
+ },
+ "4560": {
+  "name": "Pink Jade",
+  "brand": "Gateron"
+ },
+ "4592": {
+  "name": "Magnetic Jade Emerald",
+  "brand": "Gateron"
+ },
+ "4608": {
+  "name": "Yurui",
+  "brand": "Moyu Studio"
+ },
+ "8208": {
+  "name": "King (KOM)",
+  "brand": "TTC"
+ },
+ "8224": {
+  "name": "RGB King",
+  "brand": "TTC"
+ },
+ "8240": {
+  "name": "POM King",
+  "brand": "TTC"
+ },
+ "8256": {
+  "name": "Zodiac Snake Green",
+  "brand": "TTC"
+ },
+ "8272": {
+  "name": "Zodiac Snake White",
+  "brand": "TTC"
+ },
+ "8288": {
+  "name": "Honey King",
+  "brand": "TTC"
+ },
+ "8304": {
+  "name": "RGB Purple Heart",
+  "brand": "TTC"
+ },
+ "8320": {
+  "name": "RGB Sacred Heart",
+  "brand": "TTC"
+ },
+ "8336": {
+  "name": "Helios",
+  "brand": "TTC"
+ },
+ "8352": {
+  "name": "Uranus",
+  "brand": "TTC"
+ },
+ "8368": {
+  "name": "Uranus Esports",
+  "brand": "TTC"
+ },
+ "8384": {
+  "name": "Uranus SE",
+  "brand": "TTC"
+ },
+ "8400": {
+  "name": "Commander King",
+  "brand": "TTC"
+ },
+ "8416": {
+  "name": "Commander King Pro",
+  "brand": "TTC"
+ },
+ "8432": {
+  "name": "HiFi Snow",
+  "brand": "TTC"
+ },
+ "8448": {
+  "name": "Dragon Lord",
+  "brand": "TTC"
+ },
+ "8464": {
+  "name": "Elf King",
+  "brand": "TTC"
+ },
+ "8480": {
+  "name": "Tai'e Sword",
+  "brand": "TTC"
+ },
+ "8496": {
+  "name": "KTEK Magnetic",
+  "brand": "KTEK (TTC)"
+ },
+ "12368": {
+  "name": "Ice Emperor",
+  "brand": "AULA"
+ },
+ "12400": {
+  "name": "Ti HE",
+  "brand": "Owlab"
+ },
+ "12416": {
+  "name": "Dengshen Pro",
+  "brand": "Latenpow"
+ },
+ "12432": {
+  "name": "UR Ice HE-Ex",
+  "brand": "Ur Studio"
+ },
+ "12448": {
+  "name": "Koi",
+  "brand": "Unknown"
+ },
+ "12464": {
+  "name": "Wukong HE",
+  "brand": "Everglide"
+ },
+ "12512": {
+  "name": "Pink Emperor",
+  "brand": "AULA"
+ },
+ "12560": {
+  "name": "Xingyi",
+  "brand": "AULA"
+ },
+ "12608": {
+  "name": "Skyline",
+  "brand": "Everglide"
+ },
+ "12656": {
+  "name": "Magnetic God",
+  "brand": "Kailh"
+ },
+ "12704": {
+  "name": "Azure Pro",
+  "brand": "OKT"
+ },
+ "12720": {
+  "name": "Purple Star",
+  "brand": "Unknown"
+ },
+ "12736": {
+  "name": "Chixiao",
+  "brand": "Outemu"
+ },
+ "13088": {
+  "name": "Polar Pro+",
+  "brand": "Unionwell"
+ },
+ "13104": {
+  "name": "Polar Pro",
+  "brand": "Unionwell"
+ },
+ "13120": {
+  "name": "Polar RGB",
+  "brand": "Unionwell"
+ },
+ "13136": {
+  "name": "Polar Blazing Bloom",
+  "brand": "Unionwell"
+ },
+ "13152": {
+  "name": "Polar Primordial Unity",
+  "brand": "Unionwell"
+ },
+ "13168": {
+  "name": "Polar Ink Jade",
+  "brand": "Unionwell"
+ },
+ "13264": {
+  "name": "Siren",
+  "brand": "Everglide"
+ },
+ "13472": {
+  "name": "Skyline V3",
+  "brand": "Everglide"
+ },
+ "13665": {
+  "name": "Ice Shine",
+  "brand": "Unionwell"
+ },
+ "13681": {
+  "name": "Snow Shine",
+  "brand": "Unionwell"
+ },
+ "14544": {
+  "name": "White Wukong HE",
+  "brand": "Everglide"
+ },
+ "14608": {
+  "name": "Yaoguang HE",
+  "brand": "Everglide"
+ },
+ "19504": {
+  "name": "Cullinan",
+  "brand": "Unknown"
+ }
+}
