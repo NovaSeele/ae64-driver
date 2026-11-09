@@ -172,8 +172,8 @@ function formatUpdateDate(iso: string): string {
 /* compact: stacked, VI|EN shrunk to fit the 40px column */
 .side-foot--compact { flex-direction: column; gap: 4px; }
 .side-foot--compact .side-foot__gap { display: none; }
-.side-foot--compact :deep(.seg) { padding: 2px; gap: 1px; }
-.side-foot--compact :deep(.seg__opt) { height: 20px; padding: 0 4px; font-size: 10px; font-weight: 600; }
+.side-foot--compact :deep(.seg) { flex-direction: column; align-items: stretch; padding: 2px; gap: 1px; }
+.side-foot--compact :deep(.seg__opt) { justify-content: center; height: 20px; padding: 0 4px; font-size: 10px; font-weight: 600; }
 
 /* About dialog */
 .help { display: flex; flex-direction: column; gap: var(--s-3); }
