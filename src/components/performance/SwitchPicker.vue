@@ -178,8 +178,11 @@ function apply() {
 .swp__for { margin: 0; font-size: var(--fs-label); color: var(--fg-3); }
 .swp__for b { color: var(--fg-1); font-weight: 600; }
 .swp__list {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--s-2);
-  max-height: min(372px, calc(100vh - 460px)); overflow-y: auto; /* the summary reserve below takes the rest */
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--s-2); align-content: start;
+  grid-auto-rows: max-content; /* with a fixed height, auto rows would shrink below their content */
+  /* one fixed box for every tab, so a short tab never re-centres the dialog; the floor keeps tiles visible on short
+     windows, where the dialog body scrolls instead. The summary reserve below takes the rest. */
+  flex: none; height: clamp(160px, calc(100vh - 460px), 372px); overflow-y: auto;
   padding: 2px; margin: -2px; /* room for the focus ring */
   scrollbar-gutter: stable;
 }

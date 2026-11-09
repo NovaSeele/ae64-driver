@@ -67,12 +67,12 @@ describe('switch photos', () => {
 
   it('ships a photo only for switches in the catalog', () => {
     const withPhoto = catalog.filter((e) => switchImage(e.id));
-    expect(withPhoto.length).toBe(32);
+    expect(withPhoto.length).toBe(46);
     expect(switchImage(4208)).toMatch(/4208.*\.webp$/); // Apollo
   });
 
   it('falls back to the drawn swatch when there is no photo', () => {
-    expect(switchImage(12432)).toBeUndefined(); // UR Ice HE-Ex
+    expect(switchImage(8496)).toBeUndefined(); // KTEK Magnetic: background could not be removed cleanly
     expect(switchImage(1)).toBeUndefined();
     expect(switchImage(4416)).toBeUndefined(); // maker photo did not match the stem colour
     expect(switchImage(4528)).toBeUndefined(); // same
