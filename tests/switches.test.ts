@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SWITCH_GROUPS, findSwitch, isCatalogTriple, switchCatalogFor } from '../src/protocol/switches';
-import { switchName } from '../src/data/switchDisplay';
+import { switchImage, switchName } from '../src/data/switchDisplay';
 
 describe('switch catalog', () => {
   const catalog = switchCatalogFor('0030000d')!;
@@ -59,5 +59,20 @@ describe('switch display names', () => {
     expect(switchName(findSwitch(catalog, 12432)!)).toBe('UR Ice HE-Ex');
     expect(switchName(findSwitch(catalog, 4208)!)).toBe('Apollo');
     expect(switchName(findSwitch(catalog, 12608)!)).not.toBe(switchName(findSwitch(catalog, 13472)!));
+  });
+});
+
+describe('switch photos', () => {
+  const catalog = switchCatalogFor('0030000d')!;
+
+  it('ships a photo only for switches in the catalog', () => {
+    const withPhoto = catalog.filter((e) => switchImage(e.id));
+    expect(withPhoto.length).toBe(32);
+    expect(switchImage(4208)).toMatch(/4208.*\.webp$/); // Apollo
+  });
+
+  it('falls back to the drawn swatch when there is no photo', () => {
+    expect(switchImage(12432)).toBeUndefined(); // UR Ice HE-Ex
+    expect(switchImage(1)).toBeUndefined();
   });
 });

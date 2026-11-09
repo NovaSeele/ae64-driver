@@ -9,3 +9,14 @@ const NAMES: Readonly<Record<string, { name: string; brand: string }>> = display
 export function switchName(entry: { id: number; name: string }): string {
   return NAMES[String(entry.id)]?.name ?? entry.name;
 }
+
+// Maker photos (128 px webp, background removed), hashed into /assets by Vite. The CSP allows only same-origin images.
+const IMAGES: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(import.meta.glob<string>('../assets/switches/*.webp', { eager: true, query: '?url', import: 'default' }))
+    .map(([path, url]) => [path.replace(/^.*\/(\d+)\.webp$/, '$1'), url]),
+);
+
+/** URL of the switch's photo, or undefined when the build has none (the drawn swatch is shown). */
+export function switchImage(id: number): string | undefined {
+  return IMAGES[String(id)];
+}

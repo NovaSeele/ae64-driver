@@ -50,7 +50,7 @@ const rowName = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknownRow'
     </template>
     <div class="swc">
       <div v-if="groups.length === 1" class="swc__current">
-        <SwitchSwatch :color="groups[0].entry?.color ?? ''" size="lg" />
+        <SwitchSwatch :color="groups[0].entry?.color ?? ''" :id="groups[0].entry?.id" size="lg" />
         <div class="swc__text">
           <span class="swc__name swc__name--wrap" :title="nameOf(groups[0])">{{ nameOf(groups[0]) }}</span>
           <span class="swc__meta">{{ metaOf(groups[0]) }}</span>
@@ -60,7 +60,7 @@ const rowName = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknownRow'
       <template v-else-if="groups.length > 1">
         <ul class="swc__rows">
           <li v-for="g in groups.slice(0, 3)" :key="`${g.axisV2Id}:${g.rangeMax}`" class="swc__row">
-            <SwitchSwatch :color="g.entry?.color ?? ''" size="sm" />
+            <SwitchSwatch :color="g.entry?.color ?? ''" :id="g.entry?.id" size="sm" />
             <span class="swc__name" :title="rowName(g)">{{ rowName(g) }}</span>
             <span class="swc__mm">{{ mm(g.rangeMax) }}<small>mm</small></span>
             <span class="swc__count">{{ t('sw.keys', { n: g.n }) }}</span>

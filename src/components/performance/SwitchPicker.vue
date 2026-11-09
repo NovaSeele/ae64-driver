@@ -126,7 +126,7 @@ function apply() {
           @click="chosen = e"
           @keydown="onKey"
         >
-          <SwitchSwatch :color="e.color" />
+          <SwitchSwatch :color="e.color" :id="e.id" />
           <span class="sw-opt__text">
             <span class="sw-opt__name" :title="switchName(e)">{{ switchName(e) }}</span>
             <span class="sw-opt__meta">
@@ -142,13 +142,13 @@ function apply() {
         <template v-else>
           <div class="swp__change">
             <template v-if="single">
-              <SwitchSwatch :color="from.entry?.color ?? ''" size="sm" />
+              <SwitchSwatch :color="from.entry?.color ?? ''" :id="from.entry?.id" size="sm" />
               <span class="nm">{{ from.entry ? switchName(from.entry) : t('sw.unknown') }}</span>
               <span class="mm">{{ mm(from.rangeMax) }} mm</span>
             </template>
             <span v-else class="nm">{{ t('sw.kinds', { n: keyGroups.length }) }}</span>
             <IconArrowRight class="arrow" :size="16" aria-hidden="true" />
-            <SwitchSwatch :color="chosen.color" size="sm" />
+            <SwitchSwatch :color="chosen.color" :id="chosen.id" size="sm" />
             <span class="nm">{{ switchName(chosen) }}</span>
             <span class="mm">{{ mm(chosen.rangeMax) }} mm</span>
           </div>
