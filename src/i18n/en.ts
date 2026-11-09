@@ -52,13 +52,12 @@ const baseEn: Record<keyof typeof base, string> = {
   'device.renamed': 'Renamed profile to “{name}”.',
   'device.switched': 'Switched to {name}.',
   'connect.title': 'Connect keyboard',
-  'connect.subtitle': 'Plug in your AE64 Max via USB and click connect. Runs completely locally — no accounts, no data telemetry.',
+  'connect.subtitle': 'Plug in your AE64 Max via USB and click connect.',
   'connect.button': 'Connect keyboard',
   'connect.demo': 'Demo mode',
   'connect.demoHint': 'Try with a simulated keyboard, no hardware required.',
   'connect.noHid': 'This browser does not support WebHID. Please use desktop Chrome or Edge (over http://127.0.0.1).',
   'connect.reconnecting': 'Reconnecting automatically…',
-  'connect.safety': 'Safe: app never updates firmware or triggers factory resets.',
   'connect.failed': 'Connection failed',
 
   // sync / history
@@ -164,7 +163,7 @@ const baseEn: Record<keyof typeof base, string> = {
 
   // help
   'help.title': 'AE64 Max Control',
-  'help.body': 'Local-first web driver for Everglide AE64 Max. Connects via WebHID, offline capable, no data collection. Changes are saved automatically to the keyboard, verified by readback, and support undo/redo (Ctrl+Z / Ctrl+Y).',
+  'help.body': 'Remake web driver for Everglide AE64 Max. Connects via WebHID, offline capable, no data collection. Changes are saved automatically to the keyboard and support undo/redo (Ctrl+Z / Ctrl+Y).',
   'help.shortcuts': 'Shortcuts',
   'help.shortcutUndo': 'Undo / Redo',
   'help.shortcutSelect': 'Deselect keys',

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { IconAlertTriangle, IconPlayerPlay, IconShieldCheck, IconUsb } from '@tabler/icons-vue';
+import { IconAlertTriangle, IconPlayerPlay, IconUsb } from '@tabler/icons-vue';
 import Button from '../ui/Button.vue';
 import Segmented from '../ui/Segmented.vue';
 import { useDeviceStore } from '../../stores/device';
@@ -77,9 +77,6 @@ const LANG_OPTIONS = computed<{ value: Locale; label: string; title: string }[]>
       </p>
       <p v-if="settings.pollingState === 'error' && settings.pollingError" class="cs__note cs__note--error" role="alert">
         <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />{{ settings.pollingError }}
-      </p>
-      <p class="cs__note">
-        <IconShieldCheck :size="16" stroke-width="1.5" aria-hidden="true" />{{ t('connect.safety') }}
       </p>
     </div>
   </div>

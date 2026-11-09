@@ -55,13 +55,12 @@ export const base = {
   'device.renamed': 'Đã đổi tên profile thành “{name}”.',
   'device.switched': 'Đã chuyển sang {name}.',
   'connect.title': 'Kết nối bàn phím',
-  'connect.subtitle': 'Cắm AE64 Max bằng cáp USB rồi bấm kết nối. Mọi thứ chạy trên máy bạn — không tài khoản, không gửi dữ liệu.',
+  'connect.subtitle': 'Cắm AE64 Max bằng cáp USB rồi bấm kết nối.',
   'connect.button': 'Kết nối bàn phím',
   'connect.demo': 'Chế độ demo',
   'connect.demoHint': 'Dùng thử với bàn phím giả lập, không cần thiết bị.',
   'connect.noHid': 'Trình duyệt này không hỗ trợ WebHID. Hãy mở bằng Chrome hoặc Edge bản desktop (qua http://127.0.0.1).',
   'connect.reconnecting': 'Đang tự kết nối lại…',
-  'connect.safety': 'An toàn: ứng dụng không bao giờ cập nhật firmware hay khôi phục cài đặt gốc.',
   'connect.failed': 'Kết nối thất bại',
 
   // sync / history
@@ -167,7 +166,7 @@ export const base = {
 
   // help
   'help.title': 'AE64 Max Control',
-  'help.body': 'Driver web chạy cục bộ cho Everglide AE64 Max. Kết nối qua WebHID, không cần mạng, không thu thập dữ liệu. Mọi thay đổi được ghi tự động vào phím, xác minh bằng cách đọc lại, và có thể hoàn tác (Ctrl+Z / Ctrl+Y).',
+  'help.body': 'Driver web remake cho Everglide AE64 Max. Kết nối qua WebHID, không cần mạng, không thu thập dữ liệu. Mọi thay đổi được ghi tự động vào phím và có thể hoàn tác (Ctrl+Z / Ctrl+Y).',
   'help.shortcuts': 'Phím tắt',
   'help.shortcutUndo': 'Hoàn tác / Làm lại',
   'help.shortcutSelect': 'Bỏ chọn phím',
