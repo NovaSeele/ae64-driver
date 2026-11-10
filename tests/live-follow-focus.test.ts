@@ -144,6 +144,21 @@ describe('undoAutoFollow', () => {
     expect(live.focusId).toBe(SHIFT.id);
   });
 
+  it('restores only the key the stash belongs to: Shift (not W) after W, Shift released, Tab held', () => {
+    strokeW();
+    expect(live.data.count).toBe(1);
+    set(SHIFT, 1, 1200); // W → Shift, W stashed
+    set(SHIFT, 0, 1300); // Shift released
+    set(TAB, 3.3, 1400); // Shift → Tab
+    expect(live.focusId).toBe(TAB.id);
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(SHIFT.id);
+    expect(live.data.ring.size).toBe(0);
+    expect(live.data.events.length).toBe(0);
+    expect(live.data.count).toBe(0);
+    expect(live.data.touched).toBe(false);
+  });
+
   function ringMax(): number {
     let m = 0;
     live.data.ring.forEach(-Infinity, (_t, mm) => { m = Math.max(m, mm); });
@@ -398,6 +413,77 @@ describe('undoAutoFollow', () => {
       expect(live.data.model!.actuated).toBe(false);
       set(W, 2, 1900); // continuous RT: still armed, re-actuates rtPress below the trough
       expect(live.data.events.slice(events).map((e) => e.kind)).toEqual(['press']);
+    });
+
+    it('RT at rest: the restore resets the model; the next press happens at rtFirstTouch, not trough + rtPress', () => {
+      const perf = usePerformanceStore();
+      Object.assign(perf.values[W.id], { mode: 1, rtFirstTouch: 1, rtPress: 0.8, rtRelease: 0.8, pressDeadStroke: 0.1, releaseDeadStroke: 0 });
+      live.reset();
+      set(W, 2, 1000);
+      expect(live.data.model!.armed).toBe(true);
+      set(TAB, 3.5, 1500); // W → Tab while W is armed and actuated
+      set(W, 0.03, 1600); // W back at rest (a few hundredths of a mm), unseen by its model
+      expect(live.undoAutoFollow()).toBe(true);
+      expect(live.focusId).toBe(W.id);
+      live.setFollow(false);
+      expect(live.data.model!.armed).toBe(false);
+      expect(live.data.model!.actuated).toBe(false);
+      const events = live.data.events.length;
+      let t = 1700;
+      for (let mm = 0.03; mm < 1.5; mm += 0.05) set(W, mm, (t += 5));
+      const tail = live.data.events.slice(events);
+      expect(tail.map((e) => e.kind)).toEqual(['press']);
+      expect(tail[0].depth).toBeGreaterThanOrEqual(0.99);
+      expect(tail[0].depth).toBeLessThanOrEqual(1.06);
+    });
+
+    it('RT mid-press: the restore takes peak and trough from the current depth, not the stale peak', () => {
+      const perf = usePerformanceStore();
+      Object.assign(perf.values[W.id], { mode: 1, rtFirstTouch: 1, rtPress: 0.8, rtRelease: 0.5, pressDeadStroke: 0, releaseDeadStroke: 0 });
+      live.reset();
+      set(W, 2, 1000);
+      set(W, 3.3, 1020); // peak 3.3
+      set(TAB, 3.5, 1500); // W → Tab, stashed at peak 3.3
+      set(W, 2, 1600); // W partly released, unseen
+      expect(live.undoAutoFollow()).toBe(true);
+      live.setFollow(false);
+      expect(live.data.model!.peak).toBeCloseTo(2, 5);
+      expect(live.data.model!.trough).toBeCloseTo(2, 5);
+      const events = live.data.events.length;
+      set(W, 2, 1700);
+      set(W, 1.8, 1720);
+      set(W, 1.6, 1740); // 3.3 − 0.5 = 2.8 and 2.0 − 0.5 = 1.5: the stale peak would already have released
+      expect(live.data.events.length).toBe(events);
+      set(W, 1.4, 1760);
+      const tail = live.data.events.slice(events);
+      expect(tail.map((e) => e.kind)).toEqual(['release']);
+      expect(tail[0].depth).toBeCloseTo(1.4, 2);
+    });
+
+    it('standard mode: held past the press point while the stale model was released, the restore emits no press', () => {
+      standardW();
+      live.reset();
+      set(W, 1.5, 1000); // press
+      set(W, 0.5, 1020); // release
+      expect(live.data.count).toBe(1);
+      expect(live.data.model!.actuated).toBe(false);
+      set(TAB, 3.5, 1500); // W → Tab, stashed as released
+      set(W, 2.5, 1600); // W pressed unseen
+      expect(live.undoAutoFollow()).toBe(true);
+      live.setFollow(false);
+      expect(live.data.model!.actuated).toBe(true);
+      const events = live.data.events.length;
+      set(W, 2.6, 1700);
+      set(W, 2, 1720);
+      set(W, 1.3, 1740);
+      expect(live.data.events.length).toBe(events);
+      expect(live.data.count).toBe(1);
+      set(W, 1.1, 1760);
+      set(W, 0.9, 1780);
+      const tail = live.data.events.slice(events);
+      expect(tail.map((e) => e.kind)).toEqual(['release']);
+      expect(tail[0].depth).toBeCloseTo(1.1, 2);
+      expect(live.data.count).toBe(1);
     });
 
     it('settings edited between the stash and the restore give the model the new settings', () => {
