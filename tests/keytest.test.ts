@@ -69,6 +69,25 @@ describe('demo press and the typing-test box', () => {
     expect(spy.mock.calls.some(([, mm]) => mm > 0)).toBe(true);
   });
 
+  it('leaves Tab to a focused control (so focus can move on), but Tab on the bare page still simulates', () => {
+    const { spy, flush } = setup();
+    const btn = document.createElement('button');
+    document.body.appendChild(btn);
+    for (const shiftKey of [false, true]) {
+      const ev = new KeyboardEvent('keydown', { code: 'Tab', key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+      btn.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(false);
+    }
+    flush();
+    expect(spy).not.toHaveBeenCalled();
+
+    const ev = new KeyboardEvent('keydown', { code: 'Tab', key: 'Tab', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    flush();
+    expect(spy.mock.calls.some(([, mm]) => mm > 0)).toBe(true);
+  });
+
   it('still ignores other text fields', () => {
     const { spy, flush } = setup();
     const other = document.createElement('textarea');

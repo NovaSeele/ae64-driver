@@ -377,6 +377,41 @@ describe('TravelGraph pan', () => {
     s.w.unmount();
   });
 
+  it("emits 'review' for panned-or-focused, exactly when that changes", () => {
+    const { w, data, pans } = tenSeconds();
+    const el = w.find('canvas').element as HTMLCanvasElement;
+    const reviews = () => (w.emitted('review') ?? []).map((a) => a[0]);
+    el.dispatchEvent(new FocusEvent('focus'));
+    expect(reviews()).toEqual([true]); // a: focused
+    key(el, 'ArrowLeft');
+    frame(10_010);
+    expect(pans().at(-1)).toBe(0.5);
+    expect(reviews()).toEqual([true]); // b: panned while focused, no change
+    key(el, 'End');
+    expect(pans().at(-1)).toBeNull();
+    frame(10_020);
+    expect(reviews()).toEqual([true]); // c: left the pan, still focused
+    el.dispatchEvent(new FocusEvent('blur'));
+    expect(reviews()).toEqual([true, false]); // d
+    drag(el, 300, 400); // e: unfocused drag back in time
+    expect(reviews()).toEqual([true, false, true]);
+    ptr(el, 'pointermove', 300);
+    ptr(el, 'pointerup', 300); // f: back to 0 → pan left
+    expect(reviews()).toEqual([true, false, true, false]);
+    drag(el, 300, 400);
+    expect(reviews().at(-1)).toBe(true);
+    (w.vm as unknown as { toLive: () => void }).toLive(); // g
+    expect(reviews()).toEqual([true, false, true, false, true, false]);
+    drag(el, 300, 400);
+    frame(10_030);
+    expect(reviews().at(-1)).toBe(true);
+    data.ring.clear(); // h: an epoch bump drops the pan
+    data.epoch++;
+    frame(10_040);
+    expect(reviews()).toEqual([true, false, true, false, true, false, true, false]);
+    w.unmount();
+  });
+
   it('an epoch bump drops the old samples: nothing to pan into, none drawn', () => {
     const m = make(new TravelRing(8192));
     for (let t = 0; t < 6000; t++) m.data.ring.push(t, 0.1);

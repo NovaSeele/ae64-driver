@@ -73,6 +73,8 @@ export function attachDemoPress(mock: MockTransport): () => void {
     if (!inTest && typing(e)) return;
     // The focused travel graph pans with these keys (←/→/Esc are AE64 keys too); letters still simulate.
     if (GRAPH_KEYS.has(e.code) && el?.closest?.('canvas.graph')) return;
+    // Tab on a focused control moves focus (the AE64 has a Tab key too); only Tab on the bare page simulates.
+    if (!inTest && e.code === 'Tab' && el && el !== document.body && el !== document.documentElement) return;
     // Leave shortcuts (Ctrl+Z…) alone: modifiers only count when pressed on their own.
     if ((e.ctrlKey && e.code !== 'ControlLeft') || (e.metaKey && e.code !== 'MetaLeft')) return;
     if (!inTest) {
