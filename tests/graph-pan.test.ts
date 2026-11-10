@@ -363,6 +363,24 @@ describe('TravelGraph pan', () => {
     s.w.unmount();
   }, 60_000);
 
+  it('a frozen picture stays identical while the full history keeps growing behind it', async () => {
+    hist.cap = 6000; // ~3.6 s at 1,670 Hz: full long before the pause, so appending evicts old samples
+    const s = stepper([{ t: 5350, kind: 'press', depth: 1.5 }]);
+    const rest = () => 0.2; // never "holds", so only the manual pause freezes the view
+    s.run(5200, rest);
+    s.run(5500, (t) => 0.2 + stroke300(5200)(t) * 0.9); // a stroke inside the last 3 s
+    s.run(8000, rest);
+    await s.w.setProps({ paused: true });
+    frame(s.now() - 0.1); // the pause clock sits just before the next sample, which must stay off screen
+    const first = JSON.stringify([pts, arcs]);
+    expect(strokePoints()).toBeGreaterThan(0);
+    expect(arcs).toHaveLength(1);
+    s.run(18_000, rest); // 10 s more: the ring and the history roll on
+    frame(s.now());
+    expect(JSON.stringify([pts, arcs])).toBe(first);
+    s.w.unmount();
+  }, 60_000);
+
   it('real rate: after an auto hold, ← pans from the held clock (the stroke), not from real time', () => {
     const s = stepper();
     s.run(4000, () => Math.random() * 0.05);
