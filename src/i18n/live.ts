@@ -29,7 +29,7 @@ export const liveVi = {
   'live.pause': 'Tạm dừng biểu đồ',
   'live.resume': 'Tiếp tục biểu đồ',
   'live.holding': 'Giữ nét cuối · nhấn phím để đo tiếp',
-  'live.panned': 'Đang xem lại · {s} giây trước',
+  'live.panned': 'Đang xem lại · lùi {s} giây',
   'live.backToLive': 'Về hiện tại',
   'live.graphPanHint': 'Kéo trái/phải hoặc dùng phím mũi tên để xem lại',
   'live.clear': 'Xoá dữ liệu đo',

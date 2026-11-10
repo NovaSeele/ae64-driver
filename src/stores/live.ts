@@ -241,6 +241,8 @@ export const useLiveStore = defineStore('live', () => {
   const focusId = ref<number | null>(null);
   /** Auto-follow the deepest key; false = pinned to focusId. */
   const follow = ref(true);
+  /** True while the travel graph is panned or focused: auto-follow keeps the focused key so the review is not wiped. */
+  let followSuspended = false;
   /** Pinned mode: also poll the other rows for the keyboard heat view. */
   const allKeys = ref(true);
   const running = ref(false);
@@ -355,7 +357,7 @@ export const useLiveStore = defineStore('live', () => {
       } else data.status[key.id] = values[col];
       if (key.id === focus) focusedHere = true;
     }
-    if (type === 'route' && follow.value) {
+    if (type === 'route' && follow.value && !followSuspended) {
       let best = -1;
       for (let id = 0; id < data.travel.length; id++) if (best < 0 || data.travel[id] > data.travel[best]) best = id;
       const cur = focus === null ? 0 : data.travel[focus];
@@ -457,5 +459,9 @@ export const useLiveStore = defineStore('live', () => {
     follow.value = on;
   }
 
-  return { data, focusId, follow, allKeys, running, paused, start, stop, reset, clear, pin, setFocus, setFollow };
+  function suspendFollow(on: boolean): void {
+    followSuspended = on;
+  }
+
+  return { data, focusId, follow, allKeys, running, paused, start, stop, reset, clear, pin, setFocus, setFollow, suspendFollow };
 });

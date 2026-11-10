@@ -64,6 +64,7 @@ describe('TravelGraph pan', () => {
   let pts: [number, number][] = [];
   /** [fillStyle at each fill that directly follows an arc] */
   let arcFills: string[] = [];
+  let arcs: [number, number][] = [];
   const Y_1_5MM = 10 + (1.5 / 3.5) * 200;
   const Y_2_1MM = 10 + (2.1 / 3.5) * 200;
   const Y_MARK = 10 + (0.1 / 3.5) * 200; // the oldest test sample (0.1 mm)
@@ -75,6 +76,7 @@ describe('TravelGraph pan', () => {
   beforeEach(() => {
     rafCb = null;
     arcFills = [];
+    arcs = [];
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { rafCb = cb; return 1; });
     vi.stubGlobal('cancelAnimationFrame', () => {});
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
@@ -83,9 +85,9 @@ describe('TravelGraph pan', () => {
     let afterArc = false;
     const ctx = new Proxy({}, {
       get: (_t, k) => {
-        if (k === 'clearRect') return () => { pts = []; };
+        if (k === 'clearRect') return () => { pts = []; arcs = []; };
         if (k === 'moveTo' || k === 'lineTo') return (x: number, y: number) => { pts.push([x, y]); };
-        if (k === 'arc') return () => { afterArc = true; };
+        if (k === 'arc') return (x: number, y: number) => { afterArc = true; arcs.push([x, y]); };
         if (k === 'fill') return () => { if (afterArc) arcFills.push(fillStyle); afterArc = false; };
         return () => {};
       },
@@ -212,6 +214,41 @@ describe('TravelGraph pan', () => {
     frame(10_120);
     expect(pans().at(-1)).toBeNull();
     w.unmount();
+  });
+
+  it('a panned view never moves: samples, hold, release and rest after the pan starts change nothing drawn', () => {
+    const events: LiveData['events'] = [{ t: 3900, kind: 'press', depth: 1.2 }];
+    const m = make(new TravelRing(8192), events);
+    const dt = 1000 / 1670;
+    const level = (t: number) => (t < 6000 ? 0.6 + 1.4 * Math.abs(Math.sin(t / 400)) : t < 6100 ? 0.1 : 0.05);
+    let t = 0;
+    let nextFrame = 0;
+    const el = m.w.find('canvas').element;
+    let panned = false;
+    let reference = '';
+    const seen = new Set<string>();
+    for (; t < 7500; t += dt) {
+      m.data.ring.push(t, level(t));
+      m.data.version++;
+      if (t >= 5100 && t < 5110) events.push({ t, kind: 'release', depth: 1 });
+      if (t >= nextFrame) {
+        frame(t);
+        nextFrame += 1000 / 60;
+        if (!panned && t >= 4000) {
+          key(el, 'ArrowLeft'); // mid-stroke: the key is still moving
+          key(el, 'ArrowLeft');
+          panned = true;
+        } else if (panned) {
+          const drawn = JSON.stringify([pts, arcs]);
+          if (!reference) reference = drawn;
+          seen.add(drawn === reference ? 'same' : 'moved');
+        }
+      }
+    }
+    expect(panned).toBe(true);
+    expect(m.pans().at(-1)).toBe(1);
+    expect([...seen]).toEqual(['same']);
+    m.w.unmount();
   });
 
   /** Real-hardware shape: 1,670 Hz, TravelRing(8192) (~4.9 s), version bumped per sample, ~60 fps frames. */

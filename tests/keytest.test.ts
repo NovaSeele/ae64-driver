@@ -47,6 +47,28 @@ describe('demo press and the typing-test box', () => {
     expect(spy.mock.calls.at(-1)?.[1]).toBe(0);
   });
 
+  it('leaves the pan keys to the focused travel graph, but letters still simulate', () => {
+    const { spy, flush } = setup();
+    const graph = document.createElement('canvas');
+    graph.className = 'graph';
+    document.body.appendChild(graph);
+    const reached: string[] = [];
+    graph.addEventListener('keydown', (e) => reached.push(e.code));
+
+    for (const code of ['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape']) {
+      const ev = new KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true });
+      graph.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(false);
+    }
+    flush();
+    expect(reached).toEqual(['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape']);
+    expect(spy).not.toHaveBeenCalled();
+
+    press(graph, 'keydown');
+    flush();
+    expect(spy.mock.calls.some(([, mm]) => mm > 0)).toBe(true);
+  });
+
   it('still ignores other text fields', () => {
     const { spy, flush } = setup();
     const other = document.createElement('textarea');

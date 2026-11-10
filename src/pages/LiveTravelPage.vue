@@ -147,6 +147,7 @@ onMounted(() => {
   raf = requestAnimationFrame(frame);
 });
 onBeforeUnmount(() => {
+  live.suspendFollow(false);
   live.stop();
   offProfile?.();
   detachDemo?.();
@@ -321,6 +322,7 @@ function onTypeKey(e: KeyboardEvent) {
           :label="t('live.graphLabel', { key: keyName }) + (graphPan !== null ? ' · ' + panText : graphHold && !graphPaused ? ' · ' + t('live.holding') : '') + ' · ' + t('live.graphPanHint')"
           @hold="graphHold = $event"
           @pan="graphPan = $event"
+          @review="live.suspendFollow($event)"
         />
       </Card>
     </div>

@@ -31,7 +31,7 @@ export const liveEn: Record<keyof typeof liveVi, string> = {
   'live.pause': 'Pause graph',
   'live.resume': 'Resume graph',
   'live.holding': 'Holding last stroke · press a key to continue',
-  'live.panned': 'Reviewing · {s} s ago',
+  'live.panned': 'Reviewing · {s} s back',
   'live.backToLive': 'Back to now',
   'live.graphPanHint': 'Drag left/right or use the arrow keys to look back',
   'live.clear': 'Clear measurement data',

@@ -252,6 +252,22 @@ describe('live store (poller over MockTransport)', () => {
     expect(live.data.current).toBeCloseTo(1.5, 3);
   });
 
+  it('suspendFollow keeps the focused key (and the epoch) until it is lifted', async () => {
+    const live = useLiveStore();
+    const mock = useDeviceStore().transport as MockTransport;
+    live.setFocus(W.id);
+    live.start();
+    live.suspendFollow(true);
+    const epoch = live.data.epoch;
+    mock.simulatePress(A.id, 1.5);
+    await until(() => live.data.travel[A.id] > 1.4);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(live.focusId).toBe(W.id);
+    expect(live.data.epoch).toBe(epoch);
+    live.suspendFollow(false);
+    await until(() => live.focusId === A.id);
+  });
+
   it('flags a mismatch when firmware disagrees with the settings for long enough', async () => {
     const live = useLiveStore();
     const perf = usePerformanceStore();

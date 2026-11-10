@@ -16,7 +16,7 @@ const props = defineProps<{
   paused: boolean;
   label: string;
 }>();
-const emit = defineEmits<{ hold: [holding: boolean]; pan: [secondsBack: number | null] }>();
+const emit = defineEmits<{ hold: [holding: boolean]; pan: [secondsBack: number | null]; review: [reviewing: boolean] }>();
 
 const WINDOW_MS = 3000;
 const PAD = { l: 34, r: 10, t: 10, b: 10 };
@@ -48,6 +48,8 @@ let dragStartX = 0;
 let dragLastX = 0;
 let dragging = false;
 let emittedPan: number | null = null;
+let focused = false;
+let emittedReview = false;
 let cursor = '';
 const col: Record<string, string> = {};
 
@@ -102,6 +104,7 @@ function setPan(ms: number) {
     if (v <= 0) return;
     panActive = true;
     panBase = base;
+    emitReview();
   }
   panMs = v;
 }
@@ -114,11 +117,30 @@ function leavePan() {
   emitPan();
 }
 
+/** Panned or keyboard-focused: the page keeps auto-follow from switching keys under the user. */
+function emitReview() {
+  const v = panActive || focused;
+  if (v === emittedReview) return;
+  emittedReview = v;
+  emit('review', v);
+}
+
 function emitPan() {
+  emitReview();
   const v = panActive ? Math.round(panMs / 100) / 10 : null;
   if (v === emittedPan) return;
   emittedPan = v;
   emit('pan', v);
+}
+
+function onFocus() {
+  focused = true;
+  emitReview();
+}
+
+function onBlur() {
+  focused = false;
+  emitReview();
 }
 
 function onPointerDown(e: PointerEvent) {
@@ -347,6 +369,8 @@ onBeforeUnmount(() => {
     @pointercancel="onPointerEnd"
     @dblclick="leavePan"
     @keydown="onKeyDown"
+    @focus="onFocus"
+    @blur="onBlur"
   />
   <span ref="probeEl" class="probe" aria-hidden="true" />
 </template>

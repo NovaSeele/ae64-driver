@@ -20,6 +20,9 @@ export function keyIdForCode(code: string): number | undefined {
   return BY_CODE.get(code);
 }
 
+/** Keys the focused travel graph uses to pan. */
+const GRAPH_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape']);
+
 const PRESS_MS = 90;
 const RELEASE_MS = 120;
 const BOTTOM_MM = 3.31;
@@ -68,6 +71,8 @@ export function attachDemoPress(mock: MockTransport): () => void {
     const el = e.target as HTMLElement | null;
     const inTest = !!el?.closest?.('[data-keytest]');
     if (!inTest && typing(e)) return;
+    // The focused travel graph pans with these keys (←/→/Esc are AE64 keys too); letters still simulate.
+    if (GRAPH_KEYS.has(e.code) && el?.closest?.('canvas.graph')) return;
     // Leave shortcuts (Ctrl+Z…) alone: modifiers only count when pressed on their own.
     if ((e.ctrlKey && e.code !== 'ControlLeft') || (e.metaKey && e.code !== 'MetaLeft')) return;
     if (!inTest) {
