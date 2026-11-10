@@ -8,6 +8,8 @@ import SwitchCard from '../src/components/performance/SwitchCard.vue';
 import { useDeviceStore } from '../src/stores/device';
 import { useSyncStore } from '../src/stores/sync';
 import { usePerformanceStore } from '../src/stores/performance';
+import { findSwitch } from '../src/protocol/switches';
+import { switchName } from '../src/data/switchDisplay';
 import { locale } from '../src/i18n/locale';
 
 const ALL = PHYSICAL_KEYS.map((k) => k.id);
@@ -45,11 +47,11 @@ describe('switch selector UI', () => {
     expect(w!.find('.card__actions button').attributes('disabled')).toBeUndefined();
   });
 
-  it('dialog opens on the in-use tab with counts 1/31/19/25', async () => {
+  it('dialog opens on the in-use tab with counts 30/19/8/7/12', async () => {
     await setup();
     await openDialog();
     const tabs = [...body().querySelectorAll('[role=tab]')];
-    expect(tabs.map((x) => x.querySelector('.tabs__n')?.textContent)).toEqual(['1', '31', '19', '25']);
+    expect(tabs.map((x) => x.querySelector('.tabs__n')?.textContent)).toEqual(['30', '19', '8', '7', '12']);
     expect(body().querySelector('[role=tab][aria-selected=true]')?.textContent).toContain('Khác');
     expect(opt('UR Ice HE-Ex').querySelector('.sw-opt__tag')?.textContent).toBe('Hiện tại');
   });
@@ -85,6 +87,42 @@ describe('switch selector UI', () => {
     expect(perf.switchOf(ALL[0])?.name).toBe('阿波罗轴');
     expect(w!.find('.swc__name').text()).toBe('Apollo');
     expect(w!.find('.swc__recal').exists()).toBe(true);
+  });
+
+  it('opening on a key that uses Wukong HE lands on the Everglide tab, option in use and focused', async () => {
+    const { perf } = await setup();
+    perf.applySwitch(ALL, findSwitch(perf.catalog!, 12464)!);
+    await useSyncStore().flush();
+    await openDialog();
+    expect(body().querySelector('[role=tab][aria-selected=true]')?.textContent).toContain('Everglide');
+    expect(body().querySelector('[role=radiogroup]')?.getAttribute('aria-label')).toBe('Everglide');
+    const o = opt('Wukong HE');
+    expect(o.querySelector('.sw-opt__tag')?.textContent).toBe('Hiện tại');
+    expect(o.querySelector('.sw-opt__brand')).toBeNull();
+    expect(document.activeElement).toBe(o);
+  });
+
+  it('Other shows the maker eyebrow, but never Unknown', async () => {
+    await setup();
+    await openDialog();
+    expect(opt('UR Ice HE-Ex').querySelector('.sw-opt__brand')?.textContent).toBe('Ur Studio');
+    expect(opt('Koi').querySelector('.sw-opt__brand')).toBeNull();
+  });
+
+  it('Apply writes the same switch id as the clicked catalog entry', async () => {
+    const { mock, perf } = await setup();
+    const setPerf = vi.spyOn(mock, 'setPerformance');
+    await openDialog();
+    [...body().querySelectorAll<HTMLElement>('[role=tab]')].find((x) => x.textContent?.includes('Everglide'))!.click();
+    await flushPromises();
+    opt('Skyline').click();
+    await flushPromises();
+    const entry = perf.catalog!.find((e) => switchName(e) === 'Skyline')!;
+    btn('Áp dụng cho')!.click();
+    await flushPromises();
+    await useSyncStore().flush();
+    expect(setPerf).toHaveBeenCalledTimes(64);
+    expect(new Set(setPerf.mock.calls.map((c) => c[1].axisV2Id))).toEqual(new Set([entry.id]));
   });
 
   it('choosing the current switch disables Apply', async () => {

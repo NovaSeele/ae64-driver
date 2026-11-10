@@ -9,8 +9,7 @@ import { formatMm } from '../ui/NumberField.vue';
 import { useToast } from '../ui/toast';
 import SwitchSwatch from './SwitchSwatch.vue';
 import { groupKeys } from './switchGroups';
-import { SWITCH_GROUPS } from '../../protocol/switches';
-import { groupName, switchBrand, switchName } from '../../data/switchDisplay';
+import { makerTabOf, makerTabs, OTHER_TAB, switchBrand, switchName } from '../../data/switchDisplay';
 import type { SwitchEntry } from '../../protocol/switches';
 import { isRtMode } from '../../protocol';
 import { useDeviceStore } from '../../stores/device';
@@ -24,31 +23,31 @@ const emit = defineEmits<{ applied: [] }>();
 const perf = usePerformanceStore();
 const device = useDeviceStore();
 
-const groupLabel = (g: string) => (g === 'Other' ? t('sw.groupOther') : groupName(g));
 const entries = computed(() => perf.catalog ?? []);
-const entriesOf = (g: string) => entries.value.filter((e) => e.group === g);
-const tabs = computed(() => SWITCH_GROUPS.map((g) => ({ id: g, label: groupLabel(g), count: entriesOf(g).length })));
+const grouped = computed(() => makerTabs(entries.value));
+const tabs = computed(() => grouped.value.map((g) => ({ id: g.id, label: g.label ?? t('sw.groupOther'), count: g.entries.length })));
+const tabLabel = (id: string) => tabs.value.find((x) => x.id === id)?.label ?? t('sw.groupOther');
 
 const keyGroups = computed(() => groupKeys(props.ids, perf.values, () => 0));
 const single = computed(() => keyGroups.value.length === 1);
-/** The maker eyebrow, only where the tab does not already name it (Everglide, Gateron, TTC). */
+/** The maker eyebrow, only where the active tab does not already name that maker (all of Other, KTEK in TTC); never Unknown. */
 const brandOf = (e: SwitchEntry) => {
   const b = switchBrand(e.id);
-  return b && b.toLowerCase() !== groupName(e.group).toLowerCase() ? b : null;
+  return b && b !== tab.value ? b : null;
 };
 const inUse = computed(() => new Map(keyGroups.value.map((g) => [g.axisV2Id, g.ids.length] as const)));
 const known = (id: number) => entries.value.find((e) => e.id === id);
-/** Group of the most-used known switch among the keys, else the first group. */
+/** Tab of the most-used known switch among the keys, else the first tab. */
 const defaultTab = () => {
   const g = keyGroups.value.find((k) => known(k.axisV2Id));
-  return (g && known(g.axisV2Id)!.group) || SWITCH_GROUPS[0];
+  return (g && makerTabOf(grouped.value, g.axisV2Id)) || grouped.value[0]?.id || OTHER_TAB;
 };
 
-const tab = ref<string>(SWITCH_GROUPS[0]);
+const tab = ref<string>(OTHER_TAB);
 const chosen = ref<SwitchEntry | null>(null);
 const list = ref<HTMLElement | null>(null);
 
-const shown = computed(() => entriesOf(tab.value));
+const shown = computed(() => grouped.value.find((g) => g.id === tab.value)?.entries ?? []);
 /** Roving tabindex: the chosen option if in this tab, else the in-use one, else the first. */
 const rovingId = computed(() => {
   const s = shown.value;
@@ -119,7 +118,7 @@ function apply() {
     <div class="swp">
       <p class="swp__for"><b>{{ t('sw.forKeys', { n: ids.length }) }}</b> · {{ t('sw.forProfile') }} <b>{{ device.activeProfileName }}</b></p>
       <Tabs v-model="tab" :items="tabs" :label="t('sw.groups')" />
-      <div ref="list" class="swp__list" role="radiogroup" :aria-label="groupLabel(tab)">
+      <div ref="list" class="swp__list" role="radiogroup" :aria-label="tabLabel(tab)">
         <button
           v-for="e in shown"
           :key="e.id"
