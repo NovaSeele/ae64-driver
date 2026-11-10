@@ -3,7 +3,7 @@
 // from the key's settings. Polling lives in stores/live.ts; this page renders from one rAF loop.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { IconAdjustmentsHorizontal, IconAlertTriangle, IconEraser, IconPlayerPause, IconPlayerPlay, IconRefresh, IconTrash } from '@tabler/icons-vue';
+import { IconAdjustmentsHorizontal, IconAlertTriangle, IconEraser, IconHistory, IconPlayerPause, IconPlayerPlay, IconRefresh, IconTrash } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import SwitchSim from '../components/live/SwitchSim.vue';
@@ -77,6 +77,9 @@ const view = shallowRef<View>({
 const heat = shallowRef<{ ratio: number[]; status: number[]; travel: number[] }>({ ratio: [], status: [], travel: [] });
 const graphPaused = ref(false);
 const graphHold = ref(false);
+const graphPan = ref<number | null>(null);
+const graph = ref<InstanceType<typeof TravelGraph> | null>(null);
+const panText = computed(() => (graphPan.value === null ? '' : t('live.panned', { s: graphPan.value.toFixed(1) })));
 
 let raf = 0;
 let seen = -1;
@@ -122,6 +125,7 @@ watch(() => device.demo && demoKeys.value && device.transport?.kind === 'mock', 
 function clearGraph() {
   live.clear();
   graphHold.value = false;
+  graphPan.value = null;
 }
 
 // ----- lifecycle
@@ -292,7 +296,11 @@ function onTypeKey(e: KeyboardEvent) {
 
       <Card class="graphcard" :title="t('live.graph')">
         <template #actions>
-          <span v-if="graphHold && !graphPaused" class="holdchip"><IconPlayerPause :size="14" aria-hidden="true" />{{ t('live.holding') }}</span>
+          <template v-if="graphPan !== null">
+            <span class="holdchip"><IconHistory :size="14" aria-hidden="true" />{{ panText }}</span>
+            <Button size="sm" variant="ghost" @click="graph?.toLive()">{{ t('live.backToLive') }}</Button>
+          </template>
+          <span v-else-if="graphHold && !graphPaused" class="holdchip"><IconPlayerPause :size="14" aria-hidden="true" />{{ t('live.holding') }}</span>
           <span class="legend"><i class="dot dot--act" />{{ t('live.legendPress') }}</span>
           <span class="legend"><i class="dot dot--release" />{{ t('live.legendRelease') }}</span>
           <IconButton
@@ -305,12 +313,14 @@ function onTypeKey(e: KeyboardEvent) {
           <IconButton :icon="IconTrash" :label="t('live.clear')" size="sm" @click="clearGraph" />
         </template>
         <TravelGraph
+          ref="graph"
           :data="live.data"
           :settings="settings"
           :range="range"
           :paused="graphPaused"
-          :label="t('live.graphLabel', { key: keyName }) + (graphHold && !graphPaused ? ' · ' + t('live.holding') : '')"
+          :label="t('live.graphLabel', { key: keyName }) + (graphPan !== null ? ' · ' + panText : graphHold && !graphPaused ? ' · ' + t('live.holding') : '') + ' · ' + t('live.graphPanHint')"
           @hold="graphHold = $event"
+          @pan="graphPan = $event"
         />
       </Card>
     </div>
@@ -436,7 +446,7 @@ function onTypeKey(e: KeyboardEvent) {
 }
 .legend { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-label); color: var(--fg-3); margin-right: var(--s-2); }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.dot--act { background: var(--m-actuation); }
+.dot--act { background: var(--m-press); }
 .dot--release { border: 1.5px solid var(--m-release); }
 
 .typetest__head {

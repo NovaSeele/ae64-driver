@@ -7,6 +7,7 @@ import { releasePoint } from '../../stores/live';
 import { isRtMode } from '../../protocol';
 import { resolvedTheme } from '../../theme';
 import { HoldTracker } from './graphHold';
+import { GraphHistory } from './graphHistory';
 
 const props = defineProps<{
   data: LiveData;
@@ -15,10 +16,13 @@ const props = defineProps<{
   paused: boolean;
   label: string;
 }>();
-const emit = defineEmits<{ hold: [holding: boolean] }>();
+const emit = defineEmits<{ hold: [holding: boolean]; pan: [secondsBack: number | null] }>();
 
 const WINDOW_MS = 3000;
 const PAD = { l: 34, r: 10, t: 10, b: 10 };
+const DRAG_MIN_PX = 4;
+const KEY_STEP_MS = 500;
+const KEY_STEP_SHIFT_MS = 2000;
 
 const canvas = ref<HTMLCanvasElement | null>(null);
 const probeEl = ref<HTMLSpanElement | null>(null);
@@ -32,12 +36,19 @@ const tracker = new HoldTracker();
 let seenEpoch = props.data.epoch;
 let seenT = -Infinity;
 let emittedHold = false;
-// While the view is frozen the trace is drawn from this snapshot: the ring keeps filling with rest samples and
-// would evict the stroke after ~5 s. Allocated once (ring capacity), reused.
-let snapT: Float64Array | null = null;
-let snapMm: Float32Array | null = null;
-let snapN = 0;
-let snapClock = NaN;
+// The trace is always drawn from this history (live and frozen). It only grows while the view is not frozen
+// (auto hold, manual pause or panned), so a frozen view never loses its stroke however long it stays frozen.
+const history = new GraphHistory();
+let lastClock = 0; // the view clock of the last frame before any pan
+let panActive = false;
+let panMs = 0;
+let panBase = 0; // clock at the moment the pan started
+let dragPointer: number | null = null;
+let dragStartX = 0;
+let dragLastX = 0;
+let dragging = false;
+let emittedPan: number | null = null;
+let cursor = '';
 const col: Record<string, string> = {};
 
 // Canvas cannot take var() or color-mix(): resolve each colour through a hidden probe element's computed colour.
@@ -48,6 +59,7 @@ const COLOURS: Record<string, string> = {
   'fg-3': 'var(--fg-3)',
   'bg-2': 'var(--bg-2)',
   actuation: 'var(--m-actuation)',
+  press: 'var(--m-press)',
   release: 'var(--m-release)',
   'actuation-fill': 'color-mix(in srgb, var(--m-actuation) 14%, transparent)',
   deadzone: 'var(--m-deadzone)',
@@ -75,24 +87,82 @@ function resize() {
   ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
-function takeSnapshot(clock: number) {
-  const ring = props.data.ring;
-  if (!snapT || !snapMm || snapT.length !== ring.capacity) {
-    snapT = new Float64Array(ring.capacity);
-    snapMm = new Float32Array(ring.capacity);
-  }
-  const t = snapT;
-  const mm = snapMm;
-  let n = 0;
-  ring.forEach(clock - WINDOW_MS - 50, (st, smm) => {
-    if (st > clock) return;
-    t[n] = st;
-    mm[n] = smm;
-    n++;
-  });
-  snapN = n;
-  snapClock = clock;
+const plotWidth = () => Math.max(1, w - PAD.l - PAD.r);
+
+function maxPan(base: number): number {
+  const o = history.oldestT();
+  return Number.isNaN(o) ? 0 : Math.max(0, base - o - WINDOW_MS);
 }
+
+/** Pan the view `ms` back from its base clock, clamped to the history. A pan starts only if it moves back. */
+function setPan(ms: number) {
+  const base = panActive ? panBase : lastClock;
+  const v = Math.min(Math.max(ms, 0), maxPan(base));
+  if (!panActive) {
+    if (v <= 0) return;
+    panActive = true;
+    panBase = base;
+  }
+  panMs = v;
+}
+
+function leavePan() {
+  panActive = false;
+  panMs = 0;
+  dragging = false;
+  dragPointer = null;
+  emitPan();
+}
+
+function emitPan() {
+  const v = panActive ? Math.round(panMs / 100) / 10 : null;
+  if (v === emittedPan) return;
+  emittedPan = v;
+  emit('pan', v);
+}
+
+function onPointerDown(e: PointerEvent) {
+  if (e.button !== 0) return;
+  dragPointer = e.pointerId ?? 0;
+  dragStartX = dragLastX = e.clientX;
+  dragging = false;
+  try { canvas.value?.setPointerCapture?.(e.pointerId); } catch { /* synthetic pointer */ }
+}
+
+function onPointerMove(e: PointerEvent) {
+  if (dragPointer === null || (e.pointerId ?? 0) !== dragPointer) return;
+  if (!dragging) {
+    if (Math.abs(e.clientX - dragStartX) < DRAG_MIN_PX) return;
+    dragging = true;
+  }
+  const dx = e.clientX - dragLastX;
+  dragLastX = e.clientX;
+  setPan(panMs + dx * (WINDOW_MS / plotWidth())); // grab: the trace follows the pointer, so dragging right shows earlier samples
+}
+
+function onPointerEnd(e: PointerEvent) {
+  if (dragPointer === null || (e.pointerId ?? 0) !== dragPointer) return;
+  dragPointer = null;
+  dragging = false;
+  try { canvas.value?.releasePointerCapture?.(e.pointerId); } catch { /* synthetic pointer */ }
+  if (panActive && panMs === 0) leavePan();
+}
+
+function onKeyDown(e: KeyboardEvent) {
+  const step = e.shiftKey ? KEY_STEP_SHIFT_MS : KEY_STEP_MS;
+  if (e.key === 'ArrowLeft') setPan(panMs + step);
+  else if (e.key === 'ArrowRight') { if (panActive) setPan(panMs - step); }
+  else if (e.key === 'Home') setPan(Infinity);
+  else if (e.key === 'End' || e.key === 'Escape') leavePan();
+  else return;
+  e.preventDefault();
+}
+
+function toLive() {
+  leavePan();
+}
+
+defineExpose({ toLive });
 
 function setHold(v: boolean) {
   if (v === emittedHold) return;
@@ -106,15 +176,18 @@ function draw(realNow: number) {
   if (!c || !w || !h) return;
   const d = props.data;
 
-  // clear / focus change (epoch, not version: version bumps on every ingest): forget the stroke and any snapshot
+  // clear / focus change (epoch, not version: version bumps on every ingest): forget the stroke, history and pan
   if (d.epoch !== seenEpoch) {
     seenEpoch = d.epoch;
     tracker.reset();
+    history.clear();
     seenT = -Infinity;
-    snapClock = NaN;
-    snapN = 0;
+    panActive = false;
+    panMs = 0;
+    dragging = false;
+    dragPointer = null;
   }
-  // feed only the new samples
+  // feed only the new samples to the tracker
   let newest = seenT;
   d.ring.forEach(seenT, (t, mm) => {
     if (t <= seenT) return;
@@ -130,15 +203,24 @@ function draw(realNow: number) {
     if (!frozenAt) frozenAt = holdClock ?? realNow;
     now = frozenAt;
     frozen = true;
-    setHold(false);
   } else {
     frozenAt = 0;
     if (holdClock !== null) { now = holdClock; frozen = true; }
-    setHold(holdClock !== null);
   }
-  if (frozen) {
-    if (snapClock !== now) takeSnapshot(now);
-  } else snapClock = NaN;
+  lastClock = now;
+  if (panActive) {
+    now = panBase - panMs;
+    frozen = true;
+  }
+  setHold(!panActive && !props.paused && holdClock !== null);
+  emitPan();
+  // the history grows only while live; on unfreezing it backfills whatever the ring still holds
+  if (!frozen) {
+    const last = history.newestT();
+    d.ring.forEach(Number.isNaN(last) ? -Infinity : last, (t, mm) => history.push(t, mm));
+  }
+  const nextCursor = dragging ? 'grabbing' : history.size > 1 && history.newestT() - history.oldestT() > WINDOW_MS ? 'grab' : '';
+  if (nextCursor !== cursor && canvas.value) { cursor = nextCursor; canvas.value.style.cursor = nextCursor; }
   const range = props.range;
   const x0 = PAD.l;
   const x1 = w - PAD.r;
@@ -202,9 +284,7 @@ function draw(realNow: number) {
     if (first) { c.moveTo(x, y); first = false; firstX = x; } else c.lineTo(x, y);
     lastX = x;
   };
-  if (frozen && snapT && snapMm) {
-    for (let i = 0; i < snapN; i++) if (snapT[i] >= from - 50) point(snapT[i], snapMm[i]);
-  } else d.ring.forEach(from - 50, point);
+  history.forEach(from - 50, frozen ? now : Infinity, point);
   if (!first) {
     c.strokeStyle = col['fg-1'];
     c.lineWidth = 1.75;
@@ -219,13 +299,13 @@ function draw(realNow: number) {
 
   // events
   for (const e of d.events) {
-    if (e.t < from || (frozen && e.t > now)) continue;
+    if (e.t < from || e.t > (frozen ? now : Infinity)) continue;
     const x = X(e.t);
     const y = Y(e.depth);
     c.beginPath();
     c.arc(x, y, e.kind === 'press' ? 4 : 3.5, 0, Math.PI * 2);
     if (e.kind === 'press') {
-      c.fillStyle = col.actuation;
+      c.fillStyle = col.press;
       c.fill();
     } else {
       c.fillStyle = col['bg-2'];
@@ -253,11 +333,26 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <canvas ref="canvas" class="graph" role="img" :aria-label="label" />
+  <canvas
+    ref="canvas"
+    class="graph"
+    role="img"
+    tabindex="0"
+    aria-keyshortcuts="ArrowLeft ArrowRight Home End Escape"
+    :aria-label="label"
+    @mousedown.prevent
+    @pointerdown="onPointerDown"
+    @pointermove="onPointerMove"
+    @pointerup="onPointerEnd"
+    @pointercancel="onPointerEnd"
+    @dblclick="leavePan"
+    @keydown="onKeyDown"
+  />
   <span ref="probeEl" class="probe" aria-hidden="true" />
 </template>
 
 <style scoped>
-.graph { display: block; width: 100%; height: 220px; }
+.graph { display: block; width: 100%; height: 220px; touch-action: pan-y; }
+.graph:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-control); }
 .probe { display: none; }
 </style>
