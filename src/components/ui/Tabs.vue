@@ -2,13 +2,20 @@
 const model = defineModel<string>({ required: true });
 const props = defineProps<{ items: { id: string; label: string; count?: number }[]; label: string }>();
 
+// ARIA tabs keyboard: ←/→ wrap, Home/End jump to the first/last tab (same as FeatureSwitch; Tabs has no disabled items).
 function onKey(e: KeyboardEvent) {
-  const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
-  if (!d) return;
-  e.preventDefault();
   const n = props.items.length;
+  if (!n) return;
   const i = props.items.findIndex((x) => x.id === model.value);
-  const next = props.items[i < 0 ? (d > 0 ? 0 : n - 1) : (i + d + n) % n]; // none selected (search active)
+  let next: (typeof props.items)[number];
+  if (e.key === 'Home') next = props.items[0];
+  else if (e.key === 'End') next = props.items[n - 1];
+  else {
+    const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    if (!d) return;
+    next = props.items[i < 0 ? (d > 0 ? 0 : n - 1) : (i + d + n) % n]; // none selected (search active)
+  }
+  e.preventDefault();
   model.value = next.id;
   ((e.currentTarget as HTMLElement).querySelector(`[data-id="${next.id}"]`) as HTMLElement | null)?.focus();
 }

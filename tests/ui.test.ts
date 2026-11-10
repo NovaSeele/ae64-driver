@@ -7,6 +7,7 @@ import { NAV } from '../src/router';
 import { t } from '../src/i18n/vi';
 import KeyPicker from '../src/components/ui/KeyPicker.vue';
 import Slider from '../src/components/ui/Slider.vue';
+import Tabs from '../src/components/ui/Tabs.vue';
 import ColorPicker from '../src/components/ui/ColorPicker.vue';
 import NumberField, { decimalsFor, formatMm } from '../src/components/ui/NumberField.vue';
 import { deriveRtLinked } from '../src/pages/PerformancePage.vue';
@@ -166,5 +167,39 @@ describe('Sidebar', () => {
     const foldBtn = w.findAll('.side-foot__btn').at(-1)!;
     await foldBtn.trigger('click');
     expect(w.emitted('update:compact')?.[0]).toEqual([false]);
+  });
+});
+
+describe('Tabs keyboard', () => {
+  const items = [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }, { id: 'c', label: 'C', count: 3 }];
+  const mk = (modelValue: string) => mount(Tabs, {
+    attachTo: document.body,
+    props: { items, label: 'L', modelValue, 'onUpdate:modelValue': (v: string) => w.setProps({ modelValue: v }) },
+  });
+  let w: ReturnType<typeof mk>;
+  const active = () => (document.activeElement as HTMLElement | null)?.dataset.id;
+
+  it('Home and End select and focus the first and last tab', async () => {
+    w = mk('b');
+    const list = w.find('[role=tablist]');
+    await list.trigger('keydown', { key: 'End' });
+    expect(w.props('modelValue')).toBe('c');
+    expect(active()).toBe('c');
+    await list.trigger('keydown', { key: 'Home' });
+    expect(w.props('modelValue')).toBe('a');
+    expect(active()).toBe('a');
+    w.unmount();
+  });
+
+  it('arrows still wrap, other keys do nothing', async () => {
+    w = mk('a');
+    const list = w.find('[role=tablist]');
+    await list.trigger('keydown', { key: 'ArrowLeft' });
+    expect(w.props('modelValue')).toBe('c');
+    await list.trigger('keydown', { key: 'ArrowRight' });
+    expect(w.props('modelValue')).toBe('a');
+    await list.trigger('keydown', { key: 'Enter' });
+    expect(w.props('modelValue')).toBe('a');
+    w.unmount();
   });
 });
