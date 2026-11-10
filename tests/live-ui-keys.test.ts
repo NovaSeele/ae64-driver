@@ -379,6 +379,83 @@ describe('Space/Enter that operates a control is not a test press', () => {
     expect(ringMax()).toBeCloseTo(3.3, 1);
   });
 
+  /** Times (ingest clock) of every ring sample at or after `from`. */
+  function ringSince(from: number): number[] {
+    const out: number[] = [];
+    live.data.ring.forEach(from, (t) => { out.push(t); });
+    return out;
+  }
+
+  it('B3. events at the cap: rolling back the UI stroke drops its press, not an older genuine event', () => {
+    live.setFocus(SPACE.id);
+    for (let i = 0; i < 110; i++) {
+      set(SPACE, 3.3, 1000 + i * 20);
+      set(SPACE, 0, 1010 + i * 20);
+    }
+    expect(live.data.count).toBe(110);
+    expect(live.data.events.length).toBe(200); // EVENT_CAP
+    set(SPACE, 0.6, 5000); // the UI stroke starts; no Tab, so no switch link
+    set(SPACE, 1.4, 5020);
+    expect(live.data.count).toBe(111);
+    keydown(button(), ' ', 'Space');
+    expect(live.data.count).toBe(110);
+    const last = live.data.events[live.data.events.length - 1];
+    expect(last.kind).toBe('release');
+    expect(last.t).toBe(base + 1010 + 109 * 20);
+    expect(live.data.events.every((e) => e.t < base + 5000)).toBe(true);
+  });
+
+  it('CC7/CC14/CC15. the rollback takes the UI stroke out of the ring and restores peak and lastActuation', () => {
+    strokeW();
+    set(SPACE, 3.3, 1200);
+    set(SPACE, 0, 1300);
+    expect(live.focusId).toBe(SPACE.id);
+    const size = live.data.ring.size;
+    const newest = 1300 + base;
+    const act = live.data.lastActuation;
+    expect(act).toBeCloseTo(3.3, 1);
+    set(SPACE, 0.6, 1600);
+    set(SPACE, 1.4, 1620);
+    expect(live.data.peak).toBeCloseTo(1.4, 1);
+    expect(live.data.lastActuation).toBeCloseTo(1.4, 1);
+    keydown(button(), ' ', 'Space');
+    expect(live.data.ring.size).toBe(size); // CC7
+    expect(ringSince(base + 1600)).toEqual([]);
+    expect(ringSince(-Infinity).at(-1)).toBe(newest);
+    expect(live.data.peak).toBeCloseTo(3.3, 1); // CC14
+    expect(live.data.lastActuation).toBe(act); // CC15
+  });
+
+  it('CC9. a snapshot is dropped at rest: a keydown-first UI press after a second genuine stroke keeps both strokes', () => {
+    strokeW();
+    set(SPACE, 3.3, 1200); // W → Space follow switch: the first genuine stroke
+    set(SPACE, 0, 1300);
+    expect(live.focusId).toBe(SPACE.id);
+    set(SPACE, 3.3, 1400); // second genuine stroke from rest: takes a snapshot (count 1)
+    set(SPACE, 0, 1450); // back at rest: the snapshot is dropped
+    expect(live.data.count).toBe(2);
+    vi.spyOn(performance, 'now').mockReturnValue(base + 1500);
+    keydown(button(), ' ', 'Space'); // keydown before the travel: nothing to roll back
+    set(SPACE, 1.4, 1520);
+    set(SPACE, 3.3, 1540);
+    set(SPACE, 0, 1600);
+    expect(live.data.count).toBe(2);
+    expect(kinds()).toEqual(['press', 'release', 'press', 'release']);
+  });
+
+  it('CC10. the user Clear drops the snapshot: a UI mark afterwards does not bring back pre-clear data', () => {
+    live.setFocus(SPACE.id);
+    set(SPACE, 3.3, 1200);
+    set(SPACE, 0, 1300);
+    set(SPACE, 3.3, 1400); // second press mid-stroke: snapshot with count 1
+    expect(live.data.count).toBe(2);
+    live.clear();
+    expect(live.data.count).toBe(0);
+    keydown(button(), ' ', 'Space');
+    expect(live.data.count).toBe(0);
+    expect(live.data.events.length).toBe(0);
+  });
+
   it('AA4. a UI mark ending at rest resyncs only the focused key: W held mid-press gets no spurious release/press', () => {
     set(W, 2, 1000); // W focused, held, actuated
     expect(live.data.count).toBe(1);

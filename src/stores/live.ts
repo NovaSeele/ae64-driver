@@ -281,7 +281,6 @@ interface FocusStash {
 
 /** The focused key's state when its current press began, so a UI stroke's already-ingested frames can be rolled back. */
 interface PressSnapshot {
-  events: number;
   count: number;
   peak: number;
   lastActuation: number | null;
@@ -292,6 +291,8 @@ interface PressSnapshot {
   model: { actuated: boolean; armed: boolean; peak: number; trough: number } | null;
   /** ringPushes when the press began. */
   pushes: number;
+  /** eventPushes when the press began. */
+  eventPushes: number;
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -323,6 +324,8 @@ export const useLiveStore = defineStore('live', () => {
   const lastRest = new Float64Array(64).fill(-Infinity);
   /** Samples pushed into the focused ring so far, and the state when the focused key's current press began (null at rest). */
   let ringPushes = 0;
+  /** Events pushed so far (the array is capped, so its length cannot tell how many a press added). */
+  let eventPushes = 0;
   let pressSnap: PressSnapshot | null = null;
 
   let generation = 0;
@@ -371,7 +374,7 @@ export const useLiveStore = defineStore('live', () => {
     const snap = pressSnap;
     if (!snap) return;
     pressSnap = null;
-    data.events.length = snap.events;
+    data.events.length -= Math.min(eventPushes - snap.eventPushes, data.events.length); // the cap may have shifted older events out: those stay gone
     data.count = snap.count;
     data.peak = snap.peak;
     data.lastActuation = snap.lastActuation;
@@ -483,7 +486,7 @@ export const useLiveStore = defineStore('live', () => {
     if (data.current <= REST_MM && mm > REST_MM) {
       const m = data.model;
       pressSnap = {
-        events: data.events.length, count: data.count, peak: data.peak, lastActuation: data.lastActuation,
+        eventPushes, count: data.count, peak: data.peak, lastActuation: data.lastActuation,
         lastRelease: data.lastRelease, mismatch: data.mismatch, mismatchSince: data.mismatchSince, touched: data.touched,
         model: m ? { actuated: m.actuated, armed: m.armed, peak: m.peak, trough: m.trough } : null, pushes: ringPushes,
       };
@@ -497,6 +500,7 @@ export const useLiveStore = defineStore('live', () => {
     const ev = data.model?.update(mm);
     if (ev) {
       data.events.push({ t: now, kind: ev, depth: mm });
+      eventPushes++;
       if (data.events.length > EVENT_CAP) data.events.splice(0, data.events.length - EVENT_CAP);
       if (ev === 'press') {
         data.count++;
