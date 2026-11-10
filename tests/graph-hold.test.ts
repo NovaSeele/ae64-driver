@@ -74,20 +74,24 @@ describe('HoldTracker', () => {
 
 describe('TravelGraph hold emit', () => {
   let rafCb: FrameRequestCallback | null = null;
-  /** y of every moveTo/lineTo in the last frame (cleared by clearRect). Y(1.5 mm) = 10 + 1.5/3.5*200. */
-  let ys: number[] = [];
+  /** x, y of every moveTo/lineTo in the last frame (cleared by clearRect). Y(1.5 mm) = 10 + 1.5/3.5*200. */
+  let pts: [number, number][] = [];
   const Y_1_5MM = 10 + (1.5 / 3.5) * 200;
+  const Y_2_1MM = 10 + (2.1 / 3.5) * 200;
+  /** Trace points of the stroke only: inside the plot (x0 = 34, x1 = 590), 1.5–2.1 mm deep, not on a 0.5 px grid line. */
+  const strokePoints = () => pts.filter(([x, y]) => x > 35 && x < 589 && y > Y_1_5MM + 1 && y <= Y_2_1MM
+    && Math.abs(y - Math.round(y) - 0.5) > 1e-6).length;
 
   beforeEach(() => {
     rafCb = null;
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { rafCb = cb; return 1; });
     vi.stubGlobal('cancelAnimationFrame', () => {});
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
-    ys = [];
+    pts = [];
     const ctx = new Proxy({}, {
       get: (_t, k) => {
-        if (k === 'clearRect') return () => { ys = []; };
-        if (k === 'moveTo' || k === 'lineTo') return (_x: number, y: number) => { ys.push(y); };
+        if (k === 'clearRect') return () => { pts = []; };
+        if (k === 'moveTo' || k === 'lineTo') return (x: number, y: number) => { pts.push([x, y]); };
         return () => {};
       },
       set: () => true,
@@ -169,15 +173,14 @@ describe('TravelGraph hold emit', () => {
   it('real rate: the hold and the stroke are still there 12 s after release', async () => {
     const { w, holds } = await scenario(false);
     expect(holds().at(-1)).toBe(true);
-    expect(Math.min(...ys)).toBeLessThan(Y_1_5MM); // trace point at ≥ 1.5 mm (smaller y = shallower is up; depth grows downwards)
-    expect(Math.max(...ys)).toBeGreaterThan(Y_1_5MM);
+    expect(strokePoints()).toBeGreaterThan(0); // the stroke itself, not the grid
     w.unmount();
   });
 
   it('real rate: a manual pause keeps the stroke for 12 s too', async () => {
     const { w, holds } = await scenario(true);
     expect(holds()).not.toContain(true);
-    expect(Math.max(...ys)).toBeGreaterThan(Y_1_5MM);
+    expect(strokePoints()).toBeGreaterThan(0);
     w.unmount();
   });
 
@@ -187,7 +190,7 @@ describe('TravelGraph hold emit', () => {
     data.version++;
     frame(13_000);
     expect(holds().at(-1)).toBe(true);
-    expect(Math.max(...ys)).toBeGreaterThan(Y_1_5MM);
+    expect(strokePoints()).toBeGreaterThan(0);
     data.ring.clear();
     data.epoch++;
     frame(13_100);
