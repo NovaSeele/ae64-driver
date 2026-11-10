@@ -42,7 +42,7 @@ watch(() => [sel.ids, sel.focused], syncFocusFromSelection);
 
 /** Keyboard focus on the graph: the Tab that got there was followed; go back to the key being reviewed. */
 function onGraphKeyFocus() {
-  if (live.follow) live.undoAutoFollow(performance.now());
+  if (live.follow) live.undoAutoFollow();
 }
 
 function setFollow(v: 'auto' | 'pin' | null) {

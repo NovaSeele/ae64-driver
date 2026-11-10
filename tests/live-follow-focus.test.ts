@@ -42,7 +42,7 @@ describe('undoAutoFollow', () => {
     set(W, 0, 1050);
     set(TAB, 2, 1100);
     expect(live.focusId).toBe(TAB.id);
-    expect(live.undoAutoFollow(1150)).toBe(true);
+    expect(live.undoAutoFollow()).toBe(true);
     expect(live.focusId).toBe(W.id);
     expect(live.follow).toBe(true);
   });
@@ -53,7 +53,7 @@ describe('undoAutoFollow', () => {
     set(SHIFT, 1, 1050);
     set(TAB, 2, 1100);
     expect(live.focusId).toBe(TAB.id);
-    expect(live.undoAutoFollow(1150)).toBe(true);
+    expect(live.undoAutoFollow()).toBe(true);
     expect(live.focusId).toBe(W.id);
   });
 
@@ -62,16 +62,50 @@ describe('undoAutoFollow', () => {
     set(W, 0, 1050);
     set(TAB, 2, 1100);
     set(TAB, 0, 1120);
-    expect(live.undoAutoFollow(1150)).toBe(false);
+    expect(live.undoAutoFollow()).toBe(false);
     expect(live.focusId).toBe(TAB.id);
   });
 
-  it('does nothing when the switch is older than the window', () => {
+  // typing box → Pause → Clear → graph: only the first Tab switches (W → Tab); later Tabs find Tab already followed
+  for (const gap of [250, 400, 600, 1000]) {
+    it(`three Tabs ${gap} ms apart onto the graph restore W (no age limit)`, () => {
+      set(W, 2, 1000);
+      set(W, 0, 1100);
+      let t = 1500;
+      for (let i = 0; i < 3; i++) {
+        set(TAB, 3.3, t);
+        expect(live.focusId).toBe(TAB.id);
+        if (i < 2) set(TAB, 0, t + 120);
+        t += gap;
+      }
+      expect(live.undoAutoFollow()).toBe(true); // the third Tab is still held as the graph gets focus
+      expect(live.focusId).toBe(W.id);
+      expect(live.follow).toBe(true);
+    });
+  }
+
+  it('W, then Shift held with several Tabs onto the graph restores W', () => {
     set(W, 2, 1000);
-    set(W, 0, 1050);
-    set(TAB, 2, 1100);
-    expect(live.undoAutoFollow(1601)).toBe(false);
-    expect(live.undoAutoFollow(1600)).toBe(true);
+    set(W, 0, 1100);
+    set(SHIFT, 1, 1200); // W → Shift
+    for (let i = 0; i < 6; i++) {
+      set(TAB, 3.3, 1300 + i * 300); // Shift → Tab
+      if (i < 5) set(TAB, 0, 1400 + i * 300); // Tab → Shift (Shift still held)
+    }
+    expect(live.focusId).toBe(TAB.id);
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(W.id);
+  });
+
+  it('W, then X pressed and released, then Tab onto the graph keeps X (the deliberate test)', () => {
+    const X = key('X');
+    set(W, 2, 1000);
+    set(W, 0, 1100);
+    set(X, 2, 3000);
+    set(X, 0, 3100);
+    set(TAB, 3.3, 9000);
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(X.id);
   });
 
   it('does nothing after pin()', () => {
@@ -79,7 +113,7 @@ describe('undoAutoFollow', () => {
     set(W, 0, 1050);
     set(TAB, 2, 1100);
     live.pin(TAB.id);
-    expect(live.undoAutoFollow(1150)).toBe(false);
+    expect(live.undoAutoFollow()).toBe(false);
     expect(live.follow).toBe(false);
   });
 
@@ -89,14 +123,14 @@ describe('undoAutoFollow', () => {
     set(TAB, 2, 1100);
     live.setFocus(W.id);
     live.setFocus(TAB.id);
-    expect(live.undoAutoFollow(1150)).toBe(false);
+    expect(live.undoAutoFollow()).toBe(false);
   });
 
   it('restores W when the Tab came long after W was released', () => {
     set(W, 2, 1000);
     set(W, 0, 1100);
     set(TAB, 2, 1700);
-    expect(live.undoAutoFollow(1750)).toBe(true);
+    expect(live.undoAutoFollow()).toBe(true);
     expect(live.focusId).toBe(W.id);
   });
 
@@ -106,7 +140,7 @@ describe('undoAutoFollow', () => {
     set(SHIFT, 1, 1200); // W → Shift
     set(SHIFT, 0, 1300); // Shift released
     set(TAB, 2, 1400); // Shift → Tab
-    expect(live.undoAutoFollow(1450)).toBe(true);
+    expect(live.undoAutoFollow()).toBe(true);
     expect(live.focusId).toBe(SHIFT.id);
   });
 });

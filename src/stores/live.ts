@@ -192,7 +192,7 @@ const REST_MM = 0.05;
 const PAUSE_POLL_MS = 40;
 const RATE_WINDOW_MS = 500;
 /** Auto-follow switches kept for undoAutoFollow. */
-const SWITCH_LOG_CAP = 8;
+const SWITCH_LOG_CAP = 64; // Shift held + n Tabs logs 2 links per Tab; keep the chain back to the reviewed key
 
 export interface LiveData {
   /** Latest per-key travel (mm), fill ratio (route / axisRangeMax) and firmware status, by PhysicalKey.id. */
@@ -479,15 +479,17 @@ export const useLiveStore = defineStore('live', () => {
 
   /**
    * The graph was reached by keyboard: the Tab (or Shift+Tab) that got it there was itself measured and
-   * auto-follow moved to it. Undo the switches that keystroke caused (recent, still held, one unbroken chain
-   * ending at the current focus) and return to the key followed just before. Follow stays auto.
+   * auto-follow moved to it. Undo the switches those keystrokes caused (one unbroken chain ending at the current
+   * focus, each link's key still held) and return to the key followed just before. No age limit: the first Tab of
+   * a slow typing box → Pause → Clear → graph walk made the switch long before the graph got focus, and the held
+   * check already stops at a key the user tested on purpose (it has been released). Follow stays auto.
    */
-  function undoAutoFollow(now: number, windowMs = 500): boolean {
+  function undoAutoFollow(): boolean {
     let current = focusId.value;
     let restore: number | null | undefined;
     for (let i = switchLog.length - 1; i >= 0; i--) {
       const sw = switchLog[i];
-      if (now - sw.at > windowMs || sw.to !== current || !(data.travel[sw.to] >= FOLLOW_MIN || data.status[sw.to] > 0)) break;
+      if (sw.to !== current || !(data.travel[sw.to] >= FOLLOW_MIN || data.status[sw.to] > 0)) break;
       restore = sw.from;
       current = sw.from;
     }
