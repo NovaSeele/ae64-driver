@@ -29,7 +29,7 @@ let w = 0;
 let h = 0;
 let frozenAt = 0; // manual pause clock
 const tracker = new HoldTracker();
-let seenVersion = props.data.version;
+let seenEpoch = props.data.epoch;
 let seenT = -Infinity;
 let emittedHold = false;
 // While the view is frozen the trace is drawn from this snapshot: the ring keeps filling with rest samples and
@@ -106,9 +106,9 @@ function draw(realNow: number) {
   if (!c || !w || !h) return;
   const d = props.data;
 
-  // clear / focus change: forget the stroke and any snapshot
-  if (d.version !== seenVersion) {
-    seenVersion = d.version;
+  // clear / focus change (epoch, not version: version bumps on every ingest): forget the stroke and any snapshot
+  if (d.epoch !== seenEpoch) {
+    seenEpoch = d.epoch;
     tracker.reset();
     seenT = -Infinity;
     snapClock = NaN;

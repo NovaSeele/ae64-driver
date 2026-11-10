@@ -216,6 +216,8 @@ export interface LiveData {
   touched: boolean;
   /** Incremented on every ingest so renderers can skip unchanged frames. */
   version: number;
+  /** Incremented only when the focused-key buffers are reset (clear(); setFocus() calls clear). Display code uses it to drop held state. */
+  epoch: number;
 }
 
 function emptyData(): LiveData {
@@ -223,7 +225,7 @@ function emptyData(): LiveData {
     travel: new Float32Array(64), ratio: new Float32Array(64), status: new Uint8Array(64),
     ring: new TravelRing(RING_SIZE), events: [], model: null,
     current: 0, peak: 0, count: 0, lastActuation: null, lastRelease: null,
-    firmwarePressed: false, mismatch: false, mismatchSince: null, rateHz: 0, touched: false, version: 0,
+    firmwarePressed: false, mismatch: false, mismatchSince: null, rateHz: 0, touched: false, version: 0, epoch: 0,
   });
 }
 
@@ -282,6 +284,7 @@ export const useLiveStore = defineStore('live', () => {
     data.mismatchSince = null;
     data.touched = false;
     data.version++;
+    data.epoch++;
   }
 
   function setFocus(id: number | null): void {

@@ -74,13 +74,24 @@ describe('HoldTracker', () => {
 
 describe('TravelGraph hold emit', () => {
   let rafCb: FrameRequestCallback | null = null;
+  /** y of every moveTo/lineTo in the last frame (cleared by clearRect). Y(1.5 mm) = 10 + 1.5/3.5*200. */
+  let ys: number[] = [];
+  const Y_1_5MM = 10 + (1.5 / 3.5) * 200;
 
   beforeEach(() => {
     rafCb = null;
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { rafCb = cb; return 1; });
     vi.stubGlobal('cancelAnimationFrame', () => {});
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
-    const ctx = new Proxy({}, { get: (_t, k) => (k === 'measureText' ? () => ({ width: 0 }) : () => {}), set: () => true });
+    ys = [];
+    const ctx = new Proxy({}, {
+      get: (_t, k) => {
+        if (k === 'clearRect') return () => { ys = []; };
+        if (k === 'moveTo' || k === 'lineTo') return (_x: number, y: number) => { ys.push(y); };
+        return () => {};
+      },
+      set: () => true,
+    });
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(600);
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(220);
@@ -89,8 +100,8 @@ describe('TravelGraph hold emit', () => {
 
   const frame = (t: number) => { const cb = rafCb!; rafCb = null; cb(t); };
 
-  it('emits true after stroke + 400 ms, false on a new press and on a version bump', async () => {
-    const data = { ring: new TravelRing(8192), events: [], version: 0 } as unknown as LiveData;
+  it('emits true after stroke + 400 ms, false on a new press and on an epoch bump', async () => {
+    const data = { ring: new TravelRing(8192), events: [], version: 0, epoch: 0 } as unknown as LiveData;
     const w = mount(TravelGraph, { props: { data, settings: null, range: 3.5, paused: false, label: 'g' } });
     const holds = () => (w.emitted('hold') ?? []).map((a) => a[0]);
 
@@ -111,14 +122,14 @@ describe('TravelGraph hold emit', () => {
     frame(9700);
     expect(holds()).toEqual([true, false, true]);
     data.ring.clear();
-    data.version++;
+    data.epoch++;
     frame(9800);
     expect(holds()).toEqual([true, false, true, false]);
     w.unmount();
   });
 
   it('manual pause wins: no hold emitted while paused, and a press does not unfreeze', async () => {
-    const data = { ring: new TravelRing(8192), events: [], version: 0 } as unknown as LiveData;
+    const data = { ring: new TravelRing(8192), events: [], version: 0, epoch: 0 } as unknown as LiveData;
     const w = mount(TravelGraph, { props: { data, settings: null, range: 3.5, paused: false, label: 'g' } });
     for (let i = 0; i < 200; i++) data.ring.push(i, stroke(i));
     for (let i = 200; i < 700; i++) data.ring.push(i, 0);
@@ -129,6 +140,58 @@ describe('TravelGraph hold emit', () => {
     data.ring.push(800, 1);
     frame(801);
     expect((w.emitted('hold') ?? []).map((a) => a[0])).toEqual([true, false]);
+    w.unmount();
+  });
+
+  /** Real-hardware shape: 1,670 Hz, ring 8192 (~4.9 s), version bumped on every pushed sample, ~60 fps frames. */
+  async function scenario(pauseAfterStroke: boolean, extra?: (w: ReturnType<typeof mount>, data: LiveData, t: number) => Promise<void>) {
+    const data = { ring: new TravelRing(8192), events: [], version: 0, epoch: 0 } as unknown as LiveData;
+    const w = mount(TravelGraph, { props: { data, settings: null, range: 3.5, paused: false, label: 'g' } });
+    const dt = 1000 / 1670;
+    let nextFrame = 0;
+    let t = 0;
+    let paused = false;
+    const advance = async (until: number, mm: (t: number) => number) => {
+      for (; t < until; t += dt) {
+        data.ring.push(t, mm(t));
+        data.version++;
+        if (t >= nextFrame) { frame(t); nextFrame += 1000 / 60; }
+      }
+    };
+    await advance(300, (x) => 2 * Math.sin((x / 300) * Math.PI)); // 0 → 2.0 → 0
+    if (pauseAfterStroke) { await w.setProps({ paused: true }); paused = true; }
+    await advance(12_300, () => Math.random() * 0.05);
+    frame(t);
+    if (extra) await extra(w, data, t);
+    return { w, data, paused, holds: () => (w.emitted('hold') ?? []).map((a) => a[0]) };
+  }
+
+  it('real rate: the hold and the stroke are still there 12 s after release', async () => {
+    const { w, holds } = await scenario(false);
+    expect(holds().at(-1)).toBe(true);
+    expect(Math.min(...ys)).toBeLessThan(Y_1_5MM); // trace point at ≥ 1.5 mm (smaller y = shallower is up; depth grows downwards)
+    expect(Math.max(...ys)).toBeGreaterThan(Y_1_5MM);
+    w.unmount();
+  });
+
+  it('real rate: a manual pause keeps the stroke for 12 s too', async () => {
+    const { w, holds } = await scenario(true);
+    expect(holds()).not.toContain(true);
+    expect(Math.max(...ys)).toBeGreaterThan(Y_1_5MM);
+    w.unmount();
+  });
+
+  it('real rate: an epoch bump (clear) exits the hold; a settings change does not', async () => {
+    const { w, data, holds } = await scenario(false);
+    await w.setProps({ settings: { mode: 0, normalPress: 1, normalRelease: 0, rtFirstTouch: 1, rtPress: 0.3, rtRelease: 0.3, pressDeadStroke: 0, releaseDeadStroke: 0, range: 3.5 } });
+    data.version++;
+    frame(13_000);
+    expect(holds().at(-1)).toBe(true);
+    expect(Math.max(...ys)).toBeGreaterThan(Y_1_5MM);
+    data.ring.clear();
+    data.epoch++;
+    frame(13_100);
+    expect(holds().at(-1)).toBe(false);
     w.unmount();
   });
 });
