@@ -594,7 +594,7 @@ export const useLiveStore = defineStore('live', () => {
    * Clear → graph walk made the switch long before the graph got focus. Follow stays auto.
    * A focus-moving key (Tab/Shift) link is undone held or released, with or without `keys`: a released Tab/Shift in
    * the chain was keyboard navigation, never a test. A link to any other key is undone only when it is in `keys`
-   * (the page passes Space/Enter/arrows when one operates a control) and still held; otherwise it stops the walk
+   * (the page passes Space/Enter/arrows when one operates a control), still held and the newest link; otherwise it stops the walk
    * (a held A is deliberate). Never back to "nothing followed": a focus-moving link with no key before it makes the
    * undo return false and change nothing. Running out of log entries at a key is fine and returns to that key.
    */
@@ -604,7 +604,10 @@ export const useLiveStore = defineStore('live', () => {
     for (let i = switchLog.length - 1; i >= 0; i--) {
       const sw = switchLog[i];
       const nav = focusMoving.has(sw.to);
-      if (sw.to !== current || !(nav || keys?.has(sw.to))) break;
+      // A key in `keys` is undone only as the newest link (the switch this keystroke caused): an older link to the
+      // same key was a real test of it (typing box Space → Tab → Space on Pause returns to Space, not past it).
+      const ui = i === switchLog.length - 1 && !!keys?.has(sw.to);
+      if (sw.to !== current || !(nav || ui)) break;
       if (sw.from === null) {
         if (nav) return false;
         break;

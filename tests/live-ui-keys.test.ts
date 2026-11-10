@@ -233,6 +233,66 @@ describe('Space/Enter that operates a control is not a test press', () => {
     expect(live.focusId).toBe(RIGHT.id);
   });
 
+  it('Y6. a mark whose key never travels expires after 400 ms: a later real Space is followed', () => {
+    strokeW();
+    vi.spyOn(performance, 'now').mockReturnValue(base + 1100);
+    keydown(button(), ' ', 'Space'); // Space pressed on another keyboard: the AE64 Space never moves
+    set(SPACE, 0, 1200);
+    set(SPACE, 0, 1300);
+    set(SPACE, 0, 1700); // > 400 ms after the mark, still no travel: the mark ends
+    set(SPACE, 2, 1800);
+    expect(live.focusId).toBe(SPACE.id);
+  });
+
+  it('Y2. the focused key being UI-pressed counts as depth 0: W at 2.5 mm beats a held Space at 3.3 mm', () => {
+    live.setFocus(SPACE.id); // Space is the focus with no auto-follow chain behind it
+    set(TAB, 2, 1600); // Tab hop stashes Space
+    expect(live.focusId).toBe(TAB.id);
+    set(TAB, 0, 1650);
+    set(SPACE, 2, 1700); // AE64 Space travels while Space is pressed on a button
+    keydown(button(), ' ', 'Space');
+    expect(live.focusId).toBe(SPACE.id); // undo returns to Space, now focused and UI-pressed
+    set(SPACE, 3.3, 1800);
+    set(W, 2.5, 1850); // below Space + FOLLOW_MARGIN, but Space counts as 0
+    expect(live.focusId).toBe(W.id);
+  });
+
+  it('Y2b. a Space tested in the typing box, then Tab, then Space on Pause: back to the tested Space, not past it to W', () => {
+    strokeW();
+    set(SPACE, 3.3, 1200); // a real Space test (typing box): W → Space
+    set(SPACE, 0, 1300);
+    expect(live.focusId).toBe(SPACE.id);
+    expect(live.data.count).toBe(1);
+    set(TAB, 2, 1600); // Tab to Pause: Space stashed
+    set(TAB, 0, 1650);
+    set(SPACE, 2, 1700); // AE64 Space travels as it presses Pause: Tab → Space
+    keydown(button(), ' ', 'Space');
+    expect(live.focusId).toBe(SPACE.id);
+    expect(live.data.count).toBe(1); // the tested Space stroke is back
+    set(SPACE, 3.3, 1800);
+    set(W, 2.5, 1850); // Space is UI-pressed and focused, so it counts as 0: W is followed
+    expect(live.focusId).toBe(W.id);
+  });
+
+  it('Y7. stop() clears the marks: a real Space right after is followed', () => {
+    strokeW();
+    live.markUiPressed([SPACE.id], base + 1000);
+    live.stop();
+    set(SPACE, 2, 1100); // within UI_MARK_MS of the mark, so only the clear can rescue it
+    expect(live.focusId).toBe(SPACE.id);
+  });
+
+  it('Y8. with an empty layer0 the physical Space name is used: Space keydown undoes and marks it', () => {
+    useDeviceStore().layer0 = [];
+    strokeW();
+    set(SPACE, 2, 1500);
+    expect(live.focusId).toBe(SPACE.id);
+    keydown(button(), ' ', 'Space');
+    expect(live.focusId).toBe(W.id);
+    set(SPACE, 2.1, 1520); // marked: not followed again
+    expect(live.focusId).toBe(W.id);
+  });
+
   it('7. the listener is removed on unmount', () => {
     const el = button();
     w!.unmount(); // the detached root still holds its children, so a leftover listener would fire
