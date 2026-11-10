@@ -329,6 +329,117 @@ describe('undoAutoFollow', () => {
     });
   }
 
+  /** Standard mode, press and release at 1.2 mm, for W. */
+  function standardW() {
+    Object.assign(usePerformanceStore().values[W.id], { mode: 0, normalPress: 1.2, normalRelease: 1.2, pressDeadStroke: 0, releaseDeadStroke: 0 });
+  }
+
+  describe('stale stash model', () => {
+    it('W released while Tab was followed: the undo emits no fake release at 0 mm; later strokes still work', () => {
+      standardW();
+      live.reset();
+      set(W, 1.2, 1000);
+      set(W, 3.3, 1020);
+      set(W, 2.4, 1040); // still actuated
+      expect(live.data.model!.actuated).toBe(true);
+      const lastRelease = live.data.lastRelease;
+      set(TAB, 3.5, 1500); // deeper than W: W is stashed while actuated
+      expect(live.focusId).toBe(TAB.id);
+      set(W, 0.08, 1600); // W fully released, unseen by its model
+      set(TAB, 0.16, 1700);
+      expect(live.undoAutoFollow()).toBe(true);
+      expect(live.focusId).toBe(W.id);
+      live.setFollow(false);
+      const events = live.data.events.length;
+      set(W, 0.08, 1800);
+      set(W, 0.05, 1820);
+      expect(live.data.events.length).toBe(events);
+      expect(live.data.events.some((e) => e.kind === 'release' && e.depth < 0.5)).toBe(false);
+      expect(live.data.lastRelease).toBe(lastRelease);
+      expect(live.data.lastRelease).not.toBe(0);
+      expect(live.data.count).toBe(1);
+      set(W, 1.5, 1900);
+      set(W, 0.8, 1920);
+      const tail = live.data.events.slice(events);
+      expect(tail.map((e) => e.kind)).toEqual(['press', 'release']);
+      expect(tail[0].depth).toBeCloseTo(1.5, 2);
+      expect(tail[1].depth).toBeCloseTo(0.8, 2);
+      expect(live.data.count).toBe(2);
+    });
+
+    it('a key still pressed at the undo stays actuated and emits no second press', () => {
+      standardW();
+      live.reset();
+      set(W, 3, 1000);
+      set(TAB, 3.5, 1500);
+      set(W, 2.5, 1600);
+      expect(live.undoAutoFollow()).toBe(true);
+      live.setFollow(false);
+      const events = live.data.events.length;
+      set(W, 2.6, 1700);
+      expect(live.data.events.length).toBe(events);
+      expect(live.data.model!.actuated).toBe(true);
+    });
+
+    it('RT model: sync primes armed/peak/trough at the current depth and emits nothing', () => {
+      const perf = usePerformanceStore();
+      Object.assign(perf.values[W.id], { mode: 1, rtFirstTouch: 1, rtPress: 0.8, rtRelease: 0.3, pressDeadStroke: 0, releaseDeadStroke: 0 });
+      live.reset();
+      set(W, 2, 1000);
+      set(W, 3, 1020);
+      set(TAB, 3.5, 1500);
+      set(W, 0.08, 1600); // fully up unseen
+      set(TAB, 0.16, 1700);
+      expect(live.undoAutoFollow()).toBe(true);
+      live.setFollow(false);
+      const events = live.data.events.length;
+      set(W, 0.08, 1800);
+      expect(live.data.events.length).toBe(events);
+      expect(live.data.model!.actuated).toBe(false);
+      set(W, 2, 1900); // continuous RT: still armed, re-actuates rtPress below the trough
+      expect(live.data.events.slice(events).map((e) => e.kind)).toEqual(['press']);
+    });
+
+    it('settings edited between the stash and the restore give the model the new settings', () => {
+      standardW();
+      live.reset();
+      strokeW();
+      set(TAB, 2, 1500);
+      usePerformanceStore().values[W.id].normalPress = 2.7;
+      usePerformanceStore().values[W.id].normalRelease = 2.7;
+      expect(live.undoAutoFollow()).toBe(true);
+      expect(live.data.model!.settings.normalPress).toBe(2.7);
+      expect(live.data.model!.settings.normalRelease).toBe(2.7);
+    });
+  });
+
+  it('a user Clear drops the stash: undo returns false and W keeps nothing of its old stroke', () => {
+    strokeW();
+    set(TAB, 3.3, 1500); // W → Tab, stash W
+    live.clear();
+    expect(live.undoAutoFollow()).toBe(false);
+    expect(live.focusId).toBe(TAB.id);
+    expect(live.data.ring.size).toBe(0);
+    expect(live.data.count).toBe(0);
+  });
+
+  it('a firmware-held key with travel just below FOLLOW_MIN still counts as held', () => {
+    strokeW();
+    set(TAB, 2, 1500); // W → Tab
+    set(TAB, 0.1, 1600); // below FOLLOW_MIN
+    live.ingest('keyStatus', TAB.row, PHYSICAL_KEYS.filter((p) => p.row === TAB.row).reduce((a, p) => { a[p.col] = p.id === TAB.id ? 1 : 0; return a; }, [] as number[]).map((v) => v ?? 0), 1610);
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(W.id);
+  });
+
+  it('a Tab below FOLLOW_MIN with no firmware status is not held', () => {
+    strokeW();
+    set(TAB, 2, 1500);
+    set(TAB, 0.1, 1600);
+    expect(live.undoAutoFollow()).toBe(false);
+    expect(live.focusId).toBe(TAB.id);
+  });
+
   it('stop() clears the switch log', () => {
     strokeW();
     set(TAB, 2, 1500);

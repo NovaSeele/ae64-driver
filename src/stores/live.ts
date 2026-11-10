@@ -113,6 +113,25 @@ export class ActuationModel {
     return null;
   }
 
+  /** Bring the state in line with the key's current depth (mm) without emitting an event (a stale model restored after the key moved unseen). */
+  sync(mm: number): void {
+    const s = this.settings;
+    const e = this.effective(mm);
+    if (!isRtMode(s.mode)) {
+      if (e >= s.normalPress - EPS) this.actuated = true;
+      else if (e < releasePoint(s) - EPS) this.actuated = false;
+      return;
+    }
+    if (s.mode === 1 ? e <= EPS : e < s.rtFirstTouch - EPS) {
+      this.reset();
+      return;
+    }
+    this.armed = true;
+    this.actuated = e >= s.rtFirstTouch - EPS;
+    this.peak = e;
+    this.trough = e;
+  }
+
   /** RT, actuated: the key releases when it rises above this depth (mm). */
   get resetAt(): number | null {
     const s = this.settings;
@@ -329,6 +348,12 @@ export const useLiveStore = defineStore('live', () => {
     data.touched = false;
     data.version++;
     data.epoch++;
+  }
+
+  /** The user's Clear: also forgets the auto-follow chain, so undoAutoFollow cannot bring the cleared stroke back. */
+  function clearByUser(): void {
+    dropChain();
+    clear();
   }
 
   function setFocus(id: number | null): void {
@@ -553,6 +578,7 @@ export const useLiveStore = defineStore('live', () => {
       data.ring = root.ring;
       data.events = root.events;
       data.model = same ? m : s ? markRaw(new ActuationModel(s)) : null;
+      data.model?.sync(data.travel[restore]); // the key may have moved while it was stashed
       data.peak = root.peak;
       data.count = root.count;
       data.lastActuation = root.lastActuation;
@@ -566,5 +592,5 @@ export const useLiveStore = defineStore('live', () => {
     return true;
   }
 
-  return { data, focusId, follow, allKeys, running, paused, start, stop, reset, clear, pin, setFocus, setFollow, suspendFollow, ingest, undoAutoFollow };
+  return { data, focusId, follow, allKeys, running, paused, start, stop, reset, clear: clearByUser, pin, setFocus, setFollow, suspendFollow, ingest, undoAutoFollow };
 });
