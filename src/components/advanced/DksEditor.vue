@@ -208,8 +208,6 @@ const fmt = (v: number) => v.toFixed(1);
   text-align: center;
   font-size: var(--fs-caption);
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--fg-3);
   padding-bottom: 4px;
   border-bottom: 1px solid var(--line-2);
@@ -218,7 +216,7 @@ const fmt = (v: number) => v.toFixed(1);
 .tl__col { display: flex; flex-direction: column; align-items: center; gap: 1px; min-height: 30px; }
 .tl__col b { font-size: var(--fs-label); color: var(--fg-1); }
 .tl__col--span b { color: var(--fg-3); font-weight: 500; }
-.tl__col small { font-size: 10px; color: var(--fg-3); }
+.tl__col small { font-size: var(--fs-caption); color: var(--fg-3); }
 .tl__row { min-height: 48px; }
 .tl__row :deep(.os) { min-width: 0; width: 112px; }
 .tl__cells { display: contents; }

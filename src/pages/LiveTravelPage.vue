@@ -377,7 +377,7 @@ function onTypeKey(e: KeyboardEvent) {
   box-shadow: inset 0 1px 1px var(--cap-shade);
   transition: background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
-.lamp__text { font-weight: 600; letter-spacing: 0.06em; color: var(--fg-3); font-size: var(--fs-body); }
+.lamp__text { font-weight: 600; color: var(--fg-3); font-size: var(--fs-body); }
 .lamp__src { font-size: var(--fs-caption); color: var(--fg-4); }
 .lamp--on { background: color-mix(in srgb, var(--m-actuation) var(--soft-pct), transparent); border-color: color-mix(in srgb, var(--m-actuation) 45%, transparent); }
 .lamp--on .lamp__light { background: var(--m-actuation); box-shadow: 0 0 12px var(--m-actuation), 0 0 2px var(--m-actuation); }

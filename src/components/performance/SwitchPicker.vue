@@ -31,7 +31,7 @@ const tabs = computed(() => SWITCH_GROUPS.map((g) => ({ id: g, label: groupLabel
 
 const keyGroups = computed(() => groupKeys(props.ids, perf.values, () => 0));
 const single = computed(() => keyGroups.value.length === 1);
-/** The maker eyebrow, only where the tab does not already name it (EVERGLIDE, GATERON, TTC). */
+/** The maker eyebrow, only where the tab does not already name it (EVERGLIDE, Gateron, TTC). */
 const brandOf = (e: SwitchEntry) => {
   const b = switchBrand(e.id);
   return b && b.toLowerCase() !== groupName(e.group).toLowerCase() ? b : null;
@@ -201,16 +201,16 @@ function apply() {
 .sw-opt[aria-checked='true'] { background: var(--sel-bg); border-color: var(--acc); box-shadow: inset 0 0 0 1px var(--acc); }
 .sw-opt__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
 /* maker eyebrow: only when the tab does not already name the maker, never "Unknown" */
-.sw-opt__brand { display: block; font-size: 10px; font-weight: 600; line-height: 14px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-opt__brand { display: block; font-size: var(--fs-caption); font-weight: 600; line-height: 14px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sw-opt:hover .sw-opt__brand, .sw-opt[aria-checked='true'] .sw-opt__brand { color: var(--fg-2); }
 .sw-opt__name { font-size: var(--fs-body); font-weight: 500; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
 .sw-opt__mm { flex: none; white-space: nowrap; font-size: var(--fs-label); color: var(--fg-2); font-variant-numeric: tabular-nums; }
-.sw-opt__mm small { font-size: 10px; margin-left: 1px; }
+.sw-opt__mm small { font-size: var(--fs-caption); margin-left: 1px; }
 .sw-opt[aria-checked='true'] .sw-opt__mm { color: var(--fg-1); }
 .sw-opt__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; min-width: 0; } /* the tag wraps on 170-180px tiles instead of overflowing */
 .sw-opt__tag {
   padding: 0 4px; border-radius: 4px; white-space: nowrap;
-  font-size: 10px; font-weight: 600; line-height: 16px;
+  font-size: var(--fs-caption); font-weight: 600; line-height: 16px;
   color: var(--fg-2); background: var(--bg-2); border: 1px solid var(--line-2);
 }
 .swp__sum { display: flex; flex-direction: column; gap: var(--s-2); padding-top: var(--s-3); border-top: 1px solid var(--line-1); }

@@ -425,12 +425,16 @@ async function doRestore() {
   gap: var(--s-4);
   margin: 0;
 }
+.diag-meta-item {
+  min-width: 0;
+}
 .diag-meta-item dt {
   color: var(--fg-3);
   margin-bottom: 4px;
 }
 .diag-meta-item dd {
   margin: 0;
+  overflow-wrap: anywhere;
   color: var(--fg-1);
   font-size: var(--fs-body);
   font-weight: 500;
@@ -554,7 +558,7 @@ async function doRestore() {
 }
 .diag-log-line__dir {
   font-weight: 600;
-  font-size: 10px;
+  font-size: var(--fs-caption);
   padding: 0 4px;
   border-radius: 3px;
   flex: none;

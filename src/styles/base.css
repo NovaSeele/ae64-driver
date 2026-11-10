@@ -30,8 +30,9 @@ body {
 h1, h2, h3, h4 {
   margin: 0;
   font-weight: 600;
-  letter-spacing: -0.01em;
 }
+
+b, strong { font-weight: 600; } /* the heaviest weight in the app is 600 */
 
 p {
   margin: 0;
@@ -78,10 +79,8 @@ a {
 }
 
 .micro {
-  font-size: var(--fs-caption);
+  font-size: var(--fs-label);
   font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--fg-3);
 }
 

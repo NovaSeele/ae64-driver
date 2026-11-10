@@ -156,7 +156,7 @@ const isCurrent = (e: KeycodeEntry) => props.current === e.code || comboOf(props
   color: var(--fg-2);
   font-size: var(--fs-label);
   font-weight: 500;
-  transition: all var(--t-fast) var(--ease);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
 }
 .kp__mod:hover { color: var(--fg-1); border-color: var(--line-3); }
 .kp__mod[aria-pressed='true'] { background: var(--acc-soft); border-color: var(--acc-line); color: var(--acc); }
@@ -190,7 +190,7 @@ const isCurrent = (e: KeycodeEntry) => props.current === e.code || comboOf(props
 .kp__key:disabled { opacity: 0.3; cursor: not-allowed; }
 .kp__key--current { border-color: var(--acc); background: var(--acc-soft); }
 .kp__label { font-size: var(--fs-label); font-weight: 500; color: var(--fg-1); }
-.kp__long { font-size: 10px; color: var(--fg-3); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.kp__long { font-size: var(--fs-caption); color: var(--fg-3); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .kp__empty { color: var(--fg-3); padding: var(--s-4) 0; }
 .kp__current { color: var(--fg-2); font-size: var(--fs-label); display: flex; gap: var(--s-2); align-items: baseline; }
 </style>

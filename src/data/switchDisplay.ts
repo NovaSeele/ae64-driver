@@ -27,7 +27,9 @@ export function switchBrand(id: number): string | null {
   return b && b !== 'Unknown' ? b : null;
 }
 
+const DISPLAY: Record<string, string> = { JIANGWAN: 'Everglide', GATERON: 'Gateron' };
+
 /** Display name of a catalog group (internal key unchanged): the driver files Everglide under 江湾, romanised JIANGWAN. */
 export function groupName(group: string): string {
-  return group === 'JIANGWAN' ? 'EVERGLIDE' : group;
+  return DISPLAY[group] ?? group;
 }

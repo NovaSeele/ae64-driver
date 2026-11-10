@@ -337,7 +337,7 @@ async function finishRename(save: boolean) {
   width: 18px;
   height: 18px;
   border-radius: 5px;
-  font-size: 10.5px;
+  font-size: var(--fs-caption);
   font-weight: 600;
   background: var(--acc);
   color: var(--on-acc);
@@ -374,7 +374,7 @@ async function finishRename(save: boolean) {
   width: 18px;
   height: 18px;
   border-radius: 5px;
-  font-size: 10.5px;
+  font-size: var(--fs-caption);
   font-weight: 600;
   background: var(--bg-4);
   color: var(--fg-2);

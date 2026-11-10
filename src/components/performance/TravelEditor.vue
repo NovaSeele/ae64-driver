@@ -118,7 +118,7 @@ const CAP_TRAVEL = 46; // px the illustrated cap moves at full travel
   position: absolute;
   right: 13px;
   top: -7px;
-  font-size: 10px;
+  font-size: var(--fs-caption);
   color: var(--fg-3);
 }
 .te__track { position: relative; width: 28px; }

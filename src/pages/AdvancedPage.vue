@@ -574,7 +574,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
 .item__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; border: 0; background: transparent; text-align: left; }
 .item__main:disabled { cursor: default; }
 .item__top { display: flex; align-items: center; gap: var(--s-2); }
-.item__type { font-size: var(--fs-caption); font-weight: 700; letter-spacing: 0.04em; color: var(--k, var(--acc)); }
+.item__type { font-size: var(--fs-caption); font-weight: 600; color: var(--k, var(--acc)); }
 .item--hl .item__type { color: var(--fg-1); }
 .item__keys { font-weight: 600; color: var(--fg-1); }
 .item__detail { font-size: var(--fs-label); color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

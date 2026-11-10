@@ -139,7 +139,7 @@ const pct = (v: number) => `${(v / props.max) * 100}%`;
 .mpt__pin--off { background: var(--fg-4); box-shadow: none; }
 .mpt__pinlabel { position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%); font-size: var(--fs-caption); font-weight: 600; color: var(--fg-1); white-space: nowrap; }
 .mpt__pin--off .mpt__pinlabel { color: var(--fg-4); }
-.mpt__end { position: absolute; top: 40px; left: 0; font-size: 10px; color: var(--fg-3); }
+.mpt__end { position: absolute; top: 40px; left: 0; font-size: var(--fs-caption); color: var(--fg-3); }
 .mpt__end--max { left: auto; right: 0; }
 
 .stage {

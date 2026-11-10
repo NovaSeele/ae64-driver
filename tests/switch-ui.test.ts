@@ -63,7 +63,7 @@ describe('switch selector UI', () => {
     const commit = vi.spyOn(mock, 'commit');
 
     await openDialog();
-    [...body().querySelectorAll<HTMLElement>('[role=tab]')].find((x) => x.textContent?.includes('GATERON'))!.click();
+    [...body().querySelectorAll<HTMLElement>('[role=tab]')].find((x) => x.textContent?.includes('Gateron'))!.click();
     await flushPromises();
     opt('Apollo').click();
     await flushPromises();

@@ -326,5 +326,5 @@ function endDrag() {
 .row--down .dir__opt[aria-checked='true'] { background: color-mix(in srgb, var(--m-press) var(--soft-pct), transparent); }
 
 .row-enter-from { opacity: 0; transform: translateY(-4px); }
-.row-enter-active { transition: all var(--t-med) var(--ease); }
+.row-enter-active { transition: opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease); }
 </style>

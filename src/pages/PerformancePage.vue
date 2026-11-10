@@ -570,7 +570,7 @@ const modeOptions = computed(() => [
 .shading { display: flex; flex-direction: column; gap: 4px; max-width: 160px; margin-top: var(--s-2); }
 .shading__hint { margin: 0; font-size: var(--fs-caption); line-height: 1.4; color: var(--fg-3); }
 /* The RT tag on a keycap (actuation view). */
-.kb :deep(.cap__badge) { font-size: 10px; font-weight: 600; opacity: 1; }
+.kb :deep(.cap__badge) { font-size: var(--fs-caption); font-weight: 600; opacity: 1; }
 .chip[aria-checked='true'] { background: var(--sel-bg); border-color: var(--acc-line); color: var(--fg-1); }
 .try { margin-top: var(--s-2); }
 

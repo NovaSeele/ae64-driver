@@ -92,9 +92,9 @@ describe('switch makers', () => {
 });
 
 describe('switch group names', () => {
-  it('shows JIANGWAN (the Chinese name of Everglide) as EVERGLIDE and keeps the others', () => {
-    expect(groupName('JIANGWAN')).toBe('EVERGLIDE');
-    expect(groupName('GATERON')).toBe('GATERON');
+  it('shows JIANGWAN (the Chinese name of Everglide) as Everglide, GATERON as Gateron and keeps the others', () => {
+    expect(groupName('JIANGWAN')).toBe('Everglide');
+    expect(groupName('GATERON')).toBe('Gateron');
     expect(groupName('TTC')).toBe('TTC');
   });
 });

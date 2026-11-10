@@ -138,7 +138,7 @@ defineProps<{
   text-align: right;
   white-space: pre; /* a line break stacks two values (dead zones) */
 }
-.cap__sub--lines { display: flex; flex-direction: column; align-items: flex-end; font-size: 10.5px; }
+.cap__sub--lines { display: flex; flex-direction: column; align-items: flex-end; font-size: var(--fs-caption); }
 .cap__line { color: var(--sub-tone, var(--metric, var(--fg-2))); }
 .cap--sel .cap__sub, .cap--sel .cap__badge, .cap--sel .cap__line { color: var(--fg-1); }
 .cap__foot {
@@ -151,7 +151,7 @@ defineProps<{
 }
 .cap__badge {
   align-self: flex-start;
-  font-size: 10.5px;
+  font-size: var(--fs-caption);
   font-weight: 500;
   line-height: 1;
   color: var(--m-press);
@@ -170,9 +170,9 @@ defineProps<{
 @container (max-height: 51.99px) {
   .cap__face { padding: 4px 6px 4px; }
   .cap__legend { font-size: 11px; line-height: 1.05; }
-  .cap__badge { font-size: 9.5px; }
+  .cap__badge { font-size: var(--fs-caption); }
   .cap__foot { gap: 1px; }
-  .cap__sub, .cap__sub--lines { font-size: 10px; }
+  .cap__sub, .cap__sub--lines { font-size: var(--fs-caption); }
   .cap__extra { right: 4px; bottom: 4px; }
   .cap__extra :deep(.swatch) { width: 18px; height: 18px; }
 }

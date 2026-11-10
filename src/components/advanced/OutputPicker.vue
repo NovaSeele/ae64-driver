@@ -134,7 +134,7 @@ const hex = (c: number) => `0x${c.toString(16).padStart(4, '0').toUpperCase()}`;
 .op__key:disabled { opacity: 0.3; cursor: not-allowed; }
 .op__key--current { border-color: var(--acc); background: var(--acc-soft); }
 .op__label { font-size: var(--fs-label); font-weight: 500; color: var(--fg-1); }
-.op__long { font-size: 10px; color: var(--fg-3); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.op__long { font-size: var(--fs-caption); color: var(--fg-3); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .op__empty { color: var(--fg-3); padding: var(--s-4) 0; }
 .op__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); min-height: 28px; }
 .op__note { color: var(--fg-3); font-size: var(--fs-label); }

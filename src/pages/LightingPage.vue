@@ -669,8 +669,6 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
   font-size: var(--fs-caption);
   font-weight: 600;
   color: var(--fg-2);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 .strip-bar__hint {
@@ -692,7 +690,7 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 }
 
 .strip-bar__side {
-  font-size: 10px;
+  font-size: var(--fs-caption);
   color: var(--fg-3);
   white-space: nowrap;
   overflow: hidden;
@@ -763,7 +761,7 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 }
 
 .strip-bar__num {
-  font-size: 9px;
+  font-size: var(--fs-caption);
   color: var(--fg-3);
   line-height: 1;
 }
@@ -929,17 +927,16 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 
 .palette-swatch__label {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   padding: 1px 5px;
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.45);
   color: #ffffff;
-  letter-spacing: 0.05em;
 }
 
 .palette-swatch__num {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   /* Ink follows the LED colour, not the theme. */
   color: #ffffff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
@@ -968,12 +965,11 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 
 .palette-rainbow-info__badge {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   padding: 2px 6px;
   border-radius: var(--r-control);
   background: linear-gradient(rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.45)), linear-gradient(135deg, #ff0055, #0099ff);
   color: #ffffff;
-  letter-spacing: 0.05em;
 }
 
 .palette-rainbow-info p {

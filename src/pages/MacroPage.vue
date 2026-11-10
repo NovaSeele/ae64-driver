@@ -443,7 +443,7 @@ async function discard() {
 }
 .slot:hover:not(:disabled) { background: var(--bg-3); }
 .slot[aria-selected='true'] { background: var(--acc-soft); border-color: var(--acc-line); }
-.slot__id { width: 34px; font-weight: 700; color: var(--fg-3); }
+.slot__id { width: 34px; font-weight: 600; color: var(--fg-3); }
 .slot--used .slot__id { color: var(--fg-1); }
 .slot[aria-selected='true'] .slot__id { color: var(--acc); }
 .slot__count { flex: 1; font-size: var(--fs-label); color: var(--fg-3); }
@@ -499,7 +499,7 @@ async function discard() {
 }
 .mode:hover { border-color: var(--line-3); color: var(--fg-1); }
 .mode[aria-checked='true'] { background: var(--acc-soft); border-color: var(--acc-line); color: var(--fg-1); }
-.mode__radio { width: 14px; height: 14px; flex: none; border-radius: 50%; border: 1.5px solid var(--fg-3); transition: all var(--t-fast) var(--ease); }
+.mode__radio { width: 14px; height: 14px; flex: none; border-radius: 50%; border: 1.5px solid var(--fg-3); transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); }
 .mode[aria-checked='true'] .mode__radio { border: 4px solid var(--acc); }
 .repeat { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); margin-top: var(--s-4); padding-top: var(--s-4); border-top: 1px solid var(--line-1); min-height: 36px; }
 .repeat__label { display: inline-flex; align-items: center; gap: var(--s-2); color: var(--fg-2); }

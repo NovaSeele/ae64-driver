@@ -129,7 +129,7 @@ const sides = computed(() => [0, 1].map((i) => ({
   border: 1px solid var(--line-2);
   background: var(--bg-3);
   color: var(--fg-2);
-  transition: all var(--t-fast) var(--ease);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
 .pair__swap:hover:not(:disabled) { color: var(--acc); border-color: var(--acc-line); }
 .pair__swap:disabled { opacity: 0.4; }
@@ -169,7 +169,7 @@ const sides = computed(() => [0, 1].map((i) => ({
   display: grid;
   place-items: center;
   border-radius: 8px;
-  font-weight: 700;
+  font-weight: 600;
   background: var(--bg-3);
   color: var(--fg-1);
 }

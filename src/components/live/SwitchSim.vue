@@ -189,7 +189,7 @@ const field = computed(() => 0.12 + ratio.value * 0.7);
 .sim__field path { fill: none; stroke: var(--m-actuation); stroke-width: 1; stroke-dasharray: 3 3; }
 .sim__ticks path { stroke: var(--fg-4); }
 .sim__ticks path.major { stroke: var(--fg-3); }
-.sim__ticks text { font-size: 10px; fill: var(--fg-3); font-variant-numeric: tabular-nums; }
+.sim__ticks text { font-size: var(--fs-caption); fill: var(--fg-3); font-variant-numeric: tabular-nums; }
 .sim__marker path { stroke-width: 1.5; }
 .sim__marker text { font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .sim__marker--act path { stroke: var(--m-actuation); }
@@ -201,7 +201,7 @@ const field = computed(() => 0.12 + ratio.value * 0.7);
 .sim__marker--react path { stroke: var(--m-press); stroke-dasharray: 4 3; }
 .sim__marker--react text { fill: var(--m-press); }
 .sim__marker--dead path { stroke: var(--m-deadzone); stroke-width: 1; opacity: 0.5; }
-.sim__marker--dead text { fill: var(--m-deadzone); font-size: 10px; }
+.sim__marker--dead text { fill: var(--m-deadzone); font-size: var(--fs-caption); }
 .sim__head { stroke: var(--fg-1); stroke-width: 2; stroke-linecap: round; }
 .sim--on .sim__head { stroke: var(--acc); }
 </style>
