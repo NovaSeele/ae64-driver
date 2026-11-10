@@ -109,7 +109,7 @@ describe('switch selector UI', () => {
     expect(opt('Koi').querySelector('.sw-opt__brand')).toBeNull();
   });
 
-  it('Apply writes the same switch id as the clicked catalog entry', async () => {
+  it('Apply writes the whole switch triple of the clicked catalog entry', async () => {
     const { mock, perf } = await setup();
     const setPerf = vi.spyOn(mock, 'setPerformance');
     await openDialog();
@@ -122,7 +122,8 @@ describe('switch selector UI', () => {
     await flushPromises();
     await useSyncStore().flush();
     expect(setPerf).toHaveBeenCalledTimes(64);
-    expect(new Set(setPerf.mock.calls.map((c) => c[1].axisV2Id))).toEqual(new Set([entry.id]));
+    const triples = new Set(setPerf.mock.calls.map((c) => `${c[1].axisV2Id}/${c[1].axisRangeMax}/${c[1].axisCoefficient}`));
+    expect(triples).toEqual(new Set([`${entry.id}/${entry.rangeMax}/${entry.coefficient}`]));
   });
 
   it('choosing the current switch disables Apply', async () => {
