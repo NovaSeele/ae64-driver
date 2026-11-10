@@ -57,13 +57,13 @@ describe('undoAutoFollow', () => {
     expect(live.focusId).toBe(W.id);
   });
 
-  it('does nothing when the Tab was already released', () => {
+  it('undoes a Tab that was already released (navigation, never a test)', () => {
     set(W, 2, 1000);
     set(W, 0, 1050);
     set(TAB, 2, 1100);
     set(TAB, 0, 1120);
-    expect(live.undoAutoFollow()).toBe(false);
-    expect(live.focusId).toBe(TAB.id);
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(W.id);
   });
 
   // typing box → Pause → Clear → graph: only the first Tab switches (W → Tab); later Tabs find Tab already followed
@@ -134,31 +134,6 @@ describe('undoAutoFollow', () => {
     expect(live.focusId).toBe(W.id);
   });
 
-  it('does not chain past a key that was released before the undo', () => {
-    set(W, 2, 1000);
-    set(W, 0, 1100);
-    set(SHIFT, 1, 1200); // W → Shift
-    set(SHIFT, 0, 1300); // Shift released
-    set(TAB, 2, 1400); // Shift → Tab
-    expect(live.undoAutoFollow()).toBe(true);
-    expect(live.focusId).toBe(SHIFT.id);
-  });
-
-  it('restores only the key the stash belongs to: Shift (not W) after W, Shift released, Tab held', () => {
-    strokeW();
-    expect(live.data.count).toBe(1);
-    set(SHIFT, 1, 1200); // W → Shift, W stashed
-    set(SHIFT, 0, 1300); // Shift released
-    set(TAB, 3.3, 1400); // Shift → Tab
-    expect(live.focusId).toBe(TAB.id);
-    expect(live.undoAutoFollow()).toBe(true);
-    expect(live.focusId).toBe(SHIFT.id);
-    expect(live.data.ring.size).toBe(0);
-    expect(live.data.events.length).toBe(0);
-    expect(live.data.count).toBe(0);
-    expect(live.data.touched).toBe(false);
-  });
-
   function ringMax(): number {
     let m = 0;
     live.data.ring.forEach(-Infinity, (_t, mm) => { m = Math.max(m, mm); });
@@ -172,6 +147,96 @@ describe('undoAutoFollow', () => {
     set(W, 2, 1040);
     set(W, 0, 1060);
   }
+
+  it('chains past a released Shift: W, Shift tap, Tab held → W with its stroke', () => {
+    set(W, 2, 1000);
+    set(W, 0, 1100);
+    set(SHIFT, 1, 1200); // W → Shift
+    set(SHIFT, 0, 1300); // Shift released
+    set(TAB, 2, 1400); // Shift → Tab
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(W.id);
+  });
+
+  // The root.id === restore guard cannot be reached with a non-root restore any more: a restore other than the
+  // stash's key needs a walk that stops at a Tab/Shift link, and those are always undone. This pins W's data.
+  it('W, Shift released, Tab held: restores W with its stroke (not Shift\'s empty buffer)', () => {
+    strokeW();
+    expect(live.data.count).toBe(1);
+    set(SHIFT, 1, 1200); // W → Shift, W stashed
+    set(SHIFT, 0, 1300); // Shift released
+    set(TAB, 3.3, 1400); // Shift → Tab
+    expect(live.focusId).toBe(TAB.id);
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(W.id);
+    expect(ringMax()).toBeCloseTo(3, 1);
+    expect(live.data.count).toBe(1);
+    expect(live.data.touched).toBe(true);
+  });
+
+  it('W, a Shift tap, then Tab onto the graph (no keys): W, count 1, stroke present', () => {
+    strokeW();
+    set(SHIFT, 1, 1200);
+    set(SHIFT, 0, 1250);
+    set(TAB, 3.3, 1400);
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(W.id);
+    expect(live.data.count).toBe(1);
+    expect(ringMax()).toBeCloseTo(3, 1);
+    expect(live.follow).toBe(true);
+  });
+
+  it('W, Shift held with Shift+Tab ×2, all released, then a Tab held: W', () => {
+    strokeW();
+    set(SHIFT, 1, 1200); // W → Shift
+    set(TAB, 3.3, 1300); // Shift → Tab
+    set(TAB, 0, 1400);
+    set(TAB, 3.3, 1500); // Tab → Tab again; Shift still held
+    set(TAB, 0, 1600);
+    set(SHIFT, 0, 1700); // everything released
+    set(TAB, 3.3, 2500); // a further Tab
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(W.id);
+    expect(live.data.count).toBe(1);
+    expect(ringMax()).toBeCloseTo(3, 1);
+  });
+
+  it('nothing followed, a Shift tap, then Tab: false, focus/data/follow unchanged', () => {
+    set(SHIFT, 1, 1000); // null → Shift
+    set(SHIFT, 0, 1050);
+    set(TAB, 3.3, 1200); // Shift → Tab
+    expect(live.focusId).toBe(TAB.id);
+    const { ring, count, version, epoch } = live.data;
+    const size = ring.size;
+    expect(live.undoAutoFollow()).toBe(false);
+    expect(live.focusId).toBe(TAB.id);
+    expect(live.follow).toBe(true);
+    expect(live.data.ring).toBe(ring);
+    expect(live.data.ring.size).toBe(size);
+    expect(live.data.count).toBe(count);
+    expect(live.data.version).toBe(version);
+    expect(live.data.epoch).toBe(epoch);
+  });
+
+  it('regression: W, X, Tab → X; W, A held, Tab → A', () => {
+    const X = key('X');
+    const A = key('A');
+    set(W, 2, 1000);
+    set(W, 0, 1100);
+    set(X, 2, 3000);
+    set(X, 0, 3100);
+    set(TAB, 3.3, 9000);
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(X.id);
+    live.reset();
+    depth.clear();
+    set(W, 2, 20000);
+    set(W, 0, 20100);
+    set(A, 2, 20200); // W → A, held
+    set(TAB, 3.3, 20300); // A → Tab
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(A.id);
+  });
 
   it('restores the data of the key followed before, not only its name', () => {
     strokeW();
@@ -518,12 +583,12 @@ describe('undoAutoFollow', () => {
     expect(live.focusId).toBe(W.id);
   });
 
-  it('a Tab below FOLLOW_MIN with no firmware status is not held', () => {
+  it('a Tab below FOLLOW_MIN with no firmware status is still undone (focus-moving, held or not)', () => {
     strokeW();
     set(TAB, 2, 1500);
     set(TAB, 0.1, 1600);
-    expect(live.undoAutoFollow()).toBe(false);
-    expect(live.focusId).toBe(TAB.id);
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(W.id);
   });
 
   it('stop() clears the switch log', () => {

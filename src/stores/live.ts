@@ -590,22 +590,26 @@ export const useLiveStore = defineStore('live', () => {
   /**
    * The graph was reached by keyboard: the Tab (or Shift+Tab) that got it there was itself measured and
    * auto-follow moved to it. Undo the switches those keystrokes caused (one unbroken chain ending at the current
-   * focus, each link's key still held) and return to the key followed just before. No age limit: the first Tab of
-   * a slow typing box → Pause → Clear → graph walk made the switch long before the graph got focus, and the held
-   * check already stops at a key the user tested on purpose (it has been released). Follow stays auto.
-   * Without `keys` (graph focus) only held focus-moving keys (Tab/Shift) are undone. With `keys` (the page passes
-   * Space/Enter when one operates a control) a held key in `keys` is undone, and so is any focus-moving key, held or
-   * not: a released Tab/Shift in the chain was keyboard navigation to the control, never a test.
+   * focus) and return to the key followed just before. No age limit: the first Tab of a slow typing box → Pause →
+   * Clear → graph walk made the switch long before the graph got focus. Follow stays auto.
+   * A focus-moving key (Tab/Shift) link is undone held or released, with or without `keys`: a released Tab/Shift in
+   * the chain was keyboard navigation, never a test. A link to any other key is undone only when it is in `keys`
+   * (the page passes Space/Enter/arrows when one operates a control) and still held; otherwise it stops the walk
+   * (a held A is deliberate). Never back to "nothing followed": a focus-moving link with no key before it makes the
+   * undo return false and change nothing. Running out of log entries at a key is fine and returns to that key.
    */
   function undoAutoFollow(keys?: Set<number>): boolean {
     let current = focusId.value;
     let restore: number | undefined;
     for (let i = switchLog.length - 1; i >= 0; i--) {
       const sw = switchLog[i];
-      // Only a focus-moving key or one in `keys` is undone (a held A is deliberate), and never back to "nothing followed".
       const nav = focusMoving.has(sw.to);
-      if (sw.from === null || sw.to !== current || !(nav || keys?.has(sw.to))) break;
-      if (!(keys && nav) && !(data.travel[sw.to] >= FOLLOW_MIN || data.status[sw.to] > 0)) break;
+      if (sw.to !== current || !(nav || keys?.has(sw.to))) break;
+      if (sw.from === null) {
+        if (nav) return false;
+        break;
+      }
+      if (!nav && !(data.travel[sw.to] >= FOLLOW_MIN || data.status[sw.to] > 0)) break;
       restore = sw.from;
       current = sw.from;
     }

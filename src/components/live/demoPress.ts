@@ -20,6 +20,8 @@ export function keyIdForCode(code: string): number | undefined {
   return BY_CODE.get(code);
 }
 
+/** Keys a focused radio group (Auto/Pinned) moves its selection with. */
+const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End']);
 /** Keys the focused travel graph uses to pan. */
 const GRAPH_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape']);
 
@@ -77,6 +79,8 @@ export function attachDemoPress(mock: MockTransport): () => void {
     if (!inTest && e.code === 'Tab' && el && el !== document.body && el !== document.documentElement) return;
     // Space/Enter on a focused control operates it (button, switch, radio…), as on real hardware; don't swallow it.
     if (!inTest && (e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter') && el?.matches?.('button, [role="button"], [role="switch"], [role="radio"], [role="tab"], select')) return;
+    // Arrows and Home/End move a radio group (Auto/Pinned); don't swallow them either.
+    if (!inTest && NAV_KEYS.has(e.code) && el?.closest?.('[role="radiogroup"]')) return;
     // Leave shortcuts (Ctrl+Z…) alone: modifiers only count when pressed on their own.
     if ((e.ctrlKey && e.code !== 'ControlLeft') || (e.metaKey && e.code !== 'MetaLeft')) return;
     if (!inTest) {

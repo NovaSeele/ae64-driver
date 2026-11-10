@@ -7,6 +7,7 @@ import LiveTravelPage from '../src/pages/LiveTravelPage.vue';
 import { useDeviceStore } from '../src/stores/device';
 import { usePerformanceStore } from '../src/stores/performance';
 import { useLiveStore } from '../src/stores/live';
+import { useSelectionStore } from '../src/stores/selection';
 import { locale } from '../src/i18n/locale';
 
 const key = (name: string) => PHYSICAL_KEYS.find((k) => k.name === name)!;
@@ -193,12 +194,43 @@ describe('Space/Enter that operates a control is not a test press', () => {
     expect(live.data.count).toBe(1);
   });
 
-  it('D. the graph-focus call without keys still refuses a released Tab', () => {
+  it('D. the graph-focus call without keys also undoes a released Tab (one rule for both paths)', () => {
     strokeW();
     set(TAB, 2, 1500);
     set(TAB, 0, 1520);
-    expect(live.undoAutoFollow()).toBe(false);
-    expect(live.focusId).toBe(TAB.id);
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(W.id);
+    expect(live.data.count).toBe(1);
+  });
+
+  const RIGHT = key('→');
+
+  it('E. W, Tab, → travels, ArrowRight on the Auto radio: focus is back on W and the pin pins W', () => {
+    strokeW();
+    set(TAB, 2, 1500);
+    set(TAB, 0, 1520);
+    set(RIGHT, 2, 1600);
+    expect(live.focusId).toBe(RIGHT.id);
+    const radio = w!.find('[role=radio]').element;
+    keydown(radio, 'ArrowRight', 'ArrowRight');
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(live.focusId).toBe(W.id);
+    expect(live.data.count).toBe(1);
+    expect(ringMax()).toBeCloseTo(3, 1);
+    const sel = useSelectionStore();
+    sel.select(live.focusId!); // what the Segmented's setFollow('pin') does
+    expect(live.focusId).toBe(W.id);
+    expect(ringMax()).toBeCloseTo(3, 1);
+    set(RIGHT, 2.1, 1620); // → is still held: not followed again
+    expect(live.focusId).toBe(W.id);
+  });
+
+  it('F. ArrowRight on a plain button does not undo: follow stays on →', () => {
+    strokeW();
+    set(RIGHT, 2, 1500);
+    keydown(button(), 'ArrowRight', 'ArrowRight');
+    expect(undo).not.toHaveBeenCalled();
+    expect(live.focusId).toBe(RIGHT.id);
   });
 
   it('7. the listener is removed on unmount', () => {

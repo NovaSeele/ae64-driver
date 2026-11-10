@@ -49,14 +49,19 @@ function onGraphKeyFocus() {
 const SPACE_CODES = [0x2c];
 const ENTER_CODES = [0x28, 0x58];
 const CONTROL = 'button, [role=button], [role=switch], [role=radio], [role=tab], select';
+// Arrows and Home/End move a radio group, tab list or select (the Auto/Pinned selector pins on ArrowRight).
+const NAV_CONTROL = '[role=radio], [role=tab], select';
+const NAV_CODES: Record<string, number> = { ArrowRight: 0x4f, ArrowLeft: 0x50, ArrowDown: 0x51, ArrowUp: 0x52, Home: 0x4a, End: 0x4d };
 const pageRef = ref<{ $el: HTMLElement } | null>(null);
 let pageEl: HTMLElement | null = null;
 
 /** Capture phase, so it runs before the control's own action: undo the switch the keystroke caused and ignore that key until it is released. */
 function onControlKey(e: KeyboardEvent) {
-  const codes = e.key === ' ' || e.code === 'Space' ? SPACE_CODES
-    : e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter' ? ENTER_CODES : null;
   const el = e.target;
+  const nav = NAV_CODES[e.code];
+  const codes = e.key === ' ' || e.code === 'Space' ? SPACE_CODES
+    : e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter' ? ENTER_CODES
+      : nav !== undefined && el instanceof Element && el.matches(NAV_CONTROL) ? [nav] : null;
   if (!codes || !(el instanceof Element) || !el.matches(CONTROL) || el.matches('[data-keytest], canvas.graph')) return;
   const keys = live.keysForCodes(codes);
   live.undoAutoFollow(keys);
