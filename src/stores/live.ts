@@ -184,6 +184,13 @@ export class TravelRing {
     this.size = 0;
   }
 
+  /** Drop the n newest samples (a rollback). More than the ring holds: the older ones are already overwritten, keep what is there. */
+  dropNewest(n: number): void {
+    if (n > this.size) return;
+    this.head = (this.head - n + this.capacity) % this.capacity;
+    this.size -= n;
+  }
+
   /** Visit samples oldest → newest whose time is ≥ from. */
   forEach(from: number, cb: (t: number, mm: number) => void): void {
     const start = (this.head - this.size + this.capacity) % this.capacity;
@@ -272,6 +279,21 @@ interface FocusStash {
   touched: boolean;
 }
 
+/** The focused key's state when its current press began, so a UI stroke's already-ingested frames can be rolled back. */
+interface PressSnapshot {
+  events: number;
+  count: number;
+  peak: number;
+  lastActuation: number | null;
+  lastRelease: number | null;
+  mismatch: boolean;
+  mismatchSince: number | null;
+  touched: boolean;
+  model: { actuated: boolean; armed: boolean; peak: number; trough: number } | null;
+  /** ringPushes when the press began. */
+  pushes: number;
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ------------------------------------------------------------------------------------------- store
@@ -297,6 +319,11 @@ export const useLiveStore = defineStore('live', () => {
   /** Buffers of the root of the current unbroken chain (the key undoAutoFollow returns to): at most one TravelRing is held. */
   let stash: FocusStash | null = null;
   let autoSwitching = false;
+  /** Last time (ingest clock) each key was at rest: travel below FOLLOW_MIN and firmware status 0. */
+  const lastRest = new Float64Array(64).fill(-Infinity);
+  /** Samples pushed into the focused ring so far, and the state when the focused key's current press began (null at rest). */
+  let ringPushes = 0;
+  let pressSnap: PressSnapshot | null = null;
 
   let generation = 0;
   let rateCount = 0;
@@ -333,7 +360,30 @@ export const useLiveStore = defineStore('live', () => {
   const uiPressed = new Map<number, number>();
 
   function markUiPressed(ids: Iterable<number>, now = performance.now()): void {
-    for (const id of ids) uiPressed.set(id, now);
+    for (const id of ids) {
+      uiPressed.set(id, now);
+      if (id === focusId.value) rollbackPress();
+    }
+  }
+
+  /** The focused key's UI stroke began before its mark (AE64 travel arrives ahead of the keydown): take its frames back. */
+  function rollbackPress(): void {
+    const snap = pressSnap;
+    if (!snap) return;
+    pressSnap = null;
+    data.events.length = snap.events;
+    data.count = snap.count;
+    data.peak = snap.peak;
+    data.lastActuation = snap.lastActuation;
+    data.lastRelease = snap.lastRelease;
+    data.mismatch = snap.mismatch;
+    data.mismatchSince = snap.mismatchSince;
+    data.touched = snap.touched;
+    data.ring.dropNewest(ringPushes - snap.pushes);
+    if (data.model && snap.model) Object.assign(data.model, snap.model);
+    data.model?.sync(data.current);
+    data.version++;
+    data.epoch++;
   }
 
   function trackUiPressed(id: number, mm: number, now: number): void {
@@ -380,6 +430,7 @@ export const useLiveStore = defineStore('live', () => {
     data.mismatch = false;
     data.mismatchSince = null;
     data.touched = false;
+    pressSnap = null;
     data.version++;
     data.epoch++;
   }
@@ -429,11 +480,20 @@ export const useLiveStore = defineStore('live', () => {
       data.model?.sync(mm);
       return;
     }
-    if (data.current <= REST_MM && mm > REST_MM) data.peak = 0;
+    if (data.current <= REST_MM && mm > REST_MM) {
+      const m = data.model;
+      pressSnap = {
+        events: data.events.length, count: data.count, peak: data.peak, lastActuation: data.lastActuation,
+        lastRelease: data.lastRelease, mismatch: data.mismatch, mismatchSince: data.mismatchSince, touched: data.touched,
+        model: m ? { actuated: m.actuated, armed: m.armed, peak: m.peak, trough: m.trough } : null, pushes: ringPushes,
+      };
+      data.peak = 0;
+    } else if (mm <= REST_MM) pressSnap = null;
     data.current = mm;
     data.peak = Math.max(data.peak, mm);
     data.touched ||= mm > REST_MM;
     data.ring.push(now, mm);
+    ringPushes++;
     const ev = data.model?.update(mm);
     if (ev) {
       data.events.push({ t: now, kind: ev, depth: mm });
@@ -464,6 +524,7 @@ export const useLiveStore = defineStore('live', () => {
         data.travel[key.id] = v / 1000;
         data.ratio[key.id] = v / range;
         if (uiPressed.size) trackUiPressed(key.id, v / 1000, now);
+        if (v / 1000 < FOLLOW_MIN && data.status[key.id] === 0) lastRest[key.id] = now;
       } else data.status[key.id] = values[col];
       if (key.id === focus) focusedHere = true;
     }
@@ -575,6 +636,7 @@ export const useLiveStore = defineStore('live', () => {
     dropChain();
     uiPressed.clear();
     data.travel.fill(0);
+    lastRest.fill(-Infinity);
     data.ratio.fill(0);
     data.status.fill(0);
     data.current = 0;
@@ -617,7 +679,9 @@ export const useLiveStore = defineStore('live', () => {
       const nav = focusMoving.has(sw.to);
       // A key in `keys` is undone only as the newest link (the switch this keystroke caused): an older link to the
       // same key was a real test of it (typing box Space → Tab → Space on Pause returns to Space, not past it).
-      const ui = i === switchLog.length - 1 && !!keys?.has(sw.to);
+      // It must also have happened during the key's current press (after its last rest): a link from an earlier press
+      // of the same key (Space tested, Pause clicked, Space pressed again) is not the switch this keystroke caused.
+      const ui = i === switchLog.length - 1 && !!keys?.has(sw.to) && sw.at > lastRest[sw.to];
       if (sw.to !== current || !(nav || ui)) break;
       if (sw.from === null) {
         if (nav) return false;
@@ -630,9 +694,11 @@ export const useLiveStore = defineStore('live', () => {
     // The log is capped: a long Shift+Tab walk can push the link out of the key that started the chain, so the walk
     // runs out at a Tab/Shift. The root stash is that key (every link kept after it leaves a Tab/Shift): go there.
     if (restore !== undefined && focusMoving.has(restore) && stash) restore = stash.id;
-    if (restore === undefined || restore === focusId.value) return false;
+    // Back to the key already focused is a no-op only when no stroke of it is stashed (Tab hop away and back).
+    if (restore === undefined || (restore === focusId.value && stash?.id !== restore)) return false;
     const root = stash; // setFocus drops the chain
     setFocus(restore);
+    dropChain(); // setFocus does not when the key is already focused
     if (root && root.id === restore) {
       // Give the key its stroke back; epoch/version bump so the graph re-reads the whole ring.
       const s = settingsFor(restore);
@@ -649,6 +715,7 @@ export const useLiveStore = defineStore('live', () => {
       data.mismatch = root.mismatch;
       data.mismatchSince = root.mismatchSince;
       data.touched = root.touched;
+      pressSnap = null; // it described the buffers just replaced
       data.version++;
       data.epoch++;
     }

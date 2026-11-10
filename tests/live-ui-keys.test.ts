@@ -308,6 +308,109 @@ describe('Space/Enter that operates a control is not a test press', () => {
     expect(live.data.count).toBe(2);
   });
 
+  const kinds = () => live.data.events.map((e) => e.kind);
+  const undone = () => undo.mock.results[0].value as boolean;
+
+  it('Y2d. Tab → Space link with the focus already Space: the stashed genuine stroke comes back, not the UI stroke', () => {
+    strokeW();
+    set(SPACE, 3.3, 1200); // genuine Space test: press@3.3
+    set(SPACE, 0, 1300); // release@0
+    set(TAB, 2, 1600); // Space stashed as the chain root
+    set(TAB, 0, 1650);
+    set(SPACE, 2, 1700); // Tab → Space with a fresh ring (the UI stroke)
+    expect(live.data.ring.size).toBe(1);
+    keydown(button(), ' ', 'Space');
+    expect(undone()).toBe(true);
+    expect(live.focusId).toBe(SPACE.id);
+    expect(kinds()).toEqual(['press', 'release']);
+    expect(ringMax()).toBeCloseTo(3.3, 1);
+    expect(live.data.count).toBe(1);
+  });
+
+  /** A genuine test of `k` (peak 3.3) with no switch since: the focus is `k`, at rest, count 1. */
+  function testedThenUiStroke(k: { id: number; row: number }, target: () => Element, kk: string, code: string) {
+    strokeW();
+    set(k, 3.3, 1200);
+    set(k, 0, 1300);
+    expect(live.focusId).toBe(k.id);
+    set(k, 0.6, 1600); // the UI stroke starts; no Tab, so no switch link of this press
+    set(k, 1.4, 1620);
+    expect(live.data.count).toBe(2);
+    keydown(target(), kk, code);
+    expect(undone()).toBe(false);
+    expect(live.focusId).toBe(k.id);
+    expect(live.data.count).toBe(1);
+    expect(kinds()).toEqual(['press', 'release']);
+    expect(ringMax()).toBeCloseTo(3.3, 1);
+    set(k, 3.3, 1700); // the stroke goes on: still ignored
+    expect(live.data.count).toBe(1);
+    set(k, 0, 1800);
+    expect(live.data.count).toBe(1);
+    expect(kinds()).toEqual(['press', 'release']);
+    set(k, 3.3, 2000); // a real press after rest
+    expect(live.data.count).toBe(2);
+  }
+
+  it('B2a. Space tested, Pause clicked, Space pressed: travel before the keydown is rolled back', () => {
+    testedThenUiStroke(SPACE, button, ' ', 'Space');
+  });
+
+  it('B2b. the same with Enter', () => {
+    testedThenUiStroke(ENTER, button, 'Enter', 'Enter');
+  });
+
+  it('B2c. the same with ArrowRight on the radio', () => {
+    testedThenUiStroke(RIGHT, () => w!.find('[role=radio]').element, 'ArrowRight', 'ArrowRight');
+  });
+
+  it('B2d. keydown first: Space tested, keydown on the button, then the travel: nothing recorded', () => {
+    strokeW();
+    set(SPACE, 3.3, 1200);
+    set(SPACE, 0, 1300);
+    vi.spyOn(performance, 'now').mockReturnValue(base + 1400);
+    keydown(button(), ' ', 'Space');
+    expect(live.focusId).toBe(SPACE.id);
+    set(SPACE, 1.4, 1500);
+    set(SPACE, 3.3, 1520);
+    set(SPACE, 0, 1600);
+    expect(live.focusId).toBe(SPACE.id);
+    expect(live.data.count).toBe(1);
+    expect(kinds()).toEqual(['press', 'release']);
+    expect(ringMax()).toBeCloseTo(3.3, 1);
+  });
+
+  it('AA4. a UI mark ending at rest resyncs only the focused key: W held mid-press gets no spurious release/press', () => {
+    set(W, 2, 1000); // W focused, held, actuated
+    expect(live.data.count).toBe(1);
+    vi.spyOn(performance, 'now').mockReturnValue(base + 1050);
+    keydown(button(), ' ', 'Space'); // marks Space; W is not Space
+    set(SPACE, 3, 1100);
+    set(SPACE, 0, 1200); // the mark ends at rest
+    expect(live.focusId).toBe(W.id);
+    set(W, 2, 1300);
+    expect(live.data.count).toBe(1);
+    expect(kinds()).toEqual(['press']);
+  });
+
+  it('AA5/AA6. the focused key under a UI mark: current follows its depth and the model is synced, nothing is recorded', () => {
+    strokeW();
+    set(SPACE, 3.3, 1200);
+    set(SPACE, 0, 1300);
+    vi.spyOn(performance, 'now').mockReturnValue(base + 1400);
+    keydown(button(), ' ', 'Space');
+    set(SPACE, 3.3, 1500);
+    expect(live.data.current).toBeCloseTo(3.3, 1); // AA6
+    expect(live.data.model!.actuated).toBe(true); // AA5
+    set(SPACE, 0.2, 1550); // above rest: the mark holds
+    expect(live.data.current).toBeCloseTo(0.2, 1);
+    expect(live.data.model!.actuated).toBe(false);
+    expect(live.data.count).toBe(1);
+    set(SPACE, 0, 1600);
+    set(SPACE, 3.3, 1700);
+    expect(live.data.count).toBe(2);
+    expect(live.data.lastActuation).toBeCloseTo(3.3, 1);
+  });
+
   it('Y7. stop() clears the marks: a real Space right after is followed', () => {
     strokeW();
     live.markUiPressed([SPACE.id], base + 1000);
