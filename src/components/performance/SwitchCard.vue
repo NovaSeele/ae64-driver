@@ -45,9 +45,6 @@ const rowName = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknownRow'
 
 <template>
   <Card :title="t('swp.selTitle')" :subtitle="t('sw.hint')">
-    <template #actions>
-      <Button variant="secondary" size="sm" :icon="IconReplace" :disabled="!perf.catalog || !ids.length" :title="perf.catalog ? undefined : unsupportedText" @click="open = true">{{ t('sw.change') }}</Button>
-    </template>
     <div class="swc">
       <p v-if="!ids.length" class="swc__note">{{ t('swp.selEmpty') }}</p>
       <div v-else-if="groups.length === 1" class="swc__current">
@@ -82,12 +79,16 @@ const rowName = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknownRow'
         <button type="button" class="swc__recal-x" :aria-label="t('sw.recalHide')" @click="recal = false"><IconX :size="14" aria-hidden="true" /></button>
       </div>
     </div>
+    <div class="swc__foot">
+      <Button variant="secondary" size="sm" :icon="IconReplace" :disabled="!perf.catalog || !ids.length" :title="perf.catalog ? undefined : unsupportedText" @click="open = true">{{ t('sw.change') }}</Button>
+    </div>
     <SwitchPicker v-model:open="open" :ids="ids" @applied="recal = true" />
   </Card>
 </template>
 
 <style scoped>
 .swc { display: flex; flex-direction: column; gap: var(--s-3); }
+.swc__foot { margin-top: auto; display: flex; justify-content: flex-start; }
 .swc__current { display: flex; align-items: center; gap: var(--s-3); }
 .swc__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .swc__name { font-size: var(--fs-card); font-weight: 600; color: var(--fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

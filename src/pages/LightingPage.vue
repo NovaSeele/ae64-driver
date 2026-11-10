@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { IconBorderOuter, IconKeyboard } from '@tabler/icons-vue';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
@@ -9,7 +10,7 @@ import Dialog from '../components/ui/Dialog.vue';
 import Segmented from '../components/ui/Segmented.vue';
 import Slider from '../components/ui/Slider.vue';
 import ColorPicker from '../components/ui/ColorPicker.vue';
-import Tabs from '../components/ui/Tabs.vue';
+import FeatureSwitch from '../components/switch/FeatureSwitch.vue';
 import Switch from '../components/ui/Switch.vue';
 import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
@@ -31,8 +32,8 @@ const activeTab = ref<TabId>('keys');
 const area = computed<0 | 1>(() => (activeTab.value === 'keys' ? 0 : 1));
 
 const tabItems = computed(() => [
-  { id: 'keys', label: t('lighting.tabKeys') },
-  { id: 'strip', label: t('lighting.tabStrip') },
+  { id: 'keys', title: t('lighting.tabKeys'), sub: t('lighting.tabKeysSub'), icon: IconKeyboard, tone: 'var(--f-lighting)' },
+  { id: 'strip', title: t('lighting.tabStrip'), sub: t('lighting.tabStripSub'), icon: IconBorderOuter, tone: 'var(--f-lighting)' },
 ]);
 
 // What the page may show and edit: nothing is real until this profile's lighting has been read.
@@ -327,27 +328,22 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
   <PageLayout :title="t('page.lighting')">
     <template #toolbar>
       <div class="lighting-toolbar">
-        <span class="lighting-live-badge" :class="`lighting-live-badge--${liveState}`">
-          <span class="lighting-live-badge__dot" />
-          {{ liveState === 'error' ? t('lighting.liveError') : liveState === 'live' ? t('lighting.liveStatus') : t('lighting.pausedStatus') }}
-        </span>
-        <Switch
-          v-model="lighting.livePreview"
-          :label="t('lighting.livePreview')"
-        />
+        <FeatureSwitch v-model="activeTab" :items="tabItems" :label="t('lighting.tabsLabel')" />
+        <div class="lighting-toolbar__live">
+          <span class="lighting-live-badge" :class="`lighting-live-badge--${liveState}`">
+            <span class="lighting-live-badge__dot" />
+            {{ liveState === 'error' ? t('lighting.liveError') : liveState === 'live' ? t('lighting.liveStatus') : t('lighting.pausedStatus') }}
+          </span>
+          <Switch
+            v-model="lighting.livePreview"
+            :label="t('lighting.livePreview')"
+          />
+        </div>
       </div>
     </template>
 
     <div class="lighting">
       <p v-if="readOnly" class="lighting-notice" role="status">{{ t('lighting.readOnly') }}</p>
-
-      <div class="lighting-tabs-row">
-        <Tabs
-          v-model="activeTab"
-          :items="tabItems"
-          :label="t('lighting.tabsLabel')"
-        />
-      </div>
 
       <!-- Keyboard + edge strip preview (keys are only selectable on the keys tab) -->
       <section class="lighting-stage">
@@ -411,7 +407,17 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
       <!-- Main Content Panels -->
       <div v-else class="lighting-grid">
         <!-- Effects (the main choice) -->
-        <Card :title="t('lighting.effectsTitle')" class="lighting-grid__full">
+        <Card :title="t('lighting.effectsTitle')" class="lighting-grid__full lighting-effects">
+          <template #actions>
+            <span class="power-caption">{{ t('lighting.powerTitle') }}</span>
+            <Segmented
+              v-model="openModel"
+              class="seg-fit"
+              :options="openOptions"
+              :label="t('lighting.powerTitle')"
+              :disabled="locked"
+            />
+          </template>
           <fieldset class="card-inner" :disabled="tuneLocked">
             <p class="card-desc">{{ powered ? t('lighting.effectsDesc') : t('lighting.powerOffHint') }}</p>
             <div class="effect-grid">
@@ -432,7 +438,7 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 
         <div class="lighting-col">
           <!-- Per-key / per-LED colours -->
-          <Card :title="activeTab === 'keys' ? t('lighting.perKeyTitle') : t('lighting.stripCustomTitle')">
+          <Card class="grow" :title="activeTab === 'keys' ? t('lighting.perKeyTitle') : t('lighting.stripCustomTitle')">
             <fieldset class="card-inner" :disabled="locked">
               <p class="card-desc">{{ activeTab === 'keys' ? t('lighting.perKeyDesc') : t('lighting.stripCustomDesc') }}</p>
               <div v-if="activeTab === 'strip'" class="preset-toolbar">
@@ -462,9 +468,45 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
               <p v-if="activeTab === 'keys'" class="space-note">{{ t('lighting.spaceNote') }}</p>
             </fieldset>
           </Card>
+        </div>
+
+        <div class="lighting-col">
+          <!-- Tuning -->
+          <Card class="grow" :title="t('lighting.tuningTitle')">
+            <fieldset class="card-inner" :disabled="tuneLocked">
+              <div v-for="field in tuneFields" :key="field.id" class="field-block">
+                <div class="field-label-row">
+                  <span class="field-label">{{ field.label }}</span>
+                  <span class="field-val num">{{ tuneValue(field.id) }}%</span>
+                </div>
+                <Slider
+                  :model-value="tuneValue(field.id)"
+                  :min="0"
+                  :max="100"
+                  :step="1"
+                  :fine-step="1"
+                  :label="field.label"
+                  :disabled="tuneLocked"
+                  @update:model-value="onTuneDrag(field.id, $event)"
+                  @commit="onTuneCommit(field.id, $event)"
+                />
+              </div>
+              <div class="field-block">
+                <div class="field-label-row">
+                  <span class="field-label">{{ t('lighting.direction') }}</span>
+                </div>
+                <Segmented
+                  v-model="directionModel"
+                  class="seg-fit"
+                  :options="directionOptions"
+                  :label="t('lighting.direction')"
+                />
+              </div>
+            </fieldset>
+          </Card>
 
           <!-- Palette -->
-          <Card :title="t('lighting.paletteTitle')">
+          <Card class="grow" :title="t('lighting.paletteTitle')">
             <fieldset class="card-inner" :disabled="tuneLocked">
               <p class="card-desc">{{ t('lighting.paletteDesc') }}</p>
               <div class="palette-swatches">
@@ -511,55 +553,6 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
             </fieldset>
           </Card>
         </div>
-
-        <div class="lighting-col">
-          <!-- Power -->
-          <Card :title="t('lighting.powerTitle')">
-            <fieldset class="card-inner" :disabled="locked">
-              <p class="card-desc">{{ activeTab === 'keys' ? t('lighting.powerKeysDesc') : t('lighting.powerStripDesc') }}</p>
-              <Segmented
-                v-model="openModel"
-                class="seg-fit"
-                :options="openOptions"
-                :label="t('lighting.powerTitle')"
-              />
-            </fieldset>
-          </Card>
-
-          <!-- Tuning -->
-          <Card :title="t('lighting.tuningTitle')">
-            <fieldset class="card-inner" :disabled="tuneLocked">
-              <div v-for="field in tuneFields" :key="field.id" class="field-block">
-                <div class="field-label-row">
-                  <span class="field-label">{{ field.label }}</span>
-                  <span class="field-val num">{{ tuneValue(field.id) }}%</span>
-                </div>
-                <Slider
-                  :model-value="tuneValue(field.id)"
-                  :min="0"
-                  :max="100"
-                  :step="1"
-                  :fine-step="1"
-                  :label="field.label"
-                  :disabled="tuneLocked"
-                  @update:model-value="onTuneDrag(field.id, $event)"
-                  @commit="onTuneCommit(field.id, $event)"
-                />
-              </div>
-              <div class="field-block">
-                <div class="field-label-row">
-                  <span class="field-label">{{ t('lighting.direction') }}</span>
-                </div>
-                <Segmented
-                  v-model="directionModel"
-                  class="seg-fit"
-                  :options="directionOptions"
-                  :label="t('lighting.direction')"
-                />
-              </div>
-            </fieldset>
-          </Card>
-        </div>
       </div>
     </div>
 
@@ -588,7 +581,19 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 .lighting-toolbar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--s-3);
+  width: 100%;
+}
+
+.lighting-toolbar__live {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex: none;
+  white-space: nowrap;
+  margin-left: auto;
 }
 
 .lighting-live-badge {
@@ -630,11 +635,6 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
   background: var(--warn-soft);
   color: var(--warn);
   font-size: var(--fs-label);
-}
-
-.lighting-tabs-row {
-  display: flex;
-  align-items: center;
 }
 
 .lighting-stage {
@@ -787,7 +787,6 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--s-5);
-  align-items: start;
 }
 
 .lighting-grid__full {
@@ -799,6 +798,29 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
   flex-direction: column;
   gap: var(--s-5);
   min-width: 0;
+}
+
+.lighting-effects :deep(.card__head) {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.power-caption {
+  font-size: var(--fs-label);
+  color: var(--fg-3);
+}
+
+/* Growers take the column's spare height; the pinned footer / editor keeps it from becoming a blank tail */
+.grow {
+  flex: 1 1 auto;
+}
+
+.grow > .card-inner {
+  flex: 1 1 auto;
+}
+
+.grow > .card-inner > .field-block:last-child {
+  margin-top: auto;
 }
 
 .lighting-skeleton {
@@ -813,6 +835,14 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 @media (max-width: 900px) {
   .lighting-grid {
     grid-template-columns: 1fr;
+  }
+
+  .lighting-col {
+    display: contents;
+  }
+
+  .grow {
+    flex: none;
   }
 }
 
@@ -949,6 +979,7 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 }
 
 .palette-editor {
+  margin-top: auto;
   padding-top: var(--s-3);
   border-top: 1px solid var(--line-1);
 }
@@ -1021,6 +1052,7 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 }
 
 .actions-row {
+  margin-top: auto;
   display: flex;
   align-items: center;
   gap: var(--s-2);

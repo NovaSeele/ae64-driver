@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
+import { flushPromises, mount } from '@vue/test-utils';
+import type { VueWrapper } from '@vue/test-utils';
+import { createMemoryHistory, createRouter } from 'vue-router';
+import AdvancedPage from '../src/pages/AdvancedPage.vue';
 import { MockTransport, SAVE_GROUP } from '../src/protocol';
 import type { Performance, PhysicalKey } from '../src/protocol';
 import { useDeviceStore } from '../src/stores/device';
@@ -492,5 +496,38 @@ describe('advanced helpers', () => {
       1: { mode: 0, row: 1, col: 2, type: 'NONE' },
     }, keys);
     expect(list).toEqual([expect.objectContaining({ type: 'READONLY', keys: [0] })]);
+  });
+});
+
+describe('Advanced list layout', () => {
+  let w: VueWrapper | null = null;
+  beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private cb: (e: unknown[]) => void) {}
+      observe() { this.cb([{ contentRect: { width: 900 } }]); }
+      disconnect() {}
+    });
+  });
+  afterEach(() => { w?.unmount(); w = null; document.body.innerHTML = ''; vi.unstubAllGlobals(); });
+  async function page(profile: number) {
+    await setup(profile);
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
+    w = mount(AdvancedPage, { global: { plugins: [router] }, attachTo: document.body });
+    await flushPromises();
+    return w;
+  }
+
+  it('with configured items the list is followed by the dashed add slot that fills the rest of the card', async () => {
+    const p = await page(1);
+    expect(p.findAll('.item')).toHaveLength(1);
+    expect(p.find('.cfg .addslot').exists()).toBe(true);
+    expect(p.find('.cfg .empty').exists()).toBe(false);
+  });
+
+  it('with none configured the empty state is shown and there is no add slot', async () => {
+    const p = await page(0);
+    expect(p.findAll('.item')).toHaveLength(0);
+    expect(p.find('.cfg .empty').exists()).toBe(true);
+    expect(p.find('.addslot').exists()).toBe(false);
   });
 });

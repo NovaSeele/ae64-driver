@@ -232,6 +232,10 @@ function onTypeKey(e: KeyboardEvent) {
             {{ t('live.editKey') }}
           </Button>
         </template>
+        <p v-if="view.mismatch" class="mismatch" role="alert">
+          <IconAlertTriangle :size="14" />
+          {{ t('live.mismatch') }}
+        </p>
         <SwitchSim
           :travel="view.current"
           :peak="view.peak"
@@ -243,6 +247,10 @@ function onTypeKey(e: KeyboardEvent) {
           :label="simLabel"
         />
         <p v-if="!settings" class="hint">{{ t('live.loadingSettings') }}</p>
+        <div class="ratefoot">
+          <span class="ratefoot__label">{{ t('live.rate') }}</span>
+          <span class="ratefoot__val num">{{ Math.round(view.rate) }}<small>Hz</small></span>
+        </div>
       </Card>
 
       <Card class="readcard">
@@ -253,10 +261,6 @@ function onTypeKey(e: KeyboardEvent) {
             <div class="lamp__src">{{ t('live.lampSource') }}</div>
           </div>
         </div>
-        <p v-if="view.mismatch" class="mismatch" role="alert">
-          <IconAlertTriangle :size="14" />
-          {{ t('live.mismatch') }}
-        </p>
 
         <div class="hero">
           <span class="micro">{{ t('live.current') }}</span>
@@ -269,7 +273,6 @@ function onTypeKey(e: KeyboardEvent) {
           <div><dt>{{ t('live.count') }}</dt><dd class="num">{{ view.count }}</dd></div>
           <div><dt>{{ t('live.lastActuation') }}</dt><dd class="num acc">{{ fmt(view.lastActuation) }}<small>{{ unit(view.lastActuation) }}</small></dd></div>
           <div><dt>{{ t('live.lastRelease') }}</dt><dd class="num">{{ fmt(view.lastRelease) }}<small>{{ unit(view.lastRelease) }}</small></dd></div>
-          <div><dt>{{ t('live.rate') }}</dt><dd class="num">{{ Math.round(view.rate) }}<small>Hz</small></dd></div>
         </dl>
 
         <div class="typetest">
@@ -372,13 +375,20 @@ function onTypeKey(e: KeyboardEvent) {
   display: grid;
   grid-template-columns: minmax(360px, 1.15fr) minmax(280px, 1fr);
   gap: var(--s-4);
-  align-items: start;
 }
 .graphcard { grid-column: 1 / -1; }
 @media (max-width: 1100px) {
   .grid { grid-template-columns: 1fr; }
+  .typetest, .typetest__box { flex: none; }
 }
-.simcard :deep(.sim) { margin: var(--s-2) auto 0; }
+.simcard :deep(.sim) { margin: auto; }
+.ratefoot {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding-top: var(--s-3); border-top: 1px solid var(--line-1);
+  font-size: var(--fs-label); color: var(--fg-3);
+}
+.ratefoot__val { font-size: 15px; font-weight: 600; color: var(--fg-1); }
+.ratefoot__val small { margin-left: 3px; font-size: var(--fs-caption); font-weight: 500; color: var(--fg-3); }
 
 .lamp {
   display: flex;
@@ -409,7 +419,7 @@ function onTypeKey(e: KeyboardEvent) {
   display: flex;
   gap: 6px;
   align-items: flex-start;
-  margin-top: var(--s-2);
+  margin: 0;
   padding: var(--s-2) var(--s-3);
   border-radius: var(--r-control);
   background: var(--warn-soft);
@@ -435,7 +445,6 @@ function onTypeKey(e: KeyboardEvent) {
   border: 1px solid var(--line-1);
 }
 .stats > div { background: var(--bg-2); padding: var(--s-3) var(--s-4); display: flex; flex-direction: column; gap: 4px; }
-.stats > div:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .stats dt { font-size: var(--fs-caption); color: var(--fg-3); }
 .stats dd { margin: 0; font-size: var(--fs-hero); font-weight: 600; letter-spacing: -0.01em; }
 .stats dd small { margin-left: 4px; font-size: var(--fs-label); font-weight: 500; color: var(--fg-3); }
@@ -451,6 +460,7 @@ function onTypeKey(e: KeyboardEvent) {
 .dot--act { background: var(--m-press); }
 .dot--release { border: 1.5px solid var(--m-release); }
 
+.typetest { flex: 1 1 auto; display: flex; flex-direction: column; }
 .typetest__head {
   display: flex;
   align-items: center;
@@ -470,6 +480,7 @@ function onTypeKey(e: KeyboardEvent) {
   width: 100%;
   box-sizing: border-box;
   resize: vertical;
+  flex: 1 1 auto;
   min-height: 72px;
   margin-top: var(--s-2);
   padding: var(--s-2) var(--s-3);

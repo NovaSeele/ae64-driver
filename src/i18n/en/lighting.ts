@@ -5,6 +5,8 @@ export const lightingEn: Record<keyof typeof lightingVi, string> = {
   // Navigation & tabs
   'lighting.tabKeys': 'Keyboard',
   'lighting.tabStrip': 'Edge strip',
+  'lighting.tabKeysSub': 'LEDs above and below each key',
+  'lighting.tabStripSub': '38 LEDs around the case edge',
   'lighting.tabsLabel': 'Select lighting zone',
 
   // Live preview
@@ -16,8 +18,6 @@ export const lightingEn: Record<keyof typeof lightingVi, string> = {
 
   // Power / Open mode
   'lighting.powerTitle': 'Lighting Power',
-  'lighting.powerKeysDesc': 'Control upper and lower LED banks of switches',
-  'lighting.powerStripDesc': 'Turn the 38-LED edge strip on or off',
   'lighting.modeOff': 'Off',
   'lighting.modeBottom': 'Bottom',
   'lighting.modeTop': 'Top',

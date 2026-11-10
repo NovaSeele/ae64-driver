@@ -453,6 +453,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
       </Card>
 
       <Card :title="t('advanced.configured')" :subtitle="adv.assignments.length ? t('advanced.configuredCount', { n: adv.assignments.length }) : undefined">
+        <div class="cfg">
         <div v-if="!adv.assignments.length" class="empty">
           <IconTimeline :size="28" stroke-width="1.4" aria-hidden="true" />
           <p>{{ t('advanced.none') }}</p>
@@ -473,6 +474,8 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
             <IconButton :icon="IconTrash" :label="t('advanced.delete')" size="sm" @click="confirmDel = a" />
           </li>
         </ul>
+        <div v-if="adv.assignments.length" class="addslot"><IconArrowLeft :size="16" stroke-width="1.6" aria-hidden="true" />{{ t('advanced.noneHint') }}</div>
+        </div>
       </Card>
     </div>
 
@@ -496,7 +499,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
 </template>
 
 <style scoped>
-.cols { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: var(--s-4); align-items: start; }
+.cols { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: var(--s-4); }
 @media (max-width: 1000px) { .cols { grid-template-columns: 1fr; } }
 .loading { color: var(--fg-3); }
 .skel-card {
@@ -542,7 +545,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
 .type__desc { font-size: var(--fs-label); color: var(--fg-3); line-height: 1.35; }
 .type__go { color: var(--fg-3); }
 .type:hover .type__go { color: var(--acc); }
-.types__note { display: flex; align-items: flex-start; gap: 6px; margin: var(--s-3) 0 0; font-size: var(--fs-label); color: var(--fg-3); }
+.types__note { display: flex; align-items: flex-start; gap: 6px; margin: var(--s-3) 0 0; margin-top: auto; font-size: var(--fs-label); color: var(--fg-3); }
 .types__note svg { flex: none; margin-top: 3px; }
 .item__ro {
   display: inline-flex;
@@ -554,10 +557,25 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
 }
 
 /* configured list */
-.empty { display: flex; flex-direction: column; align-items: center; gap: var(--s-2); padding: var(--s-7) 0; color: var(--fg-3); text-align: center; }
+.cfg { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+/* Single column: no grower, the list keeps its natural height. */
+@media (max-width: 1000px) { .cfg { flex: none; overflow-y: visible; } }
+.empty { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s-2); color: var(--fg-3); text-align: center; }
 .empty p { margin: 0; color: var(--fg-2); }
 .empty .muted { color: var(--fg-3); }
-.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; flex: none; }
+.addslot {
+  flex: 1 0 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-card);
+  color: var(--fg-3);
+  font-size: var(--fs-label);
+  text-align: center;
+}
 .item {
   display: flex;
   align-items: center;

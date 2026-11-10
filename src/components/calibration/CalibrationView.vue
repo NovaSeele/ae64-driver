@@ -138,25 +138,6 @@ onBeforeUnmount(() => {
         <li :class="{ now: running }"><span class="steps__n num">2</span>{{ t('calibration.step2') }}</li>
         <li><span class="steps__n num">3</span>{{ t('calibration.step3') }}</li>
       </ol>
-      <p v-if="sessionError && cal.phase === 'idle'" class="alert" role="alert"><IconAlertTriangle :size="14" />{{ sessionError }}</p>
-      <p v-if="!device.boardAllowed" class="warn">{{ t('calibration.readOnly') }}</p>
-      <p v-if="device.demo" class="hint">{{ t('calibration.demoHint') }}</p>
-      <div class="actions">
-        <template v-if="running || cal.phase === 'finishing'">
-          <Button variant="primary" :icon="IconCheck" :loading="cal.phase === 'finishing'" @click="finish">{{ t('calibration.finish') }}</Button>
-          <Button variant="ghost" :icon="IconX" :disabled="busy" @click="cancel">{{ t('calibration.cancel') }}</Button>
-        </template>
-        <Button
-          v-else
-          variant="primary"
-          :icon="IconPlayerPlay"
-          :loading="cal.phase === 'starting'"
-          :disabled="!device.boardAllowed"
-          @click="confirmOpen = true"
-        >
-          {{ t('calibration.start') }}
-        </Button>
-      </div>
     </Card>
 
     <Card class="progress">
@@ -172,6 +153,27 @@ onBeforeUnmount(() => {
       <div class="bar" :class="{ 'bar--new': running }"><span :style="{ transform: `scaleX(${cal.loaded ? progress / 64 : 0})` }" /></div>
       <p v-if="allDone" class="done" role="status"><IconCheck :size="14" />{{ t('calibration.allDone') }}</p>
       <p v-else-if="cal.loaded && !running && cal.uncalibratedCount > 0" class="warn">{{ t('calibration.uncalibrated', { n: cal.uncalibratedCount }) }}</p>
+      <div class="session">
+        <p v-if="sessionError && cal.phase === 'idle'" class="alert" role="alert"><IconAlertTriangle :size="14" />{{ sessionError }}</p>
+        <p v-if="!device.boardAllowed" class="warn">{{ t('calibration.readOnly') }}</p>
+        <p v-if="device.demo" class="hint">{{ t('calibration.demoHint') }}</p>
+        <div class="actions">
+          <template v-if="running || cal.phase === 'finishing'">
+            <Button variant="primary" :icon="IconCheck" :loading="cal.phase === 'finishing'" @click="finish">{{ t('calibration.finish') }}</Button>
+            <Button variant="ghost" :icon="IconX" :disabled="busy" @click="cancel">{{ t('calibration.cancel') }}</Button>
+          </template>
+          <Button
+            v-else
+            variant="primary"
+            :icon="IconPlayerPlay"
+            :loading="cal.phase === 'starting'"
+            :disabled="!device.boardAllowed"
+            @click="confirmOpen = true"
+          >
+            {{ t('calibration.start') }}
+          </Button>
+        </div>
+      </div>
     </Card>
   </div>
 
@@ -211,7 +213,7 @@ onBeforeUnmount(() => {
 .alert svg { flex: none; margin-top: 1px; }
 .done { display: flex; align-items: center; gap: 6px; color: var(--ok); font-size: var(--fs-label); }
 
-.grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr); gap: var(--s-4); align-items: start; }
+.grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr); gap: var(--s-4); }
 @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
 
 .steps { list-style: none; margin: var(--s-2) 0 var(--s-4); padding: 0; display: flex; flex-direction: column; gap: var(--s-3); }
@@ -233,7 +235,9 @@ onBeforeUnmount(() => {
 .steps li.done .steps__n { background: var(--bg-4); color: var(--fg-2); }
 .steps li.now { color: var(--fg-1); }
 .steps li.now .steps__n { background: var(--acc); border-color: var(--acc); color: var(--on-acc); }
-.actions { display: flex; gap: var(--s-2); margin-top: var(--s-4); }
+.session { margin-top: auto; display: flex; flex-direction: column; gap: var(--s-3); }
+.session > * { margin: 0; }
+.actions { display: flex; gap: var(--s-2); }
 
 .progress { display: flex; flex-direction: column; gap: var(--s-2); }
 .running { display: flex; align-items: center; gap: var(--s-2); color: var(--acc); font-size: var(--fs-label); font-weight: 500; }

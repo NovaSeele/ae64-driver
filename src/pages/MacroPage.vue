@@ -329,7 +329,7 @@ async function discard() {
         </div>
 
         <!-- sequence -->
-        <Card :title="t('macro.editor')" :subtitle="recording ? undefined : t('macro.recordHint')">
+        <Card class="seqcard" :title="t('macro.editor')" :subtitle="recording ? undefined : t('macro.recordHint')">
           <template #actions>
             <Button v-if="!recording" variant="secondary" size="sm" :icon="IconPlayerRecordFilled" class="rec" :disabled="full || readOnly || saving" @click="startRecording">{{ t('macro.record') }}</Button>
             <Button v-else variant="danger" size="sm" :icon="IconPlayerStopFilled" @click="stopRecording">{{ t('macro.stop') }}</Button>
@@ -414,8 +414,14 @@ async function discard() {
 </template>
 
 <style scoped>
-.cols { display: grid; grid-template-columns: 260px 1fr; gap: var(--s-4); align-items: start; }
-@media (max-width: 1000px) { .cols { grid-template-columns: 1fr; } }
+.cols { display: grid; grid-template-columns: 260px 1fr; gap: var(--s-4); }
+@media (max-width: 1000px) {
+  .cols { grid-template-columns: 1fr; }
+  /* One column: no growers, the table keeps its natural height (long macros scroll inside, as before). */
+  .main > .seqcard { flex: none; }
+  .main :deep(.at) { flex: none; min-height: 0; }
+  .main :deep(.at__body) { max-height: 460px; }
+}
 .skel-card {
   display: flex;
   flex-direction: column;
@@ -427,13 +433,15 @@ async function discard() {
 }
 .muted { color: var(--fg-3); }
 
-.slots { display: flex; flex-direction: column; gap: 4px; }
+.slots { flex: 1 1 auto; display: flex; flex-direction: column; gap: 4px; }
 .slot {
   position: relative;
   display: flex;
   align-items: center;
   gap: var(--s-3);
-  height: 38px;
+  flex: 1 1 auto;
+  min-height: 38px;
+  max-height: 56px;
   padding: 0 12px;
   border-radius: var(--r-control);
   border: 1px solid transparent;
@@ -448,11 +456,13 @@ async function discard() {
 .slot[aria-selected='true'] .slot__id { color: var(--acc); }
 .slot__count { flex: 1; font-size: var(--fs-label); color: var(--fg-3); }
 .slot--used .slot__count { color: var(--fg-2); }
-.note { margin: var(--s-3) 0 0; font-size: var(--fs-label); color: var(--fg-3); }
+.note { margin: var(--s-3) 0 0; margin-top: auto; font-size: var(--fs-label); color: var(--fg-3); }
 .warn-note { margin: 0; padding: 10px 12px; border-radius: var(--r-control); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-label); }
 .slot__dirty { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
 
 .main { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; }
+/* The Action sequence card is the right column's grower: its table (or the empty note) takes the spare height. */
+.main > .seqcard { flex: 1 1 auto; }
 .head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s-4); flex-wrap: wrap; }
 .head__title { margin: 0; font-size: var(--fs-hero); font-weight: 600; display: flex; align-items: center; gap: var(--s-3); }
 .badge { font-size: var(--fs-caption); font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); }
@@ -476,8 +486,8 @@ async function discard() {
 .recbar__key { padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line-3); background: var(--bg-3); font-family: inherit; font-size: var(--fs-label); }
 .recbar__n { margin-left: auto; font-weight: 600; color: var(--danger); }
 @keyframes pulse { 50% { opacity: 0.3; } }
-.none { padding: var(--s-6) 0; text-align: center; color: var(--fg-3); }
-.seqfoot { display: flex; align-items: center; gap: var(--s-4); flex-wrap: wrap; margin-top: var(--s-3); padding-top: var(--s-3); border-top: 1px solid var(--line-1); font-size: var(--fs-label); }
+.none { flex: 1 1 auto; display: grid; place-items: center; margin: 0; padding: var(--s-6) 0; text-align: center; color: var(--fg-3); }
+.seqfoot { display: flex; align-items: center; gap: var(--s-4); flex-wrap: wrap; margin-top: auto; padding-top: var(--s-3); border-top: 1px solid var(--line-1); font-size: var(--fs-label); }
 .warn { display: inline-flex; align-items: center; gap: 4px; color: var(--warn); }
 .err { color: var(--danger); }
 

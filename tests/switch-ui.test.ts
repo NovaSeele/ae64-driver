@@ -31,7 +31,7 @@ const body = () => document.body;
 const btn = (text: string) => [...body().querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith(text)) as HTMLButtonElement | undefined;
 const opt = (name: string) => [...body().querySelectorAll<HTMLElement>('.sw-opt')].find((o) => o.querySelector('.sw-opt__name')?.textContent === name)!;
 async function openDialog() {
-  (w!.find('.card__actions button').element as HTMLElement).click();
+  (w!.find('.swc__foot button').element as HTMLElement).click();
   await flushPromises();
 }
 
@@ -44,7 +44,7 @@ describe('switch selector UI', () => {
     expect(w!.find('.swc__name').text()).toBe('UR Ice HE-Ex');
     expect(w!.find('.swc__meta').text()).toBe('Ur Studio · 64 phím');
     expect(w!.find('.swc__mm').text()).toBe('3.31mm');
-    expect(w!.find('.card__actions button').attributes('disabled')).toBeUndefined();
+    expect(w!.find('.swc__foot button').attributes('disabled')).toBeUndefined();
   });
 
   it('dialog opens on the in-use tab with counts 30/19/8/7/12', async () => {
@@ -141,7 +141,7 @@ describe('switch selector UI', () => {
     const { device } = await setup();
     device.info = { ...device.info!, boardIdHex: '0030000a' };
     await flushPromises();
-    const change = w!.find('.card__actions button');
+    const change = w!.find('.swc__foot button');
     expect(change.attributes('disabled')).toBeDefined();
     expect(change.attributes('title')).toContain('0030000A');
     expect(w!.find('.swc__name').text()).toBe('Không rõ');

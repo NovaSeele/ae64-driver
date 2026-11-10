@@ -151,7 +151,7 @@ function nameOfKey(k: PhysicalKey): string | undefined {
 <style scoped>
 .feat-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-2) var(--s-4); width: 100%; }
 .swp-wrap { container-type: inline-size; }
-.swp { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--s-4); align-items: start; }
+.swp { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--s-4); }
 @container (max-width: 819.98px) { /* about 900 px windows: one column, the action card first */
   .swp { grid-template-columns: minmax(0, 1fr); }
   .swp > :last-child { order: -1; }

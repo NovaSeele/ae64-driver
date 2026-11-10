@@ -3,6 +3,8 @@ export const lightingVi = {
   // Navigation & tabs
   'lighting.tabKeys': 'Bàn phím',
   'lighting.tabStrip': 'Dải đèn viền',
+  'lighting.tabKeysSub': 'LED trên và dưới mỗi phím',
+  'lighting.tabStripSub': '38 LED quanh viền bàn phím',
   'lighting.tabsLabel': 'Chọn vùng điều khiển đèn',
 
   // Live preview
@@ -14,8 +16,6 @@ export const lightingVi = {
 
   // Power / Open mode
   'lighting.powerTitle': 'Chế độ bật đèn',
-  'lighting.powerKeysDesc': 'Điều khiển bóng LED phía trên / dưới của switch',
-  'lighting.powerStripDesc': 'Bật hoặc tắt dải đèn viền 38 LED',
   'lighting.modeOff': 'Tắt',
   'lighting.modeBottom': 'Phía dưới',
   'lighting.modeTop': 'Phía trên',

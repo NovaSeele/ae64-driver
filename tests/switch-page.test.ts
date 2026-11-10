@@ -55,9 +55,12 @@ describe('Switch page', () => {
     expect(w.findAll('.cap__extra .swatch')).toHaveLength(device.keys.length);
 
     // nothing selected: the card says so and its button is disabled
-    const change = () => w!.find('.card__actions button');
+    const change = () => w!.find('.swc__foot button');
     expect(w.find('.swc__note').text()).toContain('Chưa chọn phím');
     expect(change().attributes('disabled')).toBeDefined();
+    // the change button sits in the footer of the selected-keys card (the right-hand card), not in its header
+    expect(w.findAll('.swp > .card')[1].find('.swc__foot button').exists()).toBe(true);
+    expect(w.find('.card__actions').exists()).toBe(false);
 
     await rows[1].trigger('click');
     expect(useSelectionStore().ids).toEqual([...expected[1].ids].sort((a, b) => a - b));
@@ -205,5 +208,23 @@ describe('Switch page tabs', () => {
     await router.push('/switch?tab=switch');
     await flushPromises();
     expect(selected()).toEqual(['switch']);
+  });
+
+  it('calibration: Start sits in the progress card and still opens the confirm, then starts the session', async () => {
+    await mountAt('/switch?tab=calibration');
+    const cal = useCalibrationStore();
+    const start = vi.spyOn(cal, 'start').mockResolvedValue(undefined as never);
+    const progress = w!.find('.progress');
+    expect(w!.findAll('.grid > .card')[0].find('.actions').exists()).toBe(false);
+    const btn = progress.find('.session .actions button');
+    expect(btn.exists()).toBe(true);
+    expect(btn.text()).toContain('Bắt đầu');
+    await btn.trigger('click');
+    await flushPromises();
+    expect(start).not.toHaveBeenCalled(); // the confirm dialog comes first
+    const ok = [...document.body.querySelectorAll('button')].filter((b) => b.textContent?.trim().startsWith('Bắt đầu')).pop()!;
+    ok.click();
+    await flushPromises();
+    expect(start).toHaveBeenCalledTimes(1);
   });
 });

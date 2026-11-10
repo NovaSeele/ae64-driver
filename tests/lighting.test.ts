@@ -438,4 +438,58 @@ describe('lighting page', () => {
     expect(sets.every((f) => f.attributes('disabled') !== undefined)).toBe(true);
     page.unmount();
   });
+
+  it('switches zones by click and by arrow / Home / End keys', async () => {
+    const { page } = await mountPage();
+    const tabs = () => page.findAll('[role="tab"]');
+    const selected = () => tabs().findIndex((x) => x.attributes('aria-selected') === 'true');
+    expect(tabs()).toHaveLength(2);
+    expect(selected()).toBe(0);
+
+    await tabs()[1].trigger('click');
+    expect(selected()).toBe(1);
+    await tabs()[0].trigger('click');
+    expect(selected()).toBe(0);
+
+    const tablist = page.find('[role="tablist"]');
+    await tablist.trigger('keydown', { key: 'ArrowRight' });
+    expect(selected()).toBe(1);
+    await tablist.trigger('keydown', { key: 'ArrowLeft' });
+    expect(selected()).toBe(0);
+    await tablist.trigger('keydown', { key: 'End' });
+    expect(selected()).toBe(1);
+    await tablist.trigger('keydown', { key: 'Home' });
+    expect(selected()).toBe(0);
+    page.unmount();
+  });
+
+  it('keeps the power control usable while the lights are off, and disabled when locked', async () => {
+    const { device, lighting, page } = await mountPage();
+    const buttons = () => page.findAll('.lighting-effects .card__actions button');
+    expect(buttons().length).toBeGreaterThan(1);
+
+    lighting.area0Base.open = false;
+    await flushPromises();
+    expect(page.find('.lighting-effects fieldset').attributes('disabled')).toBeDefined();
+    expect(buttons().every((b) => b.attributes('disabled') === undefined)).toBe(true);
+
+    device.boardAllowed = false;
+    await flushPromises();
+    expect(buttons().every((b) => b.attributes('disabled') !== undefined)).toBe(true);
+    page.unmount();
+  });
+
+  it('sends no HID frames when switching zones', async () => {
+    const { mock, lighting, page } = await mountPage();
+    lighting.stopLivePolling(); // the poll reads the LED matrix on its own; only the zone switch is under test
+    await new Promise((r) => setTimeout(r, 300)); // let a poll already in flight finish
+    await flushPromises();
+    const spy = vi.spyOn(mock as any, 'exchange');
+    await page.findAll('[role="tab"]')[1].trigger('click');
+    await flushPromises();
+    await page.findAll('[role="tab"]')[0].trigger('click');
+    await flushPromises();
+    expect(spy).not.toHaveBeenCalled();
+    page.unmount();
+  });
 });

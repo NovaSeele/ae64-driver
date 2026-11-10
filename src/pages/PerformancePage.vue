@@ -16,6 +16,7 @@ import PageLayout from '../components/shell/PageLayout.vue';
 import EmptyState from '../components/shell/EmptyState.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import TravelEditor from '../components/performance/TravelEditor.vue';
+import StdCycleCard from '../components/performance/StdCycleCard.vue';
 import Card from '../components/ui/Card.vue';
 import Button from '../components/ui/Button.vue';
 import Segmented from '../components/ui/Segmented.vue';
@@ -27,6 +28,7 @@ import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
 import { LIMITS, PRESETS, actuationOf, isKnownMode, rangeMm, usePerformanceStore } from '../stores/performance';
 import type { PerfEdit } from '../stores/performance';
+import { releasePoint, settingsFrom } from '../stores/live';
 import { isRtMode, supportsIntervalRt } from '../protocol';
 import type { Performance, PerfMode, PhysicalKey } from '../protocol';
 import { useToast } from '../components/ui/toast';
@@ -125,6 +127,18 @@ function onWindowResize() {
   resetGridMinH();
 }
 
+// ----- columns: real wrappers (so every column can stretch to the same bottom), chosen by width.
+// 3 columns from 1361px, 2 from 761px, else 1. Without matchMedia (tests) the layout is the widest one.
+const colCount = ref<1 | 2 | 3>(3);
+const mqlWide = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 1361px)') : null;
+const mqlMid = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 761px)') : null;
+function updateColCount() {
+  if (mqlWide && mqlMid) colCount.value = mqlWide.matches ? 3 : mqlMid.matches ? 2 : 1;
+}
+updateColCount();
+mqlWide?.addEventListener('change', updateColCount);
+mqlMid?.addEventListener('change', updateColCount);
+
 let offProfile: (() => void) | null = null;
 onMounted(() => {
   void perf.load();
@@ -137,6 +151,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   offProfile?.();
   window.removeEventListener('resize', onWindowResize);
+  mqlWide?.removeEventListener('change', updateColCount);
+  mqlMid?.removeEventListener('change', updateColCount);
   gridObserver?.disconnect();
 });
 
@@ -214,8 +230,29 @@ const continuous = computed<boolean | null>(() => {
   const m = new Set(recs.value.filter((p) => isRtMode(p.mode)).map((p) => p.mode));
   return m.size === 1 ? m.has(1) : null;
 });
+/** The Standard card takes the RT card's slot, only when every selected key is Standard (neither card when mixed). */
+const stdShown = computed(() => recs.value.length > 0 && mode.value === 0);
+type CardId = 'act' | 'mode' | 'rt' | 'std' | 'dead' | 'presets';
+const slotId = computed<'rt' | 'std' | null>(() => (anyRt.value ? 'rt' : stdShown.value ? 'std' : null));
+/** Mode always heads the second column, so it never moves when the RT / Standard card swaps. */
+const cols = computed<CardId[][]>(() => {
+  const slot = slotId.value ? [slotId.value] : [];
+  const mid: CardId[] = ['mode', ...slot];
+  const all = (c: CardId[][]) => c.filter((x) => x.length);
+  if (colCount.value === 3) return all([['act'], mid, ['dead', 'presets']]);
+  if (colCount.value === 2) return all([['act', 'dead'], [...mid, 'presets']]);
+  return [['act', 'mode', ...slot, 'dead', 'presets']];
+});
+/** One named grower per column (two in the RT column: Mode and RT split the spare height); none in a single column. */
+const growers = computed<Set<CardId>>(() => {
+  if (colCount.value === 1) return new Set();
+  const slot = slotId.value;
+  const mid: CardId[] = slot === 'rt' ? ['mode', 'rt'] : slot === 'std' ? ['std'] : colCount.value === 3 ? ['mode'] : ['presets'];
+  return new Set<CardId>(colCount.value === 3 ? ['act', 'presets', ...mid] : ['dead', ...mid]);
+});
 const maxTravel = computed(() => (recs.value.length ? Math.min(...recs.value.map(rangeMm)) : 3.31));
 const act = computed(() => summary(actuationOf));
+const stdRelease = computed(() => summary((p) => releasePoint(settingsFrom(p))));
 const rtPress = computed(() => summary((p) => p.rtPress));
 const rtRelease = computed(() => summary((p) => p.rtRelease));
 const deadTop = computed(() => summary((p) => p.pressDeadStroke));
@@ -352,7 +389,7 @@ const modeOptions = computed(() => [
     </Card>
 
     <!-- loading skeleton -->
-    <div v-else-if="perf.loading" class="grid" aria-busy="true">
+    <div v-else-if="perf.loading" class="grid" :style="{ '--cols': colCount }" aria-busy="true">
       <p class="loading num">{{ t('perf.loading', { n: perf.loadedCount }) }}</p>
       <div v-for="i in 3" :key="i" class="skel-card">
         <div class="skeleton" style="width: 40%; height: 14px" />
@@ -365,13 +402,20 @@ const modeOptions = computed(() => [
     <EmptyState v-else-if="!hasSel" :icon="IconAdjustmentsHorizontal" :title="t('page.performance')" :body="t('perf.selectKeys')" />
 
     <!-- editors -->
-    <div v-else ref="gridEl" class="grid" :class="{ 'grid--std': !anyRt }" :style="{ minHeight: gridMinH ? gridMinH + 'px' : undefined }">
+    <div
+      v-else
+      ref="gridEl"
+      class="grid"
+      :class="{ 'grid--note': unknownCount }"
+      :style="{ '--cols': cols.length, minHeight: gridMinH ? gridMinH + 'px' : undefined }"
+    >
       <div v-if="unknownCount" class="unknown" role="note">
         <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />
         <span>{{ t('perf.unknownModes', { n: unknownCount }) }}</span>
       </div>
-      <template v-if="recs.length">
-      <Card :title="t('perf.actuation')" :subtitle="t('perf.actuationHint')">
+      <div v-for="(col, ci) in cols" :key="ci" class="pcol">
+      <template v-for="id in col" :key="id">
+      <Card v-if="id === 'act'" :class="{ grow: growers.has('act') }" :title="t('perf.actuation')" :subtitle="t('perf.actuationHint')">
         <div class="act">
           <TravelEditor
             :value="act.value"
@@ -409,7 +453,7 @@ const modeOptions = computed(() => [
         </div>
       </Card>
 
-      <Card class="c-mode" :title="t('perf.mode')">
+      <Card v-else-if="id === 'mode'" class="c-mode" :class="{ grow: growers.has('mode') }" :title="t('perf.mode')">
         <Segmented :model-value="mode" :options="modeOptions" :label="t('perf.mode')" @update:model-value="setMode" />
         <p class="hint">
           {{ mode === null ? t('perf.modeMixed') : mode === 1 ? t('perf.modeHintRt') : t('perf.modeHintStandard') }}
@@ -424,7 +468,7 @@ const modeOptions = computed(() => [
         </div>
       </Card>
 
-      <Card v-if="anyRt" class="c-rt" :title="t('perf.rt')">
+      <Card v-else-if="id === 'rt'" class="c-rt" :class="{ grow: growers.has('rt') }" :title="t('perf.rt')">
         <template #actions>
           <button
             type="button"
@@ -494,7 +538,7 @@ const modeOptions = computed(() => [
         </div>
       </Card>
 
-      <Card class="c-dead" :title="t('perf.deadzones')" :subtitle="t('perf.deadHint')">
+      <Card v-else-if="id === 'dead'" class="c-dead" :class="{ grow: growers.has('dead') }" :title="t('perf.deadzones')" :subtitle="t('perf.deadHint')">
         <div v-for="dz in deadFields" :key="dz.field" class="field">
           <div class="field__row">
             <span class="field__label">{{ dz.label }}</span>
@@ -524,7 +568,16 @@ const modeOptions = computed(() => [
         </div>
       </Card>
 
-      <Card :title="t('perf.presets')">
+      <StdCycleCard
+        v-else-if="id === 'std'"
+        :class="{ grow: growers.has('std') }"
+        :actuation="act.range"
+        :release="stdRelease.range"
+        :max-travel="maxTravel"
+        :fmt="fmt"
+      />
+
+      <Card v-else :class="{ grow: growers.has('presets') }" :title="t('perf.presets')">
         <div class="presets">
           <button v-for="p in PRESETS" :key="p.id" type="button" class="preset" @click="applyPreset(p.id)">
             <span class="preset__name">{{ t(PRESET_TEXT[p.id][0]) }}</span>
@@ -533,6 +586,7 @@ const modeOptions = computed(() => [
         </div>
       </Card>
       </template>
+      </div>
     </div>
   </PageLayout>
 </template>
@@ -586,26 +640,17 @@ const modeOptions = computed(() => [
 }
 
 .grid {
-  /* Balanced columns (masonry-like) so cards of different heights pack without gaps. */
-  columns: 3;
-  column-gap: var(--s-4);
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
+  gap: var(--s-4);
 }
-.grid > * { break-inside: avoid; margin-bottom: var(--s-4); }
-@media (max-width: 1360px) {
-  .grid { columns: 2; }
-}
-@media (max-width: 760px) {
-  .grid { columns: 1; }
-}
-/* Fixed columns, so the Mode card never moves when the RT card appears or goes. Breaks only while there are ≥2 columns. */
-@media (min-width: 1361px) {
-  .grid > .c-mode, .grid > .c-dead { break-before: column; }
-}
-@media (min-width: 761px) and (max-width: 1360px) {
-  .grid > .c-rt, .grid--std > .c-dead { break-before: column; }
-}
+/* A note above the columns takes its own row; the columns' row takes all the spare height (the min-height hold). */
+.grid--note { grid-template-rows: auto 1fr; }
+.pcol { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; }
+/* The grower of a column takes its spare height (Mode and RT split it); each puts it in a named region, never a blank tail. */
+.pcol > .grow { flex: 1 1 auto; }
 
-.loading { column-span: all; margin-bottom: var(--s-3); color: var(--fg-3); }
+.loading { grid-column: 1 / -1; margin: 0; color: var(--fg-3); }
 .skel-card {
   display: flex;
   flex-direction: column;
@@ -616,7 +661,8 @@ const modeOptions = computed(() => [
   border-radius: var(--r-card);
 }
 
-.act { display: flex; gap: var(--s-6); align-items: center; flex-wrap: wrap; }
+/* In the Actuation grower the editor and readout are centred in the spare height. */
+.act { display: flex; flex: 1 1 auto; gap: var(--s-6); align-items: center; flex-wrap: wrap; }
 .act__readout { display: flex; flex-direction: column; gap: var(--s-2); min-width: 150px; }
 .big { display: flex; align-items: baseline; gap: 6px; font-size: 40px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.05; }
 .big .unit { font-size: var(--fs-card); font-weight: 500; color: var(--fg-3); letter-spacing: 0; }
@@ -640,7 +686,7 @@ const modeOptions = computed(() => [
 .link:disabled { opacity: 0.35; cursor: not-allowed; }
 .link--on { color: var(--acc); background: var(--acc-soft); border-color: var(--acc-line); }
 .unknown {
-  column-span: all;
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: var(--s-2);
@@ -652,17 +698,21 @@ const modeOptions = computed(() => [
   font-size: var(--fs-label);
 }
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
-.continuous { display: grid; gap: var(--s-2); margin-top: var(--s-4); padding-top: var(--s-4); border-top: 1px solid var(--line-1); }
-.field { display: flex; flex-direction: column; gap: var(--s-2); }
+/* Pinned to the bottom of the Mode card: the spare height opens above it, between the hint and the switch. */
+.continuous { display: grid; gap: var(--s-2); margin-top: auto; padding-top: var(--s-4); border-top: 1px solid var(--line-1); }
+/* In a grower the fields share the spare height, each centred in its share. */
+.field { display: flex; flex: 1 1 auto; flex-direction: column; justify-content: center; gap: var(--s-2); }
 .field__row { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); }
 .field__label { color: var(--fg-2); }
 .field__row :deep(.nf) { width: 132px; }
 
-.presets { display: flex; flex-direction: column; gap: var(--s-2); }
+.presets { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--s-2); }
 .preset {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  justify-content: center;
+  flex: 1 1 auto;
   gap: 2px;
   padding: 10px 12px;
   border-radius: var(--r-control);

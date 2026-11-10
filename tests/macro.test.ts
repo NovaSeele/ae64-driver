@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
+import { mount } from '@vue/test-utils';
+import ActionTable from '../src/components/macro/ActionTable.vue';
 import { MockTransport, SAVE_GROUP, WriteNotAllowedError } from '../src/protocol';
 import { PermanentSyncError } from '../src/stores/sync';
 import type { MacroAction } from '../src/protocol';
@@ -251,5 +253,15 @@ describe('macro recorder', () => {
     expect(stop).toBe('escape');
     expect(list.map((a) => a.keycode)).toEqual([4]);
     expect(rec.heldCount).toBe(1);
+  });
+});
+
+describe('action table', () => {
+  it('has no inline height cap on its scroll body (the card height decides how many rows show)', () => {
+    const w = mount(ActionTable, { props: { actions: sequence(30), canInsert: true, warnings: new Set<number>() } });
+    expect(w.findAll('.row')).toHaveLength(30);
+    expect(w.find('.at__body').attributes('style') ?? '').not.toMatch(/max-height/);
+    expect(w.find('.at').attributes('style') ?? '').not.toMatch(/max-height/);
+    w.unmount();
   });
 });

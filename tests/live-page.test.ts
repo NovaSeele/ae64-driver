@@ -42,4 +42,29 @@ describe('Live travel page wiring', () => {
     w.unmount();
     expect(suspend).toHaveBeenCalledWith(false);
   });
+
+  it('keeps the mismatch alert inside the simulation card and the sampling rate in its footer', async () => {
+    const device = useDeviceStore();
+    await device.connectDemo();
+    await usePerformanceStore().load();
+    const live = useLiveStore();
+    let frame: FrameRequestCallback | null = null;
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { frame = cb; return 1; });
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
+    const w = mount(LiveTravelPage, { global: { plugins: [router] }, attachTo: document.body });
+    await flushPromises();
+    // the page reads live.data once per animation frame: run one frame with the mismatch flag set
+    live.data.mismatch = true;
+    frame!(1000);
+    await flushPromises();
+
+    const sim = w.find('.simcard');
+    expect(sim.find('.mismatch').exists()).toBe(true);
+    expect(w.find('.readcard .mismatch').exists()).toBe(false);
+    const foot = sim.find('.ratefoot');
+    expect(foot.text()).toContain('Tốc độ đo');
+    expect(foot.text()).toContain('Hz');
+    expect(w.find('.stats').text()).not.toContain('Hz');
+    expect(w.findAll('.stats > div')).toHaveLength(4);
+  });
 });
