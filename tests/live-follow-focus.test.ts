@@ -143,6 +143,109 @@ describe('undoAutoFollow', () => {
     expect(live.undoAutoFollow()).toBe(true);
     expect(live.focusId).toBe(SHIFT.id);
   });
+
+  function ringMax(): number {
+    let m = 0;
+    live.data.ring.forEach(-Infinity, (_t, mm) => { m = Math.max(m, mm); });
+    return m;
+  }
+
+  /** W pressed to ~3 mm and released (standard-mode demo: it actuates). */
+  function strokeW() {
+    set(W, 1, 1000);
+    set(W, 3, 1020);
+    set(W, 2, 1040);
+    set(W, 0, 1060);
+  }
+
+  it('restores the data of the key followed before, not only its name', () => {
+    strokeW();
+    const { peak, lastActuation, lastRelease } = live.data;
+    expect(live.data.count).toBe(1);
+    const epoch = live.data.epoch;
+    set(TAB, 2, 1500);
+    expect(ringMax()).toBeCloseTo(2, 1); // Tab's own buffers
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(W.id);
+    expect(ringMax()).toBeCloseTo(3, 1);
+    expect(live.data.ring.size).toBeGreaterThan(0);
+    expect(live.data.count).toBe(1);
+    expect(live.data.peak).toBe(peak);
+    expect(live.data.lastActuation).toBe(lastActuation);
+    expect(live.data.lastRelease).toBe(lastRelease);
+    expect(live.data.lastRelease).not.toBeNull();
+    expect(live.data.events.length).toBe(2);
+    expect(live.data.touched).toBe(true);
+    expect(live.data.epoch).not.toBe(epoch);
+    expect(live.data.model).not.toBeNull();
+    expect(live.data.model!.actuated).toBe(false);
+  });
+
+  it('slow path: three Tabs 600 ms apart, the last held, restores the same data', () => {
+    strokeW();
+    let t = 1500;
+    for (let i = 0; i < 3; i++) {
+      set(TAB, 3.3, t);
+      if (i < 2) set(TAB, 0, t + 120);
+      t += 600;
+    }
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(W.id);
+    expect(ringMax()).toBeCloseTo(3, 1);
+    expect(live.data.count).toBe(1);
+  });
+
+  it('Shift held with several Tabs still restores W with its data', () => {
+    strokeW();
+    set(SHIFT, 1, 1200);
+    for (let i = 0; i < 4; i++) {
+      set(TAB, 3.3, 1300 + i * 300);
+      if (i < 3) set(TAB, 0, 1400 + i * 300);
+    }
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(W.id);
+    expect(ringMax()).toBeCloseTo(3, 1);
+    expect(live.data.count).toBe(1);
+  });
+
+  it('keeps a key the user is holding on purpose (W released, A held, Tab held without a switch)', () => {
+    const A = key('A');
+    strokeW();
+    set(A, 3, 2000); // W → A
+    expect(live.focusId).toBe(A.id);
+    set(TAB, 3.05, 2100); // not deeper than A + margin: no switch
+    expect(live.focusId).toBe(A.id);
+    const ring = live.data.ring;
+    const size = ring.size;
+    expect(live.undoAutoFollow()).toBe(false);
+    expect(live.focusId).toBe(A.id);
+    expect(live.data.ring).toBe(ring);
+    expect(live.data.ring.size).toBe(size);
+  });
+
+  it('never restores to "nothing followed yet"', () => {
+    expect(live.focusId).toBeNull();
+    set(TAB, 3, 1000); // null → Tab
+    expect(live.focusId).toBe(TAB.id);
+    expect(live.undoAutoFollow()).toBe(false);
+    expect(live.focusId).toBe(TAB.id);
+  });
+
+  it('stop() clears the switch log', () => {
+    strokeW();
+    set(TAB, 2, 1500);
+    live.stop();
+    expect(live.undoAutoFollow()).toBe(false);
+    expect(live.focusId).toBe(TAB.id);
+  });
+
+  it('reset() clears the switch log', () => {
+    strokeW();
+    set(TAB, 2, 1500);
+    live.reset();
+    expect(live.undoAutoFollow()).toBe(false);
+    expect(live.focusId).toBe(TAB.id);
+  });
 });
 
 describe('graph keyboard focus', () => {
