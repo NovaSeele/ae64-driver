@@ -417,10 +417,9 @@ async function discard() {
 .cols { display: grid; grid-template-columns: 260px 1fr; gap: var(--s-4); }
 @media (max-width: 1000px) {
   .cols { grid-template-columns: 1fr; }
-  /* One column: no growers, the table keeps its natural height (long macros scroll inside, as before). */
+  /* One column: no growers, the table keeps its natural height (capped at 460 px, long macros scroll inside). */
   .main > .seqcard { flex: none; }
   .main :deep(.at) { flex: none; min-height: 0; }
-  .main :deep(.at__body) { max-height: 460px; }
 }
 .skel-card {
   display: flex;

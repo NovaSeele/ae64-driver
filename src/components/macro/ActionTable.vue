@@ -231,14 +231,14 @@ function endDrag() {
 </template>
 
 <style scoped>
-.at { container-type: inline-size; flex: 1 1 320px; min-height: 160px; display: flex; flex-direction: column; }
+.at { container-type: inline-size; flex: 1 1 auto; min-height: 160px; display: flex; flex-direction: column; }
 /* One grid for the whole table: header and rows are subgrids, so the direction and action columns are sized
    by their widest content in any row (VI and EN labels differ) and every row stays aligned. The edge tracks are
    max-content because a subgrid's padding (the row's side padding) is taken out of its first and last track. */
 .at__in { display: grid; grid-template-columns: max-content 32px minmax(96px, 1fr) max-content minmax(112px, 130px) max-content; column-gap: var(--s-3); flex: 1; min-height: 0; grid-template-rows: auto minmax(0, 1fr); }
 .at__head, .at__body, .row { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; }
 .at__head { padding: 0 var(--s-3) var(--s-2); color: var(--fg-3); border-bottom: 1px solid var(--line-1); }
-.at__body { align-content: start; min-height: 0; overflow-y: auto; padding: 4px 0; }
+.at__body { align-content: start; min-height: 0; max-height: 460px; overflow-y: auto; padding: 4px 0; }
 .row {
   position: relative;
   padding: 5px var(--s-3);
