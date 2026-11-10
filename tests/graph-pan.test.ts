@@ -1,9 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as GraphHistoryModule from '../src/components/live/graphHistory';
 import { mount } from '@vue/test-utils';
 import { GraphHistory } from '../src/components/live/graphHistory';
 import TravelGraph from '../src/components/live/TravelGraph.vue';
 import { TravelRing } from '../src/stores/live';
 import type { LiveData } from '../src/stores/live';
+
+// Lets one test give the graph a small history (the default holds ~39 s at the real rate).
+const hist = vi.hoisted(() => ({ cap: 0 }));
+vi.mock('../src/components/live/graphHistory', async (orig) => {
+  const m = await orig<typeof GraphHistoryModule>();
+  return { GraphHistory: class extends m.GraphHistory { constructor(c?: number) { super(hist.cap || c); } } };
+});
 
 describe('GraphHistory', () => {
   const collect = (h: GraphHistory, from: number, to: number) => {
@@ -61,7 +69,8 @@ describe('GraphHistory', () => {
 
 describe('TravelGraph pan', () => {
   let rafCb: FrameRequestCallback | null = null;
-  let pts: [number, number][] = [];
+  /** [x, y, 1 for lineTo / 0 for moveTo] */
+  let pts: [number, number, number][] = [];
   /** [fillStyle at each fill that directly follows an arc] */
   let arcFills: string[] = [];
   let arcs: [number, number][] = [];
@@ -86,7 +95,7 @@ describe('TravelGraph pan', () => {
     const ctx = new Proxy({}, {
       get: (_t, k) => {
         if (k === 'clearRect') return () => { pts = []; arcs = []; };
-        if (k === 'moveTo' || k === 'lineTo') return (x: number, y: number) => { pts.push([x, y]); };
+        if (k === 'moveTo' || k === 'lineTo') return (x: number, y: number) => { pts.push([x, y, k === 'lineTo' ? 1 : 0]); };
         if (k === 'arc') return (x: number, y: number) => { afterArc = true; arcs.push([x, y]); };
         if (k === 'fill') return () => { if (afterArc) arcFills.push(fillStyle); afterArc = false; };
         return () => {};
@@ -104,7 +113,7 @@ describe('TravelGraph pan', () => {
     });
     vi.spyOn(window, 'getComputedStyle').mockImplementation((() => ({ color: probeStyle.color })) as unknown as typeof getComputedStyle);
   });
-  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+  afterEach(() => { hist.cap = 0; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
   const frame = (t: number) => { const cb = rafCb!; rafCb = null; cb(t); };
   const make = (ring: TravelRing, events: LiveData['events'] = []) => {
@@ -289,6 +298,121 @@ describe('TravelGraph pan', () => {
     expect(strokePoints()).toBeGreaterThan(0);
     w.unmount();
   }, 60_000);
+
+  /** 1,670 Hz stepper over a real TravelRing(8192): push(level) per sample, a frame at ~60 fps, optional per-sample hook. */
+  function stepper(events: LiveData['events'] = []) {
+    const m = make(new TravelRing(8192), events);
+    const dt = 1000 / 1670;
+    let nextFrame = 0;
+    let t = 0;
+    const run = (until: number, mm: (t: number) => number) => {
+      for (; t < until; t += dt) {
+        m.data.ring.push(t, mm(t));
+        m.data.version++;
+        if (t >= nextFrame) { frame(t); nextFrame += 1000 / 60; }
+      }
+    };
+    return { ...m, run, now: () => t, el: m.w.find('canvas').element };
+  }
+  const stroke300 = (t0: number) => (t: number) => 2 * Math.sin(((t - t0) / 300) * Math.PI);
+
+  for (const variant of ['pan', 'pause'] as const) {
+    it(`a stroke made while frozen (${variant}) for longer than the ring still reaches the history`, async () => {
+      const ev: LiveData['events'] = [{ t: 6150, kind: 'press', depth: 1.5 }];
+      const s = stepper(ev);
+      s.run(6000, () => 0.05 + Math.random() * 0.02);
+      if (variant === 'pan') key(s.el, 'ArrowLeft');
+      else await s.w.setProps({ paused: true });
+      s.run(6300, stroke300(6000));
+      s.run(12_300, () => 0.05 + Math.random() * 0.02); // 6 s: the stroke is long gone from the 4.9 s ring
+      if (variant === 'pan') key(s.el, 'End');
+      else await s.w.setProps({ paused: false });
+      frame(s.now());
+      key(s.el, 'ArrowLeft');
+      frame(s.now() + 16);
+      expect(strokePoints()).toBeGreaterThan(0);
+      expect(arcs.length).toBe(1); // the press dot has its trace under it
+      s.w.unmount();
+    }, 30_000);
+  }
+
+  it('a hole in the history is drawn as a break: no line and no event dot across it', async () => {
+    hist.cap = 10_000; // ~6 s: a long freeze fills it and appending stops, so the backfill leaves a gap
+    const ev: LiveData['events'] = [{ t: 12_150, kind: 'press', depth: 1.5 }];
+    const s = stepper(ev);
+    const rest = () => 0.2;
+    s.run(8000, rest);
+    await s.w.setProps({ paused: true });
+    s.run(12_000, rest);
+    s.run(12_300, (t) => 0.2 + (stroke300(12_000)(t) * 0.9)); // inside the hole
+    s.run(17_900, rest);
+    await s.w.setProps({ paused: false });
+    frame(s.now());
+    key(s.el, 'ArrowLeft', true);
+    key(s.el, 'ArrowLeft', true);
+    key(s.el, 'ArrowLeft'); // 4.5 s back: window ≈ 10.4 s … 13.4 s, the hole (≈ 10.9 … 13.0 s) inside
+    frame(s.now() + 16);
+    expect(strokePoints()).toBe(0);
+    expect(arcs).toEqual([]); // the press at 12.15 s falls in the hole
+    const Y_REST = 10 + (0.2 / 3.5) * 200;
+    const trace = pts.filter(([, y]) => Math.abs(y - Y_REST) < 1e-6);
+    expect(trace.length).toBeGreaterThan(500);
+    const jumps = trace.filter(([, , line], i) => line === 1 && trace[i - 1] && Math.abs(trace[i][0] - trace[i - 1][0]) > 5);
+    expect(jumps).toEqual([]); // no lineTo bridges the hole
+    expect(trace.filter(([, , line]) => line === 0)).toHaveLength(2); // two segments: before and after the hole
+    s.w.unmount();
+  }, 60_000);
+
+  it('real rate: after an auto hold, ← pans from the held clock (the stroke), not from real time', () => {
+    const s = stepper();
+    s.run(4000, () => Math.random() * 0.05);
+    s.run(4300, stroke300(4000));
+    s.run(9300, () => Math.random() * 0.05); // auto hold at ≈ 4.7 s, then 5 s of rest
+    frame(s.now());
+    expect(s.holds().at(-1)).toBe(true);
+    key(s.el, 'ArrowLeft');
+    frame(s.now() + 16);
+    expect(s.pans()).toEqual([0.5]);
+    expect(strokePoints()).toBeGreaterThan(0);
+    s.w.unmount();
+  });
+
+  it('an epoch bump drops the old samples: nothing to pan into, none drawn', () => {
+    const m = make(new TravelRing(8192));
+    for (let t = 0; t < 6000; t++) m.data.ring.push(t, 0.1);
+    frame(6000);
+    const el = m.w.find('canvas').element;
+    key(el, 'Home');
+    frame(6010);
+    expect(m.pans().at(-1)).toBe(3);
+    m.data.ring.clear();
+    m.data.epoch++;
+    m.data.ring.push(7000, 0.05);
+    frame(7000);
+    expect(m.pans().at(-1)).toBeNull();
+    expect(markerX()).toBeNull(); // the old 0.1 mm samples are not drawn
+    key(el, 'Home');
+    frame(7010);
+    expect(m.pans().at(-1)).toBeNull();
+    expect(m.pans()).toHaveLength(2);
+    m.w.unmount();
+  });
+
+  it('while panned no hold is emitted, and events after the frozen clock are not drawn', () => {
+    const events: LiveData['events'] = [{ t: 9000, kind: 'press', depth: 1 }, { t: 9900, kind: 'press', depth: 1 }];
+    const m = make(new TravelRing(16384), events);
+    for (let t = 0; t < 10_000; t++) m.data.ring.push(t, 0.05);
+    frame(10_000);
+    key(m.w.find('canvas').element, 'ArrowLeft'); // view ends at 9500
+    frame(10_010);
+    expect(arcs).toHaveLength(1); // 9000 is in view, 9900 is after the right edge
+    for (let t = 10_000; t < 10_900; t++) m.data.ring.push(t, t < 10_300 ? 1.5 : 0.05); // a stroke, then 600 ms of rest
+    frame(10_900);
+    frame(11_000);
+    expect(m.holds()).not.toContain(true);
+    expect(arcs).toHaveLength(1);
+    m.w.unmount();
+  });
 
   it('an epoch bump clears the history and emits pan = null', () => {
     const { data, w, pans } = tenSeconds();

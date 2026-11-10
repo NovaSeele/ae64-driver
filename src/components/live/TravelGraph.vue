@@ -21,6 +21,8 @@ const emit = defineEmits<{ hold: [holding: boolean]; pan: [secondsBack: number |
 const WINDOW_MS = 3000;
 const PAD = { l: 34, r: 10, t: 10, b: 10 };
 const DRAG_MIN_PX = 4;
+/** A hole in the samples longer than this is drawn as a break (lost while frozen; polling jitter stays well below it). */
+const GAP_MS = 250;
 const KEY_STEP_MS = 500;
 const KEY_STEP_SHIFT_MS = 2000;
 
@@ -236,11 +238,22 @@ function draw(realNow: number) {
   }
   setHold(!panActive && !props.paused && holdClock !== null);
   emitPan();
-  // the history grows only while live; on unfreezing it backfills whatever the ring still holds
-  if (!frozen) {
-    const last = history.newestT();
-    d.ring.forEach(Number.isNaN(last) ? -Infinity : last, (t, mm) => history.push(t, mm));
-  }
+  // The history grows while live. While frozen it keeps growing only as long as that evicts nothing the drawn
+  // window needs (samples newer than its right edge are never drawn, so the picture does not change); on
+  // unfreezing it backfills whatever the ring still holds. A hole in the data is marked with a NaN sample.
+  const viewFrom = now - WINDOW_MS;
+  const last = history.newestT();
+  let marked = Number.isNaN(last);
+  let stopped = false;
+  d.ring.forEach(Number.isNaN(last) ? -Infinity : last, (t, mm) => {
+    if (stopped || t <= history.newestT()) return;
+    if (frozen && history.size >= history.capacity && history.oldestT() >= viewFrom - 50) { stopped = true; return; }
+    if (!marked) {
+      marked = true;
+      if (t - last > GAP_MS) history.push(last + 1e-3, NaN);
+    }
+    history.push(t, mm);
+  });
   const nextCursor = dragging ? 'grabbing' : history.size > 1 && history.newestT() - history.oldestT() > WINDOW_MS ? 'grab' : '';
   if (nextCursor !== cursor && canvas.value) { cursor = nextCursor; canvas.value.style.cursor = nextCursor; }
   const range = props.range;
@@ -295,19 +308,15 @@ function draw(realNow: number) {
     }
   }
 
-  // travel trace + soft area
+  // travel trace + soft area, one segment per run of samples (a NaN sample is a break: pen up)
   c.beginPath();
   let first = true;
   let firstX = x0;
   let lastX = x0;
-  const point = (t: number, mm: number) => {
-    const x = Math.max(x0, X(t));
-    const y = Y(mm);
-    if (first) { c.moveTo(x, y); first = false; firstX = x; } else c.lineTo(x, y);
-    lastX = x;
-  };
-  history.forEach(from - 50, frozen ? now : Infinity, point);
-  if (!first) {
+  const gaps: [number, number][] = [];
+  let gapFrom = NaN;
+  const flush = () => {
+    if (first) return;
     c.strokeStyle = col['fg-1'];
     c.lineWidth = 1.75;
     c.lineJoin = 'round';
@@ -317,11 +326,28 @@ function draw(realNow: number) {
     c.closePath();
     c.fillStyle = col['actuation-fill'];
     c.fill();
-  }
+    c.beginPath();
+    first = true;
+  };
+  const point = (t: number, mm: number) => {
+    if (Number.isNaN(mm)) {
+      flush();
+      gapFrom = t;
+      return;
+    }
+    if (!Number.isNaN(gapFrom)) { gaps.push([gapFrom, t]); gapFrom = NaN; }
+    const x = Math.max(x0, X(t));
+    const y = Y(mm);
+    if (first) { c.moveTo(x, y); first = false; firstX = x; } else c.lineTo(x, y);
+    lastX = x;
+  };
+  history.forEach(from - 50, frozen ? now : Infinity, point);
+  flush();
+  if (!Number.isNaN(gapFrom)) gaps.push([gapFrom, Infinity]);
 
   // events
   for (const e of d.events) {
-    if (e.t < from || e.t > (frozen ? now : Infinity)) continue;
+    if (e.t < from || e.t > (frozen ? now : Infinity) || gaps.some(([a, b]) => e.t > a && e.t < b)) continue;
     const x = X(e.t);
     const y = Y(e.depth);
     c.beginPath();
