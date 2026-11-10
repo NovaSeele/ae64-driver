@@ -67,14 +67,14 @@ const releaseDot = computed(() => ({ left: px(xUp(yRel.value)), top: py(yRel.val
 .std__line--rel { stroke: var(--m-release); }
 .std__fill { fill: color-mix(in srgb, var(--m-actuation) 16%, transparent); }
 /* Markers are HTML so they stay round under the stretched SVG; positions map onto the SVG's inset box. */
-.std__dot { position: absolute; box-sizing: border-box; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; }
+.std__dot { position: absolute; box-sizing: border-box; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; border: 2px solid var(--bg-1); }
 .std__dot--press { background: var(--m-press); }
-.std__dot--release { border: 2px solid var(--m-release); background: var(--bg-1); }
+.std__dot--release { background: var(--m-release); }
 .std__legend { display: flex; flex-wrap: wrap; gap: var(--s-4); font-size: var(--fs-label); color: var(--fg-2); }
 .std__legend span { display: inline-flex; align-items: center; gap: 6px; }
 .std__legend b { font-weight: 600; color: var(--fg-1); }
-.std__key { width: 9px; height: 9px; box-sizing: border-box; border-radius: 50%; }
+.std__key { width: 10px; height: 10px; box-sizing: border-box; border-radius: 50%; }
 .std__key--press { background: var(--m-press); }
-.std__key--release { border: 2px solid var(--m-release); }
+.std__key--release { background: var(--m-release); }
 .std__note { margin: 0; font-size: var(--fs-label); color: var(--fg-3); line-height: 1.45; }
 </style>

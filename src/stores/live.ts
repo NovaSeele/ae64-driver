@@ -193,8 +193,8 @@ const PAUSE_POLL_MS = 40;
 const RATE_WINDOW_MS = 500;
 /** Auto-follow switches kept for undoAutoFollow. */
 const SWITCH_LOG_CAP = 64; // Shift held + n Tabs logs 2 links per Tab; keep the chain back to the reviewed key
-/** Links that keep the left key's buffers (a TravelRing is ~96 KB): only the newest few. */
-const STASH_CAP = 4;
+/** HID usages the OS moves keyboard focus on: Tab, Left Shift, Right Shift. */
+const FOCUS_CODES = new Set([0x2b, 0xe1, 0xe5]);
 
 export interface LiveData {
   /** Latest per-key travel (mm), fill ratio (route / axisRangeMax) and firmware status, by PhysicalKey.id. */
@@ -235,6 +235,8 @@ function emptyData(): LiveData {
 
 /** The focused-key buffers of a key auto-follow switched away from, kept so undoAutoFollow can give them back. */
 interface FocusStash {
+  /** The key the buffers belong to. */
+  id: number;
   ring: TravelRing;
   events: LiveEvent[];
   model: ActuationModel | null;
@@ -268,7 +270,9 @@ export const useLiveStore = defineStore('live', () => {
   const paused = ref(false);
 
   /** Recent auto-follow switches (same clock as ingest's `now`); cleared by anything that is not auto-follow. */
-  let switchLog: { from: number | null; to: number; at: number; stash?: FocusStash }[] = [];
+  let switchLog: { from: number | null; to: number; at: number }[] = [];
+  /** Buffers of the root of the current unbroken chain (the key undoAutoFollow returns to): at most one TravelRing is held. */
+  let stash: FocusStash | null = null;
   let autoSwitching = false;
 
   let generation = 0;
@@ -277,12 +281,25 @@ export const useLiveStore = defineStore('live', () => {
 
   // row/col → key, rebuilt when the layout changes (ingest runs ~1,700 times a second).
   let keyIndex = new Map<number, PhysicalKey>();
-  /** Keys whose press moves keyboard focus (Tab, Shift): the only ones undoAutoFollow may undo. */
+  /**
+   * Keys whose press moves keyboard focus: the only ones undoAutoFollow may undo. By the loaded layer-0 keycode
+   * (the OS acts on the code, and Tab may be remapped); by physical name only while the keymap is not loaded.
+   */
   let focusMoving = new Set<number>();
   watch(() => device.keys, (keys) => {
     keyIndex = new Map(keys.map((k) => [k.row * 256 + k.col, k]));
-    focusMoving = new Set(keys.filter((k) => k.name === 'Tab' || k.name === 'Shift').map((k) => k.id));
   }, { immediate: true });
+  watch([() => device.keys, () => device.layer0], ([keys, layer0]) => {
+    focusMoving = new Set(keys.filter((k) => layer0.length > 0
+      ? FOCUS_CODES.has(layer0[k.id])
+      : k.name === 'Tab' || k.name === 'Shift').map((k) => k.id));
+  }, { immediate: true, flush: 'sync' });
+
+  /** Forget the auto-follow chain and its stash (anything that is not an auto-follow switch). */
+  function dropChain(): void {
+    switchLog = [];
+    stash = null;
+  }
 
   function keyAt(row: number, col: number): PhysicalKey | undefined {
     return keyIndex.get(row * 256 + col);
@@ -316,7 +333,7 @@ export const useLiveStore = defineStore('live', () => {
 
   function setFocus(id: number | null): void {
     if (id === focusId.value) return;
-    if (!autoSwitching) switchLog = [];
+    if (!autoSwitching) dropChain();
     focusId.value = id;
     const s = settingsFor(id);
     data.model = s ? markRaw(new ActuationModel(s)) : null;
@@ -388,11 +405,11 @@ export const useLiveStore = defineStore('live', () => {
       for (let id = 0; id < data.travel.length; id++) if (best < 0 || data.travel[id] > data.travel[best]) best = id;
       const cur = focus === null ? 0 : data.travel[focus];
       if (best >= 0 && best !== focus && data.travel[best] >= FOLLOW_MIN && data.travel[best] > cur + FOLLOW_MARGIN) {
-        // A key the user may come back to keeps its buffers; a focus-moving key (Tab, Shift) is never restored to.
-        let stash: FocusStash | undefined;
+        // Leaving a key that is not focus-moving starts a new chain: its buffers become the single root stash.
+        // A hop from a focus-moving key (Tab, Shift) stays inside the chain and keeps the root stash.
         if (focus !== null && !focusMoving.has(focus)) {
           stash = {
-            ring: data.ring, events: data.events, model: data.model, peak: data.peak, count: data.count,
+            id: focus, ring: data.ring, events: data.events, model: data.model, peak: data.peak, count: data.count,
             lastActuation: data.lastActuation, lastRelease: data.lastRelease, mismatch: data.mismatch,
             mismatchSince: data.mismatchSince, touched: data.touched,
           };
@@ -402,11 +419,8 @@ export const useLiveStore = defineStore('live', () => {
         autoSwitching = true;
         setFocus(best);
         autoSwitching = false;
-        switchLog.push({ from: focus, to: best, at: now, stash });
+        switchLog.push({ from: focus, to: best, at: now });
         if (switchLog.length > SWITCH_LOG_CAP) switchLog.shift();
-        for (let i = switchLog.length - 1, kept = 0; i >= 0; i--) {
-          if (switchLog[i].stash && ++kept > STASH_CAP) delete switchLog[i].stash;
-        }
         ingestFocused(data.travel[best], now);
         data.version++;
         return;
@@ -477,7 +491,7 @@ export const useLiveStore = defineStore('live', () => {
   }
 
   function stop(): void {
-    switchLog = [];
+    dropChain();
     generation++;
     running.value = false;
     paused.value = false;
@@ -486,7 +500,7 @@ export const useLiveStore = defineStore('live', () => {
 
   /** Forget all live state (profile changed): per-key travel/status, focus buffers. */
   function reset(): void {
-    switchLog = [];
+    dropChain();
     data.travel.fill(0);
     data.ratio.fill(0);
     data.status.fill(0);
@@ -497,7 +511,7 @@ export const useLiveStore = defineStore('live', () => {
   }
 
   function pin(id: number): void {
-    switchLog = [];
+    dropChain();
     follow.value = false;
     setFocus(id);
   }
@@ -520,33 +534,32 @@ export const useLiveStore = defineStore('live', () => {
   function undoAutoFollow(): boolean {
     let current = focusId.value;
     let restore: number | undefined;
-    let stash: FocusStash | undefined;
     for (let i = switchLog.length - 1; i >= 0; i--) {
       const sw = switchLog[i];
       // Only a focus-moving key is undone (a held A is deliberate), and never back to "nothing followed".
       if (sw.from === null || !focusMoving.has(sw.to) || sw.to !== current) break;
       if (!(data.travel[sw.to] >= FOLLOW_MIN || data.status[sw.to] > 0)) break;
       restore = sw.from;
-      stash = sw.stash;
       current = sw.from;
     }
     if (restore === undefined) return false;
+    const root = stash; // setFocus drops the chain
     setFocus(restore);
-    if (stash) {
+    if (root && root.id === restore) {
       // Give the key its stroke back; epoch/version bump so the graph re-reads the whole ring.
       const s = settingsFor(restore);
-      const m = stash.model;
+      const m = root.model;
       const same = !!s && !!m && (Object.keys(s) as (keyof ActuationSettings)[]).every((k) => s[k] === m.settings[k]);
-      data.ring = stash.ring;
-      data.events = stash.events;
+      data.ring = root.ring;
+      data.events = root.events;
       data.model = same ? m : s ? markRaw(new ActuationModel(s)) : null;
-      data.peak = stash.peak;
-      data.count = stash.count;
-      data.lastActuation = stash.lastActuation;
-      data.lastRelease = stash.lastRelease;
-      data.mismatch = stash.mismatch;
-      data.mismatchSince = stash.mismatchSince;
-      data.touched = stash.touched;
+      data.peak = root.peak;
+      data.count = root.count;
+      data.lastActuation = root.lastActuation;
+      data.lastRelease = root.lastRelease;
+      data.mismatch = root.mismatch;
+      data.mismatchSince = root.mismatchSince;
+      data.touched = root.touched;
       data.version++;
       data.epoch++;
     }

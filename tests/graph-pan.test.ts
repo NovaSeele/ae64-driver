@@ -485,12 +485,12 @@ describe('TravelGraph pan', () => {
     w.unmount();
   });
 
-  it('the press marker is filled with the press colour, not the actuation colour', () => {
+  it('both markers are solid: press in the press colour (not actuation), release in the release colour', () => {
     const m = make(new TravelRing(1024), [{ t: 500, kind: 'press', depth: 1 }, { t: 600, kind: 'release', depth: 0.5 }]);
     for (let t = 0; t < 1000; t++) m.data.ring.push(t, 0.05);
     frame(1000);
-    // event order: the press fill first, then the release marker's bg-2 fill
-    expect(arcFills).toEqual(['var(--m-press)', 'var(--bg-2)']);
+    // event order: the press fill first, then the release fill (no hollow bg-2 centre any more)
+    expect(arcFills).toEqual(['var(--m-press)', 'var(--m-release)']);
     m.w.unmount();
   });
 });

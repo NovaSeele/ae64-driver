@@ -231,6 +231,104 @@ describe('undoAutoFollow', () => {
     expect(live.focusId).toBe(TAB.id);
   });
 
+  describe('focus-moving keys by layer-0 keycode', () => {
+    const Q = key('Q');
+    const A = key('A');
+    function remap() {
+      const dev = useDeviceStore();
+      expect(dev.layer0.length).toBeGreaterThan(0);
+      const l0 = dev.layer0.slice();
+      l0[TAB.id] = 0x04; // physical Tab now types 'A'
+      l0[Q.id] = 0x2b; // physical Q now types Tab
+      dev.layer0 = l0;
+    }
+
+    it('a remapped Tab position is not undone; the position holding 0x2B is', () => {
+      remap();
+      strokeW();
+      set(Q, 2, 1500); // W → Q (Tab code)
+      expect(live.focusId).toBe(Q.id);
+      expect(live.undoAutoFollow()).toBe(true);
+      expect(live.focusId).toBe(W.id);
+      expect(ringMax()).toBeCloseTo(3, 1);
+      expect(live.data.count).toBe(1);
+    });
+
+    it('the physical Tab position holding another code returns false', () => {
+      remap();
+      strokeW();
+      set(TAB, 2, 1500); // W → physical Tab, now 'A'
+      expect(live.focusId).toBe(TAB.id);
+      expect(live.undoAutoFollow()).toBe(false);
+      expect(live.focusId).toBe(TAB.id);
+    });
+
+    it('follows layer0 changes after the store was created', () => {
+      strokeW();
+      remap();
+      set(TAB, 2, 1500);
+      expect(live.undoAutoFollow()).toBe(false);
+      useDeviceStore().layer0 = [];
+      expect(live.undoAutoFollow()).toBe(true); // fallback: physical Tab again
+      expect(live.focusId).toBe(W.id);
+    });
+
+    it('layer0 empty: the physical Tab and Shift still work', () => {
+      useDeviceStore().layer0 = [];
+      strokeW();
+      set(SHIFT, 1, 1200);
+      set(TAB, 3.3, 1300);
+      expect(live.undoAutoFollow()).toBe(true);
+      expect(live.focusId).toBe(W.id);
+      expect(ringMax()).toBeCloseTo(3, 1);
+    });
+
+    it('0xE5 (right shift) counts as focus-moving', () => {
+      const dev = useDeviceStore();
+      const l0 = dev.layer0.slice();
+      l0[A.id] = 0xe5;
+      dev.layer0 = l0;
+      strokeW();
+      set(A, 2, 1500);
+      expect(live.undoAutoFollow()).toBe(true);
+      expect(live.focusId).toBe(W.id);
+    });
+  });
+
+  it('one stash: a new chain root X replaces W; undo gives X its own data back', () => {
+    const X = key('X');
+    strokeW(); // W peak 3
+    set(TAB, 2, 1500); // W → Tab, stash W
+    set(TAB, 0, 1520);
+    set(X, 1, 2000); // Tab → X (inside the chain: W stays root)
+    set(X, 2.5, 2020);
+    set(X, 0, 2040);
+    set(TAB, 2, 2500); // X → Tab: X is the new root, W dropped
+    expect(live.focusId).toBe(TAB.id);
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(X.id);
+    expect(ringMax()).toBeCloseTo(2.5, 1);
+  });
+
+  for (const how of ['pin', 'setFocus', 'stop', 'reset'] as const) {
+    it(`${how} drops the stash: a later undo returns the key without W's data`, () => {
+      strokeW();
+      set(TAB, 2, 1500); // W → Tab, stash W
+      if (how === 'pin') live.pin(SHIFT.id);
+      else if (how === 'setFocus') live.setFocus(SHIFT.id);
+      else if (how === 'stop') { live.stop(); live.setFocus(SHIFT.id); }
+      else { live.reset(); depth.clear(); live.setFocus(SHIFT.id); }
+      live.setFollow(true);
+      set(SHIFT, 1, 3000);
+      set(SHIFT, 0, 3020);
+      set(TAB, 3.3, 3040); // Shift → Tab
+      expect(live.undoAutoFollow()).toBe(true);
+      expect(live.focusId).toBe(SHIFT.id);
+      expect(ringMax()).toBeLessThan(2.5);
+      expect(live.data.count).toBe(0);
+    });
+  }
+
   it('stop() clears the switch log', () => {
     strokeW();
     set(TAB, 2, 1500);

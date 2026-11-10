@@ -492,6 +492,10 @@ async function discard() {
 
 .modes { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-4); }
 @media (max-width: 1200px) { .modes { grid-template-columns: 1fr; } }
+/* Tied to the .modes breakpoint above (change both together): in two columns with the playback groups stacked,
+   Kiểu phát is ~120 px taller, so a 460 px table would push the right column past what the 16 slots can stretch
+   to (56 px cap) and open a blank band above the note. Cap the table at ~7 rows there; 460 elsewhere. */
+@media (min-width: 1001px) and (max-width: 1200px) { .main :deep(.at__body) { max-height: 320px; } }
 .modes__grp { display: flex; flex-direction: column; gap: var(--s-2); }
 .modes__list { display: flex; flex-direction: column; gap: 4px; }
 .mode {

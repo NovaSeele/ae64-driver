@@ -353,18 +353,14 @@ function draw(realNow: number) {
     if (e.t < from || e.t > (frozen ? now : Infinity) || gaps.some(([a, b]) => e.t > a && e.t < b)) continue;
     const x = X(e.t);
     const y = Y(e.depth);
+    // Solid dots (press = --m-press, release = --m-release), with a card-colour edge so they stand clear of the trace.
     c.beginPath();
-    c.arc(x, y, e.kind === 'press' ? 4 : 3.5, 0, Math.PI * 2);
-    if (e.kind === 'press') {
-      c.fillStyle = col.press;
-      c.fill();
-    } else {
-      c.fillStyle = col['bg-2'];
-      c.fill();
-      c.strokeStyle = col.release;
-      c.lineWidth = 1.5;
-      c.stroke();
-    }
+    c.arc(x, y, 6, 0, Math.PI * 2);
+    c.fillStyle = e.kind === 'press' ? col.press : col.release;
+    c.fill();
+    c.strokeStyle = col['bg-2'];
+    c.lineWidth = 2;
+    c.stroke();
   }
 }
 

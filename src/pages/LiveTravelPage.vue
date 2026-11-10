@@ -462,9 +462,9 @@ function onTypeKey(e: KeyboardEvent) {
   border: 1px solid var(--line-2); border-radius: var(--r-control); white-space: nowrap;
 }
 .legend { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-label); color: var(--fg-3); margin-right: var(--s-2); }
-.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .dot--act { background: var(--m-press); }
-.dot--release { border: 1.5px solid var(--m-release); }
+.dot--release { background: var(--m-release); }
 
 .typetest { flex: 1 1 auto; display: flex; flex-direction: column; }
 .typetest__head {
