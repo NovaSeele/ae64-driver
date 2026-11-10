@@ -40,6 +40,11 @@ function syncFocusFromSelection() {
 }
 watch(() => [sel.ids, sel.focused], syncFocusFromSelection);
 
+/** Keyboard focus on the graph: the Tab that got there was followed; go back to the key being reviewed. */
+function onGraphKeyFocus() {
+  if (live.follow) live.undoAutoFollow(performance.now());
+}
+
 function setFollow(v: 'auto' | 'pin' | null) {
   if (v === null) return;
   if (v === 'auto') sel.clear();
@@ -325,6 +330,7 @@ function onTypeKey(e: KeyboardEvent) {
           :label="t('live.graphLabel', { key: keyName }) + (graphPan !== null ? ' · ' + panText : graphHold && !graphPaused ? ' · ' + t('live.holding') : '') + ' · ' + t('live.graphPanHint')"
           @hold="graphHold = $event"
           @pan="graphPan = $event"
+          @keyfocus="onGraphKeyFocus"
           @review="live.suspendFollow($event)"
         />
       </Card>

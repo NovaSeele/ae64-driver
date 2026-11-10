@@ -191,6 +191,8 @@ const FOLLOW_MARGIN = 0.1;
 const REST_MM = 0.05;
 const PAUSE_POLL_MS = 40;
 const RATE_WINDOW_MS = 500;
+/** Auto-follow switches kept for undoAutoFollow. */
+const SWITCH_LOG_CAP = 8;
 
 export interface LiveData {
   /** Latest per-key travel (mm), fill ratio (route / axisRangeMax) and firmware status, by PhysicalKey.id. */
@@ -249,6 +251,10 @@ export const useLiveStore = defineStore('live', () => {
   /** Polling is held while a write job runs, the tab is hidden or the device is busy. */
   const paused = ref(false);
 
+  /** Recent auto-follow switches (same clock as ingest's `now`); cleared by anything that is not auto-follow. */
+  let switchLog: { from: number | null; to: number; at: number }[] = [];
+  let autoSwitching = false;
+
   let generation = 0;
   let rateCount = 0;
   let rateFrom = 0;
@@ -291,6 +297,7 @@ export const useLiveStore = defineStore('live', () => {
 
   function setFocus(id: number | null): void {
     if (id === focusId.value) return;
+    if (!autoSwitching) switchLog = [];
     focusId.value = id;
     const s = settingsFor(id);
     data.model = s ? markRaw(new ActuationModel(s)) : null;
@@ -362,7 +369,11 @@ export const useLiveStore = defineStore('live', () => {
       for (let id = 0; id < data.travel.length; id++) if (best < 0 || data.travel[id] > data.travel[best]) best = id;
       const cur = focus === null ? 0 : data.travel[focus];
       if (best >= 0 && best !== focus && data.travel[best] >= FOLLOW_MIN && data.travel[best] > cur + FOLLOW_MARGIN) {
+        autoSwitching = true;
         setFocus(best);
+        autoSwitching = false;
+        switchLog.push({ from: focus, to: best, at: now });
+        if (switchLog.length > SWITCH_LOG_CAP) switchLog.shift();
         ingestFocused(data.travel[best], now);
         data.version++;
         return;
@@ -433,6 +444,7 @@ export const useLiveStore = defineStore('live', () => {
   }
 
   function stop(): void {
+    switchLog = [];
     generation++;
     running.value = false;
     paused.value = false;
@@ -441,6 +453,7 @@ export const useLiveStore = defineStore('live', () => {
 
   /** Forget all live state (profile changed): per-key travel/status, focus buffers. */
   function reset(): void {
+    switchLog = [];
     data.travel.fill(0);
     data.ratio.fill(0);
     data.status.fill(0);
@@ -451,6 +464,7 @@ export const useLiveStore = defineStore('live', () => {
   }
 
   function pin(id: number): void {
+    switchLog = [];
     follow.value = false;
     setFocus(id);
   }
@@ -463,5 +477,24 @@ export const useLiveStore = defineStore('live', () => {
     followSuspended = on;
   }
 
-  return { data, focusId, follow, allKeys, running, paused, start, stop, reset, clear, pin, setFocus, setFollow, suspendFollow };
+  /**
+   * The graph was reached by keyboard: the Tab (or Shift+Tab) that got it there was itself measured and
+   * auto-follow moved to it. Undo the switches that keystroke caused (recent, still held, one unbroken chain
+   * ending at the current focus) and return to the key followed just before. Follow stays auto.
+   */
+  function undoAutoFollow(now: number, windowMs = 500): boolean {
+    let current = focusId.value;
+    let restore: number | null | undefined;
+    for (let i = switchLog.length - 1; i >= 0; i--) {
+      const sw = switchLog[i];
+      if (now - sw.at > windowMs || sw.to !== current || !(data.travel[sw.to] >= FOLLOW_MIN || data.status[sw.to] > 0)) break;
+      restore = sw.from;
+      current = sw.from;
+    }
+    if (restore === undefined) return false;
+    setFocus(restore);
+    return true;
+  }
+
+  return { data, focusId, follow, allKeys, running, paused, start, stop, reset, clear, pin, setFocus, setFollow, suspendFollow, ingest, undoAutoFollow };
 });

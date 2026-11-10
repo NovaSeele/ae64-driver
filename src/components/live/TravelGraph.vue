@@ -16,7 +16,7 @@ const props = defineProps<{
   paused: boolean;
   label: string;
 }>();
-const emit = defineEmits<{ hold: [holding: boolean]; pan: [secondsBack: number | null]; review: [reviewing: boolean] }>();
+const emit = defineEmits<{ hold: [holding: boolean]; pan: [secondsBack: number | null]; review: [reviewing: boolean]; keyfocus: [] }>();
 
 const WINDOW_MS = 3000;
 const PAD = { l: 34, r: 10, t: 10, b: 10 };
@@ -137,6 +137,9 @@ function emitPan() {
 
 function onFocus() {
   focused = true;
+  let keyboard = false;
+  try { keyboard = !!canvas.value?.matches(':focus-visible'); } catch { /* jsdom: not keyboard */ }
+  if (keyboard) emit('keyfocus');
   emitReview();
 }
 
