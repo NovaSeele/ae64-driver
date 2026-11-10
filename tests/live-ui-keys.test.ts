@@ -456,6 +456,19 @@ describe('Space/Enter that operates a control is not a test press', () => {
     expect(live.data.events.length).toBe(0);
   });
 
+  it('CC18. the rollback restores `touched`: after the user Clear, a UI stroke that is rolled back leaves it false', () => {
+    live.setFocus(SPACE.id);
+    set(SPACE, 3.3, 1000);
+    set(SPACE, 0, 1100);
+    live.clear();
+    expect(live.data.touched).toBe(false);
+    set(SPACE, 0.6, 1600); // no Tab: the mouse path, the travel arrives ahead of the keydown
+    set(SPACE, 1.4, 1620);
+    expect(live.data.touched).toBe(true);
+    keydown(button(), ' ', 'Space');
+    expect(live.data.touched).toBe(false);
+  });
+
   it('AA4. a UI mark ending at rest resyncs only the focused key: W held mid-press gets no spurious release/press', () => {
     set(W, 2, 1000); // W focused, held, actuated
     expect(live.data.count).toBe(1);
