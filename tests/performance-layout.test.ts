@@ -133,6 +133,10 @@ describe('Performance columns', () => {
     await setup([Q], (p) => setModeOf(p, [Q], 7 as PerfMode));
     expect(document.body.querySelector('.std')).toBeNull();
     expect(document.body.querySelector('.c-rt')).toBeNull();
+    // no editor cards at all (they would act on 0 keys and toast a false "saved"); the note stands alone
+    expect(document.body.querySelectorAll('.grid .card').length).toBe(0);
+    expect(document.body.querySelectorAll('.grid .pcol').length).toBe(0);
+    expect(document.body.querySelector('.grid .unknown')).not.toBeNull();
   });
 
   it('its text uses releasePoint (release shallower than the press point)', async () => {

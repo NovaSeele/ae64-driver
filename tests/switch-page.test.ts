@@ -227,4 +227,13 @@ describe('Switch page tabs', () => {
     await flushPromises();
     expect(start).toHaveBeenCalledTimes(1);
   });
+
+  it('calibration: Start is disabled on a board that is not allowed', async () => {
+    await mountAt('/switch?tab=calibration');
+    useDeviceStore().boardAllowed = false;
+    await flushPromises();
+    const btn = w!.find('.progress .session .actions button');
+    expect(btn.text()).toContain('Bắt đầu');
+    expect(btn.attributes('disabled')).toBeDefined();
+  });
 });

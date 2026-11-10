@@ -236,6 +236,8 @@ type CardId = 'act' | 'mode' | 'rt' | 'std' | 'dead' | 'presets';
 const slotId = computed<'rt' | 'std' | null>(() => (anyRt.value ? 'rt' : stdShown.value ? 'std' : null));
 /** Mode always heads the second column, so it never moves when the RT / Standard card swaps. */
 const cols = computed<CardId[][]>(() => {
+  // Only unknown-mode keys selected: no editors (they would edit 0 keys); the .unknown note stands alone.
+  if (!recs.value.length) return [];
   const slot = slotId.value ? [slotId.value] : [];
   const mid: CardId[] = ['mode', ...slot];
   const all = (c: CardId[][]) => c.filter((x) => x.length);
@@ -407,7 +409,7 @@ const modeOptions = computed(() => [
       ref="gridEl"
       class="grid"
       :class="{ 'grid--note': unknownCount }"
-      :style="{ '--cols': cols.length, minHeight: gridMinH ? gridMinH + 'px' : undefined }"
+      :style="{ '--cols': cols.length || 1, minHeight: gridMinH ? gridMinH + 'px' : undefined }"
     >
       <div v-if="unknownCount" class="unknown" role="note">
         <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />
