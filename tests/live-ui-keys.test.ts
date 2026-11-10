@@ -274,6 +274,29 @@ describe('Space/Enter that operates a control is not a test press', () => {
     expect(live.focusId).toBe(W.id);
   });
 
+  it('Y2c. the UI stroke of the focused Space leaves no press, count or ring trace; the next real Space press counts', () => {
+    strokeW();
+    set(SPACE, 2.5, 1200); // real Space test (peak 2.5, below the UI stroke's 3.3)
+    set(SPACE, 0, 1300);
+    set(TAB, 2, 1600);
+    set(TAB, 0, 1650);
+    set(SPACE, 1.4, 1700); // travel seen before the keydown
+    keydown(button(), ' ', 'Space');
+    expect(live.focusId).toBe(SPACE.id);
+    const events = live.data.events.length;
+    const ring = live.data.ring.size;
+    const top = ringMax();
+    set(SPACE, 3.3, 1750); // the UI stroke goes on to the bottom and back
+    set(SPACE, 1, 1800);
+    set(SPACE, 0, 1850);
+    expect(live.data.count).toBe(1);
+    expect(live.data.events.length).toBe(events);
+    expect(live.data.ring.size).toBeLessThanOrEqual(ring + 1); // only the rest sample once the mark ends
+    expect(ringMax()).toBe(top);
+    set(SPACE, 3.3, 2000); // a real press after the key came back to rest
+    expect(live.data.count).toBe(2);
+  });
+
   it('Y7. stop() clears the marks: a real Space right after is followed', () => {
     strokeW();
     live.markUiPressed([SPACE.id], base + 1000);

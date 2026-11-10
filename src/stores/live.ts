@@ -341,7 +341,10 @@ export const useLiveStore = defineStore('live', () => {
     if (at === undefined) return;
     if (mm > REST_MM) uiPressed.set(id, -1);
     else if (at < 0) {
-      if (data.status[id] === 0) uiPressed.delete(id);
+      if (data.status[id] === 0) {
+        uiPressed.delete(id);
+        if (id === focusId.value) data.model?.sync(mm); // back at rest: the next frame must not emit the UI stroke's release
+      }
     } else if (now - at > UI_MARK_MS) uiPressed.delete(id);
   }
 
@@ -419,6 +422,13 @@ export const useLiveStore = defineStore('live', () => {
   }
 
   function ingestFocused(mm: number, now: number): void {
+    // The focused key is operating a page control (Space on Pause while Space is under review): not a test press,
+    // so it leaves no stroke, event or count. The model only tracks its depth so the next real press starts clean.
+    if (uiPressed.size && focusId.value !== null && uiPressed.has(focusId.value)) {
+      data.current = mm;
+      data.model?.sync(mm);
+      return;
+    }
     if (data.current <= REST_MM && mm > REST_MM) data.peak = 0;
     data.current = mm;
     data.peak = Math.max(data.peak, mm);
