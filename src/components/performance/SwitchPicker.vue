@@ -31,7 +31,7 @@ const tabs = computed(() => SWITCH_GROUPS.map((g) => ({ id: g, label: groupLabel
 
 const keyGroups = computed(() => groupKeys(props.ids, perf.values, () => 0));
 const single = computed(() => keyGroups.value.length === 1);
-/** The maker eyebrow, only where the tab does not already name it (EVERGLIDE, Gateron, TTC). */
+/** The maker eyebrow, only where the tab does not already name it (Everglide, Gateron, TTC). */
 const brandOf = (e: SwitchEntry) => {
   const b = switchBrand(e.id);
   return b && b.toLowerCase() !== groupName(e.group).toLowerCase() ? b : null;
