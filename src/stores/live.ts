@@ -213,7 +213,11 @@ const RATE_WINDOW_MS = 500;
 /** Auto-follow switches kept for undoAutoFollow. */
 const SWITCH_LOG_CAP = 64; // Shift held + n Tabs logs 2 links per Tab; keep the chain back to the reviewed key
 /** HID usages the OS moves keyboard focus on: Tab, Left Shift, Right Shift. */
-const FOCUS_CODES = new Set([0x2b, 0xe1, 0xe5]);
+const FOCUS_CODES = [0x2b, 0xe1, 0xe5];
+/** Physical key names standing in for a keycode while the keymap is not loaded. */
+const FALLBACK_NAMES = new Map<number, string>([[0x2b, 'Tab'], [0xe1, 'Shift'], [0xe5, 'Shift'], [0x2c, 'Space'], [0x28, 'Enter'], [0x58, 'Enter']]);
+/** A UI-pressed mark that saw no travel within this long (ms) is dropped (the keystroke never registered as travel). */
+const UI_MARK_MS = 400;
 
 export interface LiveData {
   /** Latest per-key travel (mm), fill ratio (route / axisRangeMax) and firmware status, by PhysicalKey.id. */
@@ -308,11 +312,38 @@ export const useLiveStore = defineStore('live', () => {
   watch(() => device.keys, (keys) => {
     keyIndex = new Map(keys.map((k) => [k.row * 256 + k.col, k]));
   }, { immediate: true });
-  watch([() => device.keys, () => device.layer0], ([keys, layer0]) => {
-    focusMoving = new Set(keys.filter((k) => layer0.length > 0
-      ? FOCUS_CODES.has(layer0[k.id])
-      : k.name === 'Tab' || k.name === 'Shift').map((k) => k.id));
+  watch([() => device.keys, () => device.layer0], () => {
+    focusMoving = keysForCodes(FOCUS_CODES);
   }, { immediate: true, flush: 'sync' });
+
+  /** Physical key ids whose layer-0 keycode is one of `codes` (by physical name while the keymap is not loaded). */
+  function keysForCodes(codes: number[]): Set<number> {
+    const layer0 = device.layer0;
+    const out = new Set<number>();
+    for (const k of device.keys) {
+      if (layer0.length > 0 ? codes.includes(layer0[k.id]) : codes.some((c) => FALLBACK_NAMES.get(c) === k.name)) out.add(k.id);
+    }
+    return out;
+  }
+
+  /**
+   * Keys pressed to operate a page control (Space/Enter on a button): not test presses, so auto-follow ignores them.
+   * Value = the time of the mark while no travel was seen yet, -1 once the key moved; the mark ends when it is back at rest.
+   */
+  const uiPressed = new Map<number, number>();
+
+  function markUiPressed(ids: Iterable<number>, now = performance.now()): void {
+    for (const id of ids) uiPressed.set(id, now);
+  }
+
+  function trackUiPressed(id: number, mm: number, now: number): void {
+    const at = uiPressed.get(id);
+    if (at === undefined) return;
+    if (mm > REST_MM) uiPressed.set(id, -1);
+    else if (at < 0) {
+      if (data.status[id] === 0) uiPressed.delete(id);
+    } else if (now - at > UI_MARK_MS) uiPressed.delete(id);
+  }
 
   /** Forget the auto-follow chain and its stash (anything that is not an auto-follow switch). */
   function dropChain(): void {
@@ -422,13 +453,18 @@ export const useLiveStore = defineStore('live', () => {
         const v = Math.min(Math.max(values[col], 0), range);
         data.travel[key.id] = v / 1000;
         data.ratio[key.id] = v / range;
+        if (uiPressed.size) trackUiPressed(key.id, v / 1000, now);
       } else data.status[key.id] = values[col];
       if (key.id === focus) focusedHere = true;
     }
     if (type === 'route' && follow.value && !followSuspended) {
       let best = -1;
-      for (let id = 0; id < data.travel.length; id++) if (best < 0 || data.travel[id] > data.travel[best]) best = id;
-      const cur = focus === null ? 0 : data.travel[focus];
+      const ui = uiPressed.size > 0;
+      for (let id = 0; id < data.travel.length; id++) {
+        if (ui && uiPressed.has(id)) continue;
+        if (best < 0 || data.travel[id] > data.travel[best]) best = id;
+      }
+      const cur = focus === null || (ui && uiPressed.has(focus)) ? 0 : data.travel[focus];
       if (best >= 0 && best !== focus && data.travel[best] >= FOLLOW_MIN && data.travel[best] > cur + FOLLOW_MARGIN) {
         // Leaving a key that is not focus-moving starts a new chain: its buffers become the single root stash.
         // A hop from a focus-moving key (Tab, Shift) stays inside the chain and keeps the root stash.
@@ -517,6 +553,7 @@ export const useLiveStore = defineStore('live', () => {
 
   function stop(): void {
     dropChain();
+    uiPressed.clear();
     generation++;
     running.value = false;
     paused.value = false;
@@ -526,6 +563,7 @@ export const useLiveStore = defineStore('live', () => {
   /** Forget all live state (profile changed): per-key travel/status, focus buffers. */
   function reset(): void {
     dropChain();
+    uiPressed.clear();
     data.travel.fill(0);
     data.ratio.fill(0);
     data.status.fill(0);
@@ -555,15 +593,19 @@ export const useLiveStore = defineStore('live', () => {
    * focus, each link's key still held) and return to the key followed just before. No age limit: the first Tab of
    * a slow typing box → Pause → Clear → graph walk made the switch long before the graph got focus, and the held
    * check already stops at a key the user tested on purpose (it has been released). Follow stays auto.
+   * Without `keys` (graph focus) only held focus-moving keys (Tab/Shift) are undone. With `keys` (the page passes
+   * Space/Enter when one operates a control) a held key in `keys` is undone, and so is any focus-moving key, held or
+   * not: a released Tab/Shift in the chain was keyboard navigation to the control, never a test.
    */
-  function undoAutoFollow(): boolean {
+  function undoAutoFollow(keys?: Set<number>): boolean {
     let current = focusId.value;
     let restore: number | undefined;
     for (let i = switchLog.length - 1; i >= 0; i--) {
       const sw = switchLog[i];
-      // Only a focus-moving key is undone (a held A is deliberate), and never back to "nothing followed".
-      if (sw.from === null || !focusMoving.has(sw.to) || sw.to !== current) break;
-      if (!(data.travel[sw.to] >= FOLLOW_MIN || data.status[sw.to] > 0)) break;
+      // Only a focus-moving key or one in `keys` is undone (a held A is deliberate), and never back to "nothing followed".
+      const nav = focusMoving.has(sw.to);
+      if (sw.from === null || sw.to !== current || !(nav || keys?.has(sw.to))) break;
+      if (!(keys && nav) && !(data.travel[sw.to] >= FOLLOW_MIN || data.status[sw.to] > 0)) break;
       restore = sw.from;
       current = sw.from;
     }
@@ -592,5 +634,5 @@ export const useLiveStore = defineStore('live', () => {
     return true;
   }
 
-  return { data, focusId, follow, allKeys, running, paused, start, stop, reset, clear: clearByUser, pin, setFocus, setFollow, suspendFollow, ingest, undoAutoFollow };
+  return { data, focusId, follow, allKeys, running, paused, start, stop, reset, clear: clearByUser, pin, setFocus, setFollow, suspendFollow, ingest, undoAutoFollow, keysForCodes, markUiPressed };
 });

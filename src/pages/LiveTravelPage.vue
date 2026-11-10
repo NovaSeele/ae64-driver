@@ -45,6 +45,24 @@ function onGraphKeyFocus() {
   if (live.follow) live.undoAutoFollow();
 }
 
+// ----- Space/Enter that operates a control is not a test press
+const SPACE_CODES = [0x2c];
+const ENTER_CODES = [0x28, 0x58];
+const CONTROL = 'button, [role=button], [role=switch], [role=radio], [role=tab], select';
+const pageRef = ref<{ $el: HTMLElement } | null>(null);
+let pageEl: HTMLElement | null = null;
+
+/** Capture phase, so it runs before the control's own action: undo the switch the keystroke caused and ignore that key until it is released. */
+function onControlKey(e: KeyboardEvent) {
+  const codes = e.key === ' ' || e.code === 'Space' ? SPACE_CODES
+    : e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter' ? ENTER_CODES : null;
+  const el = e.target;
+  if (!codes || !(el instanceof Element) || !el.matches(CONTROL) || el.matches('[data-keytest], canvas.graph')) return;
+  const keys = live.keysForCodes(codes);
+  live.undoAutoFollow(keys);
+  live.markUiPressed(keys);
+}
+
 function setFollow(v: 'auto' | 'pin' | null) {
   if (v === null) return;
   if (v === 'auto') sel.clear();
@@ -150,8 +168,11 @@ onMounted(() => {
     live.start();
   });
   raf = requestAnimationFrame(frame);
+  pageEl = pageRef.value?.$el ?? null;
+  pageEl?.addEventListener('keydown', onControlKey, true);
 });
 onBeforeUnmount(() => {
+  pageEl?.removeEventListener('keydown', onControlKey, true);
   live.suspendFollow(false);
   live.stop();
   offProfile?.();
@@ -192,7 +213,7 @@ function onTypeKey(e: KeyboardEvent) {
 </script>
 
 <template>
-  <PageLayout :title="t('page.live')">
+  <PageLayout ref="pageRef" :title="t('page.live')">
     <section class="kbrow">
       <div class="board">
         <KeyboardView

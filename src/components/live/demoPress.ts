@@ -75,6 +75,8 @@ export function attachDemoPress(mock: MockTransport): () => void {
     if (GRAPH_KEYS.has(e.code) && el?.closest?.('canvas.graph')) return;
     // Tab on a focused control moves focus (the AE64 has a Tab key too); only Tab on the bare page simulates.
     if (!inTest && e.code === 'Tab' && el && el !== document.body && el !== document.documentElement) return;
+    // Space/Enter on a focused control operates it (button, switch, radio…), as on real hardware; don't swallow it.
+    if (!inTest && (e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter') && el?.matches?.('button, [role="button"], [role="switch"], [role="radio"], [role="tab"], select')) return;
     // Leave shortcuts (Ctrl+Z…) alone: modifiers only count when pressed on their own.
     if ((e.ctrlKey && e.code !== 'ControlLeft') || (e.metaKey && e.code !== 'MetaLeft')) return;
     if (!inTest) {
