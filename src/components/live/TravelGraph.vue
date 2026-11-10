@@ -6,6 +6,7 @@ import type { ActuationSettings, LiveData } from '../../stores/live';
 import { releasePoint } from '../../stores/live';
 import { isRtMode } from '../../protocol';
 import { resolvedTheme } from '../../theme';
+import { HoldTracker } from './graphHold';
 
 const props = defineProps<{
   data: LiveData;
@@ -14,6 +15,7 @@ const props = defineProps<{
   paused: boolean;
   label: string;
 }>();
+const emit = defineEmits<{ hold: [holding: boolean] }>();
 
 const WINDOW_MS = 3000;
 const PAD = { l: 34, r: 10, t: 10, b: 10 };
@@ -25,7 +27,17 @@ let raf = 0;
 let ro: ResizeObserver | null = null;
 let w = 0;
 let h = 0;
-let frozenAt = 0;
+let frozenAt = 0; // manual pause clock
+const tracker = new HoldTracker();
+let seenVersion = props.data.version;
+let seenT = -Infinity;
+let emittedHold = false;
+// While the view is frozen the trace is drawn from this snapshot: the ring keeps filling with rest samples and
+// would evict the stroke after ~5 s. Allocated once (ring capacity), reused.
+let snapT: Float64Array | null = null;
+let snapMm: Float32Array | null = null;
+let snapN = 0;
+let snapClock = NaN;
 const col: Record<string, string> = {};
 
 // Canvas cannot take var() or color-mix(): resolve each colour through a hidden probe element's computed colour.
@@ -63,14 +75,70 @@ function resize() {
   ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
-function draw(now: number) {
+function takeSnapshot(clock: number) {
+  const ring = props.data.ring;
+  if (!snapT || !snapMm || snapT.length !== ring.capacity) {
+    snapT = new Float64Array(ring.capacity);
+    snapMm = new Float32Array(ring.capacity);
+  }
+  const t = snapT;
+  const mm = snapMm;
+  let n = 0;
+  ring.forEach(clock - WINDOW_MS - 50, (st, smm) => {
+    if (st > clock) return;
+    t[n] = st;
+    mm[n] = smm;
+    n++;
+  });
+  snapN = n;
+  snapClock = clock;
+}
+
+function setHold(v: boolean) {
+  if (v === emittedHold) return;
+  emittedHold = v;
+  emit('hold', v);
+}
+
+function draw(realNow: number) {
   raf = requestAnimationFrame(draw);
   const c = ctx;
   if (!c || !w || !h) return;
+  const d = props.data;
+
+  // clear / focus change: forget the stroke and any snapshot
+  if (d.version !== seenVersion) {
+    seenVersion = d.version;
+    tracker.reset();
+    seenT = -Infinity;
+    snapClock = NaN;
+    snapN = 0;
+  }
+  // feed only the new samples
+  let newest = seenT;
+  d.ring.forEach(seenT, (t, mm) => {
+    if (t <= seenT) return;
+    tracker.feed(t, mm);
+    if (t > newest) newest = t;
+  });
+  seenT = newest;
+
+  const holdClock = tracker.frozenAt(realNow);
+  let now = realNow;
+  let frozen = false;
   if (props.paused) {
-    if (!frozenAt) frozenAt = now;
+    if (!frozenAt) frozenAt = holdClock ?? realNow;
     now = frozenAt;
-  } else frozenAt = 0;
+    frozen = true;
+    setHold(false);
+  } else {
+    frozenAt = 0;
+    if (holdClock !== null) { now = holdClock; frozen = true; }
+    setHold(holdClock !== null);
+  }
+  if (frozen) {
+    if (snapClock !== now) takeSnapshot(now);
+  } else snapClock = NaN;
   const range = props.range;
   const x0 = PAD.l;
   const x1 = w - PAD.r;
@@ -81,7 +149,7 @@ function draw(now: number) {
   const Y = (mm: number) => y0 + (Math.min(Math.max(mm, 0), range) / range) * (y1 - y0);
 
   c.clearRect(0, 0, w, h);
-  c.font = '10px Inter Variable, Inter, system-ui, sans-serif';
+  c.font = '11px Inter Variable, Inter, system-ui, sans-serif';
   c.textBaseline = 'middle';
   c.textAlign = 'right';
 
@@ -124,17 +192,19 @@ function draw(now: number) {
   }
 
   // travel trace + soft area
-  const d = props.data;
   c.beginPath();
   let first = true;
   let firstX = x0;
   let lastX = x0;
-  d.ring.forEach(from - 50, (t, mm) => {
+  const point = (t: number, mm: number) => {
     const x = Math.max(x0, X(t));
     const y = Y(mm);
     if (first) { c.moveTo(x, y); first = false; firstX = x; } else c.lineTo(x, y);
     lastX = x;
-  });
+  };
+  if (frozen && snapT && snapMm) {
+    for (let i = 0; i < snapN; i++) if (snapT[i] >= from - 50) point(snapT[i], snapMm[i]);
+  } else d.ring.forEach(from - 50, point);
   if (!first) {
     c.strokeStyle = col['fg-1'];
     c.lineWidth = 1.75;
@@ -149,7 +219,7 @@ function draw(now: number) {
 
   // events
   for (const e of d.events) {
-    if (e.t < from) continue;
+    if (e.t < from || (frozen && e.t > now)) continue;
     const x = X(e.t);
     const y = Y(e.depth);
     c.beginPath();

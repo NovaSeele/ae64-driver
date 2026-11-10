@@ -28,6 +28,7 @@ export const liveVi = {
   'live.graphLabel': 'Biểu đồ hành trình phím {key} trong 3 giây gần nhất',
   'live.pause': 'Tạm dừng biểu đồ',
   'live.resume': 'Tiếp tục biểu đồ',
+  'live.holding': 'Giữ nét cuối · nhấn phím để đo tiếp',
   'live.clear': 'Xoá dữ liệu đo',
   'live.legendPress': 'Kích hoạt',
   'live.legendRelease': 'Nhả',

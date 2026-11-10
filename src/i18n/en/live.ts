@@ -30,6 +30,7 @@ export const liveEn: Record<keyof typeof liveVi, string> = {
   'live.graphLabel': 'Travel graph for key {key} over the last 3 seconds',
   'live.pause': 'Pause graph',
   'live.resume': 'Resume graph',
+  'live.holding': 'Holding last stroke · press a key to continue',
   'live.clear': 'Clear measurement data',
   'live.legendPress': 'Actuation',
   'live.legendRelease': 'Release',

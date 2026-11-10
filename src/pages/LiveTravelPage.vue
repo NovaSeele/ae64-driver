@@ -76,6 +76,7 @@ const view = shallowRef<View>({
 });
 const heat = shallowRef<{ ratio: number[]; status: number[]; travel: number[] }>({ ratio: [], status: [], travel: [] });
 const graphPaused = ref(false);
+const graphHold = ref(false);
 
 let raf = 0;
 let seen = -1;
@@ -118,6 +119,11 @@ watch(() => device.demo && demoKeys.value && device.transport?.kind === 'mock', 
   detachDemo = on ? attachDemoPress(device.transport as MockTransport) : null;
 }, { immediate: true });
 
+function clearGraph() {
+  live.clear();
+  graphHold.value = false;
+}
+
 // ----- lifecycle
 let offProfile: (() => void) | null = null;
 onMounted(() => {
@@ -126,6 +132,7 @@ onMounted(() => {
   syncFocusFromSelection();
   if (live.focusId === null) live.setFocus(device.keys.find((k) => k.name === 'W')?.id ?? 0);
   live.clear();
+  graphHold.value = false;
   live.start();
   offProfile = device.onProfileChanged(async () => {
     live.stop();
@@ -285,6 +292,7 @@ function onTypeKey(e: KeyboardEvent) {
 
       <Card class="graphcard" :title="t('live.graph')">
         <template #actions>
+          <span v-if="graphHold && !graphPaused" class="holdchip"><IconPlayerPause :size="14" aria-hidden="true" />{{ t('live.holding') }}</span>
           <span class="legend"><i class="dot dot--act" />{{ t('live.legendPress') }}</span>
           <span class="legend"><i class="dot dot--release" />{{ t('live.legendRelease') }}</span>
           <IconButton
@@ -294,14 +302,15 @@ function onTypeKey(e: KeyboardEvent) {
             size="sm"
             @click="graphPaused = !graphPaused"
           />
-          <IconButton :icon="IconTrash" :label="t('live.clear')" size="sm" @click="live.clear()" />
+          <IconButton :icon="IconTrash" :label="t('live.clear')" size="sm" @click="clearGraph" />
         </template>
         <TravelGraph
           :data="live.data"
           :settings="settings"
           :range="range"
           :paused="graphPaused"
-          :label="t('live.graphLabel', { key: keyName })"
+          :label="t('live.graphLabel', { key: keyName }) + (graphHold && !graphPaused ? ' · ' + t('live.holding') : '')"
+          @hold="graphHold = $event"
         />
       </Card>
     </div>
@@ -420,6 +429,11 @@ function onTypeKey(e: KeyboardEvent) {
 .stats dd small { margin-left: 4px; font-size: var(--fs-label); font-weight: 500; color: var(--fg-3); }
 .stats dd.acc { color: var(--m-actuation); }
 
+.holdchip {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px;
+  font-size: var(--fs-label); font-weight: 500; color: var(--fg-2); background: var(--bg-3);
+  border: 1px solid var(--line-2); border-radius: var(--r-control); white-space: nowrap;
+}
 .legend { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-label); color: var(--fg-3); margin-right: var(--s-2); }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot--act { background: var(--m-actuation); }
