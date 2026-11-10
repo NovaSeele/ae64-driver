@@ -233,6 +233,17 @@ describe('Space/Enter that operates a control is not a test press', () => {
     expect(live.focusId).toBe(RIGHT.id);
   });
 
+  it('Z3. only the arrow actually pressed is marked: ↓ travelling right after ArrowRight on the radio is followed', () => {
+    strokeW();
+    set(TAB, 2, 1500);
+    set(TAB, 0, 1520);
+    set(RIGHT, 2, 1600);
+    keydown(w!.find('[role=radio]').element, 'ArrowRight', 'ArrowRight');
+    expect(live.focusId).toBe(W.id);
+    set(key('↓'), 2, 1650); // within 400 ms of the mark, so only the per-key mark lets it through
+    expect(live.focusId).toBe(key('↓').id);
+  });
+
   it('Y6. a mark whose key never travels expires after 400 ms: a later real Space is followed', () => {
     strokeW();
     vi.spyOn(performance, 'now').mockReturnValue(base + 1100);

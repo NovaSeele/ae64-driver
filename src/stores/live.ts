@@ -606,7 +606,8 @@ export const useLiveStore = defineStore('live', () => {
    * the chain was keyboard navigation, never a test. A link to any other key is undone only when it is in `keys`
    * (the page passes Space/Enter/arrows when one operates a control), still held and the newest link; otherwise it stops the walk
    * (a held A is deliberate). Never back to "nothing followed": a focus-moving link with no key before it makes the
-   * undo return false and change nothing. Running out of log entries at a key is fine and returns to that key.
+   * undo return false and change nothing. Running out of log entries at a key is fine and returns to that key; at a
+   * Tab/Shift (the capped log lost the start of a long Shift+Tab walk) it returns to the root stash key, if any.
    */
   function undoAutoFollow(keys?: Set<number>): boolean {
     let current = focusId.value;
@@ -626,7 +627,10 @@ export const useLiveStore = defineStore('live', () => {
       restore = sw.from;
       current = sw.from;
     }
-    if (restore === undefined) return false;
+    // The log is capped: a long Shift+Tab walk can push the link out of the key that started the chain, so the walk
+    // runs out at a Tab/Shift. The root stash is that key (every link kept after it leaves a Tab/Shift): go there.
+    if (restore !== undefined && focusMoving.has(restore) && stash) restore = stash.id;
+    if (restore === undefined || restore === focusId.value) return false;
     const root = stash; // setFocus drops the chain
     setFocus(restore);
     if (root && root.id === restore) {

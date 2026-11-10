@@ -148,6 +148,22 @@ describe('undoAutoFollow', () => {
     set(W, 0, 1060);
   }
 
+  it('a Shift+Tab walk longer than the capped log still returns to the root key W, with its stroke', () => {
+    strokeW();
+    set(SHIFT, 1, 1200); // Shift held lightly: each Tab hops Shift → Tab → Shift (2 links per Tab)
+    let t = 1300;
+    for (let i = 0; i < 40; i++) {
+      set(TAB, 2, (t += 20));
+      set(TAB, 0, (t += 20));
+    }
+    expect(live.focusId).toBe(SHIFT.id);
+    set(TAB, 2, (t += 20)); // the Tab onto the graph, still held; W → Shift fell out of the 64-link log long ago
+    expect(live.undoAutoFollow()).toBe(true);
+    expect(live.focusId).toBe(W.id);
+    expect(live.data.count).toBe(1);
+    expect(ringMax()).toBeCloseTo(3, 1);
+  });
+
   it('chains past a released Shift: W, Shift tap, Tab held → W with its stroke', () => {
     set(W, 2, 1000);
     set(W, 0, 1100);
