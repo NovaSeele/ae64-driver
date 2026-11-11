@@ -1,7 +1,8 @@
 // Key selection shared by every per-key page (ids are PhysicalKey.id, 0..63).
 import { defineStore } from 'pinia';
-import { computed, ref, shallowRef } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import { PHYSICAL_KEYS } from '../protocol';
+import { useDeviceStore } from './device';
 
 export type SelectMode = 'replace' | 'toggle' | 'range';
 
@@ -11,6 +12,8 @@ const WASD_IDS = ['W', 'A', 'S', 'D'].map((n) => PHYSICAL_KEYS.find((k) => k.nam
 export const useSelectionStore = defineStore('selection', () => {
   const selected = shallowRef<Set<number>>(new Set());
   const focused = ref<number | null>(null);
+  // Another keyboard (or the demo) was connected: the selection was of the old one.
+  watch(() => useDeviceStore().connection, () => { selected.value = new Set(); focused.value = null; });
   const ids = computed(() => [...selected.value].sort((a, b) => a - b));
   const count = computed(() => selected.value.size);
 

@@ -80,6 +80,8 @@ export interface Ae64Transport {
   readonly kind: 'hid' | 'mock';
   readonly connected: boolean;
   readonly productName: string;
+  /** USB product ID (0x300d Max, 0x300a Pro); undefined if the transport cannot tell. */
+  readonly productId?: number;
   readonly stats: TransportStats;
   onDisconnect(cb: () => void): () => void;
   onPacket(cb: (e: PacketLogEntry) => void): () => void;   // diagnostics log
@@ -153,7 +155,7 @@ export interface ProtocolModule {
   PHYSICAL_KEYS: readonly PhysicalKey[];                   // fallback 64-key table
   connectHid(): Promise<Ae64Transport>;                    // requestDevice + open; throws readable errors
   reconnectGrantedHid(): Promise<Ae64Transport | null>;    // navigator.hid.getDevices() for auto-reconnect
-  createMockTransport(opts?: { seed?: 'max' }): Ae64Transport; // demo, seeded from device-snapshot.md
+  createMockTransport(opts?: { seed?: 'max' | 'pro' }): Ae64Transport; // demo, seeded from device-snapshot.md
   keycodeLabel(code: number): { label: string; group: string; long?: string };
   KEYCODE_GROUPS: readonly { id: string; label: string; codes: { code: number; label: string; long?: string }[] }[];
 }

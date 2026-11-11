@@ -4,7 +4,7 @@
 // "Xoá dữ liệu" keeps the slot valid with actNum = 0 and sends no pages.
 // Save = meta + every page → commit(SAVE_GROUP.MACRO) (sync store) → full read-back verify; history undoes it.
 import { defineStore } from 'pinia';
-import { computed, reactive, ref, shallowRef } from 'vue';
+import { computed, reactive, ref, shallowRef, watch } from 'vue';
 import { MACRO_ACTIONS_PER_PAGE, MACRO_MAX_DELAY_MS, MACRO_SLOTS, SAVE_GROUP, UnsafeCommandError, WriteNotAllowedError } from '../protocol';
 import type { Ae64Transport, MacroAction, MacroMeta } from '../protocol';
 import { t as tr } from '../i18n/vi';
@@ -89,6 +89,22 @@ export const useMacroStore = defineStore('macro', () => {
   /** Last state known complete and consistent (from load or a verified save): what "discard" writes back. */
   const lastGood = new Map<number, MacroSlot>();
 
+  // Another keyboard (or the demo) was connected: its macros, drafts and in-flight jobs are not this one's.
+  watch(() => device.connection, () => {
+    slots.value = [];
+    space.value = { count: MACRO_SLOTS, capacity: DEFAULT_CAPACITY };
+    loaded.value = false;
+    loadedFor = null;
+    loadError.value = null;
+    loadedCount.value = 0;
+    loading.value = false;
+    loadPromise = null; // a load of the old keyboard may still be running: a new load() must start fresh
+    confirmed.clear();
+    lastGood.clear();
+    jobs.clear();
+    waiting.clear();
+  }, { flush: 'sync' });
+
   /** Put a slot back to what the keyboard really has (a write failed, so the optimistic copy is wrong). */
   function restore(id: number): void {
     const real = confirmed.get(id);
@@ -108,6 +124,7 @@ export const useMacroStore = defineStore('macro', () => {
   function load(force = false): Promise<void> {
     if (loadPromise) return force ? loadPromise.then(() => load(true)) : loadPromise;
     if (!force && loaded.value && loadedFor === device.transport) return Promise.resolve();
+    const gen = device.connection;
     loadPromise = (async () => {
       loading.value = true;
       loadError.value = null;
@@ -121,6 +138,7 @@ export const useMacroStore = defineStore('macro', () => {
             loadedCount.value++;
           }
         });
+        if (gen !== device.connection) return;
         slots.value = next;
         confirmed.clear();
         lastGood.clear();
@@ -128,10 +146,12 @@ export const useMacroStore = defineStore('macro', () => {
         loaded.value = true;
         loadedFor = device.transport;
       } catch (err) {
-        loadError.value = err instanceof Error ? err.message : String(err);
+        if (gen === device.connection) loadError.value = err instanceof Error ? err.message : String(err);
       } finally {
-        loading.value = false;
-        loadPromise = null;
+        if (gen === device.connection) {
+          loading.value = false;
+          loadPromise = null;
+        }
       }
     })();
     return loadPromise;

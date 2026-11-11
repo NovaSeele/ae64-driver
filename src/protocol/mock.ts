@@ -1,11 +1,12 @@
 // Demo transport: a byte-level emulator of an AE64 Max seeded from contracts/device-snapshot.md.
+// seed 'pro' answers as an AE64 Pro (board 0030000a, firmware 0.0.7.0, 20 area-0 lighting modes); everything else is the Max's.
 // Requests go through the same codecs as WebHID; this class only answers 64-byte frames.
 // Writes persist in memory for the session; commits are acknowledged and otherwise no-ops.
 
 import type { Bytes, Performance, PhysicalKey } from './types';
 import { BaseTransport } from './client';
 import { encodeLayoutStyleEntry, encodePerformance, le16, mmToUm, read16 } from './codec';
-import { LED_MATRIX_COLS, LED_RECORDS_PER_PACKET, LED_STRIP_COUNT, MACRO_ACTIONS_PER_PAGE, RATIO_UNITS } from './constants';
+import { LED_MATRIX_COLS, PRODUCT_ID_MAX, PRODUCT_ID_PRO, LED_RECORDS_PER_PACKET, LED_STRIP_COUNT, MACRO_ACTIONS_PER_PAGE, RATIO_UNITS } from './constants';
 import { PHYSICAL_KEYS } from './layout';
 
 const hex = (s: string) => s.trim().split(/\s+/).map((h) => parseInt(h, 16));
@@ -21,6 +22,12 @@ const SNAPSHOT: Record<string, number[]> = {
   '02:09:01': hex('02 09 01 20 10 3e 0d 20 4e'),
   '02:0c:00': hex('02 0c 00 01 01'),
   '02:0e:00': hex('02 0e 00 10 c0 03'),
+};
+
+/** Replies that differ on the AE64 Pro seed: board bytes 00 30 00 0a, firmware 0.0.7.0, 20 modes in area 0. */
+const PRO_SNAPSHOT: Record<string, number[]> = {
+  '01:02': SNAPSHOT['01:02'].map((b, i) => (i === 7 ? 0x0a : i === 10 ? 0x07 : b)),
+  '02:08:00': hex('02 08 00 02 00 14 06 0F 01 05 01 26'),
 };
 
 // Layer-0 keymap measured on the user's board (row → firmware column → keycode, 0 = empty).
@@ -101,7 +108,9 @@ const isWasd = (k: PhysicalKey) => ['W', 'A', 'S', 'D'].includes(k.name);
 
 export class MockTransport extends BaseTransport {
   readonly kind = 'mock' as const;
-  readonly productName = 'AE64-MAX (demo)';
+  readonly productName: string;
+  readonly productId: number;
+  private readonly snapshot: Record<string, number[]>;
   private open = true;
   private readonly latencyMs: number;
   private readonly profiles: MockProfile[];
@@ -115,8 +124,12 @@ export class MockTransport extends BaseTransport {
   private readonly macroActions: number[][] = Array.from({ length: 16 }, () => []);
   private readonly live = new Map<number, LiveKey>();
 
-  constructor(opts: { latencyMs?: number } = {}) {
+  constructor(opts: { latencyMs?: number; seed?: 'max' | 'pro' } = {}) {
     super();
+    const pro = opts.seed === 'pro';
+    this.productName = pro ? 'AE64 Pro (demo)' : 'AE64-MAX (demo)';
+    this.productId = pro ? PRODUCT_ID_PRO : PRODUCT_ID_MAX;
+    this.snapshot = pro ? { ...SNAPSHOT, ...PRO_SNAPSHOT } : SNAPSHOT;
     this.latencyMs = opts.latencyMs ?? 2;
     this.profiles = [
       makeProfile('Default', () => ({})),
@@ -201,8 +214,8 @@ export class MockTransport extends BaseTransport {
     const set = (bytes: number[]) => { out.set(bytes.slice(0, 64)); return out; };
     const [f, op, a = 0, b = 0, c2 = 0] = req;
     const prof = this.profiles[this.active];
-    const snap = SNAPSHOT[[f, op, a].map((x) => x.toString(16).padStart(2, '0')).join(':')]
-      ?? SNAPSHOT[[f, op].map((x) => x.toString(16).padStart(2, '0')).join(':')];
+    const snap = this.snapshot[[f, op, a].map((x) => x.toString(16).padStart(2, '0')).join(':')]
+      ?? this.snapshot[[f, op].map((x) => x.toString(16).padStart(2, '0')).join(':')];
     if (snap) return set(snap);
 
     switch (f) {
@@ -362,6 +375,6 @@ export class MockTransport extends BaseTransport {
   }
 }
 
-export function createMockTransport(_opts?: { seed?: 'max' }): MockTransport {
-  return new MockTransport();
+export function createMockTransport(opts?: { seed?: 'max' | 'pro' }): MockTransport {
+  return new MockTransport({ seed: opts?.seed });
 }

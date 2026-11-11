@@ -14,7 +14,7 @@ import { en } from './en';
 
 export const base = {
   'app.name': 'AE64 Max Control',
-  'app.tagline': 'Driver cục bộ cho Everglide AE64 Max',
+  'app.tagline': 'Driver cục bộ cho Everglide AE64 Max / AE64 Pro',
 
   // navigation
   'nav.configure': 'Cấu hình',
@@ -49,6 +49,8 @@ export const base = {
   'device.latency': 'Độ trễ',
   'device.disconnect': 'Ngắt kết nối',
   'device.notAllowed': 'Bảng mạch {board} không nằm trong danh sách được phép ghi — chế độ chỉ đọc.',
+  'device.changeKeyboard': 'Đổi bàn phím',
+  'device.changeBlocked': 'Chưa đổi bàn phím: còn thay đổi chưa lưu được vào phím. Hãy thử lại hoặc xem trạng thái lưu.',
   'device.lost': 'Mất kết nối với bàn phím.',
   'device.unsavedLost': 'Mất kết nối: {n} thay đổi chưa lưu vào phím.',
   'device.calibrating': 'Bàn phím đang hiệu chuẩn: hãy kết thúc hiệu chuẩn trước.',
@@ -57,9 +59,10 @@ export const base = {
   'device.renamed': 'Đã đổi tên profile thành “{name}”.',
   'device.switched': 'Đã chuyển sang {name}.',
   'connect.title': 'Kết nối bàn phím',
-  'connect.subtitle': 'Cắm AE64 Max bằng cáp USB rồi bấm kết nối.',
+  'connect.subtitle': 'Cắm AE64 Max hoặc AE64 Pro bằng cáp USB rồi bấm kết nối.',
   'connect.button': 'Kết nối bàn phím',
-  'connect.demo': 'Chế độ demo',
+  'connect.demoMax': 'Demo Max',
+  'connect.demoPro': 'Demo Pro',
   'connect.demoHint': 'Dùng thử với bàn phím giả lập, không cần thiết bị.',
   'connect.noHid': 'Trình duyệt này không hỗ trợ WebHID. Hãy mở bằng Chrome hoặc Edge bản desktop.',
   'connect.reconnecting': 'Đang tự kết nối lại…',
@@ -93,7 +96,7 @@ export const base = {
   'sel.clear': 'Bỏ chọn',
   'sel.invert': 'Đảo chọn',
   'sel.hint': 'Click để chọn · Ctrl/Shift để chọn thêm · kéo để quét vùng · Esc bỏ chọn',
-  'keyboard.label': 'Bàn phím AE64 Max',
+  'keyboard.label': 'Bàn phím {model}',
 
   // performance
   'perf.metric': 'Hiển thị',
@@ -169,7 +172,7 @@ export const base = {
 
   // help
   'help.title': 'AE64 Max Control',
-  'help.body': 'Driver web remake cho Everglide AE64 Max. Kết nối qua WebHID. Mọi thay đổi được ghi tự động vào phím và có thể hoàn tác (Ctrl+Z / Ctrl+Y).',
+  'help.body': 'Driver web remake cho Everglide AE64 Max và AE64 Pro. Kết nối qua WebHID. Mọi thay đổi được ghi tự động vào phím và có thể hoàn tác (Ctrl+Z / Ctrl+Y).',
   'help.shortcuts': 'Phím tắt',
   'help.shortcutUndo': 'Hoàn tác / Làm lại',
   'help.shortcutSelect': 'Bỏ chọn phím',

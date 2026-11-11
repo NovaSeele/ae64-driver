@@ -81,6 +81,8 @@ export const useLightingStore = defineStore('lighting', () => {
   // Another keyboard (or the demo) was connected: nothing cached belongs to it (load() refetches; every
   // apply is refused until it has, because loadedProfile no longer matches).
   watch(() => device.connection, () => {
+    area0ModeCount.value = 19; // the Max's counts until 02 08 00 of this keyboard has been read (the Pro has 20)
+    area1ModeCount.value = 5;
     area0Matrix.value = [];
     area1Matrix.value = [];
     freshBase.clear();

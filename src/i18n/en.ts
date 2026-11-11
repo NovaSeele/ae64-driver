@@ -11,7 +11,7 @@ import { macroEn } from './en/macro';
 
 const baseEn: Record<keyof typeof base, string> = {
   'app.name': 'AE64 Max Control',
-  'app.tagline': 'Local-first driver for Everglide AE64 Max',
+  'app.tagline': 'Local-first driver for Everglide AE64 Max / AE64 Pro',
 
   // navigation
   'nav.configure': 'Configure',
@@ -46,6 +46,8 @@ const baseEn: Record<keyof typeof base, string> = {
   'device.latency': 'Latency',
   'device.disconnect': 'Disconnect',
   'device.notAllowed': 'Board {board} is not in write allowlist — read-only mode.',
+  'device.changeKeyboard': 'Change keyboard',
+  'device.changeBlocked': 'Keyboard not changed: some edits could not be saved to it yet. Try again or check the save status.',
   'device.lost': 'Connection to keyboard lost.',
   'device.unsavedLost': 'Connection lost: {n|# change was|# changes were} not saved to the keyboard.',
   'device.calibrating': 'The keyboard is calibrating: finish calibration first.',
@@ -54,9 +56,10 @@ const baseEn: Record<keyof typeof base, string> = {
   'device.renamed': 'Renamed profile to “{name}”.',
   'device.switched': 'Switched to {name}.',
   'connect.title': 'Connect keyboard',
-  'connect.subtitle': 'Plug in your AE64 Max via USB and click connect.',
+  'connect.subtitle': 'Plug in your AE64 Max or AE64 Pro via USB and click connect.',
   'connect.button': 'Connect keyboard',
-  'connect.demo': 'Demo mode',
+  'connect.demoMax': 'Demo Max',
+  'connect.demoPro': 'Demo Pro',
   'connect.demoHint': 'Try with a simulated keyboard, no hardware required.',
   'connect.noHid': 'This browser does not support WebHID. Please open it in desktop Chrome or Edge.',
   'connect.reconnecting': 'Reconnecting automatically…',
@@ -90,7 +93,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'sel.clear': 'Deselect',
   'sel.invert': 'Invert',
   'sel.hint': 'Click to select · Ctrl/Shift to add · drag to box select · Esc to clear',
-  'keyboard.label': 'AE64 Max Keyboard',
+  'keyboard.label': '{model} Keyboard',
 
   // performance
   'perf.metric': 'Display',
@@ -166,7 +169,7 @@ const baseEn: Record<keyof typeof base, string> = {
 
   // help
   'help.title': 'AE64 Max Control',
-  'help.body': 'Remake web driver for Everglide AE64 Max. Connects via WebHID. Changes are saved automatically to the keyboard and support undo/redo (Ctrl+Z / Ctrl+Y).',
+  'help.body': 'Remake web driver for Everglide AE64 Max and AE64 Pro. Connects via WebHID. Changes are saved automatically to the keyboard and support undo/redo (Ctrl+Z / Ctrl+Y).',
   'help.shortcuts': 'Shortcuts',
   'help.shortcutUndo': 'Undo / Redo',
   'help.shortcutSelect': 'Deselect keys',

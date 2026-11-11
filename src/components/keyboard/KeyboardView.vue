@@ -8,6 +8,7 @@ import Keycap from './Keycap.vue';
 import type { SubLine } from './Keycap.vue';
 import { layoutBounds } from '../../protocol';
 import type { PhysicalKey } from '../../protocol';
+import { useDeviceStore } from '../../stores/device';
 import { useFlashStore } from '../../stores/flash';
 import { useSelectionStore } from '../../stores/selection';
 import type { SelectMode } from '../../stores/selection';
@@ -41,6 +42,7 @@ const MAX_UNIT = 58;
 const DRAG_THRESHOLD = 5;
 
 const sel = useSelectionStore();
+const device = useDeviceStore();
 const flashStore = useFlashStore();
 const root = ref<HTMLElement | null>(null);
 const plate = ref<HTMLElement | null>(null);
@@ -188,7 +190,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
     class="kb"
     :class="{ 'kb--selectable': selectable }"
     role="group"
-    :aria-label="t('keyboard.label')"
+    :aria-label="t('keyboard.label', { model: device.modelName ?? 'AE64' })"
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
     @pointerup="onPointerUp"

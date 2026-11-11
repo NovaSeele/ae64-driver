@@ -1,6 +1,6 @@
 // Session undo/redo. Entries mutate page-store state and enqueue the same sync jobs as the original edit.
 import { defineStore } from 'pinia';
-import { computed, ref, shallowRef } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import { useDeviceStore } from './device';
 import { useCalibrationStore } from './calibration';
 
@@ -81,6 +81,9 @@ export const useHistoryStore = defineStore('history', () => {
     undoStack.value = [];
     redoStack.value = [];
   }
+
+  // Another keyboard (or the demo) was connected: an entry made on the old one must never be undone onto this one.
+  watch(() => useDeviceStore().connection, clear, { flush: 'sync' });
 
   /** Global Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z. Text inputs keep their native undo. Returns a remover. */
   function installShortcuts(target: Window = window): () => void {

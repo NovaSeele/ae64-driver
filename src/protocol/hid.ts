@@ -1,7 +1,7 @@
 // WebHID transport for the AE64 vendor configuration collection (FFB0:0001, report ID 0, 64 bytes).
 
 import type { Ae64Transport, Bytes } from './types';
-import { CONFIG_USAGE, CONFIG_USAGE_PAGE, HID_FILTERS, REPORT_ID } from './constants';
+import { CONFIG_USAGE, CONFIG_USAGE_PAGE, HID_FILTERS, REPORT_ID, VENDOR_ID } from './constants';
 import { BaseTransport, TransportTimeoutError, replyMatches } from './client';
 import { t as tr } from '../i18n/vi';
 
@@ -53,6 +53,10 @@ export class HidTransport extends BaseTransport {
 
   get productName(): string {
     return this.device.productName || 'AE64';
+  }
+
+  get productId(): number {
+    return this.device.productId;
   }
 
   get connected(): boolean {
@@ -138,9 +142,33 @@ export async function connectHid(): Promise<Ae64Transport> {
   return openDevice(device);
 }
 
-/** Re-open an already-granted keyboard (no permission prompt). Null if none is available. */
+const LAST_DEVICE_KEY = 'ae64.lastDevice';
+
+function readLastDevice(): { vendorId: number; productId: number } | null {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(LAST_DEVICE_KEY) ?? 'null');
+    const o = v as { vendorId?: unknown; productId?: unknown } | null;
+    return o && typeof o.vendorId === 'number' && typeof o.productId === 'number' ? { vendorId: o.vendorId, productId: o.productId } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remember the real keyboard that was just connected (a UI pref: reconnect prefers it when several are granted). */
+export function rememberDevice(productId: number | undefined): void {
+  if (productId === undefined) return;
+  try {
+    localStorage.setItem(LAST_DEVICE_KEY, JSON.stringify({ vendorId: VENDOR_ID, productId }));
+  } catch {
+    // storage unavailable: the next reconnect simply takes the first granted keyboard
+  }
+}
+
+/** Re-open an already-granted keyboard (no permission prompt): the remembered model if plugged in, else the first. Null if none. */
 export async function reconnectGrantedHid(): Promise<Ae64Transport | null> {
   if (!webHidAvailable()) return null;
-  const device = (await navigator.hid.getDevices()).find(isAe64);
+  const granted = (await navigator.hid.getDevices()).filter(isAe64);
+  const last = readLastDevice();
+  const device = (last && granted.find((d) => d.vendorId === last.vendorId && d.productId === last.productId)) || granted[0];
   return device ? openDevice(device) : null;
 }

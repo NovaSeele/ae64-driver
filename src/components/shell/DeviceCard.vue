@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { IconPlugConnectedX } from '@tabler/icons-vue';
+import { IconArrowsExchange, IconPlugConnectedX } from '@tabler/icons-vue';
 import IconButton from '../ui/IconButton.vue';
 import { useDeviceStore } from '../../stores/device';
 import { t } from '../../i18n/vi';
@@ -8,7 +8,7 @@ import { t } from '../../i18n/vi';
 const props = defineProps<{ compact?: boolean }>();
 
 const device = useDeviceStore();
-const name = computed(() => device.transport?.productName ?? 'AE64 Max');
+const name = computed(() => device.modelName ?? device.transport?.productName ?? 'AE64');
 const statusText = computed(() => {
   if (device.status === 'connected') return device.demo ? t('device.demo') : t('device.connected');
   if (device.status === 'connecting') return t('device.connecting');
@@ -30,6 +30,7 @@ const cardTitle = computed(() => (props.compact ? `${name.value} · ${statusText
           </template>
         </div>
       </div>
+      <IconButton v-if="device.connected && !compact" :icon="IconArrowsExchange" :label="t('device.changeKeyboard')" size="sm" @click="device.changeKeyboard()" />
       <IconButton v-if="device.connected && !compact" :icon="IconPlugConnectedX" :label="t('device.disconnect')" size="sm" @click="device.disconnect()" />
     </div>
     <dl v-if="device.info && !compact" class="dc__meta">

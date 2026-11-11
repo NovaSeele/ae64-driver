@@ -163,14 +163,14 @@ describe('switch triple guard', () => {
     expect(checkPerformanceWrite({ ...long, ...apollo, normalPress: 3.13, normalRelease: 3.13 }, [long], { boardIdHex: BOARD })).toBeNull();
   });
 
-  it('refuses a catalog triple on another board or without a board', () => {
-    expect(checkPerformanceWrite({ ...ur, ...apollo }, [ur], { boardIdHex: '0030000a' })).toMatch(/switch fields/);
+  it('refuses a catalog triple on a board without a catalog or without a board', () => {
+    expect(checkPerformanceWrite({ ...ur, ...apollo }, [ur], { boardIdHex: '0030000b' })).toMatch(/switch fields/);
     expect(checkPerformanceWrite({ ...ur, ...apollo }, [ur])).toMatch(/switch fields/);
   });
 
   it('allows restoring a triple the device reported, even without a catalog', () => {
     const switched = { ...ur, ...apollo };
-    expect(checkPerformanceWrite(ur, [ur, switched], { boardIdHex: '0030000a' })).toBeNull();
+    expect(checkPerformanceWrite(ur, [ur, switched], { boardIdHex: '0030000b' })).toBeNull();
     expect(checkPerformanceWrite(ur, [ur, switched])).toBeNull();
   });
 

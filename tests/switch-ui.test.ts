@@ -139,13 +139,13 @@ describe('switch selector UI', () => {
 
   it('a null catalog renders read-only', async () => {
     const { device } = await setup();
-    device.info = { ...device.info!, boardIdHex: '0030000a' };
+    device.info = { ...device.info!, boardIdHex: '0030000b' };
     await flushPromises();
     const change = w!.find('.swc__foot button');
     expect(change.attributes('disabled')).toBeDefined();
-    expect(change.attributes('title')).toContain('0030000A');
+    expect(change.attributes('title')).toContain('0030000B');
     expect(w!.find('.swc__name').text()).toBe('Không rõ');
     expect(w!.find('.swc__meta').text()).toBe('id 12432 · 64 phím');
-    expect(w!.find('.swc__note').text()).toContain('0030000A');
+    expect(w!.find('.swc__note').text()).toContain('0030000B');
   });
 });

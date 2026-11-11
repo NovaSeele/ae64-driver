@@ -156,6 +156,8 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
   const importDiff = ref<ImportDiff | null>(null);
   // A diff was computed against another profile: it no longer describes what a restore would change.
   watch(() => device.activeProfile, () => { importDiff.value = null; });
+  // A diff computed on another keyboard (Max ↔ Pro, or the demo) must never be restored onto this one.
+  watch(() => device.connection, () => { importDiff.value = null; });
 
   /**
    * Reads the active profile's full configuration from device and returns the versioned JSON payload.

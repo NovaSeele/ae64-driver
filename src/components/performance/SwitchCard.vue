@@ -10,6 +10,7 @@ import SwitchSwatch from './SwitchSwatch.vue';
 import SwitchPicker from './SwitchPicker.vue';
 import { groupKeys } from './switchGroups';
 import { groupName, switchBrand, switchName } from '../../data/switchDisplay';
+import type { SwitchEntry } from '../../protocol/switches';
 import { useDeviceStore } from '../../stores/device';
 import { usePerformanceStore } from '../../stores/performance';
 import { t } from '../../i18n/vi';
@@ -34,7 +35,7 @@ const unsupportedText = computed(() => t('sw.unsupported', { board: (device.info
 const normalisedN = computed(() => new Set(perf.switchNotices.map((x) => x.id)).size);
 
 const mm = (rangeMax: number) => formatMm(rangeMax / 1000, 3);
-const groupLabel = (g: 'JIANGWAN' | 'GATERON' | 'TTC' | 'Other') => (g === 'Other' ? t('sw.groupOther') : groupName(g));
+const groupLabel = (g: SwitchEntry['group']) => (g === 'Other' ? t('sw.groupOther') : groupName(g));
 const nameOf = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknown'));
 const metaOf = (g: Group) => {
   const what = g.entry ? (switchBrand(g.entry.id) ?? groupLabel(g.entry.group)) : perf.catalog ? t('sw.unknownMeta', { id: g.axisV2Id }) : t('sw.idMeta', { id: g.axisV2Id });

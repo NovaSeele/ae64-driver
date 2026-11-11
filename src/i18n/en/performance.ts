@@ -26,7 +26,7 @@ export const performanceEn: Record<keyof typeof performanceVi, string> = {
   'swp.mapHint': 'Click a row to select the keys that use it.',
   'swp.selTitle': 'Selected keys',
   'swp.selEmpty': 'No keys selected. Pick keys on the board, or click a switch in the list.',
-  'sw.unsupported': 'Board {board} has no switch list, so this is read-only. The switch selector supports board 0030000D only.',
+  'sw.unsupported': 'Board {board} has no switch list, so this is read-only. The switch selector supports the AE64 Max (0030000D) and the AE64 Pro (0030000A).',
   'sw.recal': 'Switch changed. Recalibrate these keys so travel is measured correctly.',
   'sw.recalGo': 'Open Calibration',
   'sw.recalHide': 'Hide',

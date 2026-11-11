@@ -726,5 +726,13 @@ export const useLiveStore = defineStore('live', () => {
     return true;
   }
 
+  // Another keyboard (or the demo) was connected: its travel, switch log, stash, focus and model state are not this one's.
+  watch(() => device.connection, () => {
+    stop();
+    setFocus(null);
+    follow.value = true;
+    reset();
+  }, { flush: 'sync' });
+
   return { data, focusId, follow, allKeys, running, paused, start, stop, reset, clear: clearByUser, pin, setFocus, setFollow, suspendFollow, ingest, undoAutoFollow, keysForCodes, markUiPressed };
 });

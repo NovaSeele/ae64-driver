@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { SWITCH_GROUPS, findSwitch, isCatalogTriple, switchCatalogFor } from '../src/protocol/switches';
+import { checkPerformanceWrite } from '../src/protocol/safety';
+import type { Performance } from '../src/protocol/types';
+import maxJson from '../src/data/switches-0030000D.json';
+import proJson from '../src/data/switches-0030000A.json';
 import { groupName, switchBrand, switchImage, switchName } from '../src/data/switchDisplay';
 
 describe('switch catalog', () => {
@@ -38,11 +42,69 @@ describe('switch catalog', () => {
     expect(isCatalogTriple(null, { axisV2Id: 4208, axisRangeMax: 3130, axisCoefficient: 24500 })).toBe(false);
   });
 
-  it('is only available for board 0030000d', () => {
-    expect(switchCatalogFor('0030000a')).toBeNull();
+  it('has a catalog for the Max and the Pro only', () => {
     expect(switchCatalogFor('0030000D')).toBe(catalog);
+    expect(switchCatalogFor('0030000a')).not.toBe(catalog);
+    expect(switchCatalogFor('0030000A')).toBe(switchCatalogFor('0030000a'));
+    expect(switchCatalogFor('00300001')).toBeNull();
     expect(switchCatalogFor(undefined)).toBeNull();
     expect(switchCatalogFor(null)).toBeNull();
+  });
+});
+
+describe('Pro switch catalog', () => {
+  const max = switchCatalogFor('0030000d')!;
+  const pro = switchCatalogFor('0030000a')!;
+  const tripleOf = (e: { id: number; rangeMax: number; coefficient: number }) =>
+    ({ axisV2Id: e.id, axisRangeMax: e.rangeMax, axisCoefficient: e.coefficient });
+
+  it('has 82 unique switches in the vendor group counts', () => {
+    expect(pro).toHaveLength(82);
+    expect(new Set(pro.map((e) => e.id)).size).toBe(82);
+    const count = (g: string) => pro.filter((e) => e.group === g).length;
+    expect(['GATERON', 'TTC', 'Other', 'WuqueStudio', 'JIANGWAN'].map(count)).toEqual([30, 19, 28, 4, 1]);
+  });
+
+  it('takes the triple from the detail columns', () => {
+    expect(findSwitch(pro, 4352)).toMatchObject({ rangeMax: 3440, coefficient: 19100 });
+    expect(findSwitch(pro, 14672)).toMatchObject({ rangeMax: 3534, coefficient: 24576 });
+    expect(findSwitch(pro, 19504)).toMatchObject({ rangeMax: 3600, coefficient: 19456 });
+  });
+
+  it('follows the board: a Max-only triple is not a Pro triple and the other way round', () => {
+    const starEye = tripleOf(findSwitch(max, 2128)!); // Star Eye is not in the Pro list
+    const wuque = tripleOf(findSwitch(pro, 14672)!); // Cullinan (Wuque Studio) is not in the Max list
+    expect(findSwitch(pro, 2128)).toBeUndefined();
+    expect(findSwitch(max, 14672)).toBeUndefined();
+    expect(isCatalogTriple(max, starEye)).toBe(true);
+    expect(isCatalogTriple(pro, starEye)).toBe(false);
+    expect(isCatalogTriple(pro, wuque)).toBe(true);
+    expect(isCatalogTriple(max, wuque)).toBe(false);
+  });
+
+  it('shares an id between the boards only for the same switch (display is keyed by id)', () => {
+    const rows = (d: { row_fields: string[]; rows: unknown }) => {
+      const at = (n: string) => d.row_fields.indexOf(n);
+      return new Map((d.rows as (string | number)[][]).map((r) => [r[at('detail_axis_id')] as number, {
+        name: r[at('axis_name')], brand: r[at('brand')], range: r[at('detail_axis_range_max')], coef: r[at('detail_axis_coefficient')],
+      }]));
+    };
+    const m = rows(maxJson);
+    const p = rows(proJson);
+    const shared = [...p.keys()].filter((id) => m.has(id));
+    expect(shared.length).toBe(75);
+    for (const id of shared) expect(p.get(id), `id ${id}`).toEqual(m.get(id));
+  });
+
+  it('write guard follows the board: accepts a Pro triple and refuses a Max-only one on 0030000a', () => {
+    const base: Performance = {
+      mode: 0, normalPress: 2, normalRelease: 2, rtFirstTouch: 1, rtPress: 0.5, rtRelease: 0.5,
+      pressDeadStroke: 0.1, releaseDeadStroke: 0.1, axis: 0, calibrate: 1, axisV2Id: 12432, axisRangeMax: 3310, axisCoefficient: 20500,
+    };
+    const wuque = tripleOf(findSwitch(pro, 14672)!);
+    const starEye = tripleOf(findSwitch(max, 2128)!);
+    expect(checkPerformanceWrite({ ...base, ...wuque }, [base], { boardIdHex: '0030000a' })).toBeNull();
+    expect(checkPerformanceWrite({ ...base, ...starEye }, [base], { boardIdHex: '0030000a' })).toMatch(/switch fields/);
   });
 });
 
@@ -53,6 +115,13 @@ describe('switch display names', () => {
     const names = catalog.map((e) => switchName(e));
     expect(names.every((n) => n.length > 0 && /^[ -~]+$/.test(n))).toBe(true);
     expect(new Set(names).size).toBe(catalog.length);
+  });
+
+  it('has a unique English (ASCII) name for every Pro catalog switch', () => {
+    const pro = switchCatalogFor('0030000a')!;
+    const names = pro.map((e) => switchName(e));
+    expect(names.every((n) => n.length > 0 && /^[ -~]+$/.test(n))).toBe(true);
+    expect(new Set(names).size).toBe(pro.length);
   });
 
   it('names the switches used in the demo flow and tells the two Skylines apart', () => {

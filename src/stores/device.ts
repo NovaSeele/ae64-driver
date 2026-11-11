@@ -3,7 +3,7 @@ import { defineStore } from 'pinia';
 import { computed, markRaw, ref, shallowRef } from 'vue';
 import {
   ALLOWED_BOARDS, FIRMWARE_ROWS, NoDeviceSelectedError, PHYSICAL_KEYS, connectHid, createMockTransport, keycodeLabel, keysFromLayoutStyles,
-  reconnectGrantedHid, webHidAvailable,
+  modelName as modelLabel, modelOf, reconnectGrantedHid, rememberDevice, webHidAvailable,
 } from '../protocol';
 import type { Ae64Transport, DeviceInfo, FeatureBitmap, PacketLogEntry, PhysicalKey, ProtocolVersion } from '../protocol';
 import { t as tr } from '../i18n/vi';
@@ -58,6 +58,9 @@ export const useDeviceStore = defineStore('device', () => {
   const exclusiveCount = ref(0);
   const exclusiveActive = computed(() => exclusiveCount.value > 0);
   const connected = computed(() => status.value === 'connected');
+  /** Max or Pro: from the board ID in 01 02, until it is read from the transport's USB product ID. */
+  const model = computed(() => modelOf({ boardIdHex: info.value?.boardIdHex, productId: transport.value?.productId }));
+  const modelName = computed(() => (model.value ? modelLabel(model.value) : null));
   const hidAvailable = webHidAvailable();
 
   /** Fixed-size ring of the newest packets, written without touching reactive state. */
@@ -205,6 +208,12 @@ export const useDeviceStore = defineStore('device', () => {
   }
 
   async function init(t: Ae64Transport, isDemo: boolean): Promise<void> {
+    // Another keyboard replaces an open one: drop its queue, history and transport before anything of the new one is read.
+    const prev = transport.value;
+    if (prev && prev !== t) {
+      reset();
+      void prev.close().catch(() => undefined);
+    }
     status.value = 'connecting';
     error.value = null;
     connection.value++;
@@ -234,6 +243,7 @@ export const useDeviceStore = defineStore('device', () => {
       await readLayer0(t);
       latencyMs.value = t.stats.lastLatencyMs;
       status.value = 'connected';
+      if (!isDemo) rememberDevice(t.productId);
       if (!boardAllowed.value) useToast().show(tr('device.notAllowed', { board: info.value.boardIdHex.toUpperCase() }), 'warn');
     } catch (err) {
       reset();
@@ -250,7 +260,8 @@ export const useDeviceStore = defineStore('device', () => {
     useToast().show(lost > 0 ? tr('device.unsavedLost', { n: lost }) : tr('device.lost'), 'error');
   }
 
-  async function connect(): Promise<void> {
+  /** `afterChange`: the chooser opens after an await, so the browser may refuse it (no user activation): back to the connect screen, not an error. */
+  async function connect(opts: { afterChange?: boolean } = {}): Promise<void> {
     status.value = 'connecting';
     error.value = null;
     let t: Ae64Transport;
@@ -258,7 +269,8 @@ export const useDeviceStore = defineStore('device', () => {
       t = await connectHid();
     } catch (err) {
       // Closing the chooser without picking a device is not an error worth showing.
-      const cancelled = err instanceof NoDeviceSelectedError || (err instanceof DOMException && err.name === 'NotFoundError');
+      const cancelled = err instanceof NoDeviceSelectedError
+        || (err instanceof DOMException && (err.name === 'NotFoundError' || (opts.afterChange && err.name === 'SecurityError')));
       status.value = cancelled ? 'idle' : 'error';
       error.value = cancelled ? null : message(err);
       return;
@@ -266,8 +278,8 @@ export const useDeviceStore = defineStore('device', () => {
     await init(t, false).catch(() => undefined);
   }
 
-  async function connectDemo(): Promise<void> {
-    await init(createMockTransport({ seed: 'max' }), true);
+  async function connectDemo(seed: 'max' | 'pro' = 'max'): Promise<void> {
+    await init(createMockTransport({ seed }), true);
   }
 
   async function tryAutoReconnect(): Promise<boolean> {
@@ -294,6 +306,28 @@ export const useDeviceStore = defineStore('device', () => {
     reset();
     status.value = 'idle';
     await t.close().catch(() => undefined);
+  }
+
+  /**
+   * Back to the connect screen to pick another keyboard (a real one opens the chooser at once). Unsaved edits are
+   * flushed first; if they cannot be saved the connection stays, so none is lost or sent to the other keyboard.
+   */
+  async function changeKeyboard(): Promise<void> {
+    if (!transport.value) return;
+    const sync = useSyncStore();
+    let saved = true;
+    try {
+      await sync.flush();
+    } catch {
+      saved = false;
+    }
+    if (!saved || sync.state === 'error') {
+      useToast().show(tr('device.changeBlocked'), 'warn');
+      return;
+    }
+    const wasDemo = demo.value;
+    await disconnect({ flush: false });
+    if (!wasDemo) await connect({ afterChange: true });
   }
 
   async function switchProfile(i: number): Promise<void> {
@@ -323,8 +357,8 @@ export const useDeviceStore = defineStore('device', () => {
 
   return {
     transport, status, error, info, version, features, boardAllowed, demo, keys, profileCount, activeProfile,
-    profileNames, rtPrecision, layer0, latencyMs, connection, packetSeq, statsTick, exclusiveActive, connected, hidAvailable, packetEntries, activeProfileName,
+    profileNames, rtPrecision, layer0, latencyMs, connection, packetSeq, statsTick, exclusiveActive, connected, hidAvailable, model, modelName, packetEntries, activeProfileName,
     legend, withTransport, calibrationLocked, watchPackets, onProfileChanged, refreshLayer0, connect, connectDemo,
-    tryAutoReconnect, disconnect, switchProfile, renameProfile,
+    tryAutoReconnect, disconnect, changeKeyboard, switchProfile, renameProfile,
   };
 });

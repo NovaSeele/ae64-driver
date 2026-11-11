@@ -24,7 +24,7 @@ export const performanceVi = {
   'swp.mapHint': 'Bấm một dòng để chọn các phím dùng switch đó.',
   'swp.selTitle': 'Phím đã chọn',
   'swp.selEmpty': 'Chưa chọn phím. Chọn trên bàn phím, hoặc bấm một switch trong danh sách.',
-  'sw.unsupported': 'Bo mạch {board} chưa có danh sách switch, nên chỉ xem được. Bộ chọn switch hiện chỉ hỗ trợ bo mạch 0030000D.',
+  'sw.unsupported': 'Bo mạch {board} chưa có danh sách switch, nên chỉ xem được. Bộ chọn switch hỗ trợ AE64 Max (0030000D) và AE64 Pro (0030000A).',
   'sw.recal': 'Đã đổi switch. Nên hiệu chuẩn lại các phím này để hành trình đo đúng.',
   'sw.recalGo': 'Mở Hiệu chuẩn',
   'sw.recalHide': 'Ẩn',

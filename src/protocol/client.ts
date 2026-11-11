@@ -76,6 +76,7 @@ const isCalibrationControl = (p: readonly number[]): boolean => p[0] === FAMILY.
 export abstract class BaseTransport implements Ae64Transport {
   abstract readonly kind: 'hid' | 'mock';
   abstract readonly productName: string;
+  abstract readonly productId?: number;
   abstract get connected(): boolean;
 
   readonly stats: TransportStats = { lastLatencyMs: 0, avgLatencyMs: 0, requests: 0, timeouts: 0 };
