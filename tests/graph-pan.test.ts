@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// The real-rate cases step thousands of frames: 2–7 s alone, past the 5 s default under a loaded full-suite run.
+vi.setConfig({ testTimeout: 30_000 });
 import type * as GraphHistoryModule from '../src/components/live/graphHistory';
 import { mount } from '@vue/test-utils';
 import { GraphHistory } from '../src/components/live/graphHistory';

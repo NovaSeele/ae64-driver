@@ -1,5 +1,6 @@
 {
-  "name": "ae64max-control",
+  "name": "ae64-control",
+  "description": "Local-first WebHID driver for the Everglide AE64 family (Max, Pro)",
   "private": true,
   "version": "0.1.0",
   "type": "module",

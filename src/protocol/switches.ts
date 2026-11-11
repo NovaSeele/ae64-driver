@@ -11,7 +11,7 @@ export interface SwitchEntry {
   id: number;
   /** axis_name, shown as-is. */
   name: string;
-  group: 'JIANGWAN' | 'GATERON' | 'TTC' | 'Other' | 'WuqueStudio';
+  group: 'JIANGWAN' | 'GATERON' | 'TTC' | 'Other';
   /** detail_axis_range_max (µm). */
   rangeMax: number;
   /** detail_axis_coefficient. */

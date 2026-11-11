@@ -4,6 +4,7 @@ import { checkPerformanceWrite } from '../src/protocol/safety';
 import type { Performance } from '../src/protocol/types';
 import maxJson from '../src/data/switches-0030000D.json';
 import proJson from '../src/data/switches-0030000A.json';
+import displayJson from '../src/data/switch-display.json';
 import { groupName, switchBrand, switchImage, switchName } from '../src/data/switchDisplay';
 
 describe('switch catalog', () => {
@@ -58,28 +59,29 @@ describe('Pro switch catalog', () => {
   const tripleOf = (e: { id: number; rangeMax: number; coefficient: number }) =>
     ({ axisV2Id: e.id, axisRangeMax: e.rangeMax, axisCoefficient: e.coefficient });
 
-  it('has 82 unique switches in the vendor group counts', () => {
-    expect(pro).toHaveLength(82);
-    expect(new Set(pro.map((e) => e.id)).size).toBe(82);
+  it('has 76 unique switches in the vendor group counts', () => {
+    expect(pro).toHaveLength(76);
+    expect(new Set(pro.map((e) => e.id)).size).toBe(76);
     const count = (g: string) => pro.filter((e) => e.group === g).length;
-    expect(['GATERON', 'TTC', 'Other', 'WuqueStudio', 'JIANGWAN'].map(count)).toEqual([30, 19, 28, 4, 1]);
+    expect(['JIANGWAN', 'GATERON', 'TTC', 'Other'].map(count)).toEqual([1, 30, 19, 26]);
   });
 
   it('takes the triple from the detail columns', () => {
     expect(findSwitch(pro, 4352)).toMatchObject({ rangeMax: 3440, coefficient: 19100 });
-    expect(findSwitch(pro, 14672)).toMatchObject({ rangeMax: 3534, coefficient: 24576 });
     expect(findSwitch(pro, 19504)).toMatchObject({ rangeMax: 3600, coefficient: 19456 });
+    expect(findSwitch(pro, 13184)).toMatchObject({ rangeMax: 3625, coefficient: 22200 });
+    expect(findSwitch(pro, 14544)).toMatchObject({ rangeMax: 3400, coefficient: 17664 });
   });
 
   it('follows the board: a Max-only triple is not a Pro triple and the other way round', () => {
     const starEye = tripleOf(findSwitch(max, 2128)!); // Star Eye is not in the Pro list
-    const wuque = tripleOf(findSwitch(pro, 14672)!); // Cullinan (Wuque Studio) is not in the Max list
+    const sakura = tripleOf(findSwitch(pro, 13184)!); // Polar Sakura Clear is not in the Max list
     expect(findSwitch(pro, 2128)).toBeUndefined();
-    expect(findSwitch(max, 14672)).toBeUndefined();
+    expect(findSwitch(max, 13184)).toBeUndefined();
     expect(isCatalogTriple(max, starEye)).toBe(true);
     expect(isCatalogTriple(pro, starEye)).toBe(false);
-    expect(isCatalogTriple(pro, wuque)).toBe(true);
-    expect(isCatalogTriple(max, wuque)).toBe(false);
+    expect(isCatalogTriple(pro, sakura)).toBe(true);
+    expect(isCatalogTriple(max, sakura)).toBe(false);
   });
 
   it('shares an id between the boards only for the same switch (display is keyed by id)', () => {
@@ -101,14 +103,20 @@ describe('Pro switch catalog', () => {
       mode: 0, normalPress: 2, normalRelease: 2, rtFirstTouch: 1, rtPress: 0.5, rtRelease: 0.5,
       pressDeadStroke: 0.1, releaseDeadStroke: 0.1, axis: 0, calibrate: 1, axisV2Id: 12432, axisRangeMax: 3310, axisCoefficient: 20500,
     };
-    const wuque = tripleOf(findSwitch(pro, 14672)!);
+    const sakura = tripleOf(findSwitch(pro, 13184)!);
     const starEye = tripleOf(findSwitch(max, 2128)!);
-    expect(checkPerformanceWrite({ ...base, ...wuque }, [base], { boardIdHex: '0030000a' })).toBeNull();
+    expect(checkPerformanceWrite({ ...base, ...sakura }, [base], { boardIdHex: '0030000a' })).toBeNull();
     expect(checkPerformanceWrite({ ...base, ...starEye }, [base], { boardIdHex: '0030000a' })).toMatch(/switch fields/);
   });
 });
 
 describe('switch display names', () => {
+  it('has no orphan: every display id is in at least one catalog', () => {
+    const catalogs = [switchCatalogFor('0030000d')!, switchCatalogFor('0030000a')!];
+    const orphans = Object.keys(displayJson).filter((id) => !catalogs.some((c) => findSwitch(c, Number(id))));
+    expect(orphans).toEqual([]);
+  });
+
   const catalog = switchCatalogFor('0030000d')!;
 
   it('has a unique English (ASCII) name for every catalog switch', () => {

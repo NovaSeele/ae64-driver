@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AE64 Max Control",
+  "productName": "AE64 Control",
   "version": "../package.json",
-  "identifier": "com.novaseele.ae64max",
+  "identifier": "com.novaseele.ae64",
   "build": {
     "frontendDist": "../dist-desktop",
     "devUrl": "http://127.0.0.1:5173",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "AE64 Max Control",
+        "title": "AE64 Control",
         "width": 1280,
         "height": 820,
         "minWidth": 960,

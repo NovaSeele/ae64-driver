@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// The real-rate cases step thousands of frames: 2–7 s alone, past the 5 s default under a loaded full-suite run.
+vi.setConfig({ testTimeout: 30_000 });
 import { mount } from '@vue/test-utils';
 import { HOLD_MS, HoldTracker, RESUME_MM } from '../src/components/live/graphHold';
 import TravelGraph from '../src/components/live/TravelGraph.vue';

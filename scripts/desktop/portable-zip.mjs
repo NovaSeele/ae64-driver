@@ -1,4 +1,4 @@
-// Zips the release exe as AE64-Max-Control_<version>_x64-portable.zip next to the NSIS setup.exe.
+// Zips the release exe as AE64-Control_<version>_x64-portable.zip next to the NSIS setup.exe.
 // Run by `npm run desktop:build` after `tauri build`.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
@@ -8,9 +8,9 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const release = join(root, 'src-tauri', 'target', 'release');
-const exe = join(release, 'ae64-max-control.exe');
+const exe = join(release, 'ae64-control.exe');
 const outDir = join(release, 'bundle', 'nsis');
-const zip = join(outDir, `AE64-Max-Control_${version}_x64-portable.zip`);
+const zip = join(outDir, `AE64-Control_${version}_x64-portable.zip`);
 
 if (!existsSync(exe)) throw new Error(`Release exe not found: ${exe}`);
 rmSync(zip, { force: true });

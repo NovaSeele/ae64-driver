@@ -1,5 +1,5 @@
 @echo off
-rem AE64 Max Control - trinh khoi dong hang ngay.
+rem AE64 Control - trinh khoi dong hang ngay.
 setlocal
 cd /d "%~dp0"
 if not exist node_modules (

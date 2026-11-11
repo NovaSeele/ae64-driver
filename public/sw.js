@@ -1,4 +1,4 @@
-// Static Service Worker for AE64 Max Control.
+// Static Service Worker for AE64 Control.
 // Contains NO build-specific content so bytes never change between releases.
 // Updates are applied manually only when requested by the user.
 

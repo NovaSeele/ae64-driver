@@ -1,6 +1,6 @@
 # Architecture
 
-AE64 Max Control is a Vite + Vue 3 + TypeScript + Pinia app that talks to the keyboard over WebHID.
+AE64 Control is a Vite + Vue 3 + TypeScript + Pinia app that talks to a keyboard of the Everglide AE64 family (AE64 Max, board 0030000d, and AE64 Pro, board 0030000a) over WebHID. `src/protocol/model.ts` is the one place that tells the two apart; switch catalogs are per board (`src/data/switches-<board>.json`, `switchCatalogFor(board)`).
 Everything runs locally; there are no network calls besides the app's own origin.
 
 ## Folder map
@@ -15,7 +15,7 @@ src/
                        (writes refused until 01 02 reports an allowed board), family 08 refused.
     hid.ts             HidTransport (WebHID, 1.5 s timeout, reply matched on bytes 0–1, disconnect event),
                        connectHid(), reconnectGrantedHid()
-    mock.ts            MockTransport: byte-level AE64 Max emulator seeded from device-snapshot.md
+    mock.ts            MockTransport: byte-level AE64 emulator with a Max seed and a Pro seed (`seed: 'max' | 'pro'`), both from device-snapshot.md
                        (4 profiles, writes persist, simulatePress(keyId, mm) for axis data, ~2 ms latency)
     layout.ts          PHYSICAL_KEYS (64 keys, sparse SENSOR_COLUMNS), 03 05 discovery merge
     keycodes.ts        KEYCODE_GROUPS (picker), keycodeLabel(), modifier combos (mask in high byte)

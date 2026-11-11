@@ -130,7 +130,7 @@ async function exportBackup() {
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const a = document.createElement('a');
     a.href = url;
-    a.download = `ae64max-backup-${payload.profileName.toLowerCase().replace(/\s+/g, '-')}-${dateStr}.json`;
+    a.download = `ae64-backup-${payload.profileName.toLowerCase().replace(/\s+/g, '-')}-${dateStr}.json`;
     a.click();
     URL.revokeObjectURL(url);
     toast.show(t('diagnostics.exportSuccess'), 'success');

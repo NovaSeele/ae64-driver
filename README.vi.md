@@ -1,18 +1,21 @@
-# AE64 Max Control
+# AE64 Control
 
 [English](README.md) · **Tiếng Việt**
 
-Driver web remake cho bàn phím Everglide AE64 Max: chỉnh hành trình (Actuation, Rapid Trigger, vùng chết),
+Driver cục bộ cho dòng phím Everglide AE64: chỉnh hành trình (Actuation, Rapid Trigger, vùng chết),
 keymap, đèn, macro… trực tiếp qua WebHID.
+
+Bàn phím được hỗ trợ: **AE64 Max** (board `0030000D`, USB PID `0x300D`) và **AE64 Pro** (board `0030000A`, USB PID `0x300A`).
 
 ## Dùng trực tuyến
 
-Mở **<https://ae64max.novaseele.com>** bằng Chrome hoặc Edge, cắm bàn phím rồi bấm **Kết nối bàn phím**.
+Mở **<https://ae64.novaseele.com>** bằng Chrome hoặc Edge, cắm bàn phím rồi bấm **Kết nối bàn phím**.
 Không cần cài đặt gì.
 
 - Trình duyệt **Google Chrome hoặc Microsoft Edge bản desktop** (WebHID chỉ có trên các trình duyệt này).
   Firefox và Safari không hỗ trợ.
-- Bàn phím Everglide AE64 Max cắm bằng cáp USB.
+- Bàn phím Everglide AE64 Max hoặc AE64 Pro cắm bằng cáp USB.
+- Quyền WebHID tính theo từng trang: sau khi chuyển từ ae64max.novaseele.com sang ae64.novaseele.com, bạn chọn lại bàn phím một lần trong hộp thoại của trình duyệt.
 
 ## Chạy cục bộ (không bắt buộc)
 
@@ -35,7 +38,7 @@ npm run typecheck
 
 ## Sử dụng
 
-1. Bấm **Kết nối bàn phím** và chọn `AE64-MAX` trong hộp thoại của trình duyệt. Lần sau ứng dụng tự kết
+1. Bấm **Kết nối bàn phím** và chọn bàn phím AE64 của bạn trong hộp thoại của trình duyệt. Lần sau ứng dụng tự kết
    nối lại với bàn phím đã cấp quyền.
 2. Không có bàn phím? Bấm **Chế độ demo** để dùng thử với bàn phím giả lập.
 3. Chọn phím trên hình bàn phím (Ctrl/Shift để chọn thêm, kéo chuột để quét vùng, Esc để bỏ chọn) rồi chỉnh
@@ -45,7 +48,7 @@ npm run typecheck
 
 ## Cập nhật ứng dụng
 
-Khác với driver của nhà sản xuất vốn tự động tải phiên bản mới trong nền, AE64 Max Control **không bao giờ tự động cập nhật**. Ứng dụng tiếp tục chạy phiên bản đang có cho tới khi người dùng chủ động bấm kiểm tra và cập nhật.
+Khác với driver của nhà sản xuất vốn tự động tải phiên bản mới trong nền, AE64 Control **không bao giờ tự động cập nhật**. Ứng dụng tiếp tục chạy phiên bản đang có cho tới khi người dùng chủ động bấm kiểm tra và cập nhật.
 
 - Service worker (`sw.js`) là tệp tĩnh không đổi giữa các bản build, tránh việc trình duyệt tự động nạp phiên bản mới.
 - Quá trình build sinh ra `release.json` (chứa mã phiên bản, ngày giờ build và danh sách tệp của bản phát hành).

@@ -10,8 +10,8 @@ import { advancedEn } from './en/advanced';
 import { macroEn } from './en/macro';
 
 const baseEn: Record<keyof typeof base, string> = {
-  'app.name': 'AE64 Max Control',
-  'app.tagline': 'Local-first driver for Everglide AE64 Max / AE64 Pro',
+  'app.name': 'AE64 Control',
+  'app.tagline': 'Local-first driver for the Everglide AE64 family (Max, Pro)',
 
   // navigation
   'nav.configure': 'Configure',
@@ -168,8 +168,8 @@ const baseEn: Record<keyof typeof base, string> = {
   'picker.current': 'Current',
 
   // help
-  'help.title': 'AE64 Max Control',
-  'help.body': 'Remake web driver for Everglide AE64 Max and AE64 Pro. Connects via WebHID. Changes are saved automatically to the keyboard and support undo/redo (Ctrl+Z / Ctrl+Y).',
+  'help.title': 'AE64 Control',
+  'help.body': 'Driver for the Everglide AE64 family (AE64 Max, AE64 Pro). Connects via WebHID. Changes are saved automatically to the keyboard and support undo/redo (Ctrl+Z / Ctrl+Y).',
   'help.shortcuts': 'Shortcuts',
   'help.shortcutUndo': 'Undo / Redo',
   'help.shortcutSelect': 'Deselect keys',
@@ -209,7 +209,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'error.macroKeycode': 'Macro requires a 16-bit keycode.',
   'error.macroActionsPerPage': 'Maximum 15 actions per macro page.',
   'error.transportTimeout': 'Keyboard did not respond to command {cmd}.',
-  'error.boardNotAllowed': 'Board not in write allowlist (AE64 Max 0030000D / Pro 0030000A only).',
+  'error.boardNotAllowed': 'Board not in write allowlist (AE64 family only: Max 0030000D / Pro 0030000A).',
   'error.firmwareBlocked': 'Firmware command (family 08) blocked in this application.',
   'error.hidLength': 'HID packet exceeds {max} bytes.',
   'error.noAe64Selected': 'No AE64 keyboard selected.',

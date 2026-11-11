@@ -1,6 +1,7 @@
 {
-  "name": "AE64 Max Control",
-  "short_name": "AE64 Max",
+  "name": "AE64 Control",
+  "description": "Local-first driver for the Everglide AE64 family (Max, Pro)",
+  "short_name": "AE64",
   "start_url": "/",
   "display": "standalone",
   "theme_color": "#111213",

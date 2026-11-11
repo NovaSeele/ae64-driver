@@ -13,8 +13,8 @@ import { applyPlurals, locale } from './locale';
 import { en } from './en';
 
 export const base = {
-  'app.name': 'AE64 Max Control',
-  'app.tagline': 'Driver cục bộ cho Everglide AE64 Max / AE64 Pro',
+  'app.name': 'AE64 Control',
+  'app.tagline': 'Driver cục bộ cho dòng phím Everglide AE64 (Max, Pro)',
 
   // navigation
   'nav.configure': 'Cấu hình',
@@ -171,8 +171,8 @@ export const base = {
   'picker.current': 'Hiện tại',
 
   // help
-  'help.title': 'AE64 Max Control',
-  'help.body': 'Driver web remake cho Everglide AE64 Max và AE64 Pro. Kết nối qua WebHID. Mọi thay đổi được ghi tự động vào phím và có thể hoàn tác (Ctrl+Z / Ctrl+Y).',
+  'help.title': 'AE64 Control',
+  'help.body': 'Driver cho dòng phím Everglide AE64 (AE64 Max, AE64 Pro). Kết nối qua WebHID. Mọi thay đổi được ghi tự động vào phím và có thể hoàn tác (Ctrl+Z / Ctrl+Y).',
   'help.shortcuts': 'Phím tắt',
   'help.shortcutUndo': 'Hoàn tác / Làm lại',
   'help.shortcutSelect': 'Bỏ chọn phím',
@@ -212,7 +212,7 @@ export const base = {
   'error.macroKeycode': 'Macro cần keycode 16-bit.',
   'error.macroActionsPerPage': 'Mỗi trang macro tối đa 15 thao tác.',
   'error.transportTimeout': 'Bàn phím không phản hồi lệnh {cmd}.',
-  'error.boardNotAllowed': 'Bảng mạch này không nằm trong danh sách được phép ghi (chỉ AE64 Max 0030000D / Pro 0030000A).',
+  'error.boardNotAllowed': 'Bảng mạch này không nằm trong danh sách được phép ghi (chỉ dòng AE64: Max 0030000D / Pro 0030000A).',
   'error.firmwareBlocked': 'Lệnh firmware (family 08) bị chặn trong ứng dụng này.',
   'error.hidLength': 'Gói HID vượt quá {max} byte.',
   'error.noAe64Selected': 'Chưa chọn bàn phím AE64.',

@@ -1,18 +1,21 @@
-# AE64 Max Control
+# AE64 Control
 
 **English** · [Tiếng Việt](README.vi.md)
 
-Remake web driver for the Everglide AE64 Max keyboard: tune travel (Actuation, Rapid Trigger, dead zones),
+Local-first driver for the Everglide AE64 keyboard family: tune travel (Actuation, Rapid Trigger, dead zones),
 keymap, lighting, macros and more, directly over WebHID.
+
+Supported keyboards: **AE64 Max** (board `0030000D`, USB PID `0x300D`) and **AE64 Pro** (board `0030000A`, USB PID `0x300A`).
 
 ## Use it online
 
-Open **<https://ae64max.novaseele.com>** in Chrome or Edge, plug in the keyboard and click **Connect keyboard**.
+Open **<https://ae64.novaseele.com>** in Chrome or Edge, plug in the keyboard and click **Connect keyboard**.
 Nothing to install.
 
 - **Google Chrome or Microsoft Edge, desktop version** (WebHID is only available in these browsers).
   Firefox and Safari are not supported.
-- An Everglide AE64 Max connected with a USB cable.
+- An Everglide AE64 Max or AE64 Pro connected with a USB cable.
+- WebHID permission is per site: after moving from ae64max.novaseele.com to ae64.novaseele.com, pick your keyboard once more in the browser chooser.
 
 ## Run it locally (optional)
 
@@ -35,7 +38,7 @@ npm run typecheck
 
 ## Usage
 
-1. Click **Connect keyboard** and pick `AE64-MAX` in the browser dialog. Next time the app reconnects to the
+1. Click **Connect keyboard** and pick your AE64 in the browser dialog. Next time the app reconnects to the
    keyboard you already granted access to.
 2. No keyboard? Click **Demo mode** to try it with a simulated keyboard.
 3. Select keys on the keyboard picture (Ctrl/Shift to add more, drag to box-select, Esc to clear), then adjust
@@ -50,22 +53,22 @@ keyboard itself (WebHID); the shell adds no device code.
 
 - Build: `npm run desktop:build` (needs Rust and the WebView2 runtime). It builds the frontend with
   `vite build --mode desktop`, then runs `tauri build`. Develop with `npm run desktop:dev`.
-- Output, in `src-tauri/target/release/bundle/nsis/`: `AE64 Max Control_<version>_x64-setup.exe` and
-  `AE64-Max-Control_<version>_x64-portable.zip` (just the exe).
+- Output, in `src-tauri/target/release/bundle/nsis/`: `AE64 Control_<version>_x64-setup.exe` and
+  `AE64-Control_<version>_x64-portable.zip` (just the exe).
 - The installer is per-user: no administrator rights. WebView2 is downloaded and installed automatically if it is
   missing (Windows 10/11 normally have it).
 - The app is unsigned, so SmartScreen may say "Windows protected your PC": click "More info", then "Run anyway".
 - The desktop app never updates itself and has no service worker. To update, install the newer `setup.exe`.
 - The portable zip is just the exe: it still needs the WebView2 runtime (Windows 10/11 normally have it).
 - Installed and portable apps both keep their data (settings, WebHID permission) in
-  `%LOCALAPPDATA%\com.novaseele.ae64max`. Uninstalling leaves that folder; delete it by hand for a full clean.
+  `%LOCALAPPDATA%\com.novaseele.ae64`. Uninstalling leaves that folder; delete it by hand for a full clean.
 - For each desktop release, bump `version` in `package.json`: `setup.exe` and Apps & features show it.
 - The desktop frontend is built into `dist-desktop/`, so it never mixes with the web build in `dist/`.
 - Zero-download alternative: install the web app from Chrome or Edge ("Install app").
 
 ## App updates
 
-Unlike the manufacturer's driver, which downloads new versions in the background, AE64 Max Control **never
+Unlike the manufacturer's driver, which downloads new versions in the background, AE64 Control **never
 updates itself**. The app keeps running the version it has until the user checks for and applies an update.
 
 - The service worker (`sw.js`) is a static file that does not change between builds, so the browser never picks

@@ -1,5 +1,5 @@
-// Demo transport: a byte-level emulator of an AE64 Max seeded from contracts/device-snapshot.md.
-// seed 'pro' answers as an AE64 Pro (board 0030000a, firmware 0.0.7.0, 20 area-0 lighting modes); everything else is the Max's.
+// Demo transport: a byte-level emulator of an AE64 (Max or Pro) seeded from contracts/device-snapshot.md.
+// seed 'pro' answers as an AE64 Pro (board 0030000a, firmware 0.1.0.0, 20 area-0 lighting modes, the user's profile names and White Wukong switches); everything else is the Max's.
 // Requests go through the same codecs as WebHID; this class only answers 64-byte frames.
 // Writes persist in memory for the session; commits are acknowledged and otherwise no-ops.
 
@@ -24,9 +24,9 @@ const SNAPSHOT: Record<string, number[]> = {
   '02:0e:00': hex('02 0e 00 10 c0 03'),
 };
 
-/** Replies that differ on the AE64 Pro seed: board bytes 00 30 00 0a, firmware 0.0.7.0, 20 modes in area 0. */
+/** Replies that differ on the AE64 Pro seed: board bytes 00 30 00 0a, firmware 0.1.0.0 (bytes 8..11), 20 modes in area 0. */
 const PRO_SNAPSHOT: Record<string, number[]> = {
-  '01:02': SNAPSHOT['01:02'].map((b, i) => (i === 7 ? 0x0a : i === 10 ? 0x07 : b)),
+  '01:02': SNAPSHOT['01:02'].map((b, i) => (i === 7 ? 0x0a : i === 9 ? 0x01 : i === 10 ? 0x00 : b)),
   '02:08:00': hex('02 08 00 02 00 14 06 0F 01 05 01 26'),
 };
 
@@ -44,6 +44,10 @@ const SNAPSHOT_PERF: Performance = {
   mode: 1, normalPress: 2, normalRelease: 2, rtFirstTouch: 1, rtPress: 0.8, rtRelease: 0.3,
   pressDeadStroke: 0.1, releaseDeadStroke: 0.1, axis: 0, calibrate: 1, axisV2Id: 12432, axisRangeMax: 3310, axisCoefficient: 20500,
 };
+
+/** The real Pro's profile names (each with a trailing space) and its switch on every key: 14544 White Wukong. */
+const PRO_PROFILE_NAMES = ['配置一 ', '配置二 ', '配置三 ', '配置四 '];
+const PRO_SWITCH: Partial<Performance> = { axisV2Id: 14544, axisRangeMax: 3400, axisCoefficient: 17664 };
 
 const ROW3_ADC = [2632, 2760, 2687, 2717, 2696, 2835, 2694, 2494, 2680, 2740, 2646, 2634, 0, 2645, 0];
 const KEYMAP_COLS = 30;
@@ -131,13 +135,18 @@ export class MockTransport extends BaseTransport {
     this.productId = pro ? PRODUCT_ID_PRO : PRODUCT_ID_MAX;
     this.snapshot = pro ? { ...SNAPSHOT, ...PRO_SNAPSHOT } : SNAPSHOT;
     this.latencyMs = opts.latencyMs ?? 2;
+    const sw = pro ? PRO_SWITCH : {};
+    const profileName = (i: number, name: string) => (pro ? PRO_PROFILE_NAMES[i] : name);
     this.profiles = [
-      makeProfile('Default', () => ({})),
-      makeProfile('FPS', (k) => isWasd(k)
-        ? { mode: 1, rtFirstTouch: 0.3, rtPress: 0.1, rtRelease: 0.1, pressDeadStroke: 0.1 }
-        : { mode: 0, normalPress: 1.2, normalRelease: 1.2 }),
-      makeProfile('Typing', () => ({ mode: 0, normalPress: 2, normalRelease: 2, pressDeadStroke: 0.2, releaseDeadStroke: 0.2 })),
-      makeProfile('Profile 4', () => ({ mode: 0, normalPress: 1.5, normalRelease: 1.5 })),
+      makeProfile(profileName(0, 'Default'), () => sw),
+      makeProfile(profileName(1, 'FPS'), (k) => ({
+        ...(isWasd(k)
+          ? { mode: 1, rtFirstTouch: 0.3, rtPress: 0.1, rtRelease: 0.1, pressDeadStroke: 0.1 }
+          : { mode: 0, normalPress: 1.2, normalRelease: 1.2 }),
+        ...sw,
+      })),
+      makeProfile(profileName(2, 'Typing'), () => ({ mode: 0, normalPress: 2, normalRelease: 2, pressDeadStroke: 0.2, releaseDeadStroke: 0.2, ...sw })),
+      makeProfile(profileName(3, 'Profile 4'), () => ({ mode: 0, normalPress: 1.5, normalRelease: 1.5, ...sw })),
     ];
     // FPS profile: SOCD Last Override on A/D (row 3 cols 1 and 3), as a demo of advanced keys.
     this.profiles[1].advanced.set(posKey(3, 1), [6, 3, 3, ...le16(0x04), ...le16(0x07), 0, 0, 0]);

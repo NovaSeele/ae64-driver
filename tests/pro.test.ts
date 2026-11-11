@@ -11,6 +11,12 @@ import { usePerformanceStore } from '../src/stores/performance';
 import { useSelectionStore } from '../src/stores/selection';
 import { useSyncStore } from '../src/stores/sync';
 import { t } from '../src/i18n/vi';
+import { flushPromises, mount } from '@vue/test-utils';
+import { createMemoryHistory, createRouter } from 'vue-router';
+import SwitchCard from '../src/components/performance/SwitchCard.vue';
+import { PHYSICAL_KEYS } from '../src/protocol';
+import { findSwitch, isCatalogTriple, switchCatalogFor } from '../src/protocol/switches';
+import { switchName } from '../src/data/switchDisplay';
 
 // Backups are thousands of exchanges: answer them on the next microtask (same replies, as in diagnostics.test.ts).
 vi.mock('../src/protocol', async (importOriginal) => {
@@ -86,13 +92,13 @@ describe('model', () => {
     expect(modelName('pro')).toBe('AE64 Pro');
   });
 
-  it('the Pro demo reports board 0030000a, firmware 0.0.7.0, PID 0x300a; the Max demo is unchanged', async () => {
+  it('the Pro demo reports board 0030000a, firmware 0.1.0.0, PID 0x300a; the Max demo is unchanged', async () => {
     // The demo Pro must look like a Pro to every board-gated path; the Max seed keeps its old bytes.
     const pro = createMockTransport({ seed: 'pro' });
     const max = createMockTransport({ seed: 'max' });
     const proInfo = await pro.getDeviceInfo();
     expect(proInfo.boardIdHex).toBe('0030000a');
-    expect(proInfo.firmware).toBe('0.0.7.0');
+    expect(proInfo.firmware).toBe('0.1.0.0');
     expect(pro.productId).toBe(0x300a);
     expect(pro.productName).toBe('AE64 Pro (demo)');
     const maxInfo = await max.getDeviceInfo();
@@ -100,6 +106,41 @@ describe('model', () => {
     expect(maxInfo.firmware).toBe('0.0.4.0');
     expect(max.productId).toBe(0x300d);
     expect(proInfo.serial).toBe(maxInfo.serial);
+  });
+
+  it('the Pro demo has the four profile names of the real keyboard (trailing space kept), the Max keeps its own', async () => {
+    const pro = createMockTransport({ seed: 'pro' });
+    const max = createMockTransport({ seed: 'max' });
+    const names = await Promise.all([0, 1, 2, 3].map((i) => pro.getProfileName(i)));
+    expect(names).toEqual(['配置一 ', '配置二 ', '配置三 ', '配置四 ']);
+    expect(await Promise.all([0, 1, 2, 3].map((i) => max.getProfileName(i)))).toEqual(['Default', 'FPS', 'Typing', 'Profile 4']);
+  });
+
+  it('every Pro demo key, in every profile, reports 14544 / 3400 / 17664, which the Pro catalog knows', async () => {
+    const pro = createMockTransport({ seed: 'pro' });
+    const catalog = switchCatalogFor('0030000a')!;
+    await pro.getDeviceInfo(); // allows the board (setActiveProfile is a write)
+    for (let profile = 0; profile < 4; profile++) {
+      await pro.setActiveProfile(profile);
+      for (const k of PHYSICAL_KEYS) {
+        const p = await pro.getPerformance({ row: k.row, col: k.col });
+        expect([p.axisV2Id, p.axisRangeMax, p.axisCoefficient]).toEqual([14544, 3400, 17664]);
+        expect(isCatalogTriple(catalog, p)).toBe(true);
+      }
+    }
+  }, 30000);
+
+  it('the switch card shows White Wukong on the demo Pro and the selector is enabled', async () => {
+    const device = useDeviceStore();
+    await device.connectDemo('pro');
+    const perf = usePerformanceStore();
+    await perf.load();
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
+    const w = mount(SwitchCard, { props: { ids: PHYSICAL_KEYS.map((k) => k.id) }, global: { plugins: [router] } });
+    await flushPromises();
+    expect(w.find('.swc__name').text()).toBe(switchName(findSwitch(perf.catalog!, 14544)!));
+    expect(w.find('.swc__foot button').attributes('disabled')).toBeUndefined();
+    w.unmount();
   });
 
   it('device.model / modelName follow the connected board', async () => {
