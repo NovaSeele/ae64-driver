@@ -98,5 +98,7 @@ export default defineConfig(({ mode }) => ({
   test: {
     environment: 'jsdom',
     include: ['tests/**/*.test.ts'],
+    // jsdom UI tests take 1–4 s alone; on a loaded machine they passed the 5 s default and failed by timeout, never by assertion.
+    testTimeout: 20_000,
   },
 }));

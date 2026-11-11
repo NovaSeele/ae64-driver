@@ -118,6 +118,62 @@ describe('calibration blocks leaving the keyboard', () => {
     expect(cal.phase).toBe('idle');
   });
 
+  /** The three user ways out of a keyboard all leave this transport connected as the same Max. */
+  async function expectRefused(device: ReturnType<typeof useDeviceStore>, transport: unknown) {
+    useToast().items.value = [];
+    await device.changeKeyboard();
+    await device.disconnect({ user: true });
+    await device.switchDemoModel('pro');
+    expect(device.status).toBe('connected');
+    expect(device.transport).toBe(transport);
+    expect(device.model).toBe('max');
+    expect(toasts()).toContain(t('device.calibrating'));
+  }
+
+  it('is still refused while finishing, after the transport lock cleared but the calibration commit is pending', async () => {
+    // Why: only the store phase (not calibrationLocked) covers this window; calibrationBusy must check both.
+    const device = useDeviceStore();
+    await device.connectDemo('max');
+    const cal = useCalibrationStore();
+    await cal.start();
+    expect(cal.phase).toBe('running');
+    const transport = device.transport as MockTransport;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.spyOn(transport, 'commit').mockImplementation(() => gate);
+    const done = cal.finish();
+    for (let i = 0; i < 200 && !(device.calibrationLocked() === false && cal.phase === 'finishing'); i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(device.calibrationLocked()).toBe(false);
+    expect(cal.phase).toBe('finishing');
+    await expectRefused(device, transport);
+    release();
+    expect(await done).toBe(true);
+    expect(cal.phase).toBe('idle');
+    await device.disconnect({ user: true });
+    expect(device.status).toBe('idle');
+  }, 15000);
+
+  it('is refused while starting, before the transport lock is set', async () => {
+    // Why: startCalibration() sets the lock only after the flush; during it only the store phase says busy.
+    const device = useDeviceStore();
+    await device.connectDemo('max');
+    const cal = useCalibrationStore();
+    const transport = device.transport as MockTransport;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.spyOn(useSyncStore(), 'flush').mockImplementation(() => gate);
+    const started = cal.start();
+    expect(cal.phase).toBe('starting');
+    expect(device.calibrationLocked()).toBe(false);
+    await expectRefused(device, transport);
+    release();
+    await started;
+    expect(cal.phase).toBe('running');
+    await cal.cancel();
+  }, 15000);
+
   it('a user disconnect outside calibration works', async () => {
     const device = useDeviceStore();
     await device.connectDemo();
