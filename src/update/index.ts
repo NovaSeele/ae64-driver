@@ -15,8 +15,11 @@ export interface AvailableVersion {
   builtAt: string;
 }
 
+/** The desktop app never updates itself: the user installs a newer setup.exe. */
+const DESKTOP = typeof __DESKTOP__ !== 'undefined' && __DESKTOP__;
+
 export function registerServiceWorker(): void {
-  if (!import.meta.env.PROD || typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  if (DESKTOP || !import.meta.env.PROD || typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
   // After `load` and when idle: the first visit's precache must not compete with the page's own chunks and font.
   const register = () => {
     navigator.serviceWorker.register('/sw.js').catch((err) => {
@@ -85,6 +88,7 @@ export const useUpdateStore = defineStore('update', () => {
   }
 
   async function check(): Promise<void> {
+    if (DESKTOP) return;
     state.value = 'checking';
     error.value = null;
 

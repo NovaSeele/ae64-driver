@@ -43,6 +43,21 @@ npm run typecheck
    at the top ("Saved to keyboard" / "Writing…" / "Error — retry").
 4. **Ctrl+Z / Ctrl+Y** to undo / redo within the session.
 
+## Desktop app (Windows)
+
+A small [Tauri 2](https://tauri.app) shell around the same page, using the system WebView2. The page talks to the
+keyboard itself (WebHID); the shell adds no device code.
+
+- Build: `npm run desktop:build` (needs Rust and the WebView2 runtime). It builds the frontend with
+  `vite build --mode desktop`, then runs `tauri build`. Develop with `npm run desktop:dev`.
+- Output, in `src-tauri/target/release/bundle/nsis/`: `AE64 Max Control_<version>_x64-setup.exe` and
+  `AE64-Max-Control_<version>_x64-portable.zip` (just the exe).
+- The installer is per-user: no administrator rights. WebView2 is downloaded and installed automatically if it is
+  missing (Windows 10/11 normally have it).
+- The app is unsigned, so SmartScreen may say "Windows protected your PC": click "More info", then "Run anyway".
+- The desktop app never updates itself and has no service worker. To update, install the newer `setup.exe`.
+- Zero-download alternative: install the web app from Chrome or Edge ("Install app").
+
 ## App updates
 
 Unlike the manufacturer's driver, which downloads new versions in the background, AE64 Max Control **never

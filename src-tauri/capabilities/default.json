@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The main window needs no Tauri APIs: the page uses WebHID, which is a browser API.",
+  "windows": ["main"],
+  "permissions": []
+}

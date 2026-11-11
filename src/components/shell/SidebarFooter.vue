@@ -10,6 +10,8 @@ import { useUpdateStore } from '../../update';
 
 const compact = defineModel<boolean>('compact', { default: false });
 const update = useUpdateStore();
+/** The desktop app never updates itself (a newer setup.exe does): no check button. */
+const desktop = typeof __DESKTOP__ !== 'undefined' && __DESKTOP__;
 const help = ref(false);
 
 const currentLocale = computed({
@@ -70,7 +72,7 @@ function formatUpdateDate(iso: string): string {
           <div class="help__version-row">
             <span class="help__version-text">{{ t('update.version', { version: update.currentVersion }) }}</span>
             <Button
-              v-if="update.state === 'idle' || update.state === 'upToDate'"
+              v-if="!desktop && (update.state === 'idle' || update.state === 'upToDate')"
               size="sm"
               @click="update.check()"
             >

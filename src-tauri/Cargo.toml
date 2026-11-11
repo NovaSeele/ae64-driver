@@ -1,0 +1,20 @@
+[package]
+name = "ae64-max-control"
+version = "0.1.0"
+description = "AE64 Max Control - local WebHID driver for the Everglide AE64 Max keyboard"
+authors = ["NovaSeele"]
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

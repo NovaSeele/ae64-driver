@@ -51,15 +51,31 @@ function hashedManifestIcon(): Plugin {
   };
 }
 
-export default defineConfig({
+/** The desktop (Tauri) build is installed by hand and never updates itself: no service worker, no release.json. */
+function desktopWithoutUpdates(): Plugin {
+  let outDir = 'dist';
+  return {
+    name: 'ae64-desktop-no-updates',
+    apply: 'build',
+    configResolved(config) {
+      outDir = path.resolve(config.root, config.build.outDir || 'dist');
+    },
+    closeBundle() {
+      fs.rmSync(path.join(outDir, 'sw.js'), { force: true });
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => ({
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
+    __DESKTOP__: JSON.stringify(mode === 'desktop'),
   },
   plugins: [
     vue(),
     preloadLatinFont(),
     hashedManifestIcon(),
-    releasePlugin({ version: appVersion }),
+    ...(mode === 'desktop' ? [desktopWithoutUpdates()] : [releasePlugin({ version: appVersion })]),
   ],
   server: { host: '127.0.0.1', port: 5173, strictPort: true },
   preview: { host: '127.0.0.1', port: 4173, strictPort: true },
@@ -82,4 +98,4 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['tests/**/*.test.ts'],
   },
-});
+}));

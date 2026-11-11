@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 
 declare const __APP_VERSION__: string;
+/** True in the desktop (Tauri) build, `vite build --mode desktop`. */
+declare const __DESKTOP__: boolean;
 declare const process: { env: Record<string, string | undefined> };
 
 declare module 'node:fs' {
@@ -9,6 +11,7 @@ declare module 'node:fs' {
     path: string,
     options: { withFileTypes: true },
   ): Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>;
+  export function rmSync(path: string, options: { force: boolean }): void;
   export function readFileSync(path: string, encoding: string): string;
   export function writeFileSync(path: string, data: string, encoding: string): void;
 }
