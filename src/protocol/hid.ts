@@ -20,7 +20,7 @@ function hasConfigCollection(device: HIDDevice): boolean {
   return device.collections.some((c) => c.usagePage === CONFIG_USAGE_PAGE && c.usage === CONFIG_USAGE);
 }
 
-function isAe64(device: HIDDevice): boolean {
+export function isAe64(device: HIDDevice): boolean {
   return HID_FILTERS.some((f) => f.vendorId === device.vendorId && f.productId === device.productId) && hasConfigCollection(device);
 }
 

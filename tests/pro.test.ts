@@ -151,7 +151,7 @@ describe('model', () => {
     expect(device.model).toBe('pro');
     expect(device.modelName).toBe('AE64 Pro');
     expect(device.boardAllowed).toBe(true);
-    await device.connectDemo();
+    await device.connectDemo('max');
     expect(device.modelName).toBe('AE64 Max');
   });
 });

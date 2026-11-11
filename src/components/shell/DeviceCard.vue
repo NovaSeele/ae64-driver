@@ -2,12 +2,22 @@
 import { computed } from 'vue';
 import { IconArrowsExchange, IconPlugConnectedX } from '@tabler/icons-vue';
 import IconButton from '../ui/IconButton.vue';
+import Segmented from '../ui/Segmented.vue';
+import { useCalibrationStore } from '../../stores/calibration';
 import { useDeviceStore } from '../../stores/device';
 import { t } from '../../i18n/vi';
 
 const props = defineProps<{ compact?: boolean }>();
 
 const device = useDeviceStore();
+const calibration = useCalibrationStore();
+const calibrating = computed(() => calibration.phase !== 'idle' || device.calibrationLocked());
+const calibratingTitle = computed(() => (calibrating.value ? t('device.calibrating') : undefined));
+const demoModels = [{ value: 'max' as const, label: 'AE64 Max' }, { value: 'pro' as const, label: 'AE64 Pro' }];
+const demoModel = computed({
+  get: () => device.model,
+  set: (m) => { if (m) void device.switchDemoModel(m); },
+});
 const name = computed(() => device.modelName ?? device.transport?.productName ?? 'AE64');
 const statusText = computed(() => {
   if (device.status === 'connected') return device.demo ? t('device.demo') : t('device.connected');
@@ -30,9 +40,10 @@ const cardTitle = computed(() => (props.compact ? `${name.value} · ${statusText
           </template>
         </div>
       </div>
-      <IconButton v-if="device.connected && !compact" :icon="IconArrowsExchange" :label="t('device.changeKeyboard')" size="sm" @click="device.changeKeyboard()" />
-      <IconButton v-if="device.connected && !compact" :icon="IconPlugConnectedX" :label="t('device.disconnect')" size="sm" @click="device.disconnect()" />
+      <IconButton v-if="device.connected && !compact" :icon="IconArrowsExchange" :label="t('device.changeKeyboard')" size="sm" :disabled="calibrating" :title="calibrating ? t('device.calibrating') : t('device.changeKeyboard')" @click="device.changeKeyboard()" />
+      <IconButton v-if="device.connected && !compact" :icon="IconPlugConnectedX" :label="t('device.disconnect')" size="sm" :disabled="calibrating" :title="calibrating ? t('device.calibrating') : t('device.disconnect')" @click="device.disconnect({ user: true })" />
     </div>
+    <Segmented v-if="device.connected && device.demo && !compact" v-model="demoModel" :options="demoModels" :label="t('device.demoModel')" size="sm" :disabled="calibrating" :title="calibratingTitle" />
     <dl v-if="device.info && !compact" class="dc__meta">
       <div><dt class="micro">{{ t('device.firmware') }}</dt><dd class="num">{{ device.info.firmware }}</dd></div>
       <div><dt class="micro">{{ t('device.board') }}</dt><dd class="num">{{ device.info.boardIdHex.toUpperCase() }}</dd></div>

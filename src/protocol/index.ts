@@ -9,7 +9,7 @@ import { KEYCODE_GROUPS, keycodeLabel } from './keycodes';
 export * from './types';
 export * from './constants';
 export { PHYSICAL_KEYS, SENSOR_COLUMNS, layoutBounds, keysFromLayoutStyles } from './layout';
-export { connectHid, reconnectGrantedHid, rememberDevice, webHidAvailable, HidTransport, NoDeviceSelectedError } from './hid';
+export { connectHid, reconnectGrantedHid, rememberDevice, isAe64, webHidAvailable, HidTransport, NoDeviceSelectedError } from './hid';
 export { createMockTransport, MockTransport } from './mock';
 export { modelOf, modelName } from './model';
 export type { Ae64Model } from './model';

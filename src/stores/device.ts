@@ -2,13 +2,15 @@
 import { defineStore } from 'pinia';
 import { computed, markRaw, ref, shallowRef } from 'vue';
 import {
-  ALLOWED_BOARDS, FIRMWARE_ROWS, NoDeviceSelectedError, PHYSICAL_KEYS, connectHid, createMockTransport, keycodeLabel, keysFromLayoutStyles,
-  modelName as modelLabel, modelOf, reconnectGrantedHid, rememberDevice, webHidAvailable,
+  ALLOWED_BOARDS, FIRMWARE_ROWS, NoDeviceSelectedError, PHYSICAL_KEYS, VENDOR_ID, connectHid, createMockTransport, keycodeLabel, keysFromLayoutStyles,
+  isAe64, modelName as modelLabel, modelOf, reconnectGrantedHid, rememberDevice, webHidAvailable,
 } from '../protocol';
-import type { Ae64Transport, DeviceInfo, FeatureBitmap, PacketLogEntry, PhysicalKey, ProtocolVersion } from '../protocol';
+import type { Ae64Model, Ae64Transport, DeviceInfo, FeatureBitmap, PacketLogEntry, PhysicalKey, ProtocolVersion } from '../protocol';
 import { t as tr } from '../i18n/vi';
 import { useToast } from '../components/ui/toast';
+import { useCalibrationStore } from './calibration';
 import { useHistoryStore } from './history';
+import { useSettingsStore } from './settings';
 import { useSyncStore } from './sync';
 
 export type DeviceStatus = 'idle' | 'connecting' | 'connected' | 'error';
@@ -20,6 +22,25 @@ const PACKET_SEQ_MS = 250;
 /** Live-travel poll = axis data read `04 03 …` (FAMILY.PERFORMANCE, command 0x03), both the request and its reply. */
 function isTravelPoll(bytes: Uint8Array): boolean {
   return bytes[0] === 0x04 && bytes[1] === 0x03;
+}
+
+const DEMO_MODEL_KEY = 'ae64.demoModel';
+
+/** The model of the last demo session (a UI pref); anything unreadable is 'max'. */
+function readDemoModel(): Ae64Model {
+  try {
+    return localStorage.getItem(DEMO_MODEL_KEY) === 'pro' ? 'pro' : 'max';
+  } catch {
+    return 'max';
+  }
+}
+
+function writeDemoModel(m: Ae64Model): void {
+  try {
+    localStorage.setItem(DEMO_MODEL_KEY, m);
+  } catch {
+    // storage unavailable: the next demo starts as Max
+  }
 }
 
 function message(err: unknown): string {
@@ -103,6 +124,11 @@ export const useDeviceStore = defineStore('device', () => {
   /** True while the keyboard is (or may still be) in calibration mode: only "stop calibration" may be written. */
   function calibrationLocked(): boolean {
     return transport.value?.calibrationLocked ?? false;
+  }
+
+  /** Calibration is running or the keyboard may still be in calibration mode: the user may not leave it (nothing here ever stops it). */
+  function calibrationBusy(): boolean {
+    return useCalibrationStore().phase !== 'idle' || calibrationLocked();
   }
 
   function onProfileChanged(cb: () => void): () => void {
@@ -208,6 +234,7 @@ export const useDeviceStore = defineStore('device', () => {
   }
 
   async function init(t: Ae64Transport, isDemo: boolean): Promise<void> {
+    disarmReplug();
     // Another keyboard replaces an open one: drop its queue, history and transport before anything of the new one is read.
     const prev = transport.value;
     if (prev && prev !== t) {
@@ -254,14 +281,47 @@ export const useDeviceStore = defineStore('device', () => {
     }
   }
 
+  /** The keyboard that was unplugged while connected; set only for a lost real connection, until it is replugged or anything else connects. */
+  let replugProductId: number | null = null;
+  let replugListener: ((e: HIDConnectionEvent) => void) | null = null;
+
+  function disarmReplug(): void {
+    if (replugListener && webHidAvailable()) navigator.hid.removeEventListener('connect', replugListener);
+    replugListener = null;
+    replugProductId = null;
+  }
+
+  function usbRestarting(): boolean {
+    const state = useSettingsStore().pollingState;
+    return state === 'applying' || state === 'reconnecting';
+  }
+
+  /** One 'connect' listener per lost connection: the same model plugged back in reconnects through tryAutoReconnect. */
+  function armReplug(productId: number): void {
+    disarmReplug();
+    if (!webHidAvailable() || usbRestarting()) return;
+    rememberDevice(productId); // reconnectGrantedHid prefers the lost keyboard
+    replugProductId = productId;
+    const listener = (e: HIDConnectionEvent): void => {
+      if (transport.value || status.value === 'connecting' || usbRestarting()) return;
+      if (!isAe64(e.device) || e.device.vendorId !== VENDOR_ID || e.device.productId !== replugProductId) return;
+      void tryAutoReconnect();
+    };
+    replugListener = listener;
+    navigator.hid.addEventListener('connect', listener);
+  }
+
   function handleDisconnect(): void {
+    const lostProductId = demo.value ? undefined : transport.value?.productId;
     const lost = reset();
     status.value = 'idle';
+    if (lostProductId !== undefined) armReplug(lostProductId);
     useToast().show(lost > 0 ? tr('device.unsavedLost', { n: lost }) : tr('device.lost'), 'error');
   }
 
   /** `afterChange`: the chooser opens after an await, so the browser may refuse it (no user activation): back to the connect screen, not an error. */
   async function connect(opts: { afterChange?: boolean } = {}): Promise<void> {
+    disarmReplug();
     status.value = 'connecting';
     error.value = null;
     let t: Ae64Transport;
@@ -278,8 +338,11 @@ export const useDeviceStore = defineStore('device', () => {
     await init(t, false).catch(() => undefined);
   }
 
-  async function connectDemo(seed: 'max' | 'pro' = 'max'): Promise<void> {
-    await init(createMockTransport({ seed }), true);
+  /** Without a seed: the model of the last demo session. */
+  async function connectDemo(seed?: Ae64Model): Promise<void> {
+    const model = seed ?? readDemoModel();
+    await init(createMockTransport({ seed: model }), true);
+    writeDemoModel(model);
   }
 
   async function tryAutoReconnect(): Promise<boolean> {
@@ -299,21 +362,27 @@ export const useDeviceStore = defineStore('device', () => {
     }
   }
 
-  async function disconnect(opts: { flush?: boolean } = {}): Promise<void> {
+  /** `user`: the Disconnect button; refused while calibrating. Internal callers (polling-rate reconnect) omit it. */
+  async function disconnect(opts: { flush?: boolean; user?: boolean } = {}): Promise<void> {
     const t = transport.value;
     if (!t) return;
+    if (opts.user && calibrationBusy()) {
+      useToast().show(tr('device.calibrating'), 'warn');
+      return;
+    }
+    disarmReplug();
     if (opts.flush !== false) await useSyncStore().flush().catch(() => undefined);
     reset();
     status.value = 'idle';
     await t.close().catch(() => undefined);
   }
 
-  /**
-   * Back to the connect screen to pick another keyboard (a real one opens the chooser at once). Unsaved edits are
-   * flushed first; if they cannot be saved the connection stays, so none is lost or sent to the other keyboard.
-   */
-  async function changeKeyboard(): Promise<void> {
-    if (!transport.value) return;
+  /** True when the keyboard may be left: not calibrating, and every edit was saved (otherwise a toast says why and the connection stays). */
+  async function readyToLeave(): Promise<boolean> {
+    if (calibrationBusy()) {
+      useToast().show(tr('device.calibrating'), 'warn');
+      return false;
+    }
     const sync = useSyncStore();
     let saved = true;
     try {
@@ -323,11 +392,26 @@ export const useDeviceStore = defineStore('device', () => {
     }
     if (!saved || sync.state === 'error') {
       useToast().show(tr('device.changeBlocked'), 'warn');
-      return;
+      return false;
     }
+    return true;
+  }
+
+  /**
+   * Back to the connect screen to pick another keyboard (a real one opens the chooser at once). Unsaved edits are
+   * flushed first; if they cannot be saved the connection stays, so none is lost or sent to the other keyboard.
+   */
+  async function changeKeyboard(): Promise<void> {
+    if (!transport.value || !(await readyToLeave())) return;
     const wasDemo = demo.value;
     await disconnect({ flush: false });
     if (!wasDemo) await connect({ afterChange: true });
+  }
+
+  /** The demo keyboard becomes the other model: the same gates as changeKeyboard, then a fresh init resets every per-connection store. */
+  async function switchDemoModel(m: Ae64Model): Promise<void> {
+    if (!demo.value || !transport.value || m === model.value || !(await readyToLeave())) return;
+    await init(createMockTransport({ seed: m }), true).then(() => writeDemoModel(m), () => undefined);
   }
 
   async function switchProfile(i: number): Promise<void> {
@@ -359,6 +443,6 @@ export const useDeviceStore = defineStore('device', () => {
     transport, status, error, info, version, features, boardAllowed, demo, keys, profileCount, activeProfile,
     profileNames, rtPrecision, layer0, latencyMs, connection, packetSeq, statsTick, exclusiveActive, connected, hidAvailable, model, modelName, packetEntries, activeProfileName,
     legend, withTransport, calibrationLocked, watchPackets, onProfileChanged, refreshLayer0, connect, connectDemo,
-    tryAutoReconnect, disconnect, changeKeyboard, switchProfile, renameProfile,
+    tryAutoReconnect, disconnect, changeKeyboard, switchDemoModel, switchProfile, renameProfile,
   };
 });

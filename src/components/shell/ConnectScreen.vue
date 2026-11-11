@@ -46,11 +46,8 @@ const usbRestarting = computed(() => settings.pollingState === 'applying' || set
         >
           {{ device.status === 'connecting' ? t('device.connecting') : t('connect.button') }}
         </Button>
-        <Button size="lg" :icon="IconPlayerPlay" :disabled="device.status === 'connecting' || usbRestarting" :title="t('connect.demoHint')" @click="device.connectDemo('max')">
-          {{ t('connect.demoMax') }}
-        </Button>
-        <Button size="lg" :icon="IconPlayerPlay" :disabled="device.status === 'connecting' || usbRestarting" :title="t('connect.demoHint')" @click="device.connectDemo('pro')">
-          {{ t('connect.demoPro') }}
+        <Button size="lg" :icon="IconPlayerPlay" :disabled="device.status === 'connecting' || usbRestarting" :title="t('connect.demoHint')" @click="device.connectDemo()">
+          {{ t('connect.demo') }}
         </Button>
       </div>
 
