@@ -4,7 +4,7 @@
   "version": "../package.json",
   "identifier": "com.novaseele.ae64max",
   "build": {
-    "frontendDist": "../dist",
+    "frontendDist": "../dist-desktop",
     "devUrl": "http://127.0.0.1:5173",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build:desktop"
@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; base-uri 'self'; form-action 'none'"
     }
   },
   "bundle": {

@@ -56,6 +56,11 @@ keyboard itself (WebHID); the shell adds no device code.
   missing (Windows 10/11 normally have it).
 - The app is unsigned, so SmartScreen may say "Windows protected your PC": click "More info", then "Run anyway".
 - The desktop app never updates itself and has no service worker. To update, install the newer `setup.exe`.
+- The portable zip is just the exe: it still needs the WebView2 runtime (Windows 10/11 normally have it).
+- Installed and portable apps both keep their data (settings, WebHID permission) in
+  `%LOCALAPPDATA%\com.novaseele.ae64max`. Uninstalling leaves that folder; delete it by hand for a full clean.
+- For each desktop release, bump `version` in `package.json`: `setup.exe` and Apps & features show it.
+- The desktop frontend is built into `dist-desktop/`, so it never mixes with the web build in `dist/`.
 - Zero-download alternative: install the web app from Chrome or Edge ("Install app").
 
 ## App updates

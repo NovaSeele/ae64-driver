@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconRefresh } from '@tabler/icons-vue';
+import { IconLayoutSidebarLeftCollapse, IconInfoCircle, IconLayoutSidebarLeftExpand, IconRefresh } from '@tabler/icons-vue';
 import Dialog from '../ui/Dialog.vue';
 import Button from '../ui/Button.vue';
 import Segmented from '../ui/Segmented.vue';
@@ -28,7 +28,7 @@ const LANG_OPTIONS = computed<{ value: Locale; label: string; title: string }[]>
 
 const updatePending = computed(() => update.state === 'available' || update.state === 'deferred');
 const updateBusy = computed(() => update.state === 'checking' || update.state === 'downloading');
-const updateLabel = computed(() => t('nav.update') + (updatePending.value ? t('nav.updateAvailableSuffix') : ''));
+const updateLabel = computed(() => desktop ? t('nav.version') : t('nav.update') + (updatePending.value ? t('nav.updateAvailableSuffix') : ''));
 
 function formatUpdateDate(iso: string): string {
   try {
@@ -50,7 +50,8 @@ function formatUpdateDate(iso: string): string {
     <div class="side-foot__gap" />
 
     <button type="button" class="side-foot__btn" :aria-label="updateLabel" :title="updateLabel" @click="help = true">
-      <IconRefresh class="side-foot__refresh" :class="{ 'side-foot__refresh--spin': updateBusy }" :size="19" stroke-width="1.5" />
+      <IconInfoCircle v-if="desktop" :size="19" stroke-width="1.5" />
+      <IconRefresh v-else class="side-foot__refresh" :class="{ 'side-foot__refresh--spin': updateBusy }" :size="19" stroke-width="1.5" />
       <span v-if="updatePending" class="side-foot__dot" aria-hidden="true" />
     </button>
 
@@ -80,7 +81,11 @@ function formatUpdateDate(iso: string): string {
             </Button>
           </div>
 
-          <div v-if="update.state === 'checking'" class="help__status-row">
+          <div v-if="desktop" class="help__status-row">
+            <span>{{ t('update.desktopHint') }}</span>
+          </div>
+
+          <div v-else-if="update.state === 'checking'" class="help__status-row">
             <span class="micro">{{ t('update.checking') }}</span>
           </div>
 

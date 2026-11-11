@@ -20,6 +20,7 @@ export const base = {
   'nav.configure': 'Cấu hình',
   'nav.live': 'Đo hành trình',
   'nav.update': 'Cập nhật & phiên bản',
+  'nav.version': 'Phiên bản',
   'nav.updateAvailableSuffix': ', có bản mới',
   'nav.collapse': 'Thu gọn thanh bên',
   'nav.expand': 'Mở thanh bên',
@@ -179,6 +180,7 @@ export const base = {
   'lang.en': 'English',
 
   // update
+  'update.desktopHint': 'Để cập nhật, cài bản setup.exe mới hơn.',
   'update.version': 'Phiên bản {version}',
   'update.check': 'Kiểm tra cập nhật',
   'update.checking': 'Đang kiểm tra…',

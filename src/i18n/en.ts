@@ -17,6 +17,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'nav.configure': 'Configure',
   'nav.live': 'Live travel',
   'nav.update': 'Updates & version',
+  'nav.version': 'Version',
   'nav.updateAvailableSuffix': ', update available',
   'nav.collapse': 'Collapse sidebar',
   'nav.expand': 'Expand sidebar',
@@ -176,6 +177,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'lang.en': 'English',
 
   // update
+  'update.desktopHint': 'To update, install the newer setup.exe.',
   'update.version': 'Version {version}',
   'update.check': 'Check for updates',
   'update.checking': 'Checking…',
