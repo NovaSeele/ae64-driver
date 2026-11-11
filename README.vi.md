@@ -7,6 +7,10 @@ keymap, đèn, macro… trực tiếp qua WebHID.
 
 Bàn phím được hỗ trợ: **AE64 Max** (board `0030000D`, USB PID `0x300D`) và **AE64 Pro** (board `0030000A`, USB PID `0x300A`).
 
+**Tải về cho Windows:** [bản phát hành mới nhất](https://github.com/NovaSeele/ae64-driver/releases/latest):
+`AE64-Control_<version>_x64-setup.exe` (bộ cài) hoặc `AE64-Control_<version>_x64-portable.zip` (chỉ có file exe).
+Xem [Ứng dụng desktop](#ứng-dụng-desktop-windows) về SmartScreen, WebView2 và nơi ứng dụng lưu dữ liệu.
+
 ## Dùng trực tuyến
 
 Mở **<https://ae64.novaseele.com>** bằng Chrome hoặc Edge, cắm bàn phím rồi bấm **Kết nối bàn phím**.
@@ -45,6 +49,24 @@ npm run typecheck
    ở các thẻ bên dưới. Thay đổi được **tự động ghi vào phím** sau ~0,35 giây; trạng thái
    hiển thị ở góc trên ("Đã lưu vào phím" / "Đang ghi…" / "Lỗi — thử lại").
 4. **Ctrl+Z / Ctrl+Y** để hoàn tác / làm lại trong phiên làm việc.
+
+## Ứng dụng desktop (Windows)
+
+Một vỏ [Tauri 2](https://tauri.app) nhỏ bọc đúng trang web này, dùng WebView2 của hệ thống. Trang tự nói chuyện
+với bàn phím qua WebHID; vỏ không thêm mã thiết bị nào.
+
+- Tải ở [Releases](https://github.com/NovaSeele/ae64-driver/releases/latest): bộ cài
+  `AE64-Control_<version>_x64-setup.exe` hoặc bản portable `AE64-Control_<version>_x64-portable.zip`.
+- Bộ cài chỉ cài cho người dùng hiện tại, không cần quyền quản trị. Nếu máy thiếu WebView2, bộ cài tự tải và cài
+  (Windows 10/11 thường đã có sẵn).
+- Bản portable chỉ là file exe: vẫn cần WebView2 runtime (Windows 10/11 thường đã có sẵn).
+- Ứng dụng chưa ký số nên SmartScreen có thể báo "Windows protected your PC": bấm "More info" (Thông tin thêm)
+  rồi "Run anyway" (Vẫn chạy).
+- Ứng dụng desktop không bao giờ tự cập nhật. Muốn cập nhật, cài bản `setup.exe` mới hơn.
+- Cả bản cài lẫn bản portable đều lưu dữ liệu (cài đặt, quyền WebHID) trong `%LOCALAPPDATA%\com.novaseele.ae64`.
+  Gỡ cài đặt giữ thư mục này, trừ khi bạn tick "Delete the application data" trong trình gỡ; nếu không, xoá bằng
+  tay khi muốn sạch hẳn.
+- Tự build: `npm run desktop:build` (cần Rust và WebView2); chi tiết ở [bản tiếng Anh](README.md#desktop-app-windows).
 
 ## Cập nhật ứng dụng
 
