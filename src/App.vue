@@ -84,6 +84,7 @@ onBeforeUnmount(() => {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  padding-bottom: var(--toast-safe, 0px);
 }
 .main__wait {
   position: absolute;

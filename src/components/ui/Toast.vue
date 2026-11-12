@@ -1,15 +1,31 @@
 <script setup lang="ts">
 // Toast host — mount once (App.vue). Show toasts with useToast().show(text, kind).
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { IconAlertTriangle, IconCircleCheck, IconInfoCircle, IconX } from '@tabler/icons-vue';
 import { useToast } from './toast';
 import { t } from '../../i18n/vi';
 
 const { items, dismiss } = useToast();
+// While a toast is open, App.vue pads the page scroller by the stack height + 16 px (--toast-safe) so nothing stays under it.
+const stack = ref<HTMLElement | null>(null);
+let ro: ResizeObserver | null = null;
+function setSafe(h: number): void {
+  document.documentElement.style.setProperty('--toast-safe', h > 0 ? `${h + 16}px` : '0px');
+}
+onMounted(() => {
+  if (typeof ResizeObserver === 'undefined' || !stack.value) return;
+  ro = new ResizeObserver((entries) => setSafe(entries[entries.length - 1].contentRect.height));
+  ro.observe(stack.value);
+});
+onBeforeUnmount(() => {
+  ro?.disconnect();
+  document.documentElement.style.removeProperty('--toast-safe');
+});
 const ICONS = { info: IconInfoCircle, success: IconCircleCheck, warn: IconAlertTriangle, error: IconAlertTriangle };
 </script>
 
 <template>
-  <div class="toasts">
+  <div ref="stack" class="toasts">
     <TransitionGroup name="toast">
       <div v-for="it in items" :key="it.id" class="toast" :class="`toast--${it.kind}`" :role="it.kind === 'error' ? 'alert' : 'status'">
         <component :is="ICONS[it.kind]" class="toast__icon" :size="18" stroke-width="1.5" aria-hidden="true" />
