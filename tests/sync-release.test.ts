@@ -8,13 +8,12 @@ import { usePerformanceStore } from '../src/stores/performance';
 
 const W = PHYSICAL_KEYS.find((k) => k.name === 'W')!;
 
-// Simulates the firmware: every performance write sets normalRelease = normalPress.
+// The mock does what the firmware does: every performance write stores normalRelease = normalPress.
 async function setup() {
   const device = useDeviceStore();
   await device.connectDemo();
   const mock = device.transport as MockTransport;
-  const original = mock.setPerformance.bind(mock);
-  vi.spyOn(mock, 'setPerformance').mockImplementation((key, p) => original(key, { ...p, normalRelease: p.normalPress }));
+  vi.spyOn(mock, 'setPerformance'); // counts calls; the mock's own rule ties the release
   const perf = usePerformanceStore();
   await perf.load();
   // Stale release in values: the board and the app disagree until the key is edited.
@@ -129,5 +128,19 @@ describe('firmware ties normalRelease to normalPress', () => {
     perf.apply([W.id], () => ({ normalPress: 2, rtFirstTouch: 2 }), 'act');
     await sync.flush().catch(() => undefined);
     expect(sync.state).not.toBe('saved');
+  });
+});
+
+describe('mock firmware rule', () => {
+  beforeEach(() => setActivePinia(createPinia()));
+  it('stores normalRelease = normalPress whatever release was written, in both directions', async () => {
+    const device = useDeviceStore();
+    await device.connectDemo();
+    const mock = device.transport as MockTransport;
+    const rec = await mock.getPerformance(W);
+    await mock.setPerformance(W, { ...rec, normalPress: 2, normalRelease: 1 });
+    expect((await mock.getPerformance(W)).normalRelease).toBe(2);
+    await mock.setPerformance(W, { ...(await mock.getPerformance(W)), normalPress: 1, normalRelease: 2 });
+    expect((await mock.getPerformance(W)).normalRelease).toBe(1);
   });
 });

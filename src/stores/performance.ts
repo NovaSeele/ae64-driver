@@ -215,20 +215,10 @@ export const usePerformanceStore = defineStore('performance', () => {
       verify: async (t: Ae64Transport) => {
         const read = await t.getPerformance(key);
         noteFresh(id, read);
-        const readEdit = pickEdit(read);
-        let ok = written !== null && sameEdit(readEdit, written);
-        // Defence in depth: only normalRelease differs and the board tied it to its normalPress (firmware rule).
-        let tied = false;
-        if (!ok && written !== null && Math.abs(read.normalRelease - read.normalPress) <= 0.0005
-          && sameEdit({ ...readEdit, normalRelease: written.normalRelease }, written)) {
-          ok = true;
-          tied = true;
-        }
+        // `write` ties release to press like the firmware, so a read-back of a saved write equals `written`.
+        const ok = written !== null && sameEdit(pickEdit(read), written);
         if (!ok) return false;
         const latest = switchKeys.get(id) === mark; // false: a newer switch change is queued for this key
-        if (tied && latest && loadedProfile.value === profile && values.value[id]) {
-          values.value = { ...values.value, [id]: { ...values.value[id], normalRelease: read.normalRelease } };
-        }
         if (latest) switchKeys.delete(id);
         deleteTuningSnapshot(profile, id); // the hand edit is the truth now: an old snapshot must not overwrite it
         const got = tripleOf(read);
