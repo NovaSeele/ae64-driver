@@ -23,6 +23,8 @@ export const advancedVi = {
   'advanced.configured': 'Đã cấu hình',
   'advanced.configuredCount': '{n} mục',
   'advanced.none': 'Profile này chưa có phím nâng cao nào.',
+  'advanced.addForKey': 'Phím {key}: chưa có phím nâng cao',
+  'advanced.addTypeForKey': 'Thêm {type} cho phím {key}',
   'advanced.noneHint': 'Chọn một chức năng bên trái để bắt đầu.',
   'advanced.edit': 'Sửa',
   'advanced.delete': 'Xoá',

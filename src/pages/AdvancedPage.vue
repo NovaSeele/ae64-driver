@@ -170,6 +170,23 @@ function tone(k: PhysicalKey): string | undefined {
 const kindStyle = (kind: string) => ({ '--k': kindVar(kind) });
 const highlighted = computed(() => new Set(sel.ids.map((id) => adv.byKey.get(id)).filter(Boolean)));
 
+/** One key picked, no editor, and the key has no advanced key yet: offer to add one for it. */
+const addFor = computed(() => (sel.ids.length === 1 && !draft.value && !adv.byKey.get(sel.ids[0]) ? sel.ids[0] : null));
+// A picked key that already has an entry: bring that entry into view (no focus change).
+watch(() => [sel.ids.length === 1 ? adv.byKey.get(sel.ids[0]) : undefined, !!draft.value] as const, ([a, open]) => {
+  if (!a || open) return;
+  // Scroll only the list's own box: scrollIntoView would also move the page away from the keyboard just clicked.
+  void nextTick(() => {
+    const item = document.querySelector<HTMLElement>('.item--hl');
+    const box = item?.closest<HTMLElement>('.cfg');
+    if (!item || !box) return;
+    const i = item.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    if (i.top < b.top) box.scrollTop -= b.top - i.top;
+    else if (i.bottom > b.bottom) box.scrollTop += i.bottom - b.bottom;
+  });
+}, { flush: 'post' });
+
 // ----- editor
 let internal = false;
 function selectKeys(ids: number[]) {
@@ -192,7 +209,7 @@ function focusSoon(selector: string) {
   void nextTick(() => (document.querySelector<HTMLElement>(selector) ?? document.querySelector<HTMLElement>('.type, .item__main:not(:disabled)'))?.focus());
 }
 
-function start(type: WritableType) {
+function start(type: WritableType, opts?: { fromKey?: boolean }) {
   const picked = sel.ids;
   const opened = !!draft.value;
   editing.value = null;
@@ -205,6 +222,11 @@ function start(type: WritableType) {
     const first = sel.focused !== null && sel.selected.has(sel.focused) ? sel.focused : picked[0];
     if (picked.length === 1 && first !== undefined) { if (!taken(first)) chooseKey(first); }
     else if (picked.length > 1) toast.show(t('advanced.multiPicked'), 'warn');
+  } else if (opts?.fromKey && picked.length === 1) {
+    if (!taken(picked[0])) {
+      chooseKey(picked[0]);
+      if (draft.value && draft.value.keys[0] >= 0) pairSlot.value = 1; // the key is slot A; the next pick is B
+    }
   } else if (picked.length === 2) {
     if (!picked.some(taken)) {
       chooseKey(picked[0]);
@@ -454,6 +476,12 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
 
       <Card :title="t('advanced.configured')" :subtitle="adv.assignments.length ? t('advanced.configuredCount', { n: adv.assignments.length }) : undefined">
         <div class="cfg">
+        <div v-if="addFor !== null" class="addkey">
+          <p class="addkey__text">{{ t('advanced.addForKey', { key: keyName(addFor) }) }}</p>
+          <div class="addkey__btns">
+            <button v-for="x in TYPES" :key="x.type" type="button" class="chip" :data-add="x.type" :style="kindStyle(x.type)" :aria-label="t('advanced.addTypeForKey', { type: t(`advanced.short${x.type}`), key: keyName(addFor) })" @click="start(x.type, { fromKey: true })">+ {{ t(`advanced.short${x.type}`) }}</button>
+          </div>
+        </div>
         <div v-if="!adv.assignments.length" class="empty">
           <IconTimeline :size="28" stroke-width="1.4" aria-hidden="true" />
           <p>{{ t('advanced.none') }}</p>
@@ -555,6 +583,21 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
   color: var(--fg-3);
   white-space: nowrap;
 }
+
+/* add for the picked key */
+.addkey { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-2); padding: 8px 12px; border-radius: var(--r-control); border: 1px dashed var(--line-2); }
+.addkey__text { margin: 0; font-size: var(--fs-label); color: var(--fg-2); }
+.addkey__btns { display: flex; gap: 6px; }
+.chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--k, var(--acc)) 45%, transparent);
+  background: color-mix(in srgb, var(--k, var(--acc)) 14%, transparent);
+  color: var(--k, var(--acc));
+  font-size: var(--fs-caption);
+  font-weight: 600;
+}
+.chip:hover { background: color-mix(in srgb, var(--k, var(--acc)) 26%, transparent); }
 
 /* configured list */
 .cfg { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }

@@ -25,6 +25,8 @@ export const advancedEn: Record<keyof typeof advancedVi, string> = {
   'advanced.configured': 'Configured',
   'advanced.configuredCount': '{n} items',
   'advanced.none': 'No advanced keys configured for this profile.',
+  'advanced.addForKey': 'Key {key}: no advanced key yet',
+  'advanced.addTypeForKey': 'Add {type} to key {key}',
   'advanced.noneHint': 'Select a feature on the left to get started.',
   'advanced.edit': 'Edit',
   'advanced.delete': 'Delete',
