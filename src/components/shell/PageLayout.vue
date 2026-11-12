@@ -58,7 +58,7 @@ watchEffect(() => {
   .page__aside { width: 196px; }
 }
 
-@media (max-width: 1360px) {
+@media (max-width: 1400px) {
   .page { padding: var(--s-5) var(--s-6) var(--s-7); }
   .page__kbrow { flex-direction: column-reverse; align-items: stretch; }
   .page__aside { width: auto; flex-direction: row; flex-wrap: wrap; justify-content: flex-end; }

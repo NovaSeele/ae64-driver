@@ -373,7 +373,7 @@ function onTypeKey(e: KeyboardEvent) {
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
 .toggle { font-size: var(--fs-label); }
 
-@media (max-width: 1360px) {
+@media (max-width: 1420px) {
   .kbrow { flex-direction: column-reverse; align-items: stretch; }
   .board { width: 100%; }
   .aside { width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--s-3); }

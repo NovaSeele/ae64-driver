@@ -39,7 +39,8 @@ const rateLabel = (r: number) => `${POLLING_RATE_HZ[r] ?? r} Hz`;
 const pollingRateOptions = computed(() =>
   settings.supportedRates.map((r) => ({
     value: r,
-    label: rateLabel(r),
+    label: String(POLLING_RATE_HZ[r] ?? r),
+    ariaLabel: rateLabel(r),
   })),
 );
 
@@ -146,14 +147,18 @@ async function saveProfileName(i: number) {
       <!-- Polling rate -->
       <Card :title="t('settings.pollingRate')" :subtitle="t('settings.pollingRateDesc')">
         <div>
-          <Segmented
-            :model-value="shownRate"
-            :options="pollingRateOptions"
-            :label="t('settings.pollingRate')"
-            manual
-            :disabled="locked"
-            @update:model-value="askPollingRate"
-          />
+          <div class="settings-rate">
+            <Segmented
+              :model-value="shownRate"
+              :options="pollingRateOptions"
+              :label="t('settings.pollingRate')"
+              size="sm"
+              manual
+              :disabled="locked"
+              @update:model-value="askPollingRate"
+            />
+            <span class="settings-rate__unit">Hz</span>
+          </div>
           <p class="settings-note">{{ t('settings.pollingNote') }}</p>
           <p v-if="settings.pollingState === 'applying'" class="settings-note">{{ t('settings.pollingApplying') }}</p>
           <p v-else-if="settings.pollingState === 'reconnecting'" class="settings-note">{{ t('settings.pollingReconnecting') }}</p>
@@ -277,6 +282,17 @@ async function saveProfileName(i: number) {
 </template>
 
 <style scoped>
+.settings-rate {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.settings-rate :deep(.seg) { flex-wrap: nowrap; min-width: 0; }
+.settings-rate :deep(.seg__opt) { padding: 0 8px; }
+.settings-rate__unit {
+  color: var(--fg-3);
+  font-size: var(--fs-label);
+}
 .settings-note {
   margin: 10px 0 0;
   font-size: var(--fs-label);

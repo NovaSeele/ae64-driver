@@ -4,7 +4,9 @@ import { MockTransport } from '../src/protocol';
 import { useDeviceStore } from '../src/stores/device';
 import { useSyncStore } from '../src/stores/sync';
 import { useHistoryStore } from '../src/stores/history';
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
+import SettingsPage from '../src/pages/SettingsPage.vue';
+import { t } from '../src/i18n/vi';
 import Segmented from '../src/components/ui/Segmented.vue';
 import { PROFILE_NAME_MAX_BYTES, truncateUtf8, useSettingsStore, utf8Bytes } from '../src/stores/settings';
 
@@ -200,6 +202,33 @@ describe('Segmented', () => {
     await w.get('[data-v="0"]').trigger('keydown', { key: 'ArrowRight' });
     expect(w.emitted('update:modelValue')).toBeUndefined();
     expect(w.get('[data-v="1"]').attributes('disabled')).toBeDefined();
+    w.unmount();
+  });
+});
+
+describe('SettingsPage polling rate control', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('shows bare numbers, keeps "Hz" in accessible names and the confirm dialog', async () => {
+    await connectMock();
+    const settings = useSettingsStore();
+    await settings.load();
+    const w = mount(SettingsPage, { attachTo: document.body });
+    await flushPromises();
+    const group = w.findAll('[role="radiogroup"]').find((g) => g.attributes('aria-label') === t('settings.pollingRate'))!;
+    const opts = group.findAll('[role="radio"]');
+    expect(opts.length).toBeGreaterThan(0);
+    for (const o of opts) {
+      expect(o.text()).toMatch(/^\d+$/);
+      expect(o.attributes('aria-label')).toMatch(/^\d+ Hz$/);
+    }
+    expect(w.find('.settings-rate__unit').text()).toBe('Hz');
+    const other = opts.find((o) => o.attributes('aria-checked') === 'false')!;
+    await other.trigger('click');
+    await flushPromises();
+    expect(document.body.textContent).toMatch(/\d+ Hz\?/);
     w.unmount();
   });
 });

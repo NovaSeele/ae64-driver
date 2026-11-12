@@ -2,7 +2,7 @@
 const model = defineModel<T | null>({ required: true });
 // `manual`: arrow keys only move focus; Enter / Space / click select (for choices with side effects).
 const props = withDefaults(defineProps<{
-  options: { value: T; label: string; title?: string }[];
+  options: { value: T; label: string; title?: string; ariaLabel?: string }[];
   label: string;
   size?: 'sm' | 'md';
   manual?: boolean;
@@ -39,6 +39,7 @@ function onKey(e: KeyboardEvent) {
       class="seg__opt"
       :data-v="String(o.value)"
       :title="o.title"
+      :aria-label="o.ariaLabel"
       :aria-checked="o.value === model"
       :disabled="disabled"
       :tabindex="o.value === model || (model === null && i === 0) ? 0 : -1"
