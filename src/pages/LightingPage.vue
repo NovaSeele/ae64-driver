@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { IconBorderOuter, IconKeyboard } from '@tabler/icons-vue';
+// Đèn — a workbench like Hành trình: toolbar → keyboard (the edge strip is a ring of LEDs on its frame) → selection bar →
+// one editor dock. Every control calls the same lighting-store action as before; the colour field, the quick colours and
+// the strip's Esc only change what the page shows, never the keyboard.
+import { IconBorderOuter, IconChevronDown, IconKeyboard } from '@tabler/icons-vue';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import SelectionBar from '../components/keyboard/SelectionBar.vue';
-import Card from '../components/ui/Card.vue';
 import Button from '../components/ui/Button.vue';
 import Dialog from '../components/ui/Dialog.vue';
+import InfoTip from '../components/ui/InfoTip.vue';
+import Popover from '../components/ui/Popover.vue';
 import Segmented from '../components/ui/Segmented.vue';
 import Slider from '../components/ui/Slider.vue';
 import ColorPicker from '../components/ui/ColorPicker.vue';
-import FeatureSwitch from '../components/switch/FeatureSwitch.vue';
 import Switch from '../components/ui/Switch.vue';
 import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
@@ -19,6 +22,7 @@ import { hexToRgb, rgbToHex, useLightingStore } from '../stores/lighting';
 import { inkFor } from '../colorInk';
 import { LED_MATRIX_COLS, LED_STRIP_COUNT, STRIP_ORDER, STRIP_SIDES } from '../protocol';
 import type { PhysicalKey } from '../protocol';
+import { stripRing } from '../protocol/ledLayout';
 import { t } from '../i18n/vi';
 
 const device = useDeviceStore();
@@ -32,9 +36,24 @@ const activeTab = ref<TabId>('keys');
 const area = computed<0 | 1>(() => (activeTab.value === 'keys' ? 0 : 1));
 
 const tabItems = computed(() => [
-  { id: 'keys', title: t('lighting.tabKeys'), sub: t('lighting.tabKeysSub'), icon: IconKeyboard, tone: 'var(--f-lighting)' },
-  { id: 'strip', title: t('lighting.tabStrip'), sub: t('lighting.tabStripSub'), icon: IconBorderOuter, tone: 'var(--f-lighting)' },
+  { id: 'keys' as const, title: t('lighting.tabKeys'), sub: t('lighting.tabKeysSub'), icon: IconKeyboard },
+  { id: 'strip' as const, title: t('lighting.tabStrip'), sub: t('lighting.tabStripSub'), icon: IconBorderOuter },
 ]);
+
+/** ←/→ move and activate, Home/End jump (the tab pair is a plain tablist). */
+function onTabKey(e: KeyboardEvent) {
+  const items = tabItems.value;
+  let next: (typeof items)[number] | undefined;
+  if (e.key === 'Home') next = items[0];
+  else if (e.key === 'End') next = items[items.length - 1];
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+    const i = items.findIndex((x) => x.id === activeTab.value);
+    next = items[(i + (e.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length];
+  } else return;
+  e.preventDefault();
+  activeTab.value = next.id;
+  (e.currentTarget as HTMLElement).querySelector<HTMLElement>(`[data-id="${next.id}"]`)?.focus();
+}
 
 // What the page may show and edit: nothing is real until this profile's lighting has been read.
 const ready = computed(() => !lighting.loading && lighting.loadedProfile === device.activeProfile);
@@ -63,6 +82,7 @@ onMounted(() => {
   offProfile = device.onProfileChanged(() => {
     void lighting.load(true);
   });
+  window.addEventListener('keydown', onWindowKey);
 });
 
 // A write was dropped: the shown values are no longer what the keyboard has, read them again once the
@@ -87,6 +107,7 @@ watch(() => lighting.staleSeq, () => { void reloadAfterSettle(); });
 onBeforeUnmount(() => {
   offProfile?.();
   lighting.stopLivePolling();
+  window.removeEventListener('keydown', onWindowKey);
 });
 
 // ------------------------------------------------------------------ Preview colours
@@ -130,23 +151,30 @@ function stripColor(index: number): string {
   return pal ? rgbToHex(pal) : 'var(--bg-3)';
 }
 
-const stripGroups = computed(() => {
-  const sides = [
-    { id: 'top', label: t('lighting.selectTop') },
-    { id: 'right', label: t('lighting.selectRight') },
-    { id: 'bottom', label: t('lighting.selectBottom') },
-    { id: 'left', label: t('lighting.selectLeft') },
-  ] as const;
-  return sides.map((side) => ({
-    ...side,
-    leds: STRIP_SIDES[side.id].map((index) => ({
-      index,
-      color: stripColor(index),
-      isSel: stripSelection.value.has(index),
-      custom: ready.value && lighting.stripCustomColors[index]?.custom,
-    })),
-  }));
-});
+// ------------------------------------------------------------------ Edge strip as a ring on the keyboard frame
+const SIDE_KEY = {
+  top: 'lighting.sideTop',
+  right: 'lighting.sideRight',
+  bottom: 'lighting.sideBottom',
+  left: 'lighting.sideLeft',
+} as const;
+
+const ringLeds = computed(() => stripRing().map(({ index, side, t: pos }) => {
+  const label = t('lighting.ledLabel', { n: index, side: t(SIDE_KEY[side]) });
+  return {
+    index,
+    side,
+    pos,
+    label,
+    color: stripColor(index),
+    isSel: stripSelection.value.has(index),
+    custom: ready.value && lighting.stripCustomColors[index]?.custom,
+  };
+}));
+
+const ringEl = ref<HTMLElement | null>(null);
+/** The ring is one Tab stop: this LED holds it (roving tabindex), moved with the arrow keys. */
+const ringStop = ref<number>(STRIP_ORDER[0]);
 
 function onToggleStripLed(index: number) {
   const next = new Set(stripSelection.value);
@@ -155,11 +183,44 @@ function onToggleStripLed(index: number) {
   stripSelection.value = next;
 }
 
+function focusLed(index: number) {
+  ringStop.value = index;
+  ringEl.value?.querySelector<HTMLElement>(`[data-led="${index}"]`)?.focus();
+}
+
+function onRingKey(e: KeyboardEvent, index: number) {
+  const n = STRIP_ORDER.length;
+  const at = STRIP_ORDER.indexOf(index);
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') focusLed(STRIP_ORDER[(at + 1) % n]);
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') focusLed(STRIP_ORDER[(at - 1 + n) % n]);
+  else if (e.key === 'Home') focusLed(STRIP_ORDER[0]);
+  else if (e.key === 'End') focusLed(STRIP_ORDER[n - 1]);
+  else if (e.key === ' ' || e.key === 'Enter') onToggleStripLed(index);
+  else return;
+  e.preventDefault();
+}
+
+/** Esc clears the strip selection (the keys tab's KeyboardView does the same for keys). Selection only: nothing is written. */
+function onWindowKey(e: KeyboardEvent) {
+  if (e.key !== 'Escape' || activeTab.value !== 'strip' || e.defaultPrevented) return;
+  const el = e.target as HTMLElement | null;
+  if (el?.closest('[role="dialog"]') || el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA' || el?.isContentEditable) return;
+  if (stripSelection.value.size) stripSelection.value = new Set();
+}
+
 function onStripPreset(preset: 'all' | 'none' | 'top' | 'bottom' | 'left' | 'right') {
   if (preset === 'all') stripSelection.value = new Set(STRIP_ORDER);
   else if (preset === 'none') stripSelection.value = new Set();
   else stripSelection.value = new Set(STRIP_SIDES[preset]);
 }
+
+const stripPresets = computed(() => [
+  { id: 'all' as const, label: t('sel.all') },
+  { id: 'top' as const, label: t('lighting.selectTop') },
+  { id: 'right' as const, label: t('lighting.selectRight') },
+  { id: 'bottom' as const, label: t('lighting.selectBottom') },
+  { id: 'left' as const, label: t('lighting.selectLeft') },
+]);
 
 // ------------------------------------------------------------------ Power / direction / effect
 const openOptions = computed(() => (area.value === 0
@@ -265,9 +326,25 @@ function swatchInk(index: number): 'dark' | 'light' {
   return inkFor(r, g, b); // from the LED colour itself, never the theme
 }
 
+// The slot editor and the per-key colour field both open a popover; closed whenever what they edit goes away.
+type AnchorRef = { $el: HTMLElement } | null;
+const palEditBtn = ref<AnchorRef>(null);
+const palOpen = ref(false);
+const colorBtn = ref<HTMLElement | null>(null);
+const colorOpen = ref(false);
+const palIsRainbow = computed(() => base.value.paletteIndex === 0);
+watch([area, palIsRainbow, tuneLocked], () => { palOpen.value = false; });
+watch([area, locked], () => { colorOpen.value = false; });
+
 // ------------------------------------------------------------------ Per-key / per-LED colours
 const picked = reactive<Record<number, string>>({ 0: '#ffffff', 1: '#ffffff' });
 const confirmClear = ref(false);
+
+/** White, then this area's palette slots 1–7. No write: a click only sets the colour the next "Áp dụng" will use. */
+const quickColors = computed(() => ['#ffffff', ...Array.from({ length: 7 }, (_, i) => {
+  const entry = palette.value[i + 1];
+  return entry ? rgbToHex(entry) : '#000000';
+})]);
 
 const selectedCount = computed(() => (area.value === 0 ? sel.count : stripSelection.value.size));
 const overrideCount = computed(() => (area.value === 0
@@ -277,16 +354,15 @@ const selectionHasOverride = computed(() => (area.value === 0
   ? sel.ids.some((id) => lighting.keyCustomColors[id]?.custom)
   : [...stripSelection.value].some((i) => lighting.stripCustomColors[i]?.custom)));
 
-const selectedText = computed(() => {
-  const n = selectedCount.value;
-  if (n === 0) return t(area.value === 0 ? 'lighting.noKeysSelected' : 'lighting.noLedsSelected');
-  if (area.value === 0) return n === 1 ? t('lighting.selectedKeyOne') : t('lighting.selectedKeys', { count: n });
+const stripCountText = computed(() => {
+  const n = stripSelection.value.size;
+  if (n === 0) return t('lighting.selectedLedNone');
   return n === 1 ? t('lighting.selectedLedOne') : t('lighting.selectedLeds', { count: n });
 });
-const overrideText = computed(() => {
-  const n = overrideCount.value;
-  if (area.value === 0) return n === 1 ? t('lighting.customActiveOne') : t('lighting.customActive', { count: n });
-  return n === 1 ? t('lighting.stripCustomActiveOne') : t('lighting.stripCustomActive', { count: n });
+const applyText = computed(() => {
+  const n = selectedCount.value;
+  if (n === 0) return t('lighting.applyColor');
+  return t(area.value === 0 ? 'lighting.applyKeysN' : 'lighting.applyLedsN', { count: n });
 });
 
 function onApplyColor() {
@@ -314,27 +390,46 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 
 <template>
   <PageLayout :title="t('page.lighting')">
-    <template #toolbar>
-      <div class="lighting-toolbar">
-        <FeatureSwitch v-model="activeTab" :items="tabItems" :label="t('lighting.tabsLabel')" />
-        <div class="lighting-toolbar__live">
+    <div class="wb">
+      <!-- toolbar -->
+      <div class="wb__bar">
+        <div class="tabs" role="tablist" :aria-label="t('lighting.tabsLabel')" @keydown="onTabKey">
+          <button
+            v-for="it in tabItems"
+            :key="it.id"
+            type="button"
+            role="tab"
+            class="tabs__opt"
+            :data-id="it.id"
+            :aria-selected="it.id === activeTab"
+            :aria-describedby="`lighting-tab-sub-${it.id}`"
+            :title="it.sub"
+            :tabindex="it.id === activeTab ? 0 : -1"
+            @click="activeTab = it.id"
+          >
+            <component :is="it.icon" :size="16" stroke-width="1.75" aria-hidden="true" />{{ it.title }}
+          </button>
+        </div>
+        <span v-for="it in tabItems" :id="`lighting-tab-sub-${it.id}`" :key="it.id" class="sr-only">{{ it.sub }}</span>
+        <div class="wb__group">
+          <span class="wb__label">{{ t('lighting.powerTitle') }}</span>
+          <Segmented v-model="openModel" :options="openOptions" :label="t('lighting.powerTitle')" :disabled="locked" />
+          <InfoTip :text="t(area === 0 ? 'lighting.powerHintKeys' : 'lighting.powerHintStrip')" />
+        </div>
+        <div class="wb__group wb__live">
           <span class="lighting-live-badge" :class="`lighting-live-badge--${liveState}`">
             <span class="lighting-live-badge__dot" />
             {{ liveState === 'error' ? t('lighting.liveError') : liveState === 'live' ? t(device.demo ? 'lighting.simStatus' : 'lighting.liveStatus') : t('lighting.pausedStatus') }}
           </span>
-          <Switch
-            v-model="lighting.livePreview"
-            :label="t('lighting.livePreview')"
-          />
+          <InfoTip :text="device.demo ? t('lighting.demoSimNote') : t('lighting.livePreviewHint')" />
+          <Switch v-model="lighting.livePreview" :label="t('lighting.livePreview')" />
         </div>
       </div>
-    </template>
 
-    <div class="lighting">
       <p v-if="readOnly" class="lighting-notice" role="status">{{ t('lighting.readOnly') }}</p>
 
-      <!-- Keyboard + edge strip preview (keys are only selectable on the keys tab) -->
-      <section class="lighting-stage">
+      <!-- keyboard (keys are only selectable on the keys tab) with the edge strip as a ring on its frame -->
+      <div class="wb__board">
         <KeyboardView
           :keys="device.keys"
           :legend="device.legend"
@@ -343,40 +438,51 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
           :selectable="activeTab === 'keys'"
           :loading="!ready"
         />
-        <SelectionBar v-if="activeTab === 'keys'" />
-
-        <div class="strip-bar" :class="{ 'strip-bar--interactive': activeTab === 'strip' && ready }">
-          <div class="strip-bar__header">
-            <span class="strip-bar__title">{{ t('lighting.stripTitle') }}</span>
-            <span v-if="activeTab === 'strip'" class="strip-bar__hint">{{ t('lighting.stripSubtitle') }}</span>
-          </div>
-          <div class="strip-bar__track">
-            <div v-for="group in stripGroups" :key="group.id" class="strip-bar__group" :style="{ flexGrow: group.leds.length }">
-              <span class="strip-bar__side">{{ group.label }}</span>
-              <div class="strip-bar__leds" :style="{ gridTemplateColumns: `repeat(${group.leds.length}, minmax(0, 1fr))` }">
-                <button
-                  v-for="led in group.leds"
-                  :key="led.index"
-                  type="button"
-                  class="strip-bar__led"
-                  :class="{ 'strip-bar__led--selected': led.isSel, 'strip-bar__led--custom': led.custom }"
-                  :style="{ '--led-color': led.color }"
-                  :title="`LED ${led.index}`"
-                  :aria-pressed="activeTab === 'strip' ? led.isSel : undefined"
-                  :disabled="activeTab !== 'strip' || !ready"
-                  @click="onToggleStripLed(led.index)"
-                >
-                  <span class="strip-bar__glow" />
-                  <span class="strip-bar__dot" />
-                  <span class="strip-bar__num num">{{ led.index }}</span>
-                </button>
-              </div>
-            </div>
-          </div>
+        <div
+          ref="ringEl"
+          class="ring"
+          :class="{ 'ring--on': activeTab === 'strip' && ready }"
+          role="group"
+          :aria-label="t('lighting.ringLabel')"
+          :aria-hidden="activeTab === 'strip' ? undefined : true"
+        >
+          <button
+            v-for="led in ringLeds"
+            :key="led.index"
+            type="button"
+            class="led"
+            :class="[`led--${led.side}`, { 'led--selected': led.isSel, 'led--custom': led.custom }]"
+            :style="{ '--p': led.pos, '--led-color': led.color }"
+            :data-led="led.index"
+            :title="led.label"
+            :aria-label="led.label"
+            :aria-pressed="activeTab === 'strip' ? led.isSel : undefined"
+            :disabled="activeTab !== 'strip' || !ready"
+            :tabindex="led.index === ringStop ? 0 : -1"
+            @click="onToggleStripLed(led.index)"
+            @focus="ringStop = led.index"
+            @keydown="onRingKey($event, led.index)"
+          >
+            <span class="led__glow" />
+            <span class="led__dot" />
+          </button>
         </div>
-      </section>
+      </div>
 
-      <!-- Error State -->
+      <!-- selection bar -->
+      <SelectionBar v-if="activeTab === 'keys'" />
+      <div v-else class="sb">
+        <span class="sb__count" :class="{ 'sb__count--on': stripSelection.size > 0 }" aria-live="polite">
+          <span class="num">{{ stripCountText }}</span>
+        </span>
+        <span class="sb__hint">{{ t('lighting.stripHint') }}</span>
+        <div class="sb__actions">
+          <Button v-for="p in stripPresets" :key="p.id" size="sm" variant="ghost" :disabled="locked" @click="onStripPreset(p.id)">{{ p.label }}</Button>
+          <Button size="sm" variant="ghost" :disabled="locked || !stripSelection.size" @click="onStripPreset('none')">{{ t('sel.clear') }}</Button>
+        </div>
+      </div>
+
+      <!-- load error -->
       <div v-if="lighting.loadError" class="lighting-error">
         <p>{{ t('lighting.loadFailed') }}: {{ lighting.loadError }}</p>
         <Button variant="secondary" size="sm" @click="lighting.load(true)">
@@ -384,85 +490,47 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
         </Button>
       </div>
 
-      <!-- Loading State -->
-      <div v-else-if="!ready" class="lighting-grid" role="status" aria-busy="true">
+      <!-- loading skeleton -->
+      <div v-else-if="!ready" class="dock dock--skel" role="status" aria-busy="true">
         <span class="sr-only">{{ t('lighting.loading') }}</span>
-        <div class="lighting-grid__full skeleton lighting-skeleton lighting-skeleton--effects" />
-        <div class="skeleton lighting-skeleton" />
-        <div class="skeleton lighting-skeleton" />
+        <div v-for="n in 4" :key="n" class="skeleton lighting-skeleton" />
       </div>
 
-      <!-- Main Content Panels -->
-      <div v-else class="lighting-grid">
-        <!-- Effects (the main choice) -->
-        <Card :title="t('lighting.effectsTitle')" class="lighting-grid__full lighting-effects">
-          <template #actions>
-            <span class="power-caption">{{ t('lighting.powerTitle') }}</span>
-            <Segmented
-              v-model="openModel"
-              class="seg-fit"
-              :options="openOptions"
-              :label="t('lighting.powerTitle')"
-              :disabled="locked"
-            />
-          </template>
-          <fieldset class="card-inner" :disabled="tuneLocked">
-            <p class="card-desc">{{ powered ? t('lighting.effectsDesc') : t('lighting.powerOffHint') }}</p>
-            <p v-if="device.demo" class="card-desc">{{ t('lighting.demoSimNote') }}</p>
-            <div class="effect-grid">
-              <button
-                v-for="index in modeCount"
-                :key="index - 1"
-                type="button"
-                class="effect-btn"
-                :class="{ 'effect-btn--active': base.mode === index - 1 }"
-                :aria-pressed="base.mode === index - 1"
-                @click="onEffect(index - 1)"
-              >
-                {{ t('lighting.effectN', { n: index }) }}
-              </button>
+      <!-- editor dock -->
+      <section v-else class="dock" :aria-label="t('lighting.effectsTitle')">
+        <p v-if="!powered" class="dock__off" role="status">{{ t('lighting.powerOffHint') }}</p>
+        <div class="dock__cols">
+          <!-- a. Effects -->
+          <div class="col col--fx">
+            <div class="col__head">
+              <h3 class="col__title">{{ t('lighting.effectsShort') }}</h3>
+              <InfoTip :text="t('lighting.effectsDesc')" placement="top" />
             </div>
-          </fieldset>
-        </Card>
-
-        <div class="lighting-col">
-          <!-- Per-key / per-LED colours -->
-          <Card class="grow" :title="activeTab === 'keys' ? t('lighting.perKeyTitle') : t('lighting.stripCustomTitle')">
-            <fieldset class="card-inner" :disabled="locked">
-              <p class="card-desc">{{ activeTab === 'keys' ? t('lighting.perKeyDesc') : t('lighting.stripCustomDesc') }}</p>
-              <div v-if="activeTab === 'strip'" class="preset-toolbar">
-                <Button variant="secondary" size="sm" @click="onStripPreset('all')">{{ t('lighting.selectAll') }}</Button>
-                <Button variant="secondary" size="sm" @click="onStripPreset('top')">{{ t('lighting.selectTop') }}</Button>
-                <Button variant="secondary" size="sm" @click="onStripPreset('bottom')">{{ t('lighting.selectBottom') }}</Button>
-                <Button variant="secondary" size="sm" @click="onStripPreset('left')">{{ t('lighting.selectLeft') }}</Button>
-                <Button variant="secondary" size="sm" @click="onStripPreset('right')">{{ t('lighting.selectRight') }}</Button>
-                <Button variant="ghost" size="sm" @click="onStripPreset('none')">{{ t('lighting.selectNone') }}</Button>
+            <fieldset class="col__body" :disabled="tuneLocked">
+              <div class="effect-grid">
+                <button
+                  v-for="index in modeCount"
+                  :key="index - 1"
+                  type="button"
+                  class="effect-btn num"
+                  :class="{ 'effect-btn--active': base.mode === index - 1 }"
+                  :aria-label="t('lighting.effectN', { n: index })"
+                  :title="t('lighting.effectN', { n: index })"
+                  :aria-pressed="base.mode === index - 1"
+                  @click="onEffect(index - 1)"
+                >
+                  {{ index }}
+                </button>
               </div>
-              <div class="status-bar">
-                <span class="count-badge" :class="{ 'count-badge--active': selectedCount > 0 }">{{ selectedText }}</span>
-                <span v-if="overrideCount > 0" class="active-meta">{{ overrideText }}</span>
-              </div>
-              <ColorPicker v-model="picked[area]" :disabled="locked" />
-              <div class="actions-row">
-                <Button variant="primary" :disabled="selectedCount === 0" @click="onApplyColor">
-                  {{ activeTab === 'keys' ? t('lighting.applyKeyColor') : t('lighting.applyStripColor') }}
-                </Button>
-                <Button variant="secondary" :disabled="!selectionHasOverride" @click="onClearSelected">
-                  {{ activeTab === 'keys' ? t('lighting.clearKeyColor') : t('lighting.clearStripColor') }}
-                </Button>
-                <Button variant="danger" :disabled="overrideCount === 0" @click="confirmClear = true">
-                  {{ activeTab === 'keys' ? t('lighting.clearAllKeyColors') : t('lighting.clearAllStripColors') }}
-                </Button>
-              </div>
-              <p v-if="activeTab === 'keys'" class="space-note">{{ t('lighting.spaceNote') }}</p>
             </fieldset>
-          </Card>
-        </div>
+          </div>
 
-        <div class="lighting-col">
-          <!-- Tuning -->
-          <Card class="grow" :title="t('lighting.tuningTitle')">
-            <fieldset class="card-inner" :disabled="tuneLocked">
+          <!-- b. Tuning -->
+          <div class="col col--tune">
+            <div class="col__head">
+              <h3 class="col__title">{{ t('lighting.tuningShort') }}</h3>
+            </div>
+            <fieldset class="col__body" :disabled="tuneLocked">
               <div v-for="field in tuneFields" :key="field.id" class="field-block">
                 <div class="field-label-row">
                   <span class="field-label">{{ field.label }}</span>
@@ -480,24 +548,20 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
                   @commit="onTuneCommit(field.id, $event)"
                 />
               </div>
-              <div class="field-block">
-                <div class="field-label-row">
-                  <span class="field-label">{{ t('lighting.direction') }}</span>
-                </div>
-                <Segmented
-                  v-model="directionModel"
-                  class="seg-fit"
-                  :options="directionOptions"
-                  :label="t('lighting.direction')"
-                />
+              <div class="field-inline">
+                <span class="field-label">{{ t('lighting.directionShort') }}</span>
+                <Segmented v-model="directionModel" :options="directionOptions" :label="t('lighting.direction')" />
               </div>
             </fieldset>
-          </Card>
+          </div>
 
-          <!-- Palette -->
-          <Card class="grow" :title="t('lighting.paletteTitle')">
-            <fieldset class="card-inner" :disabled="tuneLocked">
-              <p class="card-desc">{{ t('lighting.paletteDesc') }}</p>
+          <!-- c. Palette -->
+          <div class="col col--pal">
+            <div class="col__head">
+              <h3 class="col__title">{{ t('lighting.paletteTitle') }}</h3>
+              <InfoTip :text="`${t('lighting.paletteDesc')} ${t('lighting.rainbowHint')}`" placement="top" />
+            </div>
+            <fieldset class="col__body" :disabled="tuneLocked">
               <div class="palette-swatches">
                 <button
                   type="button"
@@ -517,7 +581,6 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
                   class="palette-swatch"
                   :class="{
                     'palette-swatch--active': base.paletteIndex === index,
-                    'palette-swatch--editing': editingSlot === index,
                     'palette-swatch--dark-ink': swatchInk(index) === 'dark',
                   }"
                   :style="{ backgroundColor: swatchHex(index) ?? 'var(--bg-3)' }"
@@ -529,20 +592,92 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
                   <span class="palette-swatch__num num">{{ index }}</span>
                 </button>
               </div>
-              <div class="palette-editor">
-                <div v-if="base.paletteIndex === 0" class="palette-rainbow-info">
-                  <span class="palette-rainbow-info__badge">{{ t('lighting.rainbow') }}</span>
-                  <p>{{ t('lighting.rainbowHint') }}</p>
-                </div>
-                <div v-else class="palette-color-editor">
-                  <span class="palette-color-editor__title">{{ t('lighting.editColor', { n: editingSlot }) }}</span>
-                  <ColorPicker v-model="editingHex" :disabled="tuneLocked" @commit="onPaletteCommit" />
-                </div>
+              <div class="pal">
+                <span
+                  class="pal__chip"
+                  :class="{ 'pal__chip--rgb': palIsRainbow }"
+                  :style="palIsRainbow ? undefined : { backgroundColor: swatchHex(base.paletteIndex) ?? 'var(--bg-3)' }"
+                />
+                <span class="pal__name">{{ palIsRainbow ? t('lighting.rainbow') : t('lighting.paletteSlot', { n: base.paletteIndex }) }}</span>
+                <Button
+                  ref="palEditBtn"
+                  class="pal__edit"
+                  size="sm"
+                  variant="secondary"
+                  aria-haspopup="dialog"
+                  :aria-expanded="palOpen"
+                  :disabled="palIsRainbow"
+                  :title="palIsRainbow ? t('lighting.rainbowNoEdit') : undefined"
+                  @click="palOpen = !palOpen"
+                >
+                  {{ t('lighting.editColorBtn') }}
+                </Button>
               </div>
             </fieldset>
-          </Card>
+            <Popover v-model:open="palOpen" :anchor="palEditBtn?.$el ?? null" :title="t('lighting.editColorTitle', { n: editingSlot, area: areaName() })">
+              <ColorPicker v-model="editingHex" :disabled="tuneLocked" @commit="onPaletteCommit" />
+            </Popover>
+          </div>
+
+          <!-- d. Per-key / per-LED colours -->
+          <div class="col col--own">
+            <div class="col__head">
+              <h3 class="col__title">{{ activeTab === 'keys' ? t('lighting.perKeyTitle') : t('lighting.stripCustomTitle') }}</h3>
+              <InfoTip :text="activeTab === 'keys' ? `${t('lighting.perKeyDesc')} ${t('lighting.spaceNote')}` : t('lighting.stripCustomDesc')" placement="top" />
+              <span v-if="overrideCount > 0" class="col__meta">{{ t(activeTab === 'keys' ? 'lighting.customMetaKeys' : 'lighting.customMetaLeds', { count: overrideCount }) }}</span>
+            </div>
+            <fieldset class="col__body" :disabled="locked">
+              <button
+                ref="colorBtn"
+                type="button"
+                class="cfield"
+                aria-haspopup="dialog"
+                :aria-expanded="colorOpen"
+                :aria-label="`${t('lighting.pickColor')} ${picked[area].toUpperCase()}`"
+                :title="t('lighting.pickColor')"
+                @click="colorOpen = !colorOpen"
+              >
+                <span class="cfield__sw" :style="{ backgroundColor: picked[area] }" />
+                <span class="cfield__hex num">{{ picked[area].toUpperCase() }}</span>
+                <IconChevronDown class="cfield__chev" :size="14" stroke-width="1.8" aria-hidden="true" />
+              </button>
+              <div class="quick">
+                <button
+                  v-for="(hex, i) in quickColors"
+                  :key="i"
+                  type="button"
+                  class="quick__chip"
+                  :class="{ 'quick__chip--on': hex === picked[area].toLowerCase() }"
+                  :style="{ backgroundColor: hex }"
+                  :aria-label="hex"
+                  :title="hex"
+                  :aria-pressed="hex === picked[area].toLowerCase()"
+                  @click="picked[area] = hex"
+                />
+              </div>
+              <div class="own-actions">
+                <Button variant="primary" size="sm" :disabled="selectedCount === 0" @click="onApplyColor">{{ applyText }}</Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  :disabled="!selectionHasOverride"
+                  :title="activeTab === 'keys' ? t('lighting.clearKeyColor') : t('lighting.clearStripColor')"
+                  :aria-label="activeTab === 'keys' ? t('lighting.clearKeyColor') : t('lighting.clearStripColor')"
+                  @click="onClearSelected"
+                >
+                  {{ t('lighting.clearShort') }}
+                </Button>
+                <Button class="own-actions__all" variant="danger" size="sm" :disabled="overrideCount === 0" @click="confirmClear = true">
+                  {{ t('lighting.clearAllN', { count: overrideCount }) }}
+                </Button>
+              </div>
+            </fieldset>
+            <Popover v-model:open="colorOpen" :anchor="colorBtn" :title="t('lighting.pickColor')">
+              <ColorPicker v-model="picked[area]" :disabled="locked" />
+            </Popover>
+          </div>
         </div>
-      </div>
+      </section>
     </div>
 
     <Dialog
@@ -561,29 +696,40 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 </template>
 
 <style scoped>
-.lighting {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-4);
-}
+.wb { display: flex; flex-direction: column; gap: var(--s-2); }
+.wb__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-4); }
+.wb__group { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.wb__label { font-size: var(--fs-label); color: var(--fg-2); white-space: nowrap; }
+.wb__live { margin-left: auto; flex: none; white-space: nowrap; }
 
-.lighting-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--s-3);
-  width: 100%;
+/* Area tabs: the Segmented look, as a tablist. */
+.tabs {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-1);
+  border-radius: 8px;
 }
-
-.lighting-toolbar__live {
-  display: flex;
+.tabs__opt {
+  display: inline-flex;
   align-items: center;
-  gap: var(--s-3);
-  flex: none;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-2);
+  font-size: var(--fs-body);
+  font-weight: 500;
   white-space: nowrap;
-  margin-left: auto;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
+.tabs__opt:hover:not([aria-selected='true']) { color: var(--fg-1); }
+.tabs__opt[aria-selected='true'] { background: var(--sel-bg); color: var(--fg-1); box-shadow: inset 0 0 0 1px var(--acc-line); }
+.tabs__opt:focus-visible,
+.tabs__opt[aria-selected='true']:focus-visible { box-shadow: var(--focus-ring); }
 
 .lighting-live-badge {
   display: inline-flex;
@@ -626,147 +772,74 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
   font-size: var(--fs-label);
 }
 
-.lighting-stage {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-3);
-  width: 100%;
-  max-width: 940px;
-  margin: 0 auto;
-}
+/* The board takes the same widths as every page's keyboard; the ring's dots hang 12px beyond the frame. */
+.wb__board { position: relative; width: 100%; max-width: 900px; margin: 12px auto 14px; }
 @media (min-width: 1600px) {
-  .lighting-stage { max-width: 1100px; }
+  .wb__board { max-width: 1100px; }
 }
 
-/* Edge strip: one group per edge, drawn clockwise from the top-left corner */
-.strip-bar {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
-  padding: var(--s-3) var(--s-4);
-  background: var(--bg-2);
-  border: 1px solid var(--line-1);
-  border-radius: var(--r-card);
-  user-select: none;
-}
-
-.strip-bar__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--s-2);
-}
-
-.strip-bar__title {
-  font-size: var(--fs-caption);
-  font-weight: 600;
-  color: var(--fg-2);
-}
-
-.strip-bar__hint {
-  font-size: var(--fs-caption);
-  color: var(--fg-3);
-}
-
-.strip-bar__track {
-  display: flex;
-  gap: var(--s-3);
-}
-
-.strip-bar__group {
-  flex-basis: 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.strip-bar__side {
-  font-size: var(--fs-caption);
-  color: var(--fg-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.strip-bar__leds {
-  display: grid;
-  gap: 3px;
-}
-
-.strip-bar__led {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  padding: 4px 1px;
-  border-radius: var(--r-control);
-  background: var(--bg-3);
-  border: 1px solid var(--line-1);
-  cursor: default;
-  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
-}
-
-.strip-bar--interactive .strip-bar__led {
-  cursor: pointer;
-}
-
-.strip-bar--interactive .strip-bar__led:hover {
-  border-color: var(--line-3);
-  background: var(--bg-4);
-}
-
-.strip-bar__led:focus-visible {
-  outline: 2px solid var(--acc);
-  outline-offset: 1px;
-}
-
-.strip-bar__led--selected {
-  border-color: var(--acc) !important;
-  background: var(--acc-soft) !important;
-}
-
-.strip-bar__led--custom {
-  border-style: dashed;
-  border-color: var(--fg-3);
-}
-
-.strip-bar__glow {
+/* Edge strip: 38 LEDs on the frame, centred on its border line, clockwise from the top-left corner. */
+.ring { position: absolute; inset: 0; pointer-events: none; --inset: 18px; }
+.led {
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: var(--led-color);
-  opacity: 0.15;
-  filter: blur(4px);
-  pointer-events: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  pointer-events: auto;
+  cursor: default;
 }
-
-.strip-bar__dot {
-  position: relative;
-  width: 8px;
-  height: 8px;
+.led--top { top: 0; left: calc(var(--inset) + var(--p) * (100% - 2 * var(--inset))); }
+.led--right { left: 100%; top: calc(var(--inset) + var(--p) * (100% - 2 * var(--inset))); }
+.led--bottom { top: 100%; left: calc(var(--inset) + (1 - var(--p)) * (100% - 2 * var(--inset))); }
+.led--left { left: 0; top: calc(var(--inset) + (1 - var(--p)) * (100% - 2 * var(--inset))); }
+.ring--on .led { cursor: pointer; }
+.led:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+.led__glow {
+  position: absolute;
+  inset: 3px;
   border-radius: 50%;
   background: var(--led-color);
-  box-shadow: 0 0 6px var(--led-color), inset 0 0 0 1px var(--line-3);
-  transition: background 100ms linear, box-shadow 100ms linear;
+  opacity: 0.35;
+  filter: blur(4px);
+  pointer-events: none;
+  transition: background 100ms linear;
+}
+.led__dot {
+  position: relative;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--led-color);
+  box-shadow: 0 0 0 1.5px var(--bg-1);
+  transition: background 100ms linear, box-shadow var(--t-fast) var(--ease);
+}
+.ring--on .led:hover .led__dot { box-shadow: 0 0 0 1.5px var(--bg-1), 0 0 0 3.5px var(--fg-2); }
+.led--selected .led__dot,
+.ring--on .led--selected:hover .led__dot { box-shadow: 0 0 0 2px var(--bg-1), 0 0 0 4px var(--acc); }
+.led--custom .led__dot::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--fg-3);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .strip-bar__dot { transition: none; }
+  .led__dot, .led__glow { transition: none; }
 }
 
-.strip-bar__num {
-  font-size: var(--fs-caption);
-  color: var(--fg-3);
-  line-height: 1;
-}
-
-.strip-bar__led--selected .strip-bar__num {
-  color: var(--fg-1);
-  font-weight: 600;
-}
+/* Strip selection bar: the same row as the keys' SelectionBar. */
+.sb { display: flex; align-items: center; gap: var(--s-4); min-height: 36px; }
+.sb__count { flex: none; font-weight: 500; color: var(--fg-3); transition: color var(--t-fast) var(--ease); }
+.sb__count--on { color: var(--fg-1); }
+.sb__hint { flex: 1; min-width: 0; color: var(--fg-4); font-size: var(--fs-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sb__actions { display: flex; gap: 2px; flex: none; }
 
 .lighting-error {
   display: flex;
@@ -780,178 +853,128 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
   color: var(--danger);
 }
 
-.lighting-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--s-5);
-}
-
-.lighting-grid__full {
-  grid-column: 1 / -1;
-}
-
-.lighting-col {
+/* ----- editor dock: one card, four columns (2 × 2 under 920px of dock width) */
+.dock {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
-  gap: var(--s-5);
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-5) var(--s-4);
+  background: var(--bg-2);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-card);
   min-width: 0;
 }
-
-.lighting-effects :deep(.card__head) {
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.power-caption {
-  font-size: var(--fs-label);
-  color: var(--fg-3);
-}
-
-/* Growers take the column's spare height; the pinned footer / editor keeps it from becoming a blank tail */
-.grow {
-  flex: 1 1 auto;
-}
-
-.grow > .card-inner {
-  flex: 1 1 auto;
-}
-
-.grow > .card-inner > .field-block:last-child {
-  margin-top: auto;
-}
-
-.lighting-skeleton {
-  height: 220px;
-  border-radius: var(--r-card);
-}
-
-.lighting-skeleton--effects {
-  height: 140px;
-}
-
-@media (max-width: 900px) {
-  .lighting-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .lighting-col {
-    display: contents;
-  }
-
-  .grow {
-    flex: none;
-  }
-}
-
-/* Card inner layout (a fieldset so `disabled` reaches every native control inside) */
-.card-inner {
+.dock--skel { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-4); }
+.lighting-skeleton { height: 160px; border-radius: var(--r-card); }
+.dock__off { margin: 0; color: var(--fg-3); font-size: var(--fs-label); }
+.dock__cols { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.25fr) minmax(0, 0.85fr) minmax(0, 1.1fr); gap: var(--s-4) 0; }
+.col {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
-  gap: var(--s-4);
+  gap: var(--s-2);
+  min-width: 0;
+  padding: 0 var(--s-4);
+  border-left: 1px solid var(--line-1);
+}
+.col:first-child { padding-left: 0; border-left: 0; }
+.col:last-child { padding-right: 0; }
+.col__head { display: flex; align-items: center; gap: var(--s-1); min-height: 24px; }
+.col__title { margin: 0; font-size: var(--fs-card); font-weight: 600; }
+.col__meta { margin-left: auto; color: var(--fg-3); font-size: var(--fs-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+@container (max-width: 919px) {
+  .dock__cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .col:nth-child(2) { padding-right: 0; }
+  .col:nth-child(3) { padding-left: 0; border-left: 0; }
+  .col:nth-child(n + 3) { padding-top: var(--s-4); border-top: 1px solid var(--line-1); }
+}
+
+/* Fieldset so `disabled` reaches every native control inside. */
+.col__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
   min-width: 0;
   margin: 0;
   padding: 0;
   border: 0;
 }
-
-.card-inner:disabled {
-  opacity: 0.55;
-}
-
+.col__body:disabled { opacity: 0.55; }
 /* The fieldset already dims everything; Slider must not dim a second time. */
-.card-inner :deep(.sl--disabled) {
-  opacity: 1;
-}
-
-.seg-fit {
-  align-self: flex-start;
-}
-
-.card-desc {
-  font-size: var(--fs-caption);
-  color: var(--fg-3);
-  margin: 0;
-}
+.col__body :deep(.sl--disabled) { opacity: 1; }
 
 .dlg-body {
   margin: 0;
   color: var(--fg-2);
 }
 
-/* Field blocks */
-.field-block {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
-}
-
-.field-label-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.field-label {
-  font-size: var(--fs-label);
-  font-weight: 500;
+/* a. Effects: a numeric grid */
+.effect-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.effect-btn {
+  height: 32px;
+  min-width: 0;
+  padding: 0;
+  background: var(--bg-3);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-control);
   color: var(--fg-2);
+  cursor: pointer;
+  font-size: var(--fs-body);
+  font-weight: 500;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
-
-.field-val {
-  font-size: var(--fs-label);
+.effect-btn:hover:not(:disabled) { background: var(--bg-4); border-color: var(--line-3); color: var(--fg-1); }
+.effect-btn:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+.effect-btn:disabled { cursor: not-allowed; }
+.effect-btn--active {
+  background: var(--acc-soft) !important;
+  border-color: var(--acc) !important;
+  color: var(--acc) !important;
   font-weight: 600;
-  color: var(--fg-1);
 }
 
-/* Palette Swatches */
-.palette-swatches {
-  display: flex;
-  gap: var(--s-2);
-  align-items: center;
-  flex-wrap: wrap;
+/* b. Tuning */
+.field-block { display: flex; flex-direction: column; gap: 4px; }
+.field-block + .field-block { margin-top: 4px; }
+.field-label-row { display: flex; justify-content: space-between; align-items: center; }
+.field-label { font-size: var(--fs-label); font-weight: 500; color: var(--fg-2); }
+.field-val { font-size: var(--fs-label); font-weight: 600; color: var(--fg-1); }
+.field-inline { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); margin-top: 4px; }
+.field-inline :deep(.seg) { flex-wrap: nowrap; }
+/* A column with less than 260px of content: the label sits above the Segmented. */
+@container (max-width: 259px) {
+  .field-inline { flex-direction: column; align-items: stretch; gap: 4px; }
 }
 
+/* c. Palette */
+.palette-swatches { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .palette-swatch {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--r-control);
+  height: 30px;
+  min-width: 0;
+  border-radius: 6px;
   border: none;
   cursor: pointer;
   box-shadow: 0 0 0 1px var(--line-2), inset 0 0 0 1px var(--line-2);
   transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
-
 .palette-swatch:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 0 0 1px var(--line-3), inset 0 0 0 1px var(--line-3);
 }
-
-.palette-swatch:focus-visible {
-  outline: 2px solid var(--fg-1);
-  outline-offset: 3px;
-}
-
-.palette-swatch:disabled {
-  cursor: not-allowed;
-}
-
+.palette-swatch:focus-visible { outline: 2px solid var(--fg-1); outline-offset: 3px; }
+.palette-swatch:disabled { cursor: not-allowed; }
 .palette-swatch--active {
   box-shadow: 0 0 0 2px var(--acc), 0 0 12px var(--acc-soft) !important;
   transform: translateY(-1px);
 }
-
-.palette-swatch--editing:not(.palette-swatch--active) {
-  box-shadow: 0 0 0 2px var(--line-3), inset 0 0 0 1px var(--line-3);
-}
-
 .palette-swatch--rainbow {
   background: linear-gradient(135deg, #ff0055 0%, #ff5500 16%, #ffcc00 33%, #00cc66 50%, #0099ff 67%, #6600cc 83%, #cc0099 100%);
 }
-
 .palette-swatch__label {
   font-size: var(--fs-caption);
   font-weight: 600;
@@ -960,7 +983,6 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
   background: rgba(0, 0, 0, 0.45);
   color: #ffffff;
 }
-
 .palette-swatch__num {
   font-size: var(--fs-caption);
   font-weight: 600;
@@ -968,147 +990,50 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
   color: #ffffff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
-
 /* Swatches where the dark ink contrasts more (yellow, cyan, white, magenta...): dark number, no halo */
-.palette-swatch--dark-ink .palette-swatch__num {
-  color: #111318;
-  text-shadow: none;
-}
+.palette-swatch--dark-ink .palette-swatch__num { color: #111318; text-shadow: none; }
 
-.palette-editor {
-  margin-top: auto;
-  padding-top: var(--s-3);
-  border-top: 1px solid var(--line-1);
-}
+.pal { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 28px; font-size: var(--fs-label); color: var(--fg-2); white-space: nowrap; }
+.pal__chip { flex: none; width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--line-2); }
+.pal__chip--rgb { background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); }
+.pal__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pal__edit { margin-left: auto; flex: none; padding-inline: 8px; }
 
-.palette-rainbow-info {
+/* d. Per-key / per-LED colour */
+.cfield {
   display: flex;
   align-items: center;
-  gap: var(--s-3);
-  padding: var(--s-3) var(--s-4);
-  background: var(--bg-3);
-  border: 1px solid var(--line-1);
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px 0 4px;
+  min-width: 0;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
   border-radius: var(--r-control);
-}
-
-.palette-rainbow-info__badge {
-  font-size: var(--fs-caption);
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: var(--r-control);
-  background: linear-gradient(rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.45)), linear-gradient(135deg, #ff0055, #0099ff);
-  color: #ffffff;
-}
-
-.palette-rainbow-info p {
-  font-size: var(--fs-caption);
-  color: var(--fg-2);
-  margin: 0;
-}
-
-.palette-color-editor {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-3);
-}
-
-.palette-color-editor__title {
-  font-size: var(--fs-label);
-  font-weight: 600;
-  color: var(--fg-2);
-}
-
-/* Status bar & Actions */
-.status-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--s-2);
-  flex-wrap: wrap;
-}
-
-.count-badge {
-  font-size: var(--fs-label);
-  padding: 4px 8px;
-  border-radius: var(--r-control);
-  background: var(--bg-3);
-  color: var(--fg-3);
-  border: 1px solid var(--line-1);
-}
-
-.count-badge--active {
-  background: var(--acc-soft);
-  color: var(--acc);
-  border-color: var(--acc-line);
-  font-weight: 600;
-}
-
-.active-meta {
-  font-size: var(--fs-caption);
-  color: var(--fg-3);
-}
-
-.actions-row {
-  margin-top: auto;
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  flex-wrap: wrap;
-  padding-top: var(--s-2);
-}
-
-.space-note {
-  font-size: var(--fs-caption);
-  color: var(--fg-4);
-  margin: 0;
-  font-style: italic;
-}
-
-.preset-toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--s-1);
-  flex-wrap: wrap;
-}
-
-/* Effect Grid */
-.effect-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-  gap: var(--s-2);
-}
-
-.effect-btn {
-  padding: var(--s-2) var(--s-3);
-  background: var(--bg-3);
-  border: 1px solid var(--line-1);
-  border-radius: var(--r-control);
-  color: var(--fg-2);
-  cursor: pointer;
-  text-align: left;
-  font-size: var(--fs-body);
-  font-weight: 500;
-  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
-}
-
-.effect-btn:hover:not(:disabled) {
-  background: var(--bg-4);
-  border-color: var(--line-3);
   color: var(--fg-1);
+  font: inherit;
+  cursor: pointer;
 }
-
-.effect-btn:focus-visible {
-  outline: 2px solid var(--acc);
-  outline-offset: 1px;
+.cfield:hover:not(:disabled) { border-color: var(--line-3); }
+.cfield[aria-expanded='true'] { border-color: var(--acc-line); }
+.cfield:disabled { cursor: not-allowed; }
+.cfield__sw { flex: none; width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--line-2); }
+.cfield__hex { font-size: var(--fs-label); }
+.cfield__chev { margin-left: auto; flex: none; color: var(--fg-3); }
+.quick { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+.quick__chip { height: 20px; min-width: 0; padding: 0; border-radius: 4px; border: 1px solid var(--line-2); cursor: pointer; }
+.quick__chip:disabled { cursor: not-allowed; }
+.quick__chip--on { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--acc); }
+.own-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.col .own-actions__all {
+  flex-basis: 100%;
+  justify-content: flex-start;
+  height: auto;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--danger);
+  font-weight: 500;
 }
-
-.effect-btn:disabled {
-  cursor: not-allowed;
-}
-
-.effect-btn--active {
-  background: var(--acc-soft) !important;
-  border-color: var(--acc) !important;
-  color: var(--acc) !important;
-}
+.col .own-actions__all:disabled { color: var(--fg-3); }
 </style>

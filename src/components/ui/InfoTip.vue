@@ -3,7 +3,7 @@
 // visually hidden copy); the bubble is the visual version, shown on hover and on keyboard focus.
 import { useId } from 'vue';
 import { IconInfoCircle } from '@tabler/icons-vue';
-import Tooltip from '../ui/Tooltip.vue';
+import Tooltip from './Tooltip.vue';
 import { t } from '../../i18n/vi';
 
 withDefaults(defineProps<{ text: string; placement?: 'top' | 'bottom' }>(), { placement: 'bottom' });

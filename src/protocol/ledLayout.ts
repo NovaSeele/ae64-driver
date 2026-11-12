@@ -9,3 +9,22 @@ export const STRIP_SIDES = {
   left: [21, 22, 23, 24, 25, 26],
 };
 export const STRIP_ORDER = [...STRIP_SIDES.top, ...STRIP_SIDES.right, ...STRIP_SIDES.bottom, ...STRIP_SIDES.left];
+
+export type StripSide = keyof typeof STRIP_SIDES;
+export interface StripRingLed {
+  index: number;
+  side: StripSide;
+  /** Progress 0…1 along the side in drawing order (clockwise): the middle of the LED's slot among its side's LEDs. */
+  t: number;
+}
+
+/**
+ * The 38 LEDs as drawn around the keyboard frame, clockwise from the top-left corner: top left → right, right top → bottom,
+ * bottom right → left, left bottom → top. `t` runs in that drawing direction, so the bottom edge's x is 1 − t and the left
+ * edge's y is 1 − t.
+ */
+export function stripRing(): StripRingLed[] {
+  return (['top', 'right', 'bottom', 'left'] as const).flatMap((side) =>
+    STRIP_SIDES[side].map((index, i) => ({ index, side, t: (i + 0.5) / STRIP_SIDES[side].length })),
+  );
+}

@@ -18,7 +18,7 @@ import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import SelectionBar from '../components/keyboard/SelectionBar.vue';
 import TravelEditor from '../components/performance/TravelEditor.vue';
 import StdCycleCard from '../components/performance/StdCycleCard.vue';
-import InfoTip from '../components/performance/InfoTip.vue';
+import InfoTip from '../components/ui/InfoTip.vue';
 import Card from '../components/ui/Card.vue';
 import Button from '../components/ui/Button.vue';
 import Dialog from '../components/ui/Dialog.vue';

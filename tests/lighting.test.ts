@@ -394,14 +394,16 @@ describe('lighting page', () => {
     await sync.flush();
     await flushPromises();
 
-    const picker = page.findAllComponents(ColorPicker)[1]; // [0] is the per-key picker
+    await page.find('.pal__edit').trigger('click'); // the slot editor lives in a popover
+    const picker = page.findAllComponents(ColorPicker)[0];
     const before = await mock.getPalette(0);
     picker.vm.$emit('update:modelValue', '#112233');
     await flushPromises();
     expect(sync.state).toBe('saved');
     expect(lighting.area0Palette[2].r).toBe(before[2].r);
 
-    picker.vm.$emit('commit', '#112233');
+    // (the stubbed teleport remounts its content on every render: take the picker again)
+    page.findAllComponents(ColorPicker)[0].vm.$emit('commit', '#112233');
     expect(sync.state).toBe('pending');
     await sync.flush();
     const after = await mock.getPalette(0);
@@ -433,7 +435,7 @@ describe('lighting page', () => {
     device.boardAllowed = false;
     await flushPromises();
     expect(page.find('.lighting-notice').exists()).toBe(true);
-    const sets = page.findAll('fieldset.card-inner');
+    const sets = page.findAll('fieldset.col__body');
     expect(sets.length).toBeGreaterThan(0);
     expect(sets.every((f) => f.attributes('disabled') !== undefined)).toBe(true);
     page.unmount();
@@ -465,12 +467,12 @@ describe('lighting page', () => {
 
   it('keeps the power control usable while the lights are off, and disabled when locked', async () => {
     const { device, lighting, page } = await mountPage();
-    const buttons = () => page.findAll('.lighting-effects .card__actions button');
+    const buttons = () => page.findAll('.wb__bar .seg button'); // the power control is in the toolbar
     expect(buttons().length).toBeGreaterThan(1);
 
     lighting.area0Base.open = false;
     await flushPromises();
-    expect(page.find('.lighting-effects fieldset').attributes('disabled')).toBeDefined();
+    expect(page.find('.col--fx fieldset').attributes('disabled')).toBeDefined();
     expect(buttons().every((b) => b.attributes('disabled') === undefined)).toBe(true);
 
     device.boardAllowed = false;
