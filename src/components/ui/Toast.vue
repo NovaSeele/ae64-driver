@@ -2,7 +2,7 @@
 // Toast host — mount once (App.vue). Show toasts with useToast().show(text, kind).
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { IconAlertTriangle, IconCircleCheck, IconInfoCircle, IconX } from '@tabler/icons-vue';
-import { toastSafeTarget, useToast } from './toast';
+import { toastSafeTarget, toastSafeVersion, useToast } from './toast';
 import { t } from '../../i18n/vi';
 
 const { items, dismiss } = useToast();
@@ -14,6 +14,7 @@ const STACK_BOTTOM = 20;
 const GAP = 16;
 function setSafe(h: number): void {
   toastSafeTarget.value = h > 0 ? h + STACK_BOTTOM + GAP : 0;
+  toastSafeVersion.value++;
 }
 onMounted(() => {
   if (typeof ResizeObserver === 'undefined' || !stack.value) return;

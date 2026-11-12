@@ -22,6 +22,8 @@ function show(text: string, kind: ToastKind = 'info', ms = kind === 'error' ? 60
 
 /** Bottom padding the page scroller needs while toasts are open (stack height + its 20 px bottom offset + 16 px; 0 when none). Published by Toast.vue. */
 export const toastSafeTarget = ref(0);
+/** Bumped on every publication of toastSafeTarget, even an unchanged value (revealAboveToast waits for the next one). */
+export const toastSafeVersion = ref(0);
 
 /**
  * Pad of the page scroller under the toasts. Never removes padding the user can see: when the target shrinks the pad
@@ -64,19 +66,18 @@ export function createSafePad(scroller: () => HTMLElement | null, apply: (px: nu
 }
 
 /**
- * Scroll `el` into view (nearest) once the toast's pad is in place: waits for toastSafeTarget > 0 (the toast host publishes it after a
- * ResizeObserver; capped at 500 ms), then one frame. Smooth unless the user prefers reduced motion; nothing scrolls if `el` is already clear.
+ * Scroll `el` into view (nearest) once the toast's pad is in place: waits for the toast host's next publication of toastSafeTarget
+ * (toastSafeVersion, after a ResizeObserver; capped at 500 ms), then one frame. Smooth unless the user prefers reduced motion; nothing scrolls if `el` is already clear.
  */
 type Target = HTMLElement | null | undefined;
 /** `target` may be a function, looked up after the wait, when the element can still render meanwhile. */
 export async function revealAboveToast(target: Target | (() => Target)): Promise<void> {
-  if (toastSafeTarget.value <= 0) {
-    await new Promise<void>((resolve) => {
-      const stop = watch(toastSafeTarget, (v) => { if (v > 0) done(); });
-      const timer = setTimeout(done, 500);
-      function done() { stop(); clearTimeout(timer); resolve(); }
-    });
-  }
+  // Callers show the toast first, so a publication (new stack height) is always coming, even if a toast was already open.
+  await new Promise<void>((resolve) => {
+    const stop = watch(toastSafeVersion, done, { flush: 'sync' });
+    const timer = setTimeout(done, 500);
+    function done() { stop(); clearTimeout(timer); resolve(); }
+  });
   if (typeof requestAnimationFrame === 'function') await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   const el = typeof target === 'function' ? target() : target;
   if (!el || typeof el.scrollIntoView !== 'function') return;

@@ -4,7 +4,7 @@ import { mount } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import ToastHost from '../src/components/ui/Toast.vue';
-import { createSafePad, toastSafeTarget, useToast } from '../src/components/ui/toast';
+import { createSafePad, revealAboveToast, toastSafeTarget, toastSafeVersion, useToast } from '../src/components/ui/toast';
 
 let cb: ResizeObserverCallback | null = null;
 let w: VueWrapper | null = null;
@@ -36,11 +36,131 @@ describe('toast host publishes the target', () => {
     report(0);
     expect(toastSafeTarget.value).toBe(0);
   });
+  it('bumps the version on every publication, even an unchanged value', () => {
+    const v = toastSafeVersion.value;
+    report(56);
+    report(56);
+    expect(toastSafeVersion.value).toBe(v + 2);
+  });
   it('mounts without ResizeObserver', () => {
     vi.unstubAllGlobals();
     w?.unmount();
     w = mount(ToastHost, { attachTo: document.body });
     expect(toastSafeTarget.value).toBe(0);
+  });
+});
+
+describe('revealAboveToast', () => {
+  let frames: Array<() => void>;
+  let scroll: ReturnType<typeof vi.fn>;
+  let el: HTMLElement;
+  const publish = (): void => { toastSafeVersion.value++; };
+  const flushFrame = (): void => { frames.splice(0).forEach((f) => f()); };
+  const media = (matches: boolean): void => { vi.stubGlobal('matchMedia', () => ({ matches })); };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    frames = [];
+    vi.stubGlobal('requestAnimationFrame', (f: () => void) => { frames.push(f); return frames.length; });
+    scroll = vi.fn();
+    el = document.createElement('div');
+    el.scrollIntoView = scroll as unknown as typeof el.scrollIntoView;
+    media(false);
+    toastSafeTarget.value = 0;
+  });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); toastSafeTarget.value = 0; });
+
+  it('waits for a publication when none has happened', async () => {
+    const p = revealAboveToast(el);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(frames.length).toBe(0);
+    toastSafeTarget.value = 98;
+    publish();
+    await vi.advanceTimersByTimeAsync(0);
+    flushFrame();
+    await p;
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+  it('TOAST-2X: with a toast already open it still waits for the NEXT publication', async () => {
+    toastSafeTarget.value = 98; // one toast open, the stack is about to grow
+    const p = revealAboveToast(el);
+    await vi.advanceTimersByTimeAsync(100);
+    flushFrame();
+    expect(scroll).not.toHaveBeenCalled();
+    expect(frames.length).toBe(0);
+    toastSafeTarget.value = 169;
+    publish();
+    await vi.advanceTimersByTimeAsync(0);
+    flushFrame();
+    await p;
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+  it('an unchanged published value still counts as the publication', async () => {
+    toastSafeTarget.value = 98;
+    const p = revealAboveToast(el);
+    publish();
+    await vi.advanceTimersByTimeAsync(0);
+    flushFrame();
+    await p;
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+  it('scrolls after the 500 ms cap with no publication', async () => {
+    const p = revealAboveToast(el);
+    await vi.advanceTimersByTimeAsync(499);
+    expect(frames.length).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    flushFrame();
+    await p;
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+  it('waits one frame after the publication before scrolling', async () => {
+    const p = revealAboveToast(el);
+    publish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(frames.length).toBe(1);
+    expect(scroll).not.toHaveBeenCalled();
+    flushFrame();
+    await p;
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+  it('is smooth and nearest by default, auto with reduced motion', async () => {
+    let p = revealAboveToast(el);
+    publish();
+    await vi.advanceTimersByTimeAsync(0);
+    flushFrame();
+    await p;
+    expect(scroll).toHaveBeenLastCalledWith({ block: 'nearest', behavior: 'smooth' });
+    media(true);
+    p = revealAboveToast(el);
+    publish();
+    await vi.advanceTimersByTimeAsync(0);
+    flushFrame();
+    await p;
+    expect(scroll).toHaveBeenLastCalledWith({ block: 'nearest', behavior: 'auto' });
+  });
+  it('a function target is looked up after the wait', async () => {
+    const get = vi.fn(() => el);
+    const p = revealAboveToast(get);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(get).not.toHaveBeenCalled();
+    publish();
+    await vi.advanceTimersByTimeAsync(0);
+    flushFrame();
+    await p;
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+  it('a null target does not throw', async () => {
+    const p = revealAboveToast(null);
+    publish();
+    await vi.advanceTimersByTimeAsync(0);
+    flushFrame();
+    await expect(p).resolves.toBeUndefined();
+    const q = revealAboveToast(() => null);
+    publish();
+    await vi.advanceTimersByTimeAsync(0);
+    flushFrame();
+    await expect(q).resolves.toBeUndefined();
   });
 });
 
