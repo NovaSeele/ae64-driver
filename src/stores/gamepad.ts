@@ -27,6 +27,7 @@ import type { GamepadConfig, GamepadInfo, GamepadUsbState, GpBinding, GpCurve, G
 import { USB_SWITCH_MS } from '../protocol/mockGamepad';
 import type { Ae64Transport } from '../protocol';
 import { t as tr } from '../i18n/vi';
+import { longNameOf } from '../components/gamepad/outputs';
 import { useDeviceStore } from './device';
 import { useHistoryStore } from './history';
 import { usePerformanceStore } from './performance';
@@ -477,7 +478,7 @@ export const useGamepadStore = defineStore('gamepad', () => {
       const b = d.bindings[index];
       b.key = key;
       if (isAnalogIndex(index)) fitBinding(b, travel);
-    }, GP_CONTROLS[index].id);
+    }, longNameOf(index)); // history label: "Gamepad: Back (View)", not the raw id
     if (!ok) return { ok: false, reason: 'refused' };
     if (fromKey !== null) return { ok: true, kind: 'moved', fromKey };
     if (oldIndex >= 0) return { ok: true, kind: 'replaced', oldIndex };

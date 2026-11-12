@@ -122,6 +122,86 @@ describe('a newer AGP1 protocol', () => {
   });
 });
 
+describe('K5 review: fitToTravel of digital outputs, a writer between COMMIT and verify, a newer INFO at write time', () => {
+  it('a button and a D-pad direction whose keys lost their travel are unassigned by fitToTravel, and the block is written', async () => {
+    const { gp, perf, fw, sync, device } = await setup();
+    const up = controlIndex('DPAD_UP');
+    expect(gp.assign(A, key('Space'))).toMatchObject({ ok: true });
+    expect(gp.assign(up, key('I'))).toMatchObject({ ok: true });
+    await sync.flush();
+    const id = (n: string) => device.keys.find((d) => d.name === n)!.id;
+    perf.values = {
+      ...perf.values,
+      [id('Space')]: { ...perf.values[id('Space')], axisRangeMax: 0 },
+      [id('I')]: { ...perf.values[id('I')], axisRangeMax: 10001 },
+    };
+    expect(gp.travelIssues.map((i) => [i.code, i.index])).toEqual([['noTravel', A], ['noTravel', up]]);
+    const rev = fw.revision;
+    expect(gp.fitToTravel()).toBe(2);
+    expect([gp.config!.bindings[A].key, gp.config!.bindings[up].key]).toEqual([null, null]);
+    expect(gp.locked).toBe(false);
+    await sync.flush();
+    expect(fw.revision).toBe(rev + 1);
+    expect(Array.from(fw.active)).toEqual(block(gp.config!));
+  });
+  it('another writer commits between our COMMIT and the verify read: conflict keeps our draft, writeMine writes it', async () => {
+    const { gp, t, fw, sync } = await setup();
+    const theirs = emptyConfig();
+    theirs.bindings.forEach((b) => { b.key = null; });
+    theirs.mode = 'off';
+    let raced = false;
+    t.useGamepadHandler((req) => {
+      const r = fw.handle(req)!;
+      if (req[1] === GP_CMD.COMMIT && r[8] === 0 && !raced) {
+        raced = true; // right after our COMMIT, someone else commits their block
+        fw.active = encodeConfig(theirs);
+        fw.revision += 1;
+      }
+      return Uint8Array.from(r);
+    });
+    expect(gp.setMode('mixed')).toBe(true);
+    const mine = block(gp.config!);
+    await expect(sync.flush()).rejects.toThrow();
+    expect(raced).toBe(true);
+    expect(gp.conflict).not.toBeNull();
+    expect(block(gp.conflict!.draft)).toEqual(mine);
+    expect(block(gp.config!)).toEqual(block(theirs)); // the page shows what the keyboard has
+    expect(gp.writeMine()).toBe(true);
+    await sync.flush();
+    expect(Array.from(fw.active)).toEqual(mine);
+    expect(gp.conflict).toBeNull();
+  });
+  it('INFO turns newer between load and write: support "newer", dropped at once (no retries), nothing staged', async () => {
+    const { gp, t, fw, sync, frames } = await setup();
+    expect(gp.support).toBe('ready');
+    t.useGamepadHandler((req) => {
+      const r = fw.handle(req)!;
+      if (req[1] === GP_CMD.INFO) r[16] = 2;
+      return Uint8Array.from(r);
+    });
+    expect(gp.setMode('mixed')).toBe(true);
+    frames.length = 0;
+    await sync.flush().catch(() => undefined);
+    const cmds = agp(frames);
+    expect(gp.support).toBe('newer');
+    expect(gp.newerProto).toBe('AGP1 v2');
+    expect(cmds.filter((c) => c === GP_CMD.INFO)).toHaveLength(1);
+    expect(cmds.some((c) => c >= GP_CMD.BEGIN && c <= GP_CMD.ABORT)).toBe(false);
+    expect(sync.pendingCount()).toBe(0);
+  });
+});
+
+describe('history label of an assignment', () => {
+  it('names the output as the page does, not by its raw id', async () => {
+    const { gp, history } = await setup();
+    gp.assign(controlIndex('BACK'), key('Tab'));
+    expect(history.undoLabel).toBe(tr('gp.editLabel', { what: tr('gp.out.BACK') }));
+    gp.assign(controlIndex('LX-'), key('A'));
+    expect(history.undoLabel).not.toMatch(/LX-/);
+    expect(history.undoLabel).toBe(tr('gp.editLabel', { what: tr('gp.dir', { group: tr('gp.gLeft'), dir: tr('gp.left') }) }));
+  });
+});
+
 describe('Xbox controller switch', () => {
   it('an edit made just before hiding the Xbox controller is written and verified before USB_SET', async () => {
     const { gp, fw, frames } = await setup();
