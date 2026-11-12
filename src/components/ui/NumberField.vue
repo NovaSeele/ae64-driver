@@ -14,7 +14,7 @@ export function formatMm(v: number, max: number): string {
 // ArrowUp/Down step and the − / + buttons (Shift = fine, a tenth of the step). Accepts "," as decimal separator.
 // On a mixed value (null) − / + / arrows are off, since there is no base to step from, unless `relative`
 // is set: then they emit `step` with the signed delta and the parent moves each item from its own value.
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { IconMinus, IconPlus } from '@tabler/icons-vue';
 import { t } from '../../i18n/vi';
 
@@ -35,7 +35,16 @@ const emit = defineEmits<{ 'update:modelValue': [number]; step: [number] }>();
 const focused = ref(false);
 const text = ref('');
 const display = computed(() => (props.modelValue === null ? '' : formatMm(props.modelValue, props.decimals)));
-watch(display, (d) => { if (!focused.value) text.value = d; }, { immediate: true });
+const input = ref<HTMLInputElement | null>(null);
+/** No pending draft: Esc and Ctrl/⌘+Z/Y go to the app (see `data-app-keys`). */
+const clean = computed(() => text.value === display.value);
+watch(display, (d, old) => {
+  if (!focused.value) text.value = d;
+  else if (text.value === old) {
+    text.value = d;
+    void nextTick(() => input.value?.select());
+  }
+}, { immediate: true });
 
 function clamp(v: number) {
   return Number(Math.min(props.max, Math.max(props.min, v)).toFixed(props.decimals));
@@ -60,7 +69,9 @@ function nudge(dir: 1 | -1, fine = false) {
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Enter') { commit(); (e.target as HTMLInputElement).select(); }
   else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); nudge(e.key === 'ArrowUp' ? 1 : -1, e.shiftKey); }
-  else if (e.key === 'Escape') { text.value = display.value; (e.target as HTMLInputElement).blur(); }
+  // Handled here (preventDefault): the revert makes the field clean before the window listeners run, and
+  // KeyboardView would otherwise clear the selection on the same Esc.
+  else if (e.key === 'Escape' && !clean.value) { e.preventDefault(); text.value = display.value; (e.target as HTMLInputElement).blur(); }
 }
 </script>
 
@@ -70,7 +81,9 @@ function onKey(e: KeyboardEvent) {
       <IconMinus :size="14" stroke-width="1.5" />
     </button>
     <input
+      ref="input"
       v-model="text"
+      :data-app-keys="clean ? '' : undefined"
       class="nf__input num"
       inputmode="decimal"
       :aria-label="label"

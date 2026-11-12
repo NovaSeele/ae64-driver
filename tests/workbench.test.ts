@@ -219,8 +219,11 @@ describe('Esc returns to all keys', () => {
     expect(scopeText()).toContain(t('perf.scopeAll', { n: 64 }));
   });
 
-  it('does nothing inside a number field', async () => {
+  it('does nothing inside a number field that holds a draft', async () => {
     await withKeyboard(WASD);
+    actField().value = '0.8';
+    actField().dispatchEvent(new Event('input'));
+    await flushPromises();
     esc(actField());
     await flushPromises();
     expect(useSelectionStore().count).toBe(4);
@@ -235,6 +238,65 @@ describe('Esc returns to all keys', () => {
     esc(dlg);
     await flushPromises();
     expect(useSelectionStore().count).toBe(4);
+  });
+
+  const key = (target: EventTarget, init: KeyboardEventInit) => target.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
+  const typeDraft = async (v: string) => { actField().value = v; actField().dispatchEvent(new Event('input')); await flushPromises(); };
+
+  it('after Enter in the field, Ctrl+Z / Ctrl+Y on the still-focused input are app undo / redo', async () => {
+    const { perf, history } = await withKeyboard([]);
+    off = history.installShortcuts();
+    const before = snapshot(perf);
+    const oldText = actField().value;
+    actField().focus();
+    await typeDraft('1.50');
+    key(actField(), { key: 'Enter' });
+    await flushPromises();
+    for (const k of ALL) expect(perf.values[k].rtFirstTouch).toBe(1.5);
+    expect(document.activeElement).toBe(actField());
+    expect(actField().hasAttribute('data-app-keys')).toBe(true);
+    const after = snapshot(perf);
+
+    key(actField(), { key: 'z', ctrlKey: true });
+    await flushPromises();
+    expect(snapshot(perf)).toEqual(before);
+    expect(actField().value).toBe(oldText);
+    expect(actField().hasAttribute('data-app-keys')).toBe(true);
+
+    key(actField(), { key: 'y', ctrlKey: true });
+    await flushPromises();
+    expect(snapshot(perf)).toEqual(after);
+    expect(actField().value).toBe('1.50');
+  });
+
+  it('one Esc in a clean field clears the key selection', async () => {
+    await withKeyboard(WASD);
+    actField().focus();
+    await typeDraft('0.80');
+    key(actField(), { key: 'Enter' });
+    await flushPromises();
+    expect(useSelectionStore().count).toBe(4);
+    key(actField(), { key: 'Escape' });
+    await flushPromises();
+    expect(useSelectionStore().count).toBe(0);
+  });
+
+  it('a draft keeps Esc and Ctrl+Z: Esc reverts the text, the selection and the history stay', async () => {
+    const { perf, history } = await withKeyboard(WASD);
+    off = history.installShortcuts();
+    const before = snapshot(perf);
+    const committed = actField().value;
+    actField().focus();
+    await typeDraft('0.8');
+    expect(actField().hasAttribute('data-app-keys')).toBe(false);
+    key(actField(), { key: 'z', ctrlKey: true });
+    expect(history.canUndo).toBe(false);
+    expect(snapshot(perf)).toEqual(before);
+    key(actField(), { key: 'Escape' });
+    await flushPromises();
+    expect(actField().value).toBe(committed);
+    expect(useSelectionStore().count).toBe(4);
+    expect(snapshot(perf)).toEqual(before);
   });
 
   it('does nothing during a calibration', async () => {
