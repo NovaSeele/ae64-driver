@@ -59,9 +59,36 @@ function isPermanent(err: unknown): boolean {
   return err instanceof UnsafeCommandError || err instanceof WriteNotAllowedError || err instanceof PermanentSyncError;
 }
 
+interface Problem { label: string; reason: string }
+
+/** Problems shown in full up to this many; beyond it the message shows a group or the first few and a count. */
+const MAX_LISTED = 3;
+
+/** The leading words every label shares (e.g. "Hành trình"), or '' when there is none. */
+function commonPrefix(labels: string[]): string {
+  const words = labels.map((l) => l.split(' '));
+  const n = Math.min(...words.map((w) => w.length - 1));
+  let i = 0;
+  while (i < n && words.every((w) => w[i] === words[0][i])) i++;
+  return words[0].slice(0, i).join(' ');
+}
+
+/** A short "Not saved" message: all of them when few, else "N items (group): reason" or the first few + a count. */
+function summarize(problems: Problem[]): string {
+  if (problems.length <= MAX_LISTED) return tr('sync.failed', { labels: problems.map((p) => `${p.label}: ${p.reason}`).join('; ') });
+  const group = commonPrefix(problems.map((p) => p.label));
+  if (group && problems.every((p) => p.reason === problems[0].reason)) {
+    return tr('sync.failedSame', { n: problems.length, group, reason: problems[0].reason });
+  }
+  const first = problems.slice(0, MAX_LISTED).map((p) => `${p.label}: ${p.reason}`).join('; ');
+  return tr('sync.failedMore', { labels: first, n: problems.length - MAX_LISTED });
+}
+
 export const useSyncStore = defineStore('sync', () => {
   const state = ref<SyncState>('saved');
   const lastError = ref<string | null>(null);
+  /** Every problem of the last failed batch, in full (lastError is the short form shown to the user). */
+  const lastErrorDetail = ref<string | null>(null);
   /** Problem of the last batch whose failed jobs were all dropped (nothing to retry); cleared by a successful batch. */
   const lastProblem = ref<string | null>(null);
 
@@ -109,12 +136,12 @@ export const useSyncStore = defineStore('sync', () => {
   /** Runs one batch; returns true when every job was written and verified. */
   async function runBatch(entries: Entry[]): Promise<boolean> {
     const device = useDeviceStore();
-    const problems: string[] = [];
+    const problems: Problem[] = [];
     const retry: Entry[] = [];
     const dropped: Entry[] = [];
     const fail = (e: Entry, err: unknown) => {
       const msg = `${e.job.label}: ${messageOf(err)}`;
-      problems.push(msg);
+      problems.push({ label: e.job.label, reason: messageOf(err) });
       e.attempts++;
       if (isPermanent(err) || e.attempts >= MAX_ATTEMPTS) drop(e, msg, dropped);
       else retry.push(e);
@@ -125,7 +152,7 @@ export const useSyncStore = defineStore('sync', () => {
         for (const e of entries) {
           if (e.job.profile !== undefined && e.job.profile !== device.activeProfile) {
             const msg = `${e.job.label}: ${tr('sync.otherProfile')}`;
-            problems.push(msg);
+            problems.push({ label: e.job.label, reason: tr('sync.otherProfile') });
             drop(e, msg, dropped);
             continue;
           }
@@ -163,7 +190,8 @@ export const useSyncStore = defineStore('sync', () => {
     reportDropped(dropped);
     for (const e of retry) if (!queued.has(e.job.key)) failed.set(e.job.key, e);
     if (problems.length) {
-      lastError.value = tr('sync.failed', { labels: problems.join('; ') });
+      lastErrorDetail.value = problems.map((p) => `${p.label}: ${p.reason}`).join('; ');
+      lastError.value = summarize(problems);
       if (failed.size) {
         state.value = 'error';
       } else {
@@ -174,6 +202,7 @@ export const useSyncStore = defineStore('sync', () => {
       return false;
     }
     lastError.value = null;
+    lastErrorDetail.value = null;
     lastProblem.value = null;
     state.value = queued.size ? 'pending' : 'saved';
     return true;
@@ -246,9 +275,10 @@ export const useSyncStore = defineStore('sync', () => {
     for (const e of lost) drop(e, tr('sync.lost'), []);
     state.value = 'saved';
     lastError.value = null;
+    lastErrorDetail.value = null;
     lastProblem.value = null;
     return lost.length;
   }
 
-  return { state, lastError, lastProblem, enqueue, flush, retry, reset, pendingCount, hold };
+  return { state, lastError, lastErrorDetail, lastProblem, enqueue, flush, retry, reset, pendingCount, hold };
 });

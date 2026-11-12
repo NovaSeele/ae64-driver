@@ -76,6 +76,8 @@ export const base = {
   'sync.lastProblem': 'Lần lưu trước: {msg}',
   'sync.verifyFailed': 'Đọc lại không khớp: {labels}',
   'sync.failed': 'Chưa lưu được: {labels}',
+  'sync.failedMore': 'Chưa lưu được: {labels} và {n} mục khác',
+  'sync.failedSame': 'Chưa lưu {n} mục ({group}): {reason}',
   'sync.verifyMismatch': 'đọc lại không khớp',
   'sync.otherProfile': 'thuộc profile khác, đã bỏ',
   'sync.held': 'Đang khôi phục bản sao lưu: thay đổi sẽ được ghi sau khi xong.',

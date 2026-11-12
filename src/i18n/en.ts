@@ -73,6 +73,8 @@ const baseEn: Record<keyof typeof base, string> = {
   'sync.lastProblem': 'Last save: {msg}',
   'sync.verifyFailed': 'Verification mismatch: {labels}',
   'sync.failed': 'Not saved: {labels}',
+  'sync.failedMore': 'Not saved: {labels} and {n} more',
+  'sync.failedSame': 'Not saved: {n} items ({group}): {reason}',
   'sync.verifyMismatch': 'read-back mismatch',
   'sync.otherProfile': 'belongs to another profile, discarded',
   'sync.held': 'Restoring a backup: changes will be written when it finishes.',

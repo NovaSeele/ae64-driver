@@ -85,6 +85,33 @@ describe('Esc from a clean NumberField goes to the plate', () => {
     expect(changes).not.toHaveBeenCalled();
   });
 
+  it('f. focuses the tab-stop key with preventScroll', async () => {
+    const { sel, field, keyEl, press } = setup();
+    sel.select(2, 'replace');
+    keyEl(2).focus();
+    field.focus();
+    await nextTick();
+    const spy = vi.spyOn(HTMLElement.prototype, 'focus');
+    press(field, 'Escape');
+    expect(spy.mock.contexts).toContain(keyEl(2));
+    const i = spy.mock.contexts.indexOf(keyEl(2));
+    expect(spy.mock.calls[i][0]).toEqual({ preventScroll: true });
+    spy.mockRestore();
+  });
+
+  it('g. Esc from a focused element outside [data-app-keys] does not move focus to the plate', async () => {
+    const { keyEl, press } = setup();
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    keyEl(2).focus();
+    outside.focus();
+    await nextTick();
+    expect(document.activeElement).toBe(outside);
+    press(outside, 'Escape');
+    expect(document.activeElement).toBe(outside);
+    expect(document.activeElement).not.toBe(keyEl(2));
+  });
+
   it('e. a field with a draft reverts and blurs, keeps the selection; a second Esc clears it', async () => {
     const { sel, field, press } = setup();
     sel.select(2, 'replace');

@@ -80,6 +80,47 @@ describe('firmware ties normalRelease to normalPress', () => {
     expect(perf.values[W.id]).toMatchObject({ normalPress: 1, normalRelease: 1 });
   });
 
+  describe('a stale release ABOVE press', () => {
+    async function aboveSetup() {
+      const s = await setup();
+      s.perf.values = { ...s.perf.values, [W.id]: { ...s.perf.values[W.id], normalPress: 1, normalRelease: 2 } };
+      const setPerf = vi.mocked(s.mock.setPerformance);
+      setPerf.mockClear();
+      return { ...s, setPerf, sync: useSyncStore() };
+    }
+
+    it('an actuation edit 1.0 → 1.5 verifies first time with release = press', async () => {
+      const { perf, setPerf, sync } = await aboveSetup();
+      perf.apply([W.id], () => ({ normalPress: 1.5, rtFirstTouch: 1.5 }), 'act');
+      await sync.flush();
+      expect(setPerf).toHaveBeenCalledTimes(1);
+      expect(setPerf.mock.calls[0][1].normalRelease).toBe(setPerf.mock.calls[0][1].normalPress);
+      expect(sync.state).toBe('saved');
+      expect(sync.lastError).toBeNull();
+      expect(perf.values[W.id].normalRelease).toBe(perf.values[W.id].normalPress);
+    });
+
+    it('a preset verifies first time with release = press', async () => {
+      const { perf, setPerf, sync } = await aboveSetup();
+      perf.apply([W.id], () => ({ mode: 0, normalPress: 1.5, rtFirstTouch: 1.5, pressDeadStroke: 0.2 }), 'preset');
+      await sync.flush();
+      expect(setPerf).toHaveBeenCalledTimes(1);
+      expect(setPerf.mock.calls[0][1].normalRelease).toBe(setPerf.mock.calls[0][1].normalPress);
+      expect(sync.state).toBe('saved');
+      expect(perf.values[W.id].normalRelease).toBe(perf.values[W.id].normalPress);
+    });
+
+    it('a deadzone-only edit verifies first time with release = press', async () => {
+      const { perf, setPerf, sync } = await aboveSetup();
+      perf.apply([W.id], () => ({ pressDeadStroke: 0.3 }), 'dead');
+      await sync.flush();
+      expect(setPerf).toHaveBeenCalledTimes(1);
+      expect(setPerf.mock.calls[0][1].normalRelease).toBe(setPerf.mock.calls[0][1].normalPress);
+      expect(sync.state).toBe('saved');
+      expect(perf.values[W.id].normalRelease).toBe(perf.values[W.id].normalPress);
+    });
+  });
+
   it('a read-back with another field off still fails', async () => {
     const { mock, perf } = await setup();
     const sync = useSyncStore();

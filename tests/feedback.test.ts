@@ -32,7 +32,7 @@ describe('dropped sync jobs', () => {
     expect(items[0].kind).toBe('error');
     expect(items[0].text).toBe(t('sync.dropped', { labels: 'A, B +2' }));
     expect(items[0].text).not.toContain(t('sync.restored'));
-    expect(sync.lastError).toContain('D');
+    expect(sync.lastErrorDetail).toContain('D');
   });
 
   it('appends the restored sentence when a dropped job had onDrop', async () => {
