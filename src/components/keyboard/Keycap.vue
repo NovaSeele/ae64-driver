@@ -124,7 +124,7 @@ defineProps<{
 }
 .cap__legend {
   position: relative;
-  font-size: 12px;
+  font-size: clamp(12px, calc(var(--u, 58px) * 0.21), 15px);
   font-weight: 500;
   color: var(--fg-1);
   line-height: 1.1;
@@ -135,14 +135,14 @@ defineProps<{
 .cap__sub {
   position: relative;
   align-self: flex-end;
-  font-size: 11px;
+  font-size: clamp(11px, calc(var(--u, 58px) * 0.185), 13px);
   font-weight: 500;
   color: var(--metric, var(--fg-2));
   line-height: 1.1;
   text-align: right;
   white-space: pre; /* a line break stacks two values (dead zones) */
 }
-.cap__sub--lines { display: flex; flex-direction: column; align-items: flex-end; font-size: var(--fs-caption); }
+.cap__sub--lines { display: flex; flex-direction: column; align-items: flex-end; font-size: clamp(11px, calc(var(--u, 58px) * 0.185), 13px); }
 .cap__line { color: var(--sub-tone, var(--metric, var(--fg-2))); }
 .cap--sel .cap__sub, .cap--sel .cap__badge, .cap--sel .cap__line { color: var(--fg-1); }
 .cap__foot {
@@ -176,7 +176,7 @@ defineProps<{
   .cap__legend { font-size: 11px; line-height: 1.05; }
   .cap__badge { font-size: var(--fs-caption); }
   .cap__foot { gap: 1px; }
-  .cap__sub, .cap__sub--lines { font-size: var(--fs-caption); }
+  .cap__sub, .cap__sub--lines { font-size: 11px; }
   .cap__extra { right: 4px; bottom: 4px; }
   .cap__extra :deep(.swatch) { width: 18px; height: 18px; }
 }

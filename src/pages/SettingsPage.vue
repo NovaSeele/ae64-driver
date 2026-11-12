@@ -13,6 +13,7 @@ import ThemePicker from '../components/settings/ThemePicker.vue';
 import { POLLING_RATE_HZ } from '../protocol';
 import { useDeviceStore } from '../stores/device';
 import { PROFILE_NAME_MAX_BYTES, truncateUtf8, useSettingsStore, utf8Bytes } from '../stores/settings';
+import { zoomModifier, currentPlatform } from '../components/ui/zoomHint';
 import { t } from '../i18n/vi';
 
 const device = useDeviceStore();
@@ -110,6 +111,7 @@ async function saveProfileName(i: number) {
     <div class="settings-appearance">
       <Card :title="t('settings.appearance')" :subtitle="t('settings.appearanceDesc')">
         <ThemePicker />
+        <p class="settings-note">{{ t('settings.zoomHint', { mod: zoomModifier(currentPlatform()) }) }}</p>
       </Card>
     </div>
 
@@ -277,7 +279,7 @@ async function saveProfileName(i: number) {
 <style scoped>
 .settings-note {
   margin: 10px 0 0;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--fg-2);
 }
 .settings-note--error {

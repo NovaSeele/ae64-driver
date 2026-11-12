@@ -19,6 +19,7 @@
         "minWidth": 960,
         "minHeight": 640,
         "center": true,
+        "zoomHotkeysEnabled": true,
         "additionalBrowserArgs": "--disable-gpu --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,Translate,OptimizationHints,MediaRouter,AutofillServerCommunication --renderer-process-limit=1 --disable-background-networking --disable-component-update"
       }
     ],

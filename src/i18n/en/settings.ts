@@ -4,6 +4,7 @@ import type { settingsVi } from '../settings';
 export const settingsEn: Record<keyof typeof settingsVi, string> = {
   'settings.appearance': 'Appearance',
   'settings.appearanceDesc': "Changes this app's colours on this computer only. Nothing is written to the keyboard.",
+  'settings.zoomHint': 'Interface size: {mod} + to enlarge, {mod} − to shrink, {mod} 0 to reset.',
   'theme.auto': 'Auto',
   'theme.autoDesc': 'Graphite or Light, following the system',
   'theme.gold': 'Gold',

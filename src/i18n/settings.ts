@@ -2,6 +2,7 @@
 export const settingsVi = {
   'settings.appearance': 'Giao diện',
   'settings.appearanceDesc': 'Chỉ đổi màu của ứng dụng trên máy này, không ghi gì vào phím.',
+  'settings.zoomHint': 'Cỡ giao diện: {mod} + để phóng to, {mod} − để thu nhỏ, {mod} 0 để về mặc định.',
   'theme.auto': 'Tự động',
   'theme.autoDesc': 'Graphite/Sáng theo hệ thống',
   'theme.gold': 'Gold',

@@ -93,8 +93,8 @@ const busy = computed(() => sync.state === 'pending' || sync.state === 'writing'
   width: 26px;
   height: 26px;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--f) 16%, transparent);
-  color: var(--f);
+  background: color-mix(in srgb, var(--acc) 16%, transparent);
+  color: var(--acc);
 }
 .top__title { font-size: var(--fs-section); }
 .top__right { display: flex; align-items: center; gap: var(--s-4); }

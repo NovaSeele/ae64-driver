@@ -113,5 +113,6 @@ const device = useDeviceStore();
 }
 .side__link:hover { background: var(--bg-2); color: var(--fg-1); }
 .side__link--on { background: var(--sel-bg); color: var(--fg-1); font-weight: 600; }
+.side__link--on .tile { background: color-mix(in srgb, var(--acc) 16%, transparent); color: var(--acc); }
 .side__link[aria-disabled='true'] { opacity: 0.4; pointer-events: none; }
 </style>

@@ -191,7 +191,7 @@ const field = computed(() => 0.12 + ratio.value * 0.7);
 .sim__ticks path.major { stroke: var(--fg-3); }
 .sim__ticks text { font-size: var(--fs-caption); fill: var(--fg-3); font-variant-numeric: tabular-nums; }
 .sim__marker path { stroke-width: 1.5; }
-.sim__marker text { font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.sim__marker text { font-size: var(--fs-caption); font-weight: 500; font-variant-numeric: tabular-nums; }
 .sim__marker--act path { stroke: var(--m-actuation); }
 .sim__marker--act text { fill: var(--m-actuation); }
 .sim__marker--rel path { stroke: var(--m-release); stroke-dasharray: 4 3; }

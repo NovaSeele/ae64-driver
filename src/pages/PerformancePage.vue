@@ -598,7 +598,7 @@ const modeOptions = computed(() => [
 .aside-hint {
   margin: 2px 0 0;
   max-width: 160px;
-  font-size: 11px;
+  font-size: var(--fs-caption);
   line-height: 1.4;
   color: var(--fg-3);
 }

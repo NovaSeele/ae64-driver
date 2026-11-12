@@ -18,12 +18,12 @@
 
   /* type */
   --font: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --fs-caption: 11px;
-  --fs-label: 12px;
-  --fs-body: 13px;
-  --fs-card: 15px;
-  --fs-section: 18px;
-  --fs-hero: 24px;
+  --fs-caption: 12px;
+  --fs-label: 13px;
+  --fs-body: 14px;
+  --fs-card: 16px;
+  --fs-section: 20px;
+  --fs-hero: 28px;
 
   /* motion */
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -33,7 +33,7 @@
 
   /* layout */
   --rail-w: 56px;
-  --sidebar-w: 232px;
+  --sidebar-w: 248px;
   --topbar-h: 56px;
 }
 

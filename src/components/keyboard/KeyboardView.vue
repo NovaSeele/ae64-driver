@@ -38,7 +38,7 @@ const props = defineProps<{
   loading?: boolean;
 }>();
 
-const MAX_UNIT = 58;
+const MAX_UNIT = 72;
 const DRAG_THRESHOLD = 5;
 
 const sel = useSelectionStore();
@@ -197,7 +197,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
     @pointercancel="cancelDrag"
     @lostpointercapture="cancelDrag"
   >
-    <div ref="plate" class="kb__plate" :style="{ width: `${bounds.width * unit}px`, height: `${bounds.height * unit}px` }">
+    <div ref="plate" class="kb__plate" :style="{ '--u': `${unit}px`, width: `${bounds.width * unit}px`, height: `${bounds.height * unit}px` }">
       <button
         v-for="k in keys"
         :key="k.id"

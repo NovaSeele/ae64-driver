@@ -52,6 +52,12 @@ watchEffect(() => {
 .page__aside { flex: none; width: 168px; display: flex; flex-direction: column; gap: var(--s-2); }
 .page__panels { min-width: 0; }
 
+@media (min-width: 1600px) {
+  .page { max-width: 1560px; }
+  .page__board { max-width: 1100px; }
+  .page__aside { width: 196px; }
+}
+
 @media (max-width: 1360px) {
   .page { padding: var(--s-5) var(--s-6) var(--s-7); }
   .page__kbrow { flex-direction: column-reverse; align-items: stretch; }

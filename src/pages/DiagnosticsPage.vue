@@ -538,7 +538,7 @@ async function doRestore() {
   max-height: 340px;
   overflow-y: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--fs-caption);
 }
 .diag-log-entries {
   display: flex;

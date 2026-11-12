@@ -634,6 +634,9 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
   max-width: 940px;
   margin: 0 auto;
 }
+@media (min-width: 1600px) {
+  .lighting-stage { max-width: 1100px; }
+}
 
 /* Edge strip: one group per edge, drawn clockwise from the top-left corner */
 .strip-bar {
@@ -950,7 +953,7 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 }
 
 .palette-swatch__label {
-  font-size: 11px;
+  font-size: var(--fs-caption);
   font-weight: 600;
   padding: 1px 5px;
   border-radius: 4px;
@@ -959,7 +962,7 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 }
 
 .palette-swatch__num {
-  font-size: 11px;
+  font-size: var(--fs-caption);
   font-weight: 600;
   /* Ink follows the LED colour, not the theme. */
   color: #ffffff;
@@ -989,7 +992,7 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 }
 
 .palette-rainbow-info__badge {
-  font-size: 11px;
+  font-size: var(--fs-caption);
   font-weight: 600;
   padding: 2px 6px;
   border-radius: var(--r-control);
