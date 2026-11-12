@@ -528,3 +528,50 @@ describe('Space/Enter that operates a control is not a test press', () => {
     expect(undo).not.toHaveBeenCalled();
   });
 });
+
+describe('demo: Space on a focused control is not a test press, even tapped repeatedly', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    locale.value = 'vi';
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+  });
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('three Space taps on the Pause button leave focus on W and its count at 1', async () => {
+    await useDeviceStore().connectDemo();
+    await usePerformanceStore().load();
+    vi.useFakeTimers();
+    const live = useLiveStore();
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
+    const w = mount(LiveTravelPage, { global: { plugins: [router] }, attachTo: document.body });
+    await vi.advanceTimersByTimeAsync(200);
+    const fire = (target: Element, type: 'keydown' | 'keyup', code: string, k: string) =>
+      target.dispatchEvent(new KeyboardEvent(type, { key: k, code, bubbles: true, cancelable: true }));
+
+    fire(document.body, 'keydown', 'KeyW', 'w');
+    await vi.advanceTimersByTimeAsync(30);
+    fire(document.body, 'keyup', 'KeyW', 'w');
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(live.focusId).toBe(W.id);
+    expect(live.data.count).toBe(1);
+
+    const pause = w.find('.graphcard button').element as HTMLButtonElement;
+    pause.focus();
+    for (let i = 0; i < 3; i++) {
+      fire(pause, 'keydown', 'Space', ' ');
+      await vi.advanceTimersByTimeAsync(30);
+      fire(pause, 'keyup', 'Space', ' ');
+      await vi.advanceTimersByTimeAsync(70);
+    }
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(live.focusId).toBe(W.id);
+    expect(live.data.count).toBe(1);
+    w.unmount();
+  }, 30_000);
+});
