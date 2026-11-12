@@ -21,7 +21,10 @@ const device = useDeviceStore();
 const router = useRouter();
 
 const open = ref(false);
-const recal = ref(false);
+/** Keys of the selection that should be recalibrated, from the board's own read-back. "Hide" hides the hint until another key joins. */
+const recalIds = computed(() => props.ids.filter((id) => perf.recalKeys.includes(id)));
+const hidden = ref<Set<number>>(new Set());
+const recal = computed(() => recalIds.value.some((id) => !hidden.value.has(id)));
 
 const groups = computed(() => {
   const order = (id: number) => { const i = perf.catalog?.findIndex((e) => e.id === id) ?? -1; return i < 0 ? Infinity : i; };
@@ -77,13 +80,13 @@ const rowName = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknownRow'
           {{ t('sw.recal') }}
           <button type="button" class="swc__recal-go" @click="router.replace({ path: '/switch', query: { tab: 'calibration' } })">{{ t('sw.recalGo') }}</button>
         </span>
-        <button type="button" class="swc__recal-x" :aria-label="t('sw.recalHide')" @click="recal = false"><IconX :size="14" aria-hidden="true" /></button>
+        <button type="button" class="swc__recal-x" :aria-label="t('sw.recalHide')" @click="hidden = new Set(recalIds)"><IconX :size="14" aria-hidden="true" /></button>
       </div>
     </div>
     <div class="swc__foot">
       <Button variant="secondary" size="sm" :icon="IconReplace" :disabled="!perf.catalog || !ids.length" :title="perf.catalog ? undefined : unsupportedText" @click="open = true">{{ t('sw.change') }}</Button>
     </div>
-    <SwitchPicker v-model:open="open" :ids="ids" @applied="recal = true" />
+    <SwitchPicker v-model:open="open" :ids="ids" />
   </Card>
 </template>
 

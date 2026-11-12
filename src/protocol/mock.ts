@@ -125,6 +125,8 @@ export class MockTransport extends BaseTransport {
   private rgbSleep = 0;
   private shake = true;
   private calibrating = false;
+  /** Keys pressed to the bottom during the running calibration: calibrated when it stops. */
+  private newlyCalibrated = new Set<string>();
   private readonly macroMeta: number[][] = Array.from({ length: 16 }, () => [0, 0, 0, 1, 0, 0]);
   private readonly macroActions: number[][] = Array.from({ length: 16 }, () => []);
   private readonly live = new Map<number, LiveKey>();
@@ -260,6 +262,12 @@ export class MockTransport extends BaseTransport {
             return set(req);
           case 0x06:
             this.calibrating = a === 0;
+            if (a === 0) this.newlyCalibrated.clear();
+            else {
+              // Stopping keeps what was calibrated: the key's calibrate flag is 1 again.
+              for (const pos of this.newlyCalibrated) { const rec = prof.perf.get(pos); if (rec) rec[16] = 1; }
+              this.newlyCalibrated.clear();
+            }
             return set(req);
           case 0x0d:
             if (a === 1) return set([2, 0x0d, 1, ...le16(this.rgbSleep)]);
@@ -309,7 +317,13 @@ export class MockTransport extends BaseTransport {
       case 0x04:
         if (op === 0x01) return set([4, 1, a, b, ...(prof.perf.get(posKey(a, b)) ?? [])]);
         if (op === 0x02) {
-          if (prof.perf.has(posKey(a, b))) prof.perf.set(posKey(a, b), req.slice(4, 27));
+          const old = prof.perf.get(posKey(a, b));
+          if (old) {
+            const next = req.slice(4, 27);
+            // Like the firmware: a changed switch triple (record bytes 17..22) resets the key's calibration, whatever was written.
+            if (old.slice(17, 23).some((v, i) => v !== next[17 + i])) next[16] = 0;
+            prof.perf.set(posKey(a, b), next);
+          }
           return set(req);
         }
         if (op === 0x03) return set([4, 3, a, b, ...this.axisRow(a, b).flatMap((v) => le16(v))]);
@@ -365,7 +379,11 @@ export class MockTransport extends BaseTransport {
       switch (type) {
         case 0: return (row === 3 ? ROW3_ADC[col] : 2600 + ((row * 37 + col * 53) % 240)) + Math.round(route * 0.45);
         case 1: return route;
-        case 2: return this.calibrating && route > 3000 ? 2 : 1;
+        case 2: {
+          const pos = posKey(key.row, key.col);
+          if (this.calibrating && route > 3000) { this.newlyCalibrated.add(pos); return 2; }
+          return this.profiles[this.active].perf.get(pos)?.[16] === 0 ? 0 : 1;
+        }
         case 3: return s?.pressed ? 1 : 0;
         default: return 0;
       }

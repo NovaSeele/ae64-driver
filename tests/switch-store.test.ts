@@ -55,16 +55,17 @@ describe('switch selector store', () => {
     const w = await mock.getPerformance(W);
     const a = await mock.getPerformance(A);
     expect(w).toMatchObject({ ...APOLLO, normalPress: 3.13, normalRelease: 3.13 });
-    expect({ ...w, ...UR, normalPress: 0, normalRelease: 0 }).toEqual({ ...wBefore, normalPress: 0, normalRelease: 0 });
+    expect({ ...w, ...UR, calibrate: 1, normalPress: 0, normalRelease: 0 }).toEqual({ ...wBefore, normalPress: 0, normalRelease: 0 }); // a changed triple resets calibrate (firmware)
     expect(a).toMatchObject(APOLLO);
-    expect({ ...a, ...UR }).toEqual(aBefore);
+    expect({ ...a, ...UR, calibrate: 1 }).toEqual(aBefore);
     expect(perf.switchNotices).toEqual([]);
     expect(perf.switchOf(W.id)?.name).toBe('阿波罗轴');
 
     useHistoryStore().undo();
     await useSyncStore().flush();
-    expect(await mock.getPerformance(W)).toEqual(wBefore);
-    expect(await mock.getPerformance(A)).toEqual(aBefore);
+    // The reset of calibrate by the triple change survives the undo.
+    expect(await mock.getPerformance(W)).toEqual({ ...wBefore, calibrate: 0 });
+    expect(await mock.getPerformance(A)).toEqual({ ...aBefore, calibrate: 0 });
 
     useHistoryStore().redo();
     await useSyncStore().flush();
@@ -115,7 +116,7 @@ describe('switch selector store', () => {
     await running.catch(() => undefined);
     await useSyncStore().flush();
 
-    expect(await mock.getPerformance(W)).toEqual(wBefore);
+    expect(await mock.getPerformance(W)).toEqual({ ...wBefore, calibrate: 0 });
     expect(perf.values[W.id]).toMatchObject(UR);
     expect(perf.values[W.id]).toEqual(await mock.getPerformance(W));
   });

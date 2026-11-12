@@ -97,6 +97,16 @@ export const usePerformanceStore = defineStore('performance', () => {
   let switchSeq = 0;
   /** Keys whose read-back triple differed from what was written (the firmware normalised it). Cleared by the next applySwitch. */
   const switchNotices = ref<{ id: number; wanted: SwitchTriple; got: SwitchTriple }[]>([]);
+  /** Keys whose switch triple was written (apply, undo, redo) and that read back uncalibrated: they should be calibrated again. A read showing them calibrated removes them. Sorted. */
+  const recalKeys = ref<number[]>([]);
+  function noteCalibrate(id: number, calibrate: number, switchWrite: boolean): void {
+    const has = recalKeys.value.includes(id);
+    if (calibrate !== 0) {
+      if (has) recalKeys.value = recalKeys.value.filter((k) => k !== id);
+    } else if (switchWrite && !has) {
+      recalKeys.value = [...recalKeys.value, id].sort((a, b) => a - b);
+    }
+  }
   /** Catalog for the connected board, or null (selector read-only). */
   const catalog = computed(() => switchCatalogFor(device.info?.boardIdHex));
   // Another keyboard (or the demo) was connected: nothing cached belongs to it.
@@ -105,6 +115,7 @@ export const usePerformanceStore = defineStore('performance', () => {
     fresh.clear();
     switchKeys.clear();
     switchNotices.value = [];
+    recalKeys.value = [];
     loadedProfile.value = null;
     loadPromise = null; // a load of the old keyboard may still be running: a new load() must start fresh
     loading.value = false;
@@ -137,6 +148,7 @@ export const usePerformanceStore = defineStore('performance', () => {
             if (gen !== device.connection) return;
             next[key.id] = p;
             fresh.set(key.id, p);
+            noteCalibrate(key.id, p.calibrate, false);
             loadedCount.value++;
           }
         });
@@ -201,6 +213,7 @@ export const usePerformanceStore = defineStore('performance', () => {
       verify: async (t: Ae64Transport) => {
         const read = await t.getPerformance(key);
         fresh.set(id, read);
+        noteCalibrate(id, read.calibrate, mark !== undefined);
         const ok = written !== null && sameEdit(pickEdit(read), written);
         if (!ok) return false;
         const latest = switchKeys.get(id) === mark; // false: a newer switch change is queued for this key
@@ -212,6 +225,10 @@ export const usePerformanceStore = defineStore('performance', () => {
           switchNotices.value = [...switchNotices.value, { id, wanted: writtenTriple, got }];
           if (latest && loadedProfile.value === profile && values.value[id]) values.value = { ...values.value, [id]: { ...values.value[id], ...got } };
         }
+        // The firmware may change calibrate/axis on its own (a switch change resets calibration): show the board's values.
+        if (latest && loadedProfile.value === profile && values.value[id]) {
+          values.value = { ...values.value, [id]: { ...values.value[id], calibrate: read.calibrate, axis: read.axis } };
+        }
         return true;
       },
       // Not saved: show what the key really has (last record read from it) instead of the unsaved edit.
@@ -221,7 +238,7 @@ export const usePerformanceStore = defineStore('performance', () => {
         const real = fresh.get(id);
         if (!real || loadedProfile.value !== profile || !values.value[id]) return;
         // A newer switch change is pending: its triple stays in `values`.
-        values.value = { ...values.value, [id]: { ...values.value[id], ...pickEdit(real), ...(latest ? tripleOf(real) : {}) } };
+        values.value = { ...values.value, [id]: { ...values.value[id], ...pickEdit(real), calibrate: real.calibrate, axis: real.axis, ...(latest ? tripleOf(real) : {}) } };
       },
     };
   }
@@ -343,5 +360,5 @@ export const usePerformanceStore = defineStore('performance', () => {
     });
   }
 
-  return { values, loading, loadedCount, loadError, loadedProfile, load, apply, catalog, switchOf, planSwitch, applySwitch, switchNotices };
+  return { values, loading, loadedCount, loadError, loadedProfile, recalKeys, load, apply, catalog, switchOf, planSwitch, applySwitch, switchNotices };
 });
