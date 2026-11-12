@@ -11,7 +11,7 @@ export const advancedVi = {
   'advanced.shortRS': 'RS',
   'advanced.descDKS': 'Tối đa 4 phím trên một lần nhấn: nhấn nông, nhấn sâu, nhả sâu, nhả nông.',
   'advanced.descMPT': '2–3 phím khác nhau theo độ sâu nhấn của cùng một phím.',
-  'advanced.descSOCD': 'Hai phím đối nghịch (A/D): chọn phím nào thắng khi giữ cả hai.',
+  'advanced.descSOCD': 'Hai phím đối nghịch (A/D), kiểu Snap Tap: chọn phím nào thắng khi giữ cả hai.',
   'advanced.descRS': 'Hai phím đối nghịch: phím nhấn sâu hơn thắng, chạm đáy cả hai thì ra cả hai.',
   'advanced.readOnly': 'Chỉ đọc',
   'advanced.oneKey': '1 phím',

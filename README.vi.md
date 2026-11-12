@@ -2,7 +2,7 @@
 
 [English](README.md) · **Tiếng Việt**
 
-Driver cục bộ cho dòng phím Everglide AE64: chỉnh hành trình (Actuation, Rapid Trigger, vùng chết),
+Driver cục bộ cho dòng phím Everglide AE64: chỉnh hành trình (Actuation, Rapid Trigger, Deadzone),
 keymap, đèn, macro… trực tiếp qua WebHID.
 
 Bàn phím được hỗ trợ: **AE64 Max** (board `0030000D`, USB PID `0x300D`) và **AE64 Pro** (board `0030000A`, USB PID `0x300A`).
