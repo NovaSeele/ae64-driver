@@ -463,7 +463,7 @@ export abstract class BaseTransport implements Ae64Transport {
     return reply.data;
   }
 
-  /** INFO. Null when the keyboard runs stock firmware (`10 FF`) or firmware this app does not know. Clears any upload. */
+  /** INFO. Null when the keyboard runs stock firmware (`10 FF`) or firmware this app does not know; GamepadNewerError for a newer AGP1 version. Clears any upload. */
   async gamepadInfo(): Promise<GamepadInfo | null> {
     this.gamepad = null;
     this.gamepadStaging = null;
@@ -475,6 +475,10 @@ export abstract class BaseTransport implements Ae64Transport {
       throw err;
     }
     this.gamepad = gp.decodeInfo(data);
+    if (!this.gamepad) {
+      const newer = gp.newerInfo(data);
+      if (newer) throw new gp.GamepadNewerError(newer.version, newer.caps);
+    }
     return this.gamepad;
   }
 

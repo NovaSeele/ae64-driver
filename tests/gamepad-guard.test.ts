@@ -203,6 +203,11 @@ describe('frame rules (safety.ts)', () => {
     ['magic', () => { const p = f(GP_CMD.INFO); p[7] = 0x32; return p; }],
     ['status set', () => { const p = f(GP_CMD.INFO); p[8] = 1; return p; }],
     ['length byte vs payload', () => { const p = f(GP_CMD.INFO); p[9] = 1; return p; }],
+    // The length byte is right for the command, but the payload carries more (or fewer) bytes than it declares.
+    ['INFO n=0 with a trailing byte', () => [...f(GP_CMD.INFO), 0]],
+    ['READ with a trailing byte', () => [...f(GP_CMD.READ, readData(1, 0, 48)), 0]],
+    ['ABORT with a trailing byte', () => [...f(GP_CMD.ABORT, TOKEN), 0]],
+    ['READ one byte short of its length byte', () => f(GP_CMD.READ, readData(1, 0, 48)).slice(0, -1)],
     ['INFO with data', () => f(GP_CMD.INFO, [0])],
     ['USB_STATUS with data', () => f(GP_CMD.USB_STATUS, [0])],
     ['READ count 0', () => f(GP_CMD.READ, readData(1, 0, 0))],

@@ -311,6 +311,21 @@ export function requiredTransportBit(cfg: Pick<GamepadConfig, 'mode' | 'transpor
 
 // ------------------------------------------------------------------ AGP1 frames
 
+/**
+ * INFO from AGP1 firmware of this board that is newer than this app: a newer protocol, or protocol GP_VERSION with
+ * capability bits the app does not know. Nothing may be read or written.
+ */
+export class GamepadNewerError extends Error {
+  /** How the keyboard describes itself, for the user: "AGP1 v2", or "AGP1 v1 · caps 0x60". */
+  readonly proto: string;
+  constructor(readonly version: number, readonly caps: number | null = null) {
+    const proto = caps === null ? `AGP1 v${version}` : `AGP1 v${version} · caps 0x${caps.toString(16).toUpperCase().padStart(2, '0')}`;
+    super(t('gp.newerError', { proto }));
+    this.proto = proto;
+    this.name = 'GamepadNewerError';
+  }
+}
+
 export class GamepadReplyError extends Error {
   constructor(detail: string, message = `${t('gp.badReply')} (${detail})`) {
     super(message);
@@ -393,6 +408,19 @@ export function decodeInfo(data: ArrayLike<number>): GamepadInfo | null {
     configBytes: GP_CONFIG_BYTES,
     crc: u32(data, 16),
   };
+}
+
+/**
+ * An INFO from this board's gamepad firmware that is newer than this app (else null): a protocol version above GP_VERSION,
+ * or an INFO of GP_VERSION that decodeInfo accepts once the unknown capability bits are cleared (`caps` is then set).
+ */
+export function newerInfo(data: ArrayLike<number>): { version: number; caps: number | null } | null {
+  if (data.length < 8 || u32(data, 0) !== GP_BOARD_ID) return null;
+  if (data[6] > GP_VERSION) return { version: data[6], caps: null };
+  if (data[6] !== GP_VERSION || (data[4] & ~31) === 0) return null;
+  const known = Array.from(data);
+  known[4] &= 31;
+  return decodeInfo(known) ? { version: data[6], caps: data[4] } : null;
 }
 
 const checkToken = (token: ArrayLike<number>): number[] => {
@@ -487,8 +515,11 @@ export function normalizeTravel(um: number, maxUm: number): number {
   return Math.floor((um * GP_LEVEL_MAX) / maxUm);
 }
 
-/** Why the controller reports nothing at all: mode off, a bound key without a usable maximum, or one pressed past it. */
-export type GpNeutralReason = 'off' | 'noTravel' | 'overTravel';
+/**
+ * Why the controller reports nothing at all: mode off, a bound key without a usable maximum, a bound key the firmware does
+ * not see as calibrated, or one pressed past its maximum.
+ */
+export type GpNeutralReason = 'off' | 'noTravel' | 'notCalibrated' | 'overTravel';
 
 export interface GamepadOutput {
   /** Stick axes, −10000…10000 (+ is right / up). */
@@ -512,19 +543,24 @@ const neutralOutput = (reason: GpNeutralReason | null): GamepadOutput => ({
  * What the controller reports for the given key depths (µm), pressed keys and measured maximum travel per key (µm,
  * `04 01` axisRangeMax): a preview that computes like the firmware (gp_physical_update + gp_update). Every bound key
  * needs a maximum of 10–10000 µm and an analog record's full depth must fit in it, otherwise the firmware has no
- * mapping; a bound key deeper than its maximum makes the whole frame neutral. Not modelled (it needs history): after a
- * new configuration or a neutral frame the firmware stays neutral until every bound key is released.
+ * mapping; a bound key deeper than its maximum makes the whole frame neutral. `valid` (default: every key) tells whether
+ * the firmware sees a key as a live, calibrated record (board_port.c scan: `flags&1`, no `flags&8`, performance+8 == 1);
+ * one bound key that is not makes every frame neutral, though COMMIT still accepts the block (install checks only the
+ * maximum). Not modelled (it needs history): after a new configuration or a neutral frame the firmware stays neutral
+ * until every bound key is released.
  */
 export function evaluate(
   cfg: GamepadConfig,
   travelUm: (key: number) => number,
   pressed: (key: number) => boolean,
   maxUm: (key: number) => number | undefined,
+  valid?: (key: number) => boolean,
 ): GamepadOutput {
   if (cfg.mode === 'off') return neutralOutput('off');
   const max = new Map<number, number>();
   for (const [i, b] of cfg.bindings.entries()) {
     if (b.key === null) continue;
+    if (valid && !valid(b.key)) return neutralOutput('notCalibrated');
     const m = maxUm(b.key);
     if (m === undefined || !isInt(m) || m < GP_TRAVEL_MIN_UM || m > GP_TRAVEL_MAX_UM) return neutralOutput('noTravel');
     if (isAnalogIndex(i) && b.endUm > m) return neutralOutput('noTravel');
@@ -600,6 +636,26 @@ export function toFirmwareReport(out: GamepadOutput): FirmwareReport {
     lx: signedAxis(out.lx) + 0, ly: signedAxis(out.ly) + 0, rx: signedAxis(out.rx) + 0, ry: signedAxis(out.ry) + 0,
     lt: out.lt, rt: out.rt, buttons: bits(out.buttons, BUTTON_ORDER), dpad: bits(out.dpad, DPAD_ORDER),
   };
+}
+
+/**
+ * The controller for one frame, every array indexed by physical key (0–63): depth in µm, the stock pressed flag and the
+ * measured maximum travel in µm (`04 01` axisRangeMax). Shared by the demo keyboard (MockTransport.virtualGamepad) and
+ * the page's "computed from key travel" pane, so both compute exactly what the firmware reports. `valid`: see evaluate
+ * (the app cannot read the calibrated flag yet, so nothing passes it today).
+ *
+ * Port of gp_physical_update (firmware/custom/ae64-xinput/source/src/ae64_gamepad_physical.c) and gp_update
+ * (…/ae64_gamepad.c) of github.com/tuk3kCS/everglide-ae64-pro-webdriver, MIT licence (SPDX-License-Identifier: MIT);
+ * the arithmetic is in evaluate() and level() above, checked against the compiled firmware (tests/gamepad-protocol).
+ */
+export function gamepadOutputs(
+  cfg: GamepadConfig,
+  depthUm: ArrayLike<number>,
+  maxUm: ArrayLike<number | undefined>,
+  pressed: ArrayLike<boolean> = [],
+  valid?: (key: number) => boolean,
+): GamepadOutput {
+  return evaluate(cfg, (k) => depthUm[k] ?? 0, (k) => pressed[k] === true, (k) => maxUm[k], valid);
 }
 
 // ------------------------------------------------------------------ travel limits

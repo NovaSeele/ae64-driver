@@ -232,7 +232,7 @@ describe('one demo button', () => {
     const first = device.transport;
     const board = device.info?.boardIdHex;
     const w = mount(DeviceCard);
-    expect(w.findAll('.seg__opt').map((o) => o.text())).toEqual(['AE64 Max', 'AE64 Pro']);
+    expect(w.findAll('.seg__opt').map((o) => o.text())).toEqual(['Max', 'Pro', 'Pro + XInput']);
     await w.findAll('.seg__opt')[1].trigger('click');
     await vi.waitFor(() => expect([device.status, device.model]).toEqual(['connected', 'pro']));
     expect(device.demo).toBe(true);
@@ -244,6 +244,10 @@ describe('one demo button', () => {
     await w.findAll('.seg__opt')[0].trigger('click');
     await vi.waitFor(() => expect([device.status, device.model]).toEqual(['connected', 'max']));
     expect(device.info?.boardIdHex).toBe(board);
+    // The third demo is the Pro with the experimental XInput firmware: the same Pro board, a demo seed of its own.
+    await w.findAll('.seg__opt')[2].trigger('click');
+    await vi.waitFor(() => expect([device.status, device.model, device.demoSeed]).toEqual(['connected', 'pro', 'pro-xinput']));
+    expect(w.findAll('.seg__opt')[2].attributes('aria-checked')).toBe('true');
     w.unmount();
   });
 

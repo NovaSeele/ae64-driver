@@ -2,7 +2,9 @@
 // firmware's handler step by step (staging by token, 5 s expiry, revision, CRC, statuses 0–8) and validates the block with
 // its own copy of the firmware's rules, not with gamepad.ts's decoder, so a mistake there does not hide here.
 // USB_STATUS / USB_SET emulate the Xbox USB switch; a queued change completes USB_SWITCH_MS later (no real re-enumeration), and
-// until then every 0x21–0x35 command conflicts, as in the firmware. Checked byte for byte against the v0.8.1 sources (wasm oracle).
+// until then every 0x21–0x35 command conflicts, as in the firmware. AGP1 and the USB commands were checked byte for byte
+// against the v0.8.1 sources (wasm oracle); the FNR1 range 0x30–0x35 is not emulated and its status is only approximate
+// (the firmware answers FORMAT to some FNR1 frames the mock answers UNSUPPORTED). The app never sends that range.
 
 import { GP_BOARD_ID, GP_CAP, GP_CMD, GP_CONFIG_BYTES, GP_MAGIC, GP_STATUS, GP_TRANSACTION_TIMEOUT_MS, crc32, u16, u32 } from './gamepad';
 
@@ -100,7 +102,8 @@ export class MockGamepadFirmware {
    * The 64-byte reply, or null when the frame falls through to the stock dispatcher. Same order as the firmware's
    * board_dispatch_hook: USB_STATUS / USB_SET; then, while a USB switch is pending, CONFLICT for every 0x21–0x35 command
    * whatever its content; then the FNR1 range 0x30–0x35 (a separate Fn-colour protocol, not emulated: FORMAT without
-   * the "FNR1" magic, UNSUPPORTED otherwise); then AGP1 0x20–0x25.
+   * the "FNR1" magic, UNSUPPORTED otherwise, which only approximates the firmware: it answers FORMAT to some framed FNR1
+   * requests too, e.g. a bad length; outside the allow-list, so never sent by the app); then AGP1 0x20–0x25.
    */
   handle(req: ArrayLike<number>): number[] | null {
     if (req[0] !== 0x10) return null;

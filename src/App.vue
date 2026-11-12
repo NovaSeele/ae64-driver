@@ -8,6 +8,7 @@ import ToastHost from './components/ui/Toast.vue';
 import { useRoute } from 'vue-router';
 import { createSafePad, toastSafeTarget } from './components/ui/toast';
 import { useDeviceStore } from './stores/device';
+import { useGamepadStore } from './stores/gamepad';
 import { useHistoryStore } from './stores/history';
 import { useSettingsStore } from './stores/settings';
 import { t } from './i18n/vi';
@@ -18,6 +19,9 @@ const history = useHistoryStore();
 const settings = useSettingsStore();
 // The keyboard restarts its USB interface after a polling-rate change: keep the page and say so.
 const usbRestarting = computed(() => settings.pollingState === 'applying' || settings.pollingState === 'reconnecting');
+// Showing / hiding the Xbox controller re-enumerates the keyboard: the Gamepad page stays (busy) until it is back.
+const gamepad = useGamepadStore();
+const keepPage = computed(() => usbRestarting.value || gamepad.usbBusy);
 const collapsed = ref(localStorage.getItem(SIDEBAR_KEY) === '1');
 watch(collapsed, (v) => localStorage.setItem(SIDEBAR_KEY, v ? '1' : '0'));
 
@@ -55,7 +59,7 @@ onBeforeUnmount(() => {
   <div class="shell" :class="{ 'shell--collapsed': collapsed }">
     <Sidebar v-model:compact="collapsed" />
     <main class="main">
-      <template v-if="device.connected || usbRestarting">
+      <template v-if="device.connected || keepPage">
         <TopBar />
         <div ref="scroller" class="main__scroll" :style="{ paddingBottom: `${safePad}px`, scrollPaddingBottom: `${toastSafeTarget}px` }">
           <RouterView v-slot="{ Component, route }">

@@ -689,6 +689,7 @@
   --f-switch: var(--fg-3);
   --f-settings: var(--fg-3);
   --f-diagnostics: var(--fg-3);
+  --f-gamepad: var(--fg-3);
 
   /* performance metrics (chips, values on keycaps, travel editor marks, live graph lines) */
   /* first actuation = the theme's own colour; RT press/release are set per theme (above);
@@ -704,6 +705,13 @@
   --k-mt: var(--hue-blue);
   --k-tgl: var(--hue-green);
   --k-end: var(--hue-pink);
+
+  /* gamepad output groups (output tiles, keycap fill, curve, live test) */
+  --g-lstick: var(--hue-cyan);
+  --g-rstick: var(--hue-pink);
+  --g-trigger: var(--hue-orange);
+  --g-button: var(--hue-green);
+  --g-dpad: var(--hue-yellow);
 
   /* diagnostics packet direction */
   --d-in: var(--hue-blue);

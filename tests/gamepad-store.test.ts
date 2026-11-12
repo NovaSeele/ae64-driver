@@ -11,6 +11,7 @@ import { useDeviceStore } from '../src/stores/device';
 import { useGamepadStore, newToken } from '../src/stores/gamepad';
 import { useSyncStore } from '../src/stores/sync';
 import { useHistoryStore } from '../src/stores/history';
+import { usePerformanceStore } from '../src/stores/performance';
 import { t as tr } from '../src/i18n/vi';
 
 async function setup(seed: DemoSeed = 'pro-xinput', opts: { load?: boolean } = {}) {
@@ -167,7 +168,14 @@ describe('checks before writing', () => {
     const { gp, frames, sync } = await setup();
     const before = block(gp.config!);
     frames.length = 0;
-    gp.apply((d) => { d.bindings[0].endUm = 3500; d.bindings[0].declaredUm = 4000; }, 'LT'); // Q travels 3.4 mm
+    // The page's own check refuses it first (Q travels 3.4 mm)…
+    expect(gp.apply((d) => { d.bindings[0].endUm = 3500; d.bindings[0].declaredUm = 4000; }, 'LT')).toBe(false);
+    expect(gp.lastTravelIssues).toEqual([{ code: 'overTravel', index: 0, key: gp.config!.bindings[0].key, limitUm: 3400 }]);
+    // …and the job reads the travel again before writing (the page's copy may be stale).
+    const perf = usePerformanceStore();
+    const q = gp.config!.bindings[0].key!;
+    perf.values = { ...perf.values, [q]: { ...perf.values[q], axisRangeMax: 4000 } };
+    expect(gp.apply((d) => { d.bindings[0].endUm = 3500; d.bindings[0].declaredUm = 4000; }, 'LT')).toBe(true);
     await expect(sync.flush()).rejects.toThrow(/3\.50 mm/);
     expect(agp(frames)).not.toContain(GP_CMD.BEGIN);
     expect(block(gp.config!)).toEqual(before);

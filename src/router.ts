@@ -2,7 +2,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router';
 import type { Component } from 'vue';
 import {
-  IconActivity, IconAdjustmentsHorizontal, IconBolt, IconBulb, IconKeyboard, IconListDetails, IconSettings,
+  IconActivity, IconAdjustmentsHorizontal, IconBolt, IconBulb, IconDeviceGamepad2, IconKeyboard, IconListDetails, IconSettings,
   IconStethoscope,
 } from '@tabler/icons-vue';
 import type { MessageKey } from './i18n/vi';
@@ -31,6 +31,8 @@ export const NAV: { group: MessageKey; items: NavItem[] }[] = [
       { path: '/performance', title: 'page.performance', icon: IconAdjustmentsHorizontal, tone: 'var(--f-performance)' },
       { path: '/advanced', title: 'page.advanced', icon: IconBolt, tone: 'var(--f-advanced)' },
       { path: '/lighting', title: 'page.lighting', icon: IconBulb, tone: 'var(--f-lighting)' },
+      // Saved per onboard profile on the XInput firmware (mode, output type, assignments), hence this group (DESIGN K §1).
+      { path: '/gamepad', title: 'page.gamepad', icon: IconDeviceGamepad2, tone: 'var(--f-gamepad)' },
     ],
   },
   {
@@ -54,6 +56,7 @@ export const router = createRouter({
     { path: '/performance', component: PerformancePage, meta: { title: 'page.performance' } },
     { path: '/advanced', component: () => import('./pages/AdvancedPage.vue'), meta: { title: 'page.advanced' } },
     { path: '/lighting', component: () => import('./pages/LightingPage.vue'), meta: { title: 'page.lighting' } },
+    { path: '/gamepad', component: () => import('./pages/GamepadPage.vue'), meta: { title: 'page.gamepad' } },
     { path: '/macro', component: () => import('./pages/MacroPage.vue'), meta: { title: 'page.macro' } },
     { path: '/switch', component: () => import('./pages/SwitchPage.vue'), meta: { title: 'page.switch' } },
     { path: '/live', component: () => import('./pages/LiveTravelPage.vue'), meta: { title: 'page.live' } },

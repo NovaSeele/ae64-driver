@@ -2,7 +2,8 @@
 const model = defineModel<T | null>({ required: true });
 // `manual`: arrow keys only move focus; Enter / Space / click select (for choices with side effects).
 const props = withDefaults(defineProps<{
-  options: { value: T; label: string; title?: string; ariaLabel?: string }[];
+  /** An option's `disabled`: shown but never selected, skipped by the arrow keys (its `title` says why). */
+  options: { value: T; label: string; title?: string; ariaLabel?: string; disabled?: boolean }[];
   label: string;
   size?: 'sm' | 'md';
   manual?: boolean;
@@ -10,7 +11,7 @@ const props = withDefaults(defineProps<{
 }>(), { size: 'md' });
 
 function select(v: T) {
-  if (!props.disabled) model.value = v;
+  if (!props.disabled && !props.options.find((o) => o.value === v)?.disabled) model.value = v;
 }
 
 function onKey(e: KeyboardEvent) {
@@ -23,7 +24,13 @@ function onKey(e: KeyboardEvent) {
   const i = props.manual
     ? opts.findIndex((o) => String(o.value) === from)
     : opts.findIndex((o) => o.value === model.value);
-  const next = opts[(Math.max(i, 0) + d + opts.length) % opts.length];
+  let j = Math.max(i, 0);
+  for (let n = 0; n < opts.length; n++) {
+    j = (j + d + opts.length) % opts.length;
+    if (!opts[j].disabled) break;
+  }
+  const next = opts[j];
+  if (next.disabled) return;
   if (!props.manual) model.value = next.value;
   ((e.currentTarget as HTMLElement).querySelector(`[data-v="${String(next.value)}"]`) as HTMLElement | null)?.focus();
 }
@@ -41,7 +48,8 @@ function onKey(e: KeyboardEvent) {
       :title="o.title"
       :aria-label="o.ariaLabel"
       :aria-checked="o.value === model"
-      :disabled="disabled"
+      :aria-disabled="o.disabled || undefined"
+      :disabled="disabled || o.disabled"
       :tabindex="o.value === model || (model === null && i === 0) ? 0 : -1"
       @click="select(o.value)"
     >
@@ -74,6 +82,7 @@ function onKey(e: KeyboardEvent) {
 .seg--sm .seg__opt { height: 24px; padding: 0 10px; font-size: var(--fs-label); }
 .seg--disabled { opacity: 0.45; }
 .seg__opt:disabled { cursor: not-allowed; }
+.seg__opt[aria-disabled='true'] { color: var(--fg-4); text-decoration: line-through; }
 .seg__opt:hover:not(:disabled) { color: var(--fg-1); }
 .seg__opt[aria-checked='true'] {
   background: var(--sel-bg);

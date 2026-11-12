@@ -6,6 +6,7 @@ import Segmented from '../ui/Segmented.vue';
 import { useCalibrationStore } from '../../stores/calibration';
 import { useDeviceStore } from '../../stores/device';
 import { t } from '../../i18n/vi';
+import type { DemoSeed } from '../../protocol/mock';
 
 const props = defineProps<{ compact?: boolean }>();
 
@@ -13,9 +14,14 @@ const device = useDeviceStore();
 const calibration = useCalibrationStore();
 const calibrating = computed(() => calibration.phase !== 'idle' || device.calibrationLocked());
 const calibratingTitle = computed(() => (calibrating.value ? t('device.calibrating') : undefined));
-const demoModels = [{ value: 'max' as const, label: 'AE64 Max' }, { value: 'pro' as const, label: 'AE64 Pro' }];
-const demoModel = computed({
-  get: () => device.model,
+// Short labels so the three fit the 222 px card; the full name is in the title.
+const demoModels = computed(() => [
+  { value: 'max' as const, label: t('device.demoMax'), title: 'AE64 Max' },
+  { value: 'pro' as const, label: t('device.demoPro'), title: 'AE64 Pro' },
+  { value: 'pro-xinput' as const, label: t('device.demoXinput'), title: t('device.demoXinputTitle') },
+]);
+const demoModel = computed<DemoSeed | null>({
+  get: () => device.demoSeed ?? device.model,
   set: (m) => { if (m) void device.switchDemoModel(m); },
 });
 const name = computed(() => device.modelName ?? device.transport?.productName ?? 'AE64');

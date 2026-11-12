@@ -8,7 +8,7 @@
 import type { Bytes, Performance, PhysicalKey } from './types';
 import { BaseTransport, TransportTimeoutError } from './client';
 import { MockGamepadFirmware } from './mockGamepad';
-import { GP_CONTROLS, GP_FAMILY, decodeConfig, defaultBinding, emptyConfig, encodeConfig, evaluate, keyPosOf, toStandardGamepad } from './gamepad';
+import { GP_CONTROLS, GP_FAMILY, GP_KEY_COUNT, decodeConfig, defaultBinding, emptyConfig, encodeConfig, gamepadOutputs, keyPosOf, toStandardGamepad } from './gamepad';
 import type { GamepadConfig, StandardGamepadState } from './gamepad';
 import { encodeLayoutStyleEntry, encodePerformance, le16, mmToUm, read16 } from './codec';
 import { STRIP_ORDER } from './ledLayout';
@@ -231,11 +231,12 @@ export class MockTransport extends BaseTransport {
       return null;
     }
     if (cfg.mode === 'off' || (cfg.transport === 'xinput' && !fw.usb.enabled)) return null;
-    const out = evaluate(
+    const keys = Array.from({ length: GP_KEY_COUNT }, (_, key) => key);
+    const out = gamepadOutputs(
       cfg,
-      (key) => Math.round(mmToUm(this.live.get(key)?.travel ?? 0)),
-      (key) => this.live.get(key)?.pressed ?? false,
-      fw.maxTravelUm,
+      keys.map((key) => Math.round(mmToUm(this.live.get(key)?.travel ?? 0))),
+      keys.map((key) => fw.maxTravelUm(key)),
+      keys.map((key) => this.live.get(key)?.pressed ?? false),
     );
     return {
       id: cfg.transport === 'xinput' ? 'AE64 Pro XInput (demo)' : 'AE64 Pro HID gamepad (demo)',
