@@ -62,7 +62,45 @@ afterEach(async () => {
   useToast().items.value = [];
 });
 
+const savedCard = () => document.body.querySelector<HTMLElement>('.saved .card')!;
+
+describe('Mẫu riêng card', () => {
+  it('is always shown, in its own row outside the column grid, with "n/6" and the empty line', async () => {
+    await setup();
+    expect(savedCard().textContent).toContain(t('perf.presetsOwn'));
+    expect(savedCard().textContent).toContain(t('perf.presetsOwnSub', { n: 0, max: 6 }));
+    expect(savedCard().textContent).toContain(t('perf.presetsEmpty'));
+    expect(savedCard().querySelector('.presets__save button')).not.toBeNull();
+    expect(document.body.querySelector('.grid .saved')).toBeNull();
+    expect(document.body.querySelector('.pcol .saved')).toBeNull();
+    expect(document.body.querySelector('.grid .presets__save')).toBeNull();
+  });
+
+  it('row 1 (the column grid) is identical with 0 and 6 saved presets; the saved card is not in it', async () => {
+    await setup();
+    const grid = () => document.body.querySelector<HTMLElement>('.grid')!;
+    const empty = grid().innerHTML;
+    for (let i = 0; i < 6; i++) useUserPresetsStore().add(`P${i}`, values());
+    await flushPromises();
+    expect(rows()).toHaveLength(6);
+    expect(savedCard().textContent).toContain(t('perf.presetsOwnSub', { n: 6, max: 6 }));
+    expect(savedCard().textContent).not.toContain(t('perf.presetsEmpty'));
+    expect(grid().innerHTML).toBe(empty);
+    expect(grid().nextElementSibling).toBe(document.body.querySelector('.saved'));
+    for (const x of [...useUserPresetsStore().presets]) useUserPresetsStore().remove(x.id);
+    await flushPromises();
+    expect(grid().innerHTML).toBe(empty);
+  });
+});
+
 describe('Mẫu cài đặt card', () => {
+  it('holds the three built-ins only', async () => {
+    await setup();
+    const card = [...document.body.querySelectorAll<HTMLElement>('.pcol .card')].find((c) => c.textContent!.includes(t('perf.presetTyping')))!;
+    expect(card.querySelectorAll('.preset')).toHaveLength(3);
+    expect(card.querySelector('.presets__save')).toBeNull();
+  });
+
   it('a built-in preset is one history entry', async () => {
     const { perf, history } = await setup();
     const before = perf.values[ALL[0]].rtFirstTouch;

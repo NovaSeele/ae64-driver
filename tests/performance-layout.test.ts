@@ -93,6 +93,19 @@ describe('Performance columns', () => {
     expect(growing()).toEqual([]);
   });
 
+  it('the Mẫu riêng card is in a second row under the presets column: column 3 / 2 / 1 (last)', async () => {
+    for (const [width, cols] of [[1440, 3], [1280, 2], [760, 1]] as const) {
+      stubWidth(width);
+      await setup([W]);
+      const saved = document.body.querySelector<HTMLElement>('.saved')!;
+      expect(saved.previousElementSibling).toBe(document.body.querySelector('.grid')); // a row of its own, after row 1
+      expect(saved.style.getPropertyValue('--cols')).toBe(String(cols)); // the card takes the last column
+      expect(saved.querySelectorAll('.card').length).toBe(1);
+      expect(document.body.querySelector('.grid .saved')).toBeNull();
+      teardown();
+    }
+  }, 30000);
+
   it('breakpoints: 1361 is 3 columns, 1360 and 761 are 2, 760 is 1', async () => {
     for (const [width, n] of [[1361, 3], [1360, 2], [761, 2], [760, 1]] as const) {
       stubWidth(width);

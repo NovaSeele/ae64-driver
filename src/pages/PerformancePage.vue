@@ -597,9 +597,9 @@ const modeOptions = computed(() => [
         </div>
       </div>
 
-      <!-- editors -->
+      <!-- editors: row 1 is the column grid (its height is held); saved presets sit in their own row below -->
+      <div v-else-if="hasKeys" class="editors">
       <div
-        v-else-if="hasKeys"
         ref="gridEl"
         class="grid"
         :class="{ 'grid--note': unknownCount }"
@@ -782,6 +782,15 @@ const modeOptions = computed(() => [
               <span class="preset__name">{{ t(PRESET_TEXT[p.id][0]) }}</span>
               <span class="preset__desc num">{{ t(PRESET_TEXT[p.id][1]) }}</span>
             </button>
+          </div>
+        </Card>
+        </template>
+        </div>
+      </div>
+      <div class="saved" :style="{ '--cols': cols.length || 1 }">
+        <Card class="saved__card" :title="t('perf.presetsOwn')" :subtitle="t('perf.presetsOwnSub', { n: userPresets.presets.length, max: USER_PRESET_MAX })">
+          <div class="presets">
+            <p v-if="!userPresets.presets.length" class="hint">{{ t('perf.presetsEmpty') }}</p>
             <div v-for="u in userPresets.presets" :key="u.id" class="preset-row">
               <button type="button" class="preset" :data-preset="u.id" :title="userPresetTitle(u)" @click="applyUserPreset(u)">
                 <span class="preset__name">{{ u.name }}</span>
@@ -799,8 +808,7 @@ const modeOptions = computed(() => [
             <p v-if="saveBlocked" id="perf-save-why" class="hint">{{ saveBlocked }}</p>
           </div>
         </Card>
-        </template>
-        </div>
+      </div>
       </div>
     </div>
 
@@ -866,6 +874,10 @@ const modeOptions = computed(() => [
 }
 /* A note above the columns takes its own row; the columns' row takes all the spare height (the min-height hold). */
 .grid--note { grid-template-rows: auto 1fr; }
+/* Saved presets: a second row with the same columns, so nothing in it can stretch row 1. */
+.editors { display: flex; flex-direction: column; gap: var(--s-4); }
+.saved { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: var(--s-4); }
+.saved__card { grid-column: var(--cols, 3); }
 .pcol { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; }
 /* The grower of a column takes its spare height (Mode and RT split it); each puts it in a named region, never a blank tail. */
 .pcol > .grow { flex: 1 1 auto; }
