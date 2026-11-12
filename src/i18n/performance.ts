@@ -46,6 +46,7 @@ export const performanceVi = {
   'sw.apply': 'Áp dụng cho {n} phím',
   'sw.applyBare': 'Áp dụng',
   'sw.applied': 'Đã đổi {n} phím sang {name}.',
+  'sw.appliedUncal': 'Đã đổi {n} phím sang {name}. Cần hiệu chuẩn lại trước khi dùng.',
   'perf.scopeAll': 'Đang chỉnh: tất cả {n} phím',
   'perf.scopeAllHint': 'chọn phím để chỉnh riêng',
   'perf.scopeSel': 'Đang chỉnh: {n} phím',
@@ -70,6 +71,7 @@ export const performanceVi = {
   'perf.presetFull': 'Đã có {n} mẫu riêng. Xoá bớt một mẫu để lưu thêm.',
   'perf.presetDelete': 'Xoá mẫu {name}',
   'perf.presetSaved': 'Đã lưu mẫu “{name}” trên máy này.',
+  'perf.presetSavedFull': 'Đã lưu mẫu “{name}” trên máy này. Đã đủ tối đa {n} mẫu.',
   'perf.presetUserMeta': '{mode} · {act} mm',
   'perf.presetUserTitle': 'Mẫu riêng · {mode} · {act} mm · chỉ ghi vào phím khi bấm',
 } as const;

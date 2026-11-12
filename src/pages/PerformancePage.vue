@@ -10,7 +10,7 @@ export function deriveRtLinked(recs: PerformanceRec[], isRt: (mode: number) => b
 <script setup lang="ts">
 // Hành trình — reference implementation of the per-key page pattern (docs/ARCHITECTURE.md), laid out as a workbench:
 // toolbar → keyboard → scope bar → the editor cards. With nothing selected the editors work on every key.
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { IconAlertTriangle, IconFlask, IconLink, IconLinkOff, IconLock, IconRefresh, IconX } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
@@ -38,7 +38,7 @@ import type { UserPreset } from '../stores/userPresets';
 import { releasePoint, settingsFrom } from '../stores/live';
 import { isRtMode, supportsIntervalRt } from '../protocol';
 import type { Performance, PerfMode, PhysicalKey } from '../protocol';
-import { useToast } from '../components/ui/toast';
+import { toastSafeTarget, useToast } from '../components/ui/toast';
 import { t } from '../i18n/vi';
 import type { MessageKey } from '../i18n/vi';
 import type { SubLine } from '../components/keyboard/Keycap.vue';
@@ -511,7 +511,32 @@ function confirmSave() {
   // Stored in this browser only: nothing goes to the keyboard.
   const saved = userPresets.add(name, saveValues.value);
   saveOpen.value = false;
-  if (saved) toast.show(t('perf.presetSaved', { name: saved.name }), 'success');
+  if (!saved) return;
+  const full = userPresets.presets.length === USER_PRESET_MAX;
+  toast.show(full ? t('perf.presetSavedFull', { name: saved.name, n: USER_PRESET_MAX }) : t('perf.presetSaved', { name: saved.name }), 'success');
+  void showSaveResult(saved.id);
+}
+const saveFoot = ref<HTMLElement | null>(null);
+/** After a save: focus (the Dialog restores it to the opener first; a disabled opener loses it) and scroll the card footer above the toast. */
+async function showSaveResult(id: string) {
+  await nextTick(); // the Dialog's own focus restore has run, and the save button reflects 6/6
+  const footer = saveFoot.value;
+  const btn = footer?.querySelector<HTMLButtonElement>('button');
+  const target = btn && !btn.disabled ? btn : document.querySelector<HTMLElement>(`.preset[data-preset="${id}"]`);
+  target?.focus({ preventScroll: true });
+  if (toastSafeTarget.value <= 0) {
+    // The toast host publishes its height after a ResizeObserver; do not wait for ever when there is none.
+    await new Promise<void>((resolve) => {
+      const stop = watch(toastSafeTarget, (v) => { if (v > 0) done(); });
+      const timer = setTimeout(done, 500);
+      function done() { stop(); clearTimeout(timer); resolve(); }
+    });
+  }
+  if (typeof requestAnimationFrame === 'function') await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  const el = footer?.querySelector<HTMLElement>('#perf-save-why') ?? btn;
+  if (!el || typeof el.scrollIntoView !== 'function') return;
+  const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  el.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
 }
 
 function tryNow() {
@@ -801,7 +826,7 @@ const modeOptions = computed(() => [
               </button>
             </div>
           </div>
-          <div class="presets__save">
+          <div ref="saveFoot" class="presets__save">
             <Button variant="secondary" size="sm" :disabled="!!saveBlocked" :aria-describedby="saveBlocked ? 'perf-save-why' : undefined" @click="openSave">
               {{ t('perf.presetSaveCurrent') }}
             </Button>

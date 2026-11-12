@@ -48,6 +48,7 @@ export const performanceEn: Record<keyof typeof performanceVi, string> = {
   'sw.apply': 'Apply to {n|# key|# keys}',
   'sw.applyBare': 'Apply',
   'sw.applied': 'Changed {n|# key|# keys} to {name}.',
+  'sw.appliedUncal': 'Changed {n|# key|# keys} to {name}. Recalibrate before use.',
   'perf.scopeAll': 'Editing: all {n} keys',
   'perf.scopeAllHint': 'select keys to edit them alone',
   'perf.scopeSel': 'Editing: {n|# key|# keys}',
@@ -72,6 +73,7 @@ export const performanceEn: Record<keyof typeof performanceVi, string> = {
   'perf.presetFull': '{n|# own preset is|# own presets are} saved already. Delete one to save another.',
   'perf.presetDelete': 'Delete preset {name}',
   'perf.presetSaved': 'Saved preset “{name}” on this computer.',
+  'perf.presetSavedFull': 'Saved preset “{name}” on this computer. You now have the maximum of {n}.',
   'perf.presetUserMeta': '{mode} · {act} mm',
   'perf.presetUserTitle': 'Own preset · {mode} · {act} mm · written to the keyboard only when you click it',
 };

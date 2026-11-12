@@ -57,7 +57,7 @@ onBeforeUnmount(() => {
     <main class="main">
       <template v-if="device.connected || usbRestarting">
         <TopBar />
-        <div ref="scroller" class="main__scroll" :style="{ paddingBottom: `${safePad}px` }">
+        <div ref="scroller" class="main__scroll" :style="{ paddingBottom: `${safePad}px`, scrollPaddingBottom: `${toastSafeTarget}px` }">
           <RouterView v-slot="{ Component, route }">
             <Transition name="page" mode="out-in">
               <component :is="Component" :key="route.path" />
