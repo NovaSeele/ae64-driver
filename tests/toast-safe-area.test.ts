@@ -85,9 +85,10 @@ describe('revealAboveToast', () => {
     toastSafeTarget.value = 98; // one toast open, the stack is about to grow
     const p = revealAboveToast(el);
     await vi.advanceTimersByTimeAsync(100);
+    expect(frames.length).toBe(0); // nothing queued before the publication
     flushFrame();
+    await vi.advanceTimersByTimeAsync(0);
     expect(scroll).not.toHaveBeenCalled();
-    expect(frames.length).toBe(0);
     toastSafeTarget.value = 169;
     publish();
     await vi.advanceTimersByTimeAsync(0);
