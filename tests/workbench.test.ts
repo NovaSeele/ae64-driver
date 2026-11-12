@@ -211,6 +211,97 @@ describe('W1: nothing selected means all keys', () => {
     expect(perf.values[id('W')].rtFirstTouch).toBe(1.2);
   });
 
+  it('P4: an all-keys edit, then a preset: the older toast does nothing, the preset toast undoes only the preset', async () => {
+    const { perf, history } = await setup([]);
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    await typeActuation('1.7');
+    const toastA = toasts().find((x) => x.text === t('perf.appliedAll', { n: 64 }))!;
+    now += 1000;
+    const afterA = snapshot(perf);
+    chipByText(t('perf.presetTyping')).click();
+    await flushPromises();
+    const afterB = snapshot(perf);
+    expect(afterB).not.toEqual(afterA);
+    const toastB = toasts().find((x) => x.action && x.id !== toastA.id)!;
+    expect(toastB).toBeDefined();
+    toastA.action!.run();
+    expect(snapshot(perf)).toEqual(afterB);
+    toastB.action!.run();
+    expect(snapshot(perf)).toEqual(afterA);
+    expect(history.canUndo).toBe(true);
+  });
+
+  it('P5: a preset, then an all-keys edit: the preset toast does nothing, the edit toast undoes only the edit', async () => {
+    const { perf, history } = await setup([]);
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const before = snapshot(perf);
+    chipByText(t('perf.presetTyping')).click();
+    await flushPromises();
+    const afterB = snapshot(perf);
+    const toastB = toasts().find((x) => x.action)!;
+    now += 1000;
+    await typeActuation('1.7');
+    const toastA = toasts().find((x) => x.text === t('perf.appliedAll', { n: 64 }))!;
+    const afterA = snapshot(perf);
+    expect(afterA).not.toEqual(afterB);
+    toastB.action!.run();
+    expect(snapshot(perf)).toEqual(afterA);
+    toastA.action!.run();
+    expect(snapshot(perf)).toEqual(afterB);
+    expect(history.canUndo).toBe(true);
+    history.undo();
+    expect(snapshot(perf)).toEqual(before);
+  });
+
+  it('repeated all-keys edits leave exactly one toast, and its Hoàn tác undoes the latest entry', async () => {
+    const { perf, history } = await setup([]);
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    await typeActuation('1.7');
+    const afterFirst = snapshot(perf);
+    now += 1000;
+    await typeActuation('1.8');
+    const same = toasts().filter((x) => x.text === t('perf.appliedAll', { n: 64 }));
+    expect(same).toHaveLength(1);
+    same[0].action!.run();
+    expect(snapshot(perf)).toEqual(afterFirst);
+    expect(history.canUndo).toBe(true);
+  });
+
+  const nudge = (selector: string, times = 6) => async () => {
+    for (let i = 0; i < times; i++) {
+      document.body.querySelector<HTMLInputElement>(selector)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+      await flushPromises();
+    }
+  };
+  const rtField = (label: string) => `.pcol--rt input[aria-label="${label}"]`;
+  const dzField = (label: string) => `.pcol--dead input[aria-label="${label}"]`;
+
+  it.each([
+    ['nf-rt-rtPress', rtField(t('perf.rtPress')), 'rtPress', false],
+    ['nf-rt-rtRelease', rtField(t('perf.rtRelease')), 'rtRelease', false],
+    ['nf-dz-pressDeadStroke', dzField(t('perf.deadTop')), 'pressDeadStroke', false],
+    ['nf-dz-releaseDeadStroke', dzField(t('perf.deadBottom')), 'releaseDeadStroke', false],
+    ['step-rt-rtPress', rtField(t('perf.rtPress')), 'rtPress', true],
+    ['step-rt-rtRelease', rtField(t('perf.rtRelease')), 'rtRelease', true],
+    ['step-dz-pressDeadStroke', dzField(t('perf.deadTop')), 'pressDeadStroke', true],
+    ['step-dz-releaseDeadStroke', dzField(t('perf.deadBottom')), 'releaseDeadStroke', true],
+  ] as const)('6 × ArrowUp in %s (all keys) is one history entry; one undo restores all 64 keys', async (_name, selector, field, mixed) => {
+    const { perf, history } = await setup([]);
+    if (mixed) {
+      perf.values = { ...perf.values, [id('W')]: { ...perf.values[id('W')], [field]: perf.values[id('W')][field] + 0.2 } };
+      await flushPromises();
+    }
+    const before = snapshot(perf);
+    await nudge(selector)();
+    expect(perf.values[id('A')][field]).toBeGreaterThan(before[id('A')][field]);
+    history.undo();
+    expect(snapshot(perf)).toEqual(before);
+    expect(history.canUndo).toBe(false);
+  });
+
   it('history ids: kept by coalescing, undo and redo; a new entry gets a new one', async () => {
     const history = useHistoryStore();
     const noop = () => {};
@@ -462,6 +553,11 @@ describe('W3: presets', () => {
     useUserPresetsStore().add('Giữ lại', userPreset());
     setActivePinia(createPinia());
     expect(useUserPresetsStore().presets.map((p) => p.name)).toEqual(['Giữ lại']);
+  });
+
+  it('the save chip has the accessible name perf.presetSaveLabel', async () => {
+    await setup([]);
+    expect(chipByText(t('perf.presetSave')).getAttribute('aria-label')).toBe(t('perf.presetSaveLabel'));
   });
 
   it('mixed values cannot be saved: the button is disabled with a reason', async () => {

@@ -259,16 +259,17 @@ const modeTip = computed(() =>
 );
 
 // ----- all-keys toast: "Đã áp dụng cho N phím · Hoàn tác". Hoàn tác is the history store's own undo (the same as Ctrl+Z).
-let lastId: number | null = null; // the history entry the toast offers to undo
 let gestureKeys = 0; // keys changed by the slider drag in progress (all-keys scope), announced when it ends
-function undoLast() {
-  // Another entry on top since (a newer edit): leave it to Ctrl+Z rather than undoing something the toast does not name.
-  if (history.undoId === lastId) history.undo();
+/** A toast action that undoes the history entry on top now, and only while it is still on top: with a newer entry
+ *  above it, leave that to Ctrl+Z rather than undoing something the toast does not name. */
+function undoAction() {
+  const id = history.undoId;
+  return { label: t('history.undo'), run: () => { if (history.undoId === id) history.undo(); } };
 }
 function announce(text: string, kind: 'success' | 'info' = 'success') {
-  lastId = history.undoId;
-  if (toast.items.value.some((x) => x.text === text)) return; // repeated steps keep one toast on screen
-  toast.show(text, kind, undefined, { label: t('history.undo'), run: undoLast });
+  // Repeated steps keep one toast on screen: replace the old one so its Hoàn tác carries the newest entry.
+  for (const x of toast.items.value.filter((x) => x.text === text)) toast.dismiss(x.id);
+  toast.show(text, kind, undefined, undoAction());
 }
 /** Every edit of the page: perf.apply, then the all-keys toast. Slider gestures announce when they end. */
 function edit(targets: number[], patch: (p: Performance) => Partial<PerfEdit>, what: string, coalesce?: string, gesture = false) {
@@ -343,8 +344,7 @@ function setDead(which: 'pressDeadStroke' | 'releaseDeadStroke', v: number, gest
 
 // ----- presets: apply to the current scope (one perf.apply = one history entry)
 function presetApplied(name: string, n: number) {
-  toast.show(t('perf.presetApplied', { name, n: ids.value.length }), 'success', undefined, n ? { label: t('history.undo'), run: undoLast } : undefined);
-  if (n) lastId = history.undoId;
+  toast.show(t('perf.presetApplied', { name, n: ids.value.length }), 'success', undefined, n ? undoAction() : undefined);
 }
 function applyPreset(id: (typeof PRESETS)[number]['id']) {
   const preset = PRESETS.find((p) => p.id === id)!;
