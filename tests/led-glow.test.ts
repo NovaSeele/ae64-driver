@@ -54,6 +54,40 @@ describe('Keycap glow style', () => {
   });
 });
 
+describe('Keycap glow CSS', () => {
+  const src = readFileSync(resolve('src/components/keyboard/Keycap.vue'), 'utf8');
+  const css = src.slice(src.indexOf('<style')).replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim().replace(/\s+/g, ' '), body: m[2] }));
+  const rule = (sel: string) => rules.filter((r) => r.sel === sel).map((r) => r.body).join(';');
+
+  it('the inner glow at the foot is at most 30 % so the ● badge keeps ≥ 3:1 with a white LED', () => {
+    // Source of the ceiling: review A pixel measurement on r98 (dot vs. the face 2–3 px away, LED #ffffff, level 1):
+    // 55 % gave 2.67–2.76 on the 9 dark themes, 30 % gives 3.46–3.54 (light themes ≥ 14.5).
+    const inner = /--led-inner:\s*inset[^;]*color-mix\(in srgb, var\(--led\) calc\((\d+(?:\.\d+)?)% \* var\(--lv\)\), transparent\)/.exec(rule('.cap.cap--glow'));
+    expect(inner).not.toBeNull();
+    expect(Number(inner![1])).toBeLessThanOrEqual(30);
+  });
+
+  it('the badge on a glowing key is --fg-1', () => {
+    expect(rule('.cap.cap--glow .cap__badge')).toMatch(/color:\s*var\(--fg-1\)/);
+  });
+
+  it('a glowing face has no transition (10 Hz live colours would keep 64 fades running)', () => {
+    expect(rule('.cap.cap--glow .cap__face')).toMatch(/transition:\s*none/);
+    for (const r of rules.filter((x) => x.sel.includes('cap--glow'))) {
+      expect(r.body, r.sel).not.toMatch(/transition[^;]*(background|box-shadow|all)/);
+    }
+  });
+
+  it('the bar style keeps the foot padding of ledHeight without a colour (an uncoloured key lines up with a coloured one)', () => {
+    const face = (props: Record<string, unknown>) => (mount(Keycap, { props: { legend: 'A', ...props } }).find('.cap__face').element as HTMLElement).style.paddingBottom;
+    expect(face({ ledHeight: 3 })).toBe('8px');
+    expect(face({ ledHeight: 3, color: '#ff0000' })).toBe('8px');
+    expect(face({ ledHeight: 3, ledStyle: 'glow', glow: { led: '#ff0000', level: 1 } })).toBe('');
+    expect(face({})).toBe('');
+  });
+});
+
 describe('KeyboardView glow', () => {
   const keys = PHYSICAL_KEYS.slice(0, 3);
   beforeEach(() => {
@@ -348,4 +382,21 @@ describe('Lighting page: glow keys and edge band', () => {
     expect(color(3)).toBe('color-mix(in srgb, #ff8000 100%, transparent)');
     expect(color(4)).not.toContain('color-mix');
   });
+
+  for (const how of ['the new profile is not loaded yet', 'the lighting is being read'] as const) {
+    it(`while ${how}, the old colours do not glow: no band, no lit dot, no glowing key`, async () => {
+      const { lighting } = await mountPage('max');
+      lighting.livePreview = true;
+      lighting.liveColors = Object.fromEntries(PHYSICAL_KEYS.map((k) => [k.id, '#ff0000']));
+      lighting.liveStripColors = Array.from({ length: 38 }, () => '#00ff00');
+      await flushPromises();
+      expect(bands()).toHaveLength(4);
+      if (how === 'the new profile is not loaded yet') lighting.loadedProfile = null; // as after switching profile
+      else lighting.loading = true;
+      await flushPromises();
+      expect(bands()).toHaveLength(0);
+      expect(page!.findAll('.cap--glow')).toHaveLength(0);
+      for (const l of page!.findAll('.led')) expect((l.element as HTMLElement).style.getPropertyValue('--led-color')).toBe('var(--bg-3)'); // not the old green
+    });
+  }
 });

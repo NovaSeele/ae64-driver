@@ -58,7 +58,7 @@ const capStyle = computed(() => {
     :class="{ 'cap--sel': selected, 'cap--pressed': state === 'pressed', 'cap--flash': flashing, 'cap--flag': flagged, 'cap--glow': glowing }"
     :style="capStyle"
   >
-    <span class="cap__face" :style="bar && ledHeight ? { paddingBottom: `${ledHeight + 5}px` } : undefined">
+    <span class="cap__face" :style="ledStyle !== 'glow' && ledHeight ? { paddingBottom: `${ledHeight + 5}px` } : undefined">
       <span v-if="fill !== undefined" class="cap__fill" :style="{ transform: `scaleY(${Math.min(1, Math.max(0, fill))})` }" />
       <span v-if="bar" class="cap__led" :style="{ background: bar, boxShadow: `0 0 10px ${bar}`, height: ledHeight ? `${ledHeight}px` : undefined }" />
       <span v-if="$slots.default" class="cap__extra" :style="bar && ledHeight ? { bottom: `${ledHeight + 6}px` } : undefined"><slot /></span>
@@ -197,7 +197,9 @@ const capStyle = computed(() => {
   --led-top: calc(var(--led-tint-top) * var(--lv));
   --led-bottom: calc(var(--led-tint-bottom) * var(--lv));
   --led-edge: color-mix(in srgb, var(--led) calc(65% * var(--lv)), transparent);
-  --led-inner: inset 0 -10px 18px -6px color-mix(in srgb, var(--led) calc(55% * var(--lv)), transparent);
+  /* 30 %, not more: the ● badge at the foot sits in this inner glow and needs >= 3:1 with a white LED (measured on
+     r98: 55 % gave 2.67-2.76 on the dark themes, 30 % gives 3.46-3.54) */
+  --led-inner: inset 0 -10px 18px -6px color-mix(in srgb, var(--led) calc(30% * var(--lv)), transparent);
   --led-halo: 0 0 12px -2px color-mix(in srgb, var(--led) calc(50% * var(--lv)), transparent);
 }
 .cap.cap--glow .cap__face {
@@ -206,7 +208,9 @@ const capStyle = computed(() => {
     color-mix(in srgb, var(--led) var(--led-bottom), var(--cap-bottom)));
   border-color: var(--led-edge);
   box-shadow: var(--led-inner), var(--led-halo);
-  transition: background 100ms linear, border-color 100ms linear, box-shadow 100ms linear;
+  /* No transition: live preview repaints at 10 Hz, so a 100 ms fade on 64 keys never settles and becomes a running
+     animation (27 frames over 33 ms in 6 s at 4x CPU). Colours step with the data, like the firmware. */
+  transition: none;
 }
 .cap.cap--glow:hover .cap__face {
   background: linear-gradient(180deg,
@@ -222,7 +226,6 @@ const capStyle = computed(() => {
 /* A dropped write still flashes in the danger colour over the glow. */
 .cap.cap--flash.cap--glow .cap__face { border-color: var(--danger); box-shadow: 0 0 0 2px var(--danger); }
 .cap.cap--glow .cap__badge { color: var(--fg-1); }
-@media (prefers-reduced-motion: reduce) { .cap.cap--glow .cap__face { transition: none; } }
 .cap__extra :deep(.swatch) { width: 20px; height: 20px; }
 .cap__sub--skeleton { width: 60%; height: 9px; }
 
