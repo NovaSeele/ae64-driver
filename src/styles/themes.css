@@ -22,6 +22,9 @@
   --on-acc: #140f33;
   --sel: #8b80ff;
   --soft-pct: 14%;
+  /* LED glow tint (Lighting): legend contrast stays >= 4.5 with a white LED, see tests/led-glow.test.ts */
+  --led-tint-top: 11%;
+  --led-tint-bottom: 27%;
   --sel-pct: 35%;
   --m-press: #6ed4b3;
   --m-release: #ecd478;
@@ -82,6 +85,9 @@
   --on-acc: #ffffff;
   --sel: #8b80ff;
   --soft-pct: 10%;
+  /* LED glow tint (Lighting): legend contrast stays >= 4.5 with a white LED, see tests/led-glow.test.ts */
+  --led-tint-top: 22%;
+  --led-tint-bottom: 38%;
   --sel-pct: 18%;
   --m-press: #29776f;
   --m-release: #886523;
@@ -142,6 +148,9 @@
   --on-acc: #140f33;
   --sel: #8b80ff;
   --soft-pct: 14%;
+  /* LED glow tint (Lighting): legend contrast stays >= 4.5 with a white LED, see tests/led-glow.test.ts */
+  --led-tint-top: 13%;
+  --led-tint-bottom: 29%;
   --sel-pct: 35%;
   --m-press: #2cdcaf;
   --m-release: #f5d240;
@@ -202,6 +211,9 @@
   --on-acc: #ffffff;
   --sel: #8b80ff;
   --soft-pct: 10%;
+  /* LED glow tint (Lighting): legend contrast stays >= 4.5 with a white LED, see tests/led-glow.test.ts */
+  --led-tint-top: 22%;
+  --led-tint-bottom: 38%;
   --sel-pct: 18%;
   --m-press: #087970;
   --m-release: #8e6503;
@@ -262,6 +274,9 @@
   --on-acc: #211a05;
   --sel: #ad903f;
   --soft-pct: 14%;
+  /* LED glow tint (Lighting): legend contrast stays >= 4.5 with a white LED, see tests/led-glow.test.ts */
+  --led-tint-top: 11%;
+  --led-tint-bottom: 27%;
   --sel-pct: 35%;
   --m-press: #05ebf5;
   --m-release: #ff9678;
@@ -322,6 +337,9 @@
   --on-acc: #1f0a03;
   --sel: #ff6a3d;
   --soft-pct: 14%;
+  /* LED glow tint (Lighting): legend contrast stays >= 4.5 with a white LED, see tests/led-glow.test.ts */
+  --led-tint-top: 15%;
+  --led-tint-bottom: 31%;
   --sel-pct: 35%;
   --m-press: #05ebf5;
   --m-release: #f5d240;
@@ -382,6 +400,9 @@
   --on-acc: #230b02;
   --sel: #ff7a45;
   --soft-pct: 14%;
+  /* LED glow tint (Lighting): legend contrast stays >= 4.5 with a white LED, see tests/led-glow.test.ts */
+  --led-tint-top: 16%;
+  --led-tint-bottom: 32%;
   --sel-pct: 35%;
   --m-press: #05ebf5;
   --m-release: #f5d240;
@@ -442,6 +463,9 @@
   --on-acc: #0b2a1d;
   --sel: #61a182;
   --soft-pct: 14%;
+  /* LED glow tint (Lighting): legend contrast stays >= 4.5 with a white LED, see tests/led-glow.test.ts */
+  --led-tint-top: 6%;
+  --led-tint-bottom: 22%;
   --sel-pct: 35%;
   --m-press: #8cc3fc;
   --m-release: #f5d240;
@@ -502,6 +526,9 @@
   --on-acc: #1f2530;
   --sel: #78afbc;
   --soft-pct: 14%;
+  /* LED glow tint (Lighting): legend contrast stays >= 4.5 with a white LED, see tests/led-glow.test.ts */
+  --led-tint-top: 5%;
+  --led-tint-bottom: 21%;
   --sel-pct: 35%;
   --m-press: #ccb1fe;
   --m-release: #f5d240;
@@ -562,6 +589,9 @@
   --on-acc: #1c1230;
   --sel: #b595e1;
   --soft-pct: 14%;
+  /* LED glow tint (Lighting): legend contrast stays >= 4.5 with a white LED, see tests/led-glow.test.ts */
+  --led-tint-top: 10%;
+  --led-tint-bottom: 26%;
   --sel-pct: 35%;
   --m-press: #2cdcaf;
   --m-release: #f5d240;
@@ -622,6 +652,9 @@
   --on-acc: #2b1418;
   --sel: #be8e96;
   --soft-pct: 14%;
+  /* LED glow tint (Lighting): legend contrast stays >= 4.5 with a white LED, see tests/led-glow.test.ts */
+  --led-tint-top: 12%;
+  --led-tint-bottom: 28%;
   --sel-pct: 35%;
   --m-press: #8cc3fc;
   --m-release: #f5d240;

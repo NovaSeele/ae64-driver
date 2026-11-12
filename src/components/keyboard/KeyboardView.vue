@@ -6,6 +6,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { Component } from 'vue';
 import Keycap from './Keycap.vue';
 import type { SubLine } from './Keycap.vue';
+import type { LedGlow } from '../../ledGlow';
 import { layoutBounds } from '../../protocol';
 import type { PhysicalKey } from '../../protocol';
 import { useDeviceStore } from '../../stores/device';
@@ -28,6 +29,10 @@ const props = defineProps<{
   color?: (key: PhysicalKey) => string | undefined;
   /** LED bar height in px for every key (Keycap default 2). */
   ledHeight?: number;
+  /** 'glow' lights the whole key from `glow` instead of drawing the `color` bar (Lighting only). */
+  ledStyle?: 'bar' | 'glow';
+  /** Glow style: a key's lit LED (`led` is any CSS colour at full brightness, `level` 0..1); undefined = off. */
+  glow?: (key: PhysicalKey) => LedGlow | undefined;
   /** Status text appended to a key's accessible name (e.g. when the state is shown only by colour). */
   status?: (key: PhysicalKey) => string | undefined;
   /** CSS colour (e.g. 'var(--k-dks)') for a key's values; sets --metric on the keycap. */
@@ -241,6 +246,8 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
           :fill="fill?.(k)"
           :color="color?.(k)"
           :led-height="ledHeight"
+          :led-style="ledStyle"
+          :glow="ledStyle === 'glow' ? glow?.(k) : undefined"
           :tone="tone?.(k)"
           :state="state?.(k)"
           :selected="selectable && isSelected(k.id)"
@@ -289,6 +296,17 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
 .kb--selectable .kb__key { cursor: pointer; }
 .kb__key:focus-visible { box-shadow: none; }
 .kb__key:focus-visible :deep(.cap__face) { box-shadow: 0 0 0 2px var(--acc-line); }
+/* A glowing key keeps its glow under focus and gets an outer dashed --fg-1 outline, so focus never reads as the
+   selection ring (solid --acc) or a glow edge; 5px out when the key is also selected (DESIGN A §5). Glow only. */
+.kb__key:focus-visible :deep(.cap.cap--glow .cap__face) {
+  box-shadow: var(--led-inner), var(--led-halo);
+  outline: 2px dashed var(--fg-1);
+  outline-offset: 3px;
+}
+.kb__key:focus-visible :deep(.cap.cap--sel.cap--glow .cap__face) {
+  box-shadow: 0 0 0 1px var(--bg-1), 0 0 0 3px var(--acc), var(--led-inner);
+  outline-offset: 5px;
+}
 .kb__key:active :deep(.cap) { transform: translateY(1px); }
 .kb__box {
   position: absolute;

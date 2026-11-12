@@ -20,6 +20,8 @@ import { useSelectionStore } from '../stores/selection';
 import { useSyncStore } from '../stores/sync';
 import { hexToRgb, rgbToHex, useLightingStore } from '../stores/lighting';
 import { inkFor } from '../colorInk';
+import { bandGradient, ledGlow } from '../ledGlow';
+import type { LedGlow, RingSide } from '../ledGlow';
 import { LED_MATRIX_COLS, LED_STRIP_COUNT, STRIP_ORDER, STRIP_SIDES } from '../protocol';
 import type { PhysicalKey } from '../protocol';
 import { stripRing } from '../protocol/ledLayout';
@@ -134,6 +136,11 @@ function keyColor(key: PhysicalKey): string | undefined {
   return pal ? rgbToHex(pal) : undefined;
 }
 
+/** The key lit as a whole (glow style): the LED colour at full brightness and its level; undefined = off. */
+function keyGlow(key: PhysicalKey): LedGlow | undefined {
+  return ledGlow(keyColor(key));
+}
+
 /** Marks keys that carry their own colour (the LED line alone is easy to miss). */
 function keyBadge(key: PhysicalKey): string | undefined {
   return ready.value && lighting.keyCustomColors[key.id]?.custom ? '●' : undefined;
@@ -163,15 +170,25 @@ const SIDE_KEY = {
 
 const ringLeds = computed(() => stripRing().map(({ index, side, t: pos }) => {
   const label = t('lighting.ledLabel', { n: index, side: t(SIDE_KEY[side]) });
+  const color = stripColor(index);
+  const glow = ready.value ? ledGlow(color) : undefined;
   return {
     index,
     side,
     pos,
     label,
-    color: stripColor(index),
+    glow,
+    // the dot carries the normalised colour, never darker than 35 % cover, so a dim LED is a pale dot and not a black one
+    color: glow ? `color-mix(in srgb, ${glow.led} ${Math.max(35, Math.round(glow.level * 1000) / 10)}%, transparent)` : color,
     isSel: activeTab.value === 'strip' && stripSelection.value.has(index), // the display-only ring on the keys tab draws no selection
     custom: ready.value && lighting.stripCustomColors[index]?.custom,
   };
+}));
+
+/** One blurred band per side through that side's LED colours; a side with no lit LED has none (DESIGN A §3.3). */
+const ringBands = computed(() => (['top', 'right', 'bottom', 'left'] as RingSide[]).flatMap((side) => {
+  const bg = bandGradient(side, ringLeds.value.filter((l) => l.side === side).map((l) => ({ pos: l.pos, glow: l.glow })));
+  return bg ? [{ side, bg }] : [];
 }));
 
 const ringEl = ref<HTMLElement | null>(null);
@@ -449,19 +466,21 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
         <KeyboardView
           :keys="device.keys"
           :legend="device.legend"
-          :color="keyColor"
+          led-style="glow"
+          :glow="keyGlow"
           :badge="keyBadge"
           :selectable="activeTab === 'keys'"
           :loading="!ready"
         />
         <div
           ref="ringEl"
-          class="ring"
+          class="ring ring--band"
           :class="{ 'ring--on': activeTab === 'strip' && ready }"
           role="group"
           :aria-label="t('lighting.ringLabel')"
           :aria-hidden="activeTab === 'strip' ? undefined : true"
         >
+          <span v-for="band in ringBands" :key="band.side" class="ring__band" :class="`ring__band--${band.side}`" :style="{ '--band': band.bg }" aria-hidden="true" />
           <button
             v-for="led in ringLeds"
             :key="led.index"
@@ -849,6 +868,19 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 @media (prefers-reduced-motion: reduce) {
   .led__dot, .led__glow { transition: none; }
 }
+
+/* Continuous band: one blurred strip per side under the LED buttons, centred on the frame line. The dots shrink once the
+   band carries the colour; they stay to click and to show where each of the 38 LEDs is. */
+.ring__band { position: absolute; pointer-events: none; background: var(--band); filter: blur(6px); opacity: 0.55; border-radius: 999px; }
+.ring__band--top, .ring__band--bottom { left: var(--inset); right: var(--inset); height: 10px; }
+.ring__band--top { top: -5px; }
+.ring__band--bottom { top: calc(100% - 5px); }
+.ring__band--left, .ring__band--right { top: var(--inset); bottom: var(--inset); width: 10px; }
+.ring__band--left { left: -5px; }
+.ring__band--right { left: calc(100% - 5px); }
+.ring--band .led__glow { display: none; }
+.ring--band .led__dot { width: 7px; height: 7px; }
+.ring--band.ring--on .led__dot { width: 8px; height: 8px; }
 
 /* Strip selection bar: the same row as the keys' SelectionBar. */
 .sb { display: flex; align-items: center; gap: var(--s-4); min-height: 36px; }

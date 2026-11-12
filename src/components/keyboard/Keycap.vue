@@ -5,9 +5,10 @@ export type SubLine = { text: string; tone?: string };
 
 <script setup lang="ts">
 // One CSS keycap. Geometry is set by KeyboardView; this renders legend, value line, fill, LED colour and state.
-import type { Component } from 'vue';
+import { computed, type Component } from 'vue';
+import type { LedGlow } from '../../ledGlow';
 
-defineProps<{
+const props = defineProps<{
   legend: string;
   /** A string, or several lines each with an optional colour. */
   sublabel?: string | SubLine[];
@@ -25,6 +26,10 @@ defineProps<{
   color?: string;
   /** LED bar height in px (default 2). A thicker bar also raises the value line so the bar never covers it. */
   ledHeight?: number;
+  /** How the LED is drawn: a bar at the foot ('bar', default, uses `color`) or the whole key lit ('glow', uses `glow`). */
+  ledStyle?: 'bar' | 'glow';
+  /** Glow style only: the lit LED; undefined = off, the key looks normal. */
+  glow?: LedGlow;
   state?: 'pressed';
   selected?: boolean;
   /** Briefly outlined in the danger colour (a write for this key was dropped). */
@@ -33,18 +38,30 @@ defineProps<{
   /** Dashed warn inset outline (e.g. a key that is not calibrated); drawn together with the selection outline. */
   flagged?: boolean;
 }>();
+
+const glowing = computed(() => props.ledStyle === 'glow' && !!props.glow);
+const bar = computed(() => (props.ledStyle === 'glow' ? undefined : props.color));
+const capStyle = computed(() => {
+  const st: Record<string, string> = {};
+  if (props.tone) st['--metric'] = props.tone;
+  if (glowing.value) {
+    st['--led'] = props.glow!.led;
+    st['--led-level'] = String(props.glow!.level);
+  }
+  return Object.keys(st).length ? st : undefined;
+});
 </script>
 
 <template>
   <span
     class="cap"
-    :class="{ 'cap--sel': selected, 'cap--pressed': state === 'pressed', 'cap--flash': flashing, 'cap--flag': flagged }"
-    :style="tone ? { '--metric': tone } : undefined"
+    :class="{ 'cap--sel': selected, 'cap--pressed': state === 'pressed', 'cap--flash': flashing, 'cap--flag': flagged, 'cap--glow': glowing }"
+    :style="capStyle"
   >
-    <span class="cap__face" :style="ledHeight ? { paddingBottom: `${ledHeight + 5}px` } : undefined">
+    <span class="cap__face" :style="bar && ledHeight ? { paddingBottom: `${ledHeight + 5}px` } : undefined">
       <span v-if="fill !== undefined" class="cap__fill" :style="{ transform: `scaleY(${Math.min(1, Math.max(0, fill))})` }" />
-      <span v-if="color" class="cap__led" :style="{ background: color, boxShadow: `0 0 10px ${color}`, height: ledHeight ? `${ledHeight}px` : undefined }" />
-      <span v-if="$slots.default" class="cap__extra" :style="color && ledHeight ? { bottom: `${ledHeight + 6}px` } : undefined"><slot /></span>
+      <span v-if="bar" class="cap__led" :style="{ background: bar, boxShadow: `0 0 10px ${bar}`, height: ledHeight ? `${ledHeight}px` : undefined }" />
+      <span v-if="$slots.default" class="cap__extra" :style="bar && ledHeight ? { bottom: `${ledHeight + 6}px` } : undefined"><slot /></span>
       <span class="cap__legend">{{ legend }}</span>
       <span v-if="loading" class="cap__sub cap__sub--skeleton skeleton" />
       <span v-else-if="sublabel !== undefined || badge || badgeIcon" class="cap__foot">
@@ -170,6 +187,42 @@ defineProps<{
   opacity: 1;
 }
 .cap__extra { position: absolute; right: 5px; bottom: 5px; line-height: 0; pointer-events: none; }
+
+/* Glow style (Lighting, DESIGN A §3.1): the LED tints the whole key, strongest at the foot where the LED sits, with a
+   coloured edge, a brighter inner bottom edge and a 12px halo. --led is the colour at full brightness and --led-level its
+   brightness, so a dim LED tints less instead of greying the key. --led-tint-top/bottom are per theme (themes.css), kept
+   under the legend-contrast ceiling for a white LED. */
+.cap.cap--glow {
+  --lv: var(--led-level, 1);
+  --led-top: calc(var(--led-tint-top) * var(--lv));
+  --led-bottom: calc(var(--led-tint-bottom) * var(--lv));
+  --led-edge: color-mix(in srgb, var(--led) calc(65% * var(--lv)), transparent);
+  --led-inner: inset 0 -10px 18px -6px color-mix(in srgb, var(--led) calc(55% * var(--lv)), transparent);
+  --led-halo: 0 0 12px -2px color-mix(in srgb, var(--led) calc(50% * var(--lv)), transparent);
+}
+.cap.cap--glow .cap__face {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--led) var(--led-top), var(--cap-top)),
+    color-mix(in srgb, var(--led) var(--led-bottom), var(--cap-bottom)));
+  border-color: var(--led-edge);
+  box-shadow: var(--led-inner), var(--led-halo);
+  transition: background 100ms linear, border-color 100ms linear, box-shadow 100ms linear;
+}
+.cap.cap--glow:hover .cap__face {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--led) var(--led-top), var(--cap-hover-top)),
+    color-mix(in srgb, var(--led) var(--led-bottom), var(--cap-hover-bottom)));
+  border-color: color-mix(in srgb, var(--led) calc(80% * var(--lv)), var(--line-2));
+}
+/* Selected: 1px --bg-1 gap and a 2px --acc ring outside the glow; the tint stays. */
+.cap.cap--sel.cap--glow .cap__face {
+  border-color: var(--led-edge);
+  box-shadow: 0 0 0 1px var(--bg-1), 0 0 0 3px var(--acc), var(--led-inner), var(--led-halo);
+}
+/* A dropped write still flashes in the danger colour over the glow. */
+.cap.cap--flash.cap--glow .cap__face { border-color: var(--danger); box-shadow: 0 0 0 2px var(--danger); }
+.cap.cap--glow .cap__badge { color: var(--fg-1); }
+@media (prefers-reduced-motion: reduce) { .cap.cap--glow .cap__face { transition: none; } }
 .cap__extra :deep(.swatch) { width: 20px; height: 20px; }
 .cap__sub--skeleton { width: 60%; height: 9px; }
 
