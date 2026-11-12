@@ -172,6 +172,12 @@ const highlighted = computed(() => new Set(sel.ids.map((id) => adv.byKey.get(id)
 
 /** One key picked, no editor, and the key has no advanced key yet: offer to add one for it. */
 const addFor = computed(() => (sel.ids.length === 1 && !draft.value && !adv.byKey.get(sel.ids[0]) ? sel.ids[0] : null));
+/** Whether the key can host the type: the same check the editor applies (SOCD and RS take any key). */
+function hostOk(type: WritableType, id: number): boolean {
+  if (type === 'DKS') return dksHostEligible(device.layer0[id]);
+  if (type === 'MPT') return mptHostEligible(device.layer0[id]);
+  return true;
+}
 // A picked key that already has an entry: bring that entry into view (no focus change).
 watch(() => [sel.ids.length === 1 ? adv.byKey.get(sel.ids[0]) : undefined, !!draft.value] as const, ([a, open]) => {
   if (!a || open) return;
@@ -224,8 +230,7 @@ function start(type: WritableType, opts?: { fromKey?: boolean }) {
     else if (picked.length > 1) toast.show(t('advanced.multiPicked'), 'warn');
   } else if (opts?.fromKey && picked.length === 1) {
     if (!taken(picked[0])) {
-      chooseKey(picked[0]);
-      if (draft.value && draft.value.keys[0] >= 0) pairSlot.value = 1; // the key is slot A; the next pick is B
+      chooseKey(picked[0]); // the key is slot A; picking it moves the pair picker to B
     }
   } else if (picked.length === 2) {
     if (!picked.some(taken)) {
@@ -475,13 +480,13 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
       </Card>
 
       <Card :title="t('advanced.configured')" :subtitle="adv.assignments.length ? t('advanced.configuredCount', { n: adv.assignments.length }) : undefined">
-        <div class="cfg">
         <div v-if="addFor !== null" class="addkey">
           <p class="addkey__text">{{ t('advanced.addForKey', { key: keyName(addFor) }) }}</p>
           <div class="addkey__btns">
-            <button v-for="x in TYPES" :key="x.type" type="button" class="chip" :data-add="x.type" :style="kindStyle(x.type)" :aria-label="t('advanced.addTypeForKey', { type: t(`advanced.short${x.type}`), key: keyName(addFor) })" @click="start(x.type, { fromKey: true })">+ {{ t(`advanced.short${x.type}`) }}</button>
+            <button v-for="x in TYPES" :key="x.type" type="button" class="chip" :data-add="x.type" :style="kindStyle(x.type)" :disabled="!hostOk(x.type, addFor)" :title="hostOk(x.type, addFor) ? undefined : t('advanced.hostIneligible', { type: t(`advanced.type${x.type}`) })" :aria-label="t('advanced.addTypeForKey', { type: t(`advanced.short${x.type}`), key: keyName(addFor) })" @click="start(x.type, { fromKey: true })">+ {{ t(`advanced.short${x.type}`) }}</button>
           </div>
         </div>
+        <div class="cfg">
         <div v-if="!adv.assignments.length" class="empty">
           <IconTimeline :size="28" stroke-width="1.4" aria-hidden="true" />
           <p>{{ t('advanced.none') }}</p>
@@ -586,6 +591,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
 
 /* add for the picked key */
 .addkey { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-2); padding: 8px 12px; border-radius: var(--r-control); border: 1px dashed var(--line-2); }
+.addkey { flex: none; }
 .addkey__text { margin: 0; font-size: var(--fs-label); color: var(--fg-2); }
 .addkey__btns { display: flex; gap: 6px; }
 .chip {
@@ -597,7 +603,8 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
   font-size: var(--fs-caption);
   font-weight: 600;
 }
-.chip:hover { background: color-mix(in srgb, var(--k, var(--acc)) 26%, transparent); }
+.chip:disabled { opacity: 0.45; cursor: not-allowed; }
+.chip:hover:not(:disabled) { background: color-mix(in srgb, var(--k, var(--acc)) 26%, transparent); }
 
 /* configured list */
 .cfg { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }

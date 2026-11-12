@@ -74,8 +74,12 @@ describe('Advanced page: key-first entry', () => {
     await flushPromises();
     expect(w.find('.ed__title').text()).toContain('SOCD');
     expect(w.find('.ed__hint').text()).toContain(tr('advanced.pickPairB'));
-    const slots = w.findAll('[aria-pressed]').map((b) => b.text());
-    expect(slots.some((s) => s.includes('W'))).toBe(true);
+    const slots = w.findAll('.side__select');
+    expect(slots).toHaveLength(2);
+    expect(slots[0].attributes('aria-label')).toBe(`${tr('advanced.keyA')}: W`);
+    expect(slots[1].attributes('aria-label')).toBe(`${tr('advanced.keyB')}: ${tr('advanced.notChosen')}`);
+    expect(slots[0].attributes('aria-pressed')).toBe('false');
+    expect(slots[1].attributes('aria-pressed')).toBe('true');
     expect(writes).not.toHaveBeenCalled();
   });
 
@@ -85,6 +89,37 @@ describe('Advanced page: key-first entry', () => {
     await flushPromises();
     expect(w.find('.addkey').exists()).toBe(false);
     expect(w.find('.item').classes()).toContain('item--hl');
+  });
+
+  it('the panel stays outside the scrolling list box', async () => {
+    const { w, sel, id } = await page(0);
+    sel.selectMany([id('W')]);
+    await flushPromises();
+    const cfg = w.find('.cfg');
+    cfg.element.scrollTop = 9999;
+    await cfg.trigger('scroll');
+    sel.selectMany([id('S')]);
+    await flushPromises();
+    expect(w.find('.addkey').exists()).toBe(true);
+    expect(cfg.element.contains(w.find('.addkey').element)).toBe(false);
+    expect(w.find('.addkey').element.parentElement).toBe(cfg.element.parentElement);
+  });
+
+  it('Fn cannot host DKS or MPT: those chips are disabled with the reason, SOCD and RS stay on', async () => {
+    const { w, sel, id } = await page(0);
+    sel.selectMany([id('Fn')]);
+    await flushPromises();
+    const chip = (t: string) => w.find(`[data-add="${t}"]`);
+    expect(chip('DKS').attributes('disabled')).toBeDefined();
+    expect(chip('DKS').attributes('title')).toBe(tr('advanced.hostIneligible', { type: tr('advanced.typeDKS') }));
+    expect(chip('MPT').attributes('disabled')).toBeDefined();
+    expect(chip('MPT').attributes('title')).toBe(tr('advanced.hostIneligible', { type: tr('advanced.typeMPT') }));
+    expect(chip('SOCD').attributes('disabled')).toBeUndefined();
+    expect(chip('RS').attributes('disabled')).toBeUndefined();
+    sel.selectMany([id('W')]);
+    await flushPromises();
+    expect(chip('DKS').attributes('disabled')).toBeUndefined();
+    expect(chip('DKS').attributes('title')).toBeUndefined();
   });
 
   it('two keys selected: no panel', async () => {
