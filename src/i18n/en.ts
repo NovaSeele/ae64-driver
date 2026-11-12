@@ -133,7 +133,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'perf.presetTypingDesc': 'Standard · 2.0 mm · prevent accidental presses',
   'perf.presetGaming': 'Gaming',
   'perf.presetGamingDesc': 'Rapid Trigger · 1.0 mm · 0.3 / 0.3',
-  'perf.presetSensitive': 'Ultra sensitive',
+  'perf.presetSensitive': 'Sensitive',
   'perf.presetSensitiveDesc': 'Rapid Trigger · 0.3 mm · 0.1 / 0.1',
   'perf.presetApplied': 'Applied preset {name} to {n|# key|# keys}.',
   'perf.tryNow': 'Try now',

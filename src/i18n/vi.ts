@@ -107,7 +107,7 @@ export const base = {
   'perf.stdCycleHint': 'Standard dùng cùng một điểm: kích hoạt khi nhấn qua {a} mm, nhả khi phím lên lại qua {r} mm.',
   'perf.stdCycleRt': 'Rapid Trigger nhả ngay khi phím bắt đầu đi lên, nên bấm lại nhanh hơn. Đổi ở thẻ Chế độ.',
   'perf.rtTagTitle': 'Rapid Trigger · nhấn {press} mm · nhả {release} mm',
-  'perf.depthShading': 'Tô độ sâu kích hoạt',
+  'perf.depthShading': 'Tô độ sâu',
   'perf.depthShadingHint': 'Tô từ mặt phím xuống tới vạch kích hoạt: phần tô càng dài, phím càng phải nhấn sâu.',
   'perf.metricActuation': 'Actuation',
   'perf.metricRt': 'Rapid Trigger',

@@ -12,12 +12,13 @@ export function deriveRtLinked(recs: PerformanceRec[], isRt: (mode: number) => b
 // toolbar → keyboard → scope bar → one editor dock. With nothing selected the editors work on every key.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { IconAlertTriangle, IconFlask, IconLink, IconLinkOff, IconLock, IconRefresh, IconX } from '@tabler/icons-vue';
+import { IconAlertTriangle, IconBookmark, IconFlask, IconLink, IconLinkOff, IconLock, IconRefresh } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import SelectionBar from '../components/keyboard/SelectionBar.vue';
 import TravelEditor from '../components/performance/TravelEditor.vue';
 import StdCycleCard from '../components/performance/StdCycleCard.vue';
+import UserPresetMenu from '../components/performance/UserPresetMenu.vue';
 import InfoTip from '../components/ui/InfoTip.vue';
 import Card from '../components/ui/Card.vue';
 import Button from '../components/ui/Button.vue';
@@ -25,7 +26,7 @@ import Dialog from '../components/ui/Dialog.vue';
 import Segmented from '../components/ui/Segmented.vue';
 import Slider from '../components/ui/Slider.vue';
 import Switch from '../components/ui/Switch.vue';
-import NumberField from '../components/ui/NumberField.vue';
+import NumberField, { formatMm } from '../components/ui/NumberField.vue';
 import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
 import { useHistoryStore } from '../stores/history';
@@ -161,6 +162,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', onWindowResize);
   window.removeEventListener('keydown', onEscCapture, true);
   gridObserver?.disconnect();
+  dismissUndoToast();
 });
 
 const decimals = computed(() => (device.rtPrecision < 0.01 ? 3 : 2));
@@ -258,31 +260,40 @@ const modeTip = computed(() =>
   mode.value === null ? t('perf.modeMixed') : mode.value === 1 ? t('perf.modeHintRt') : t('perf.modeHintStandard'),
 );
 
-// ----- all-keys toast: "Đã áp dụng cho N phím · Hoàn tác". Hoàn tác is the history store's own undo (the same as Ctrl+Z).
+// ----- undo toast: "Đã áp dụng cho N phím · Hoàn tác". Hoàn tác is the history store's own undo (the same as Ctrl+Z).
+// An undo toast lives only while its entry is on top of the undo stack, and there is at most one on the page.
 let gestureKeys = 0; // keys changed by the slider drag in progress (all-keys scope), announced when it ends
-/** A toast action that undoes the history entry on top now, and only while it is still on top: with a newer entry
- *  above it, leave that to Ctrl+Z rather than undoing something the toast does not name. */
-function undoAction() {
-  const id = history.undoId;
-  return { label: t('history.undo'), run: () => { if (history.undoId === id) history.undo(); } };
+let undoToast: { toastId: number; entry: number } | null = null;
+function dismissUndoToast() {
+  if (undoToast) toast.dismiss(undoToast.toastId);
+  undoToast = null;
 }
-function announce(text: string, kind: 'success' | 'info' = 'success') {
-  // Repeated steps keep one toast on screen: replace the old one so its Hoàn tác carries the newest entry.
-  for (const x of toast.items.value.filter((x) => x.text === text)) toast.dismiss(x.id);
-  toast.show(text, kind, undefined, undoAction());
+// A scoped edit, Ctrl+Z / redo, a profile reload or a history clear change the top entry: the toast no longer names it.
+const stopUndoWatch = watch(() => history.undoId, (id) => {
+  if (undoToast && undoToast.entry !== id) dismissUndoToast();
+}, { flush: 'sync' });
+onBeforeUnmount(stopUndoWatch);
+/** Show a toast whose Hoàn tác undoes the entry on top now. A repeated step on the same (coalesced) entry keeps its toast. */
+function showUndoToast(text: string, kind: 'success' | 'info' = 'success') {
+  const entry = history.undoId;
+  if (entry === null) return;
+  if (undoToast?.entry === entry && toast.items.value.some((x) => x.id === undoToast!.toastId)) return;
+  dismissUndoToast();
+  const run = () => { if (history.undoId === entry) history.undo(); };
+  undoToast = { toastId: toast.show(text, kind, undefined, { label: t('history.undo'), run }), entry };
 }
 /** Every edit of the page: perf.apply, then the all-keys toast. Slider gestures announce when they end. */
 function edit(targets: number[], patch: (p: Performance) => Partial<PerfEdit>, what: string, coalesce?: string, gesture = false) {
   const n = perf.apply(targets, patch, what, coalesce);
   if (!n || scoped.value) return;
   if (gesture) gestureKeys = n;
-  else announce(t('perf.appliedAll', { n }));
+  else showUndoToast(t('perf.appliedAll', { n }));
 }
 function endGesture() {
   if (!gestureKeys) return;
   const n = gestureKeys;
   gestureKeys = 0;
-  announce(t('perf.appliedAll', { n }));
+  showUndoToast(t('perf.appliedAll', { n }));
 }
 
 // ----- edits (every edit goes through perf.apply → history + sync)
@@ -344,7 +355,9 @@ function setDead(which: 'pressDeadStroke' | 'releaseDeadStroke', v: number, gest
 
 // ----- presets: apply to the current scope (one perf.apply = one history entry)
 function presetApplied(name: string, n: number) {
-  toast.show(t('perf.presetApplied', { name, n: ids.value.length }), 'success', undefined, n ? undoAction() : undefined);
+  const text = t('perf.presetApplied', { name, n: ids.value.length });
+  if (n) showUndoToast(text);
+  else toast.show(text, 'success');
 }
 function applyPreset(id: (typeof PRESETS)[number]['id']) {
   const preset = PRESETS.find((p) => p.id === id)!;
@@ -377,6 +390,21 @@ function applyUserPreset(p: UserPreset) {
 }
 const modeLabel = (m: 0 | 1) => (m === 0 ? t('perf.modeStandard') : t('perf.modeRt'));
 const userPresetTitle = (p: UserPreset) => t('perf.presetUserTitle', { mode: modeLabel(p.mode), act: fmt(p.actuation) });
+const userPresetMeta = (p: UserPreset) => t('perf.presetUserMeta', { mode: p.mode === 0 ? t('perf.modeStandard') : 'RT', act: formatMm(p.actuation, decimals.value) });
+/** Deleting is immediate; the toast puts the preset back at its index. Presets are not in the history store, so this undo is local. */
+function removeUserPreset(p: UserPreset) {
+  const index = userPresets.presets.findIndex((x) => x.id === p.id);
+  if (index < 0) return;
+  userPresets.remove(p.id);
+  toast.show(t('perf.presetDeleted', { name: p.name }), 'info', undefined, { label: t('history.undo'), run: () => restoreUserPreset(p, index) });
+}
+function restoreUserPreset(p: UserPreset, index: number) {
+  if (userPresets.presets.length >= USER_PRESET_MAX || userPresets.presets.some((x) => x.id === p.id)) return;
+  // The store only appends: take the presets after the index off and add them back behind the restored one.
+  const tail = userPresets.presets.slice(index);
+  for (const x of tail) userPresets.remove(x.id);
+  for (const { id: _id, name, ...values } of [p, ...tail]) userPresets.add(name, values);
+}
 
 // ----- "Lưu mẫu…": the scope's values, only when they agree
 const saveValues = computed<Omit<UserPreset, 'id' | 'name'> | null>(() => {
@@ -456,20 +484,20 @@ const modeOptions = computed(() => [
           <InfoTip :text="t('perf.depthShadingHint')" />
         </div>
         <div class="wb__group wb__presets" role="group" :aria-label="t('perf.presetsLabel')">
-          <span class="micro">{{ t('perf.presetsLabel') }}</span>
+          <IconBookmark class="wb__presets-icon" :size="16" stroke-width="1.5" aria-hidden="true" />
           <button v-for="p in PRESETS" :key="p.id" type="button" class="chip chip--plain" :disabled="!ids.length" :title="t(PRESET_TEXT[p.id][1])" @click="applyPreset(p.id)">
             {{ t(PRESET_TEXT[p.id][0]) }}
           </button>
-          <span v-for="p in userPresets.presets" :key="p.id" class="uchip">
-            <button type="button" class="chip chip--plain uchip__use" :disabled="!ids.length" :title="userPresetTitle(p)" @click="applyUserPreset(p)">{{ p.name }}</button>
-            <button type="button" class="uchip__x" :aria-label="t('perf.presetDelete', { name: p.name })" :title="t('perf.presetDelete', { name: p.name })" @click="userPresets.remove(p.id)">
-              <IconX :size="12" stroke-width="2" aria-hidden="true" />
-            </button>
-          </span>
-          <button type="button" class="chip chip--plain chip--dash" :aria-label="t('perf.presetSaveLabel')" :disabled="!!saveBlocked" :title="saveBlocked ?? undefined" :aria-describedby="saveBlocked ? 'perf-save-why' : undefined" @click="openSave">
-            {{ t('perf.presetSave') }}
-          </button>
-          <span v-if="saveBlocked" id="perf-save-why" class="sr-only">{{ saveBlocked }}</span>
+          <UserPresetMenu
+            :presets="userPresets.presets"
+            :can-apply="!!ids.length"
+            :save-blocked="saveBlocked"
+            :meta="userPresetMeta"
+            :title="userPresetTitle"
+            @apply="applyUserPreset"
+            @remove="removeUserPreset"
+            @save="openSave"
+          />
         </div>
         <Button class="wb__try" variant="secondary" size="sm" :icon="IconFlask" :disabled="!hasKeys" :title="t('perf.tryNowHint')" @click="tryNow">
           {{ t('perf.tryNow') }}
@@ -582,11 +610,12 @@ const modeOptions = computed(() => [
                   class="link"
                   :class="{ 'link--on': rtLinked }"
                   :aria-pressed="rtLinked"
+                  :aria-label="t('perf.rtLinkLabel')"
                   :title="t('perf.rtLinkHint')"
                   @click="rtLinkOverride = !rtLinked"
                 >
                   <component :is="rtLinked ? IconLink : IconLinkOff" :size="16" stroke-width="1.5" aria-hidden="true" />
-                  {{ t('perf.rtLinkLabel') }}
+                  <span class="link__text">{{ t('perf.rtLinkLabel') }}</span>
                 </button>
               </div>
               <div class="field">
@@ -708,10 +737,11 @@ const modeOptions = computed(() => [
 
 <style scoped>
 .wb { display: flex; flex-direction: column; gap: var(--s-2); }
-.wb__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
-@media (min-width: 1100px) { .wb__bar { flex-wrap: nowrap; } }
-.wb__group { display: flex; align-items: center; gap: var(--s-1); min-width: 0; }
-.wb__presets { flex-wrap: wrap; margin-left: auto; gap: 4px; }
+.wb__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); white-space: nowrap; }
+/* If the bar ever wraps, a whole group moves to the next row; no label is squeezed under its neighbour. */
+.wb__group { display: flex; flex: none; align-items: center; gap: var(--s-1); }
+.wb__presets { margin-left: auto; gap: 4px; }
+.wb__presets-icon { flex: none; color: var(--fg-3); }
 .wb__try { flex: none; }
 .chips { display: flex; gap: 4px; }
 .chip {
@@ -736,22 +766,6 @@ const modeOptions = computed(() => [
 .chip[aria-checked='true'] { background: var(--sel-bg); border-color: var(--acc-line); color: var(--fg-1); }
 .chip--plain { height: 28px; padding: 0 8px; background: var(--bg-3); }
 .chip--plain:hover:not(:disabled) { background: var(--bg-4); border-color: var(--acc-line); }
-.chip--dash { border-style: dashed; background: transparent; }
-/* A saved preset: the chip and its × share one outline. */
-.uchip { display: inline-flex; align-items: center; }
-.uchip__use { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: 0; }
-.uchip__x {
-  display: grid;
-  place-items: center;
-  align-self: stretch;
-  width: 24px;
-  padding: 0;
-  border: 1px solid var(--line-1);
-  border-radius: 0 var(--r-control) var(--r-control) 0;
-  background: var(--bg-3);
-  color: var(--fg-3);
-}
-.uchip__x:hover { color: var(--danger); background: var(--bg-4); }
 /* The RT tag on a keycap (actuation view). */
 .kb :deep(.cap__badge) { font-size: var(--fs-caption); font-weight: 600; opacity: 1; }
 
@@ -799,6 +813,11 @@ const modeOptions = computed(() => [
 .pcol__head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); min-height: 28px; }
 .pcol__head .info { margin-right: auto; margin-left: var(--s-1); }
 .pcol__head .link { margin-left: var(--s-2); }
+/* A narrow Rapid Trigger column: the link button shows its icon only (aria-label and title keep the text). */
+@container (max-width: 289px) {
+  .pcol--rt .link { width: 28px; padding: 0; justify-content: center; }
+  .pcol--rt .link__text { display: none; }
+}
 @container (max-width: 859px) {
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pcol:nth-child(2) { padding-right: 0; }

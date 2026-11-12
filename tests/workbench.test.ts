@@ -76,6 +76,19 @@ async function pressToastAction() {
 }
 const presetChips = () => [...document.body.querySelectorAll<HTMLButtonElement>('.wb__presets > .chip, .wb__presets .uchip__use')];
 const chipByText = (s: string) => presetChips().find((b) => b.textContent?.trim() === s)!;
+const menuBtn = () => document.body.querySelector<HTMLButtonElement>('.umenu__btn')!;
+const saveItem = () => document.body.querySelector<HTMLButtonElement>('.umenu__save')!;
+async function openMenu() {
+  if (!saveItem()) menuBtn().click();
+  await flushPromises();
+}
+/** A saved preset's name button in the open menu (applies it: the menu closes). */
+const userUse = (name: string) => [...document.body.querySelectorAll<HTMLButtonElement>('.umenu__use')].find((b) => b.querySelector('.umenu__name')?.textContent === name)!;
+async function applyUser(name: string) {
+  await openMenu();
+  userUse(name).click();
+  await flushPromises();
+}
 const scopeText = () => document.body.querySelector('.scope')!.textContent!.replace(/\s+/g, ' ').trim();
 const userPreset = (over: Partial<UserPreset> = {}): Omit<UserPreset, 'id' | 'name'> => ({
   mode: 1, continuous: true, actuation: 0.4, rtPress: 0.2, rtRelease: 0.25, deadTop: 0.05, deadBottom: 0.07, ...over,
@@ -225,6 +238,7 @@ describe('W1: nothing selected means all keys', () => {
     expect(afterB).not.toEqual(afterA);
     const toastB = toasts().find((x) => x.action && x.id !== toastA.id)!;
     expect(toastB).toBeDefined();
+    expect(toasts().filter((x) => x.action)).toHaveLength(1); // the all-keys toast was replaced
     toastA.action!.run();
     expect(snapshot(perf)).toEqual(afterB);
     toastB.action!.run();
@@ -433,7 +447,8 @@ describe('Esc returns to all keys', () => {
 
   it('does nothing inside a dialog (the save dialog)', async () => {
     await withKeyboard(WASD);
-    chipByText(t('perf.presetSave')).click();
+    await openMenu();
+    saveItem().click();
     await flushPromises();
     const dlg = document.body.querySelector('[role="dialog"]')!;
     expect(dlg).not.toBeNull();
@@ -515,6 +530,101 @@ describe('Esc returns to all keys', () => {
   });
 });
 
+describe('undo toast: it lives only while its entry is on top, one at a time', () => {
+  const allKeysText = () => t('perf.appliedAll', { n: 64 });
+  const undoToasts = () => toasts().filter((x) => x.action);
+
+  it('a. all-keys edit, then a preset: one toast, the preset one; its Hoàn tác undoes only the preset', async () => {
+    const { perf } = await setup([]);
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    await typeActuation('1.7');
+    const afterEdit = snapshot(perf);
+    now += 1000;
+    chipByText(t('perf.presetTyping')).click();
+    await flushPromises();
+    expect(undoToasts()).toHaveLength(1);
+    expect(undoToasts()[0].text).toBe(t('perf.presetApplied', { name: t('perf.presetTyping'), n: 64 }));
+    await pressToastAction();
+    expect(snapshot(perf)).toEqual(afterEdit);
+    expect(perf.values[id('W')].rtFirstTouch).toBe(1.7);
+  });
+
+  it('b. all-keys edit, then a scoped edit on W: the all-keys toast closes at once', async () => {
+    await setup([]);
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    await typeActuation('1.7');
+    expect(toasts().some((x) => x.text === allKeysText())).toBe(true);
+    now += 1000;
+    useSelectionStore().selectMany([id('W')]);
+    await flushPromises();
+    await typeActuation('0.6');
+    expect(toasts().some((x) => x.action)).toBe(false);
+  });
+
+  it('c. all-keys edit, then history.undo(): the toast closes and the edit is undone once', async () => {
+    const { perf, history } = await setup([]);
+    const before = snapshot(perf);
+    await typeActuation('1.7');
+    history.undo();
+    expect(undoToasts()).toHaveLength(0);
+    expect(snapshot(perf)).toEqual(before);
+    expect(history.canUndo).toBe(false);
+    expect(history.canRedo).toBe(true);
+  });
+
+  it('d. 6 × ArrowUp in one field: one toast, one entry; Hoàn tác restores the value from before the first step', async () => {
+    const { perf, history } = await setup([]);
+    const before = snapshot(perf);
+    for (let i = 0; i < 6; i++) {
+      actField().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+      await flushPromises();
+    }
+    expect(undoToasts()).toHaveLength(1);
+    const kept = undoToasts()[0].id;
+    await pressToastAction();
+    expect(snapshot(perf)).toEqual(before);
+    expect(history.canUndo).toBe(false);
+    expect(toasts().some((x) => x.id === kept)).toBe(false);
+  });
+
+  it('a repeated step on the same coalesced entry keeps the toast it has (same id)', async () => {
+    await setup([]);
+    for (let i = 0; i < 2; i++) {
+      actField().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+      await flushPromises();
+      if (i === 0) var first = undoToasts()[0].id;
+    }
+    expect(undoToasts().map((x) => x.id)).toEqual([first!]);
+  });
+
+  it('a history clear (profile reload) closes the toast; unmounting the page closes it too', async () => {
+    const { history } = await setup([]);
+    await typeActuation('1.7');
+    history.clear();
+    expect(undoToasts()).toHaveLength(0);
+    await typeActuation('1.8');
+    expect(undoToasts()).toHaveLength(1);
+    w!.unmount();
+    w = null;
+    expect(undoToasts()).toHaveLength(0);
+  });
+
+  it('e. opening and closing toasts sends nothing to the keyboard', async () => {
+    const { exchange, setPerf, sync, history } = await setup([]);
+    await typeActuation('1.7');
+    await sync.flush();
+    exchange.mockClear();
+    setPerf.mockClear();
+    history.clear(); // closes the toast without undoing
+    await flushPromises();
+    await sync.flush();
+    expect(exchange).not.toHaveBeenCalled();
+    expect(setPerf).not.toHaveBeenCalled();
+  });
+});
+
 describe('W3: presets', () => {
   it('a built-in preset applies to the scope as one history entry', async () => {
     const { perf, history } = await setup(WASD);
@@ -530,7 +640,8 @@ describe('W3: presets', () => {
 
   it('save: name + current values, kept in localStorage, nothing sent to the keyboard', async () => {
     const { exchange, setPerf, sync } = await setup(WASD);
-    chipByText(t('perf.presetSave')).click();
+    await openMenu();
+    saveItem().click();
     await flushPromises();
     const input = document.body.querySelector<HTMLInputElement>('[role="dialog"] input')!;
     expect(document.body.querySelector('[role="dialog"]')!.textContent).toContain(t('perf.presetNote'));
@@ -544,7 +655,8 @@ describe('W3: presets', () => {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
     expect(stored).toHaveLength(1);
     expect(stored[0]).toMatchObject({ name: 'Của tôi', mode: 1, continuous: true, actuation: 1, rtPress: 0.3, rtRelease: 0.3, deadTop: 0.1, deadBottom: 0.1 });
-    expect(chipByText('Của tôi')).toBeDefined();
+    await openMenu();
+    expect(userUse('Của tôi')).toBeDefined();
     expect(exchange).not.toHaveBeenCalled();
     expect(setPerf).not.toHaveBeenCalled();
   });
@@ -555,20 +667,21 @@ describe('W3: presets', () => {
     expect(useUserPresetsStore().presets.map((p) => p.name)).toEqual(['Giữ lại']);
   });
 
-  it('the save chip has the accessible name perf.presetSaveLabel', async () => {
+  it('the menu button names the count in words and shows it in its label', async () => {
+    useUserPresetsStore().add('A', userPreset());
     await setup([]);
-    expect(chipByText(t('perf.presetSave')).getAttribute('aria-label')).toBe(t('perf.presetSaveLabel'));
+    expect(menuBtn().getAttribute('aria-label')).toBe(t('perf.userPresetsAria', { n: 1 }));
+    expect(menuBtn().textContent).toContain(t('perf.userPresetsCount', { n: 1 }));
   });
 
-  it('mixed values cannot be saved: the button is disabled with a reason', async () => {
+  it('mixed values cannot be saved: the item is disabled with the reason as a caption', async () => {
     const { perf } = await setup([]);
-    expect(chipByText(t('perf.presetSave')).disabled).toBe(false);
+    await openMenu();
+    expect(saveItem().disabled).toBe(false);
     perf.values = { ...perf.values, [id('Q')]: { ...perf.values[id('Q')], normalPress: 2, rtFirstTouch: 2 } };
     await flushPromises();
-    const btn = chipByText(t('perf.presetSave'));
-    expect(btn.disabled).toBe(true);
-    expect(btn.title).toBe(t('perf.presetMixed'));
-    expect(document.body.querySelector(`#${btn.getAttribute('aria-describedby')}`)!.textContent).toBe(t('perf.presetMixed'));
+    expect(saveItem().disabled).toBe(true);
+    expect(document.body.querySelector(`#${saveItem().getAttribute('aria-describedby')}`)!.textContent).toBe(t('perf.presetMixed'));
   });
 
   it('at most 6 user presets; the 7th cannot be saved', async () => {
@@ -576,18 +689,17 @@ describe('W3: presets', () => {
     for (let i = 0; i < USER_PRESET_MAX; i++) expect(store.add(`P${i}`, userPreset())).not.toBeNull();
     expect(store.add('P7', userPreset())).toBeNull();
     await setup(WASD);
-    const btn = chipByText(t('perf.presetSave'));
-    expect(btn.disabled).toBe(true);
-    expect(btn.title).toBe(t('perf.presetFull', { n: USER_PRESET_MAX }));
-    expect(document.body.querySelectorAll('.uchip')).toHaveLength(USER_PRESET_MAX);
+    await openMenu();
+    expect(saveItem().disabled).toBe(true);
+    expect(document.body.querySelector('.umenu__why')!.textContent).toBe(t('perf.presetFull', { n: USER_PRESET_MAX }));
+    expect(document.body.querySelectorAll('.umenu__row')).toHaveLength(USER_PRESET_MAX);
   });
 
   it('applying a user preset to W A S D changes only those 4 keys, as one history entry', async () => {
     useUserPresetsStore().add('Nhạy', userPreset());
     const { perf, setPerf, history, sync } = await setup(WASD);
     const before = snapshot(perf);
-    chipByText('Nhạy').click();
-    await flushPromises();
+    await applyUser('Nhạy');
     await sync.flush();
     for (const k of ALL) {
       if (WASD.includes(k)) expect(pickEdit(perf.values[k])).toMatchObject({ mode: 1, normalPress: 0.4, rtFirstTouch: 0.4, rtPress: 0.2, rtRelease: 0.25, pressDeadStroke: 0.05, releaseDeadStroke: 0.07 });
@@ -603,8 +715,7 @@ describe('W3: presets', () => {
     const store = useUserPresetsStore();
     store.add('Std', userPreset({ mode: 0 }));
     const { perf } = await setup(WASD);
-    chipByText('Std').click();
-    await flushPromises();
+    await applyUser('Std');
     for (const k of WASD) expect(perf.values[k]).toMatchObject({ mode: 0, normalPress: 0.4, rtFirstTouch: 0.4, rtPress: 0.3, rtRelease: 0.3 });
   });
 
@@ -612,12 +723,10 @@ describe('W3: presets', () => {
     useUserPresetsStore().add('Int', userPreset({ continuous: false }));
     const { perf, device } = await setup(WASD);
     device.version = { main: 1, sub: 2, hardware: 0, software: 0 };
-    chipByText('Int').click();
-    await flushPromises();
+    await applyUser('Int');
     for (const k of WASD) expect(perf.values[k].mode).toBe(1);
     device.version = { main: 1, sub: 3, hardware: 0, software: 0 };
-    chipByText('Int').click();
-    await flushPromises();
+    await applyUser('Int');
     for (const k of WASD) expect(perf.values[k].mode).toBe(2);
   });
 
@@ -637,10 +746,11 @@ describe('W3: presets', () => {
   it('delete removes the chip and the stored entry and sends nothing to the keyboard', async () => {
     useUserPresetsStore().add('Xoá tôi', userPreset());
     const { exchange, setPerf, sync, history } = await setup(WASD);
-    document.body.querySelector<HTMLButtonElement>(`.uchip__x[aria-label="${t('perf.presetDelete', { name: 'Xoá tôi' })}"]`)!.click();
+    await openMenu();
+    document.body.querySelector<HTMLButtonElement>(`.umenu__x[aria-label="${t('perf.presetDelete', { name: 'Xoá tôi' })}"]`)!.click();
     await flushPromises();
     await sync.flush();
-    expect(document.body.querySelectorAll('.uchip')).toHaveLength(0);
+    expect(document.body.querySelectorAll('.umenu__row')).toHaveLength(0);
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual([]);
     expect(exchange).not.toHaveBeenCalled();
     expect(setPerf).not.toHaveBeenCalled();
@@ -706,8 +816,7 @@ describe('user presets from localStorage are untrusted', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([{ ...good, id: 'wild', name: 'Quá tay', actuation: 99, rtPress: 50, rtRelease: -3, deadTop: 9, deadBottom: -9 }]));
     setActivePinia(createPinia());
     const { perf, sync } = await setup(WASD);
-    chipByText('Quá tay').click();
-    await flushPromises();
+    await applyUser('Quá tay');
     await sync.flush();
     for (const k of WASD) {
       const p = perf.values[k];
@@ -723,8 +832,7 @@ describe('user presets from localStorage are untrusted', () => {
   it('on the Pro (coarser precision) a preset value is rounded to the model grid before the write', async () => {
     useUserPresetsStore().add('Mịn', userPreset({ actuation: 0.437, rtPress: 0.123, rtRelease: 0.127 }));
     const { device, perf, sync } = await setup(WASD, { model: 'pro' });
-    chipByText('Mịn').click();
-    await flushPromises();
+    await applyUser('Mịn');
     await sync.flush();
     const step = device.rtPrecision || 0.001;
     for (const k of WASD) {
