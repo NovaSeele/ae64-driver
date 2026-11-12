@@ -191,6 +191,7 @@ onBeforeUnmount(() => {
 .kbrow { display: flex; flex-direction: column; gap: var(--s-3); margin-bottom: var(--s-4); }
 .board { width: 100%; min-width: 0; max-width: 940px; margin: 0 auto; border-radius: var(--r-panel); transition: box-shadow var(--t-slow) var(--ease); }
 .board--live { box-shadow: 0 0 0 1px var(--acc-line); }
+@media (min-width: 1600px) { .board { max-width: 1100px; } }
 .aside { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-5); min-height: 36px; } /* = the Switch tab's selection bar */
 .legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: row; gap: var(--s-5); }
 .legend li { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-label); color: var(--fg-2); }

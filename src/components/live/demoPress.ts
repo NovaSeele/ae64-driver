@@ -25,15 +25,26 @@ const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Ho
 /** Keys the focused travel graph uses to pan. */
 const GRAPH_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape']);
 
-const PRESS_MS = 90;
-const RELEASE_MS = 120;
+const DOWN_MS = 240;
+const BOTTOM_HOLD_MS = 60;
+const UP_MS = 320;
+const MAX_QUEUED = 2;
 const BOTTOM_MM = 3.31;
 
-interface Anim { from: number; to: number; start: number; ms: number; mm: number }
+/** One simulated stroke per tap: down, hold at the bottom while held (at least BOTTOM_HOLD_MS), up. */
+interface Anim {
+  phase: 'down' | 'bottom' | 'up'; start: number; mm: number;
+  /** The PC key of the running stroke is still held. */
+  held: boolean;
+  /** Taps waiting for this key to be back at 0 mm; each flag is whether its PC key is still held. */
+  queue: boolean[];
+  /** The last keydown was dropped (queue full): its keyup must not release anything. */
+  ignoreUp: boolean;
+}
 
 /**
- * Listens to window key events while attached. Each held key eases to the bottom (~90 ms) and back up
- * on release (~120 ms); a key pressed again mid-release turns around from where it is.
+ * Listens to window key events while attached. Every tap is one full stroke (240 ms down, 60 ms at the bottom or
+ * until keyup, 320 ms up); taps arriving while the key still moves are queued (at most 2) and run one after another.
  */
 export function attachDemoPress(mock: MockTransport): () => void {
   const anims = new Map<number, Anim>();
@@ -41,24 +52,56 @@ export function attachDemoPress(mock: MockTransport): () => void {
 
   const ease = (k: number) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
 
-  function frame(now: number) {
-    raf = 0;
-    let moving = false;
+  let last = 0;
+
+  /** Advances every stroke to `now`. Idempotent for the same `now`; an older `now` is ignored. */
+  function advance(now: number) {
+    if (now <= last) return;
+    last = now;
     for (const [id, a] of anims) {
-      const k = Math.min(1, (now - a.start) / a.ms);
-      a.mm = k >= 1 ? a.to : a.from + (a.to - a.from) * ease(k);
+      if (a.phase === 'bottom' && !a.held && now - a.start >= BOTTOM_HOLD_MS) { a.phase = 'up'; a.start = now; }
+      if (a.phase === 'down') {
+        const k = Math.min(1, (now - a.start) / DOWN_MS);
+        a.mm = k >= 1 ? BOTTOM_MM : BOTTOM_MM * ease(k);
+        if (k >= 1) { a.phase = 'bottom'; a.start = now; }
+      } else if (a.phase === 'up') {
+        const k = Math.min(1, (now - a.start) / UP_MS);
+        a.mm = k >= 1 ? 0 : BOTTOM_MM * (1 - ease(k));
+      }
       mock.simulatePress(id, a.mm);
-      if (k < 1) moving = true;
-      else if (a.to === 0) anims.delete(id);
+      if (a.phase === 'up' && a.mm === 0) {
+        const next = a.queue.shift();
+        if (next === undefined) anims.delete(id);
+        else { a.phase = 'down'; a.start = now; a.held = next; }
+      }
     }
-    if (moving) raf = requestAnimationFrame(frame);
   }
 
-  function go(id: number, to: number) {
-    const cur = anims.get(id)?.mm ?? 0;
-    const ms = (to > cur ? PRESS_MS : RELEASE_MS) * (Math.abs(to - cur) / BOTTOM_MM);
-    anims.set(id, { from: cur, to, start: performance.now(), ms: Math.max(ms, 1), mm: cur });
-    if (!raf) raf = requestAnimationFrame(frame);
+  function frame(now: number) {
+    raf = 0;
+    advance(now);
+    if (anims.size) raf = requestAnimationFrame(frame);
+  }
+
+  function tap(id: number) {
+    const a = anims.get(id);
+    if (!a) {
+      anims.set(id, { phase: 'down', start: performance.now(), mm: 0, held: true, queue: [], ignoreUp: false });
+      if (!raf) raf = requestAnimationFrame(frame);
+    } else if (a.queue.length < MAX_QUEUED) {
+      a.queue.push(true);
+      a.ignoreUp = false;
+    } else {
+      a.ignoreUp = true;
+    }
+  }
+
+  function release(id: number) {
+    const a = anims.get(id);
+    if (!a) return;
+    if (a.ignoreUp) a.ignoreUp = false;
+    else if (a.queue.length) a.queue[a.queue.length - 1] = false;
+    else a.held = false;
   }
 
   function typing(e: KeyboardEvent): boolean {
@@ -87,7 +130,7 @@ export function attachDemoPress(mock: MockTransport): () => void {
       e.preventDefault();
       e.stopPropagation();
     }
-    if (!e.repeat) go(id, BOTTOM_MM);
+    if (!e.repeat) tap(id);
   }
 
   function onUp(e: KeyboardEvent) {
@@ -99,13 +142,14 @@ export function attachDemoPress(mock: MockTransport): () => void {
       e.preventDefault();
       e.stopPropagation();
     }
-    go(id, 0);
+    release(id);
   }
 
   function releaseAll() {
-    for (const id of anims.keys()) go(id, 0);
+    for (const a of anims.values()) { a.held = false; a.queue.length = 0; a.ignoreUp = false; }
   }
 
+  mock.setTravelTicker(advance);
   window.addEventListener('keydown', onDown, true);
   window.addEventListener('keyup', onUp, true);
   window.addEventListener('blur', releaseAll);
@@ -113,6 +157,7 @@ export function attachDemoPress(mock: MockTransport): () => void {
     window.removeEventListener('keydown', onDown, true);
     window.removeEventListener('keyup', onUp, true);
     window.removeEventListener('blur', releaseAll);
+    mock.setTravelTicker(null);
     cancelAnimationFrame(raf);
     for (const id of anims.keys()) mock.simulatePress(id, 0);
     anims.clear();

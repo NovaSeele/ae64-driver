@@ -380,6 +380,8 @@ function onTypeKey(e: KeyboardEvent) {
   .aside .hint { flex-basis: 100%; order: 9; }
 }
 
+@media (min-width: 1600px) { .board { max-width: 1100px; } }
+
 .start {
   display: flex;
   align-items: center;

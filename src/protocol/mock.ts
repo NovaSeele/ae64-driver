@@ -172,6 +172,13 @@ export class MockTransport extends BaseTransport {
     this.open = false;
   }
 
+  private travelTicker: ((now: number) => void) | null = null;
+
+  /** Demo helper: a function run before every axis-data read, so simulated travel is current at read time. */
+  setTravelTicker(fn: ((now: number) => void) | null): void {
+    this.travelTicker = fn;
+  }
+
   /** Demo helper: set a key's travel (mm) so axis data (route/status/ADC) reflects a press. */
   simulatePress(keyId: number, travelMm: number): void {
     const key = PHYSICAL_KEYS[keyId];
@@ -349,6 +356,7 @@ export class MockTransport extends BaseTransport {
   }
 
   private axisRow(type: number, row: number): number[] {
+    this.travelTicker?.(performance.now());
     return Array.from({ length: 15 }, (_, col) => {
       const key = keyAt(row, col);
       if (!key) return 0;

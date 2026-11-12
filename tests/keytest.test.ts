@@ -20,7 +20,9 @@ describe('demo press and the typing-test box', () => {
     const mock = new MockTransport({ latencyMs: 0 });
     const spy = vi.spyOn(mock, 'simulatePress');
     detach = attachDemoPress(mock);
-    const flush = () => { for (let i = 0; i < 20 && frames.length; i++) frames.shift()!(performance.now() + 1000); };
+    let t = performance.now();
+    // Every frame is a second later, so each phase of a stroke (down, bottom hold, up) completes in one frame.
+    const flush = () => { for (let i = 0; i < 20 && frames.length; i++) frames.shift()!(t += 1000); };
     return { spy, flush };
   }
 
