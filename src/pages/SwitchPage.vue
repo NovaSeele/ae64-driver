@@ -134,6 +134,13 @@ const uncalKeys = computed(() => {
     <div v-if="tab === 'switch'" class="swp-wrap">
       <div class="swp">
         <Card :title="t('swp.mapTitle')" :subtitle="t('swp.mapSub', { n: device.activeProfile + 1, name: device.profileNames[device.activeProfile] })">
+          <div v-if="perf.uncalibrated.length" class="swp__recal" role="status">
+            <IconAlertTriangle :size="16" aria-hidden="true" />
+            <span class="swp__recal-text">
+              {{ t('sw.uncalStatus', { n: perf.uncalibrated.length, keys: uncalKeys }) }}
+              <button type="button" class="swp__recal-go" @click="pickTab('calibration')">{{ t('sw.recalGo') }}</button>
+            </span>
+          </div>
           <ul class="swp__list">
             <li v-for="(g, i) in groups" :key="`${g.axisV2Id}:${g.rangeMax}`">
               <button type="button" class="swp__row" :aria-pressed="sameSet(sel.ids, g.ids)" @click="sel.selectMany(g.ids)">
@@ -147,13 +154,6 @@ const uncalKeys = computed(() => {
               </button>
             </li>
           </ul>
-          <div v-if="perf.uncalibrated.length" class="swp__recal" role="status">
-            <IconAlertTriangle :size="16" aria-hidden="true" />
-            <span class="swp__recal-text">
-              {{ t('sw.uncalStatus', { n: perf.uncalibrated.length, keys: uncalKeys }) }}
-              <button type="button" class="swp__recal-go" @click="pickTab('calibration')">{{ t('sw.recalGo') }}</button>
-            </span>
-          </div>
           <p class="swp__hint">{{ t('swp.mapHint') }}</p>
         </Card>
         <SwitchCard :ids="ids" />
@@ -186,7 +186,7 @@ const uncalKeys = computed(() => {
 .swp__meta { font-size: var(--fs-label); color: var(--fg-3); }
 .swp__count { flex: none; font-size: var(--fs-label); color: var(--fg-2); }
 .swp__recal {
-  display: flex; align-items: flex-start; gap: var(--s-2); margin-top: var(--s-3);
+  display: flex; align-items: flex-start; gap: var(--s-2); margin-bottom: var(--s-3);
   padding: var(--s-3);
   border-radius: var(--r-control);
   border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);

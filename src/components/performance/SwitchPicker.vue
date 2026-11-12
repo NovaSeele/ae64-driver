@@ -104,11 +104,18 @@ const from = computed(() => {
 
 function apply() {
   const entry = chosen.value;
-  const n = plan.value?.keys.length ?? 0;
+  const keys = plan.value?.keys ?? [];
+  const n = keys.length;
   if (!entry || !n) return;
+  // The toast shows before the write lands, so predict the board: the firmware clears a key's calibrate flag when its
+  // travel triple changes, and a key that already reads uncalibrated stays so.
+  const uncal = keys.some((id) => {
+    const v = perf.values[id];
+    return perf.uncalibrated.includes(id) || v.axisV2Id !== entry.id || v.axisRangeMax !== entry.rangeMax || v.axisCoefficient !== entry.coefficient;
+  });
   perf.applySwitch(props.ids, entry);
   open.value = false;
-  useToast().show(t('sw.applied', { n, name: switchName(entry) }), 'success');
+  useToast().show(t(uncal ? 'sw.appliedUncal' : 'sw.applied', { n, name: switchName(entry) }), 'success');
   emit('applied');
 }
 </script>
