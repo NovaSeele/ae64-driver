@@ -207,15 +207,18 @@ describe('Đèn workbench: the palette popover', () => {
     expect(document.activeElement).toBe(btn.element);
   });
 
-  it('is disabled on the Rainbow slot, with the reason in its title', async () => {
+  it('has no edit button on the Rainbow slot (the slot name shows in full); a numbered slot has one with its aria-label', async () => {
     const { lighting, sync } = await mountPage();
     lighting.applyBase(0, { paletteIndex: 0 }, 'Rainbow');
     await sync.flush();
     await flushPromises();
-    const btn = page!.find('.pal__edit');
-    expect(btn.attributes('disabled')).toBeDefined();
-    expect(btn.attributes('title')).toBe(t('lighting.rainbowNoEdit'));
+    expect(page!.find('.pal__edit').exists()).toBe(false);
     expect(page!.find('.pal__name').text()).toBe('Cầu vồng');
+    lighting.applyBase(0, { paletteIndex: 3 }, 'Pick slot 3');
+    await sync.flush();
+    await flushPromises();
+    expect(page!.find('.pal__edit').attributes('aria-label')).toBe('Sửa màu 3');
+    expect(page!.find('.pal__edit').text()).toBe('Sửa màu…');
   });
 });
 
@@ -233,10 +236,13 @@ describe('Đèn workbench: per-key colours', () => {
     expect(spy).not.toHaveBeenCalled();
     expect(history.canUndo).toBe(false);
     expect(page!.findAll('.quick__chip')[0].attributes('aria-pressed')).toBe('true');
-    // every chip of the picked colour is marked (white is also palette slot 6 on the demo keyboard), and no other
-    const marked = page!.findAll('.quick__chip').filter((c) => c.attributes('aria-pressed') === 'true');
-    expect(marked.length).toBeGreaterThan(0);
-    expect(marked.every((c) => c.attributes('aria-label') === '#ffffff')).toBe(true);
+    // white is also palette slot 6 on the demo keyboard: only the first chip of the picked colour is marked
+    const chips = page!.findAll('.quick__chip');
+    expect(chips.map((c) => c.attributes('aria-label')).filter((h) => h === '#ffffff').length).toBeGreaterThan(1);
+    const marked = chips.filter((c) => c.attributes('aria-pressed') === 'true');
+    expect(marked).toHaveLength(1);
+    expect(marked[0].element).toBe(chips[0].element);
+    expect(chips.filter((c) => c.classes().includes('quick__chip--on'))).toHaveLength(1);
   });
 
   it('quick colours are white, then the area palette 1–7', async () => {
@@ -267,7 +273,7 @@ describe('Đèn workbench: per-key colours', () => {
     expect(lighting.keyCustomColors[w].custom).toBe(true);
     expect(lighting.keyCustomColors[w].colorHex.toLowerCase()).toBe('#ffffff');
     await flushPromises();
-    expect(page!.find('.col__meta').text()).toBe('3 phím đang dùng màu riêng');
+    expect(page!.find('.col__meta').exists()).toBe(false); // no head meta: the title stays on one line
 
     history.undo(); // one entry for the whole apply
     await sync.flush();
@@ -288,6 +294,7 @@ describe('Đèn workbench: per-key colours', () => {
     const { lighting, sync, sel } = await mountPage();
     const all = () => page!.find('.own-actions__all');
     expect(all().attributes('disabled')).toBeDefined(); // nothing custom yet
+    expect(all().text()).toBe('Xoá tất cả màu riêng…'); // no count at 0
     sel.selectMany(keyIds('W', 'A'));
     await flushPromises();
     await page!.find('.own-actions button').trigger('click');
@@ -299,6 +306,35 @@ describe('Đèn workbench: per-key colours', () => {
     await flushPromises();
     expect(document.body.querySelector('.dlg__panel')).not.toBeNull();
     expect(Object.values(lighting.keyCustomColors).filter((v) => v.custom)).toHaveLength(2); // opening it clears nothing
+  });
+});
+
+describe('Đèn workbench: strip selection drawing', () => {
+  it('the selected state is drawn on the strip tab only; custom marks stay on both tabs', async () => {
+    await mountPage();
+    await toStrip();
+    await led(7).trigger('click');
+    await led(20).trigger('click');
+    const drawn = () => sorted(leds().filter((l) => l.classes().includes('led--selected')).map((l) => Number(l.attributes('data-led'))));
+    expect(drawn()).toEqual([7, 20]);
+    await tab('keys').trigger('click');
+    await flushPromises();
+    expect(drawn()).toEqual([]);
+    await toStrip();
+    expect(drawn()).toEqual([7, 20]); // the selection itself was kept
+  });
+
+  it('a custom LED keeps its mark on the keys tab', async () => {
+    const { sync } = await mountPage();
+    await toStrip();
+    await led(7).trigger('click');
+    await page!.find('.own-actions button').trigger('click');
+    await sync.flush();
+    await flushPromises();
+    expect(led(7).classes()).toContain('led--custom');
+    await tab('keys').trigger('click');
+    await flushPromises();
+    expect(led(7).classes()).toContain('led--custom');
   });
 });
 

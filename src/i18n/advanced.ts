@@ -98,6 +98,9 @@ export const advancedVi = {
   'advanced.errPairSame': 'Phím A và B phải khác nhau.',
   'advanced.errPairOutput': 'Cần đầu ra cho cả phím A và B.',
   'advanced.errDelay': 'Độ trễ phải từ 0 đến 50 ms.',
+  'advanced.cannotHost': '{key} không dùng được cho {types}.',
+  'advanced.listSep': ',',
+  'advanced.listLast': 'và',
   'advanced.hostIneligible': 'Phím này không dùng được cho {type}.',
 
   // DKS

@@ -100,6 +100,9 @@ export const advancedEn: Record<keyof typeof advancedVi, string> = {
   'advanced.errPairSame': 'Key A and Key B must be different.',
   'advanced.errPairOutput': 'Output keys required for both key A and B.',
   'advanced.errDelay': 'Delay must be between 0 and 50 ms.',
+  'advanced.cannotHost': "{key} can't be used for {types}.",
+  'advanced.listSep': ',',
+  'advanced.listLast': 'or',
   'advanced.hostIneligible': 'This key cannot be used for {type}.',
 
   // DKS

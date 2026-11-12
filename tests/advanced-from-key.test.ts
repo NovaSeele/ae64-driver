@@ -126,7 +126,7 @@ describe('Advanced page: key-first entry', () => {
   });
 
   it('Fn cannot host DKS or MPT: those chips are disabled with the reason, SOCD and RS stay on', async () => {
-    const { w, sel, id } = await page(0);
+    const { w, sel, id, device } = await page(0);
     sel.selectMany([id('Fn')]);
     await flushPromises();
     const chip = (t: string) => w.find(`[data-add="${t}"]`);
@@ -136,8 +136,15 @@ describe('Advanced page: key-first entry', () => {
     expect(chip('MPT').attributes('title')).toBe(tr('advanced.hostIneligible', { type: tr('advanced.typeMPT') }));
     expect(chip('SOCD').attributes('disabled')).toBeUndefined();
     expect(chip('RS').attributes('disabled')).toBeUndefined();
+    const why = w.find('.addkey__why');
+    const fn = id('Fn');
+    expect(why.text()).toBe(tr('advanced.cannotHost', { key: device.legend(device.keys[fn]), types: `DKS ${tr('advanced.listLast')} MPT` }));
+    expect(chip('DKS').attributes('aria-describedby')).toBe(why.attributes('id'));
+    expect(chip('MPT').attributes('aria-describedby')).toBe(why.attributes('id'));
+    expect(chip('SOCD').attributes('aria-describedby')).toBeUndefined();
     sel.selectMany([id('W')]);
     await flushPromises();
+    expect(w.find('.addkey__why').exists()).toBe(false);
     expect(chip('DKS').attributes('disabled')).toBeUndefined();
     expect(chip('DKS').attributes('title')).toBeUndefined();
   });

@@ -178,6 +178,14 @@ function hostOk(type: WritableType, id: number): boolean {
   if (type === 'MPT') return mptHostEligible(device.layer0[id]);
   return true;
 }
+/** One caption naming the key and the types it cannot host, so the reason is not only in a title. */
+const cannotHostText = computed(() => {
+  if (addFor.value === null) return '';
+  const names = TYPES.filter((x) => !hostOk(x.type, addFor.value!)).map((x) => t(`advanced.short${x.type}`));
+  if (!names.length) return '';
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(`${t('advanced.listSep')} `)} ${t('advanced.listLast')} ${names[names.length - 1]}`;
+  return t('advanced.cannotHost', { key: keyName(addFor.value), types: list });
+});
 // A picked key that already has an entry: bring that entry into view (no focus change).
 watch(() => [sel.ids.length === 1 ? adv.byKey.get(sel.ids[0]) : undefined, !!draft.value] as const, ([a, open]) => {
   if (!a || open) return;
@@ -190,8 +198,10 @@ watch(() => [sel.ids.length === 1 ? adv.byKey.get(sel.ids[0]) : undefined, !!dra
     const b = box.getBoundingClientRect();
     // The box can run past the bottom of the page's scroller (which stays put): aim for the part that is on screen.
     const main = item.closest<HTMLElement>('.main__scroll')?.getBoundingClientRect();
-    const top = main ? Math.max(b.top, main.top) : b.top;
-    const bottom = main ? Math.min(b.bottom, main.bottom) : b.bottom;
+    // The part of the box that is on screen; a box scrolled fully off screen falls back to the whole box.
+    let top = main ? Math.max(b.top, main.top) : b.top;
+    let bottom = main ? Math.min(b.bottom, main.bottom) : b.bottom;
+    if (bottom <= top) { top = b.top; bottom = b.bottom; }
     if (i.top < top) box.scrollTop -= top - i.top;
     else if (i.bottom > bottom) box.scrollTop += Math.min(i.bottom - bottom, i.top - top);
   });
@@ -487,8 +497,9 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
         <div v-if="addFor !== null" class="addkey">
           <p class="addkey__text">{{ t('advanced.addForKey', { key: keyName(addFor) }) }}</p>
           <div class="addkey__btns">
-            <button v-for="x in TYPES" :key="x.type" type="button" class="chip" :data-add="x.type" :style="kindStyle(x.type)" :disabled="!hostOk(x.type, addFor)" :title="hostOk(x.type, addFor) ? undefined : t('advanced.hostIneligible', { type: t(`advanced.type${x.type}`) })" :aria-label="t('advanced.addTypeForKey', { type: t(`advanced.short${x.type}`), key: keyName(addFor) })" @click="start(x.type, { fromKey: true })">+ {{ t(`advanced.short${x.type}`) }}</button>
+            <button v-for="x in TYPES" :key="x.type" type="button" class="chip" :data-add="x.type" :style="kindStyle(x.type)" :disabled="!hostOk(x.type, addFor)" :title="hostOk(x.type, addFor) ? undefined : t('advanced.hostIneligible', { type: t(`advanced.type${x.type}`) })" :aria-describedby="hostOk(x.type, addFor) ? undefined : 'addkey-why'" :aria-label="t('advanced.addTypeForKey', { type: t(`advanced.short${x.type}`), key: keyName(addFor) })" @click="start(x.type, { fromKey: true })">+ {{ t(`advanced.short${x.type}`) }}</button>
           </div>
+          <p v-if="cannotHostText" id="addkey-why" class="addkey__why">{{ cannotHostText }}</p>
         </div>
         <div class="cfg">
         <div v-if="!adv.assignments.length" class="empty">
@@ -597,6 +608,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
 .addkey { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-2); padding: 8px 12px; border-radius: var(--r-control); border: 1px dashed var(--line-2); }
 .addkey { flex: none; }
 .addkey__text { margin: 0; font-size: var(--fs-label); color: var(--fg-2); }
+.addkey__why { flex-basis: 100%; margin: 0; font-size: var(--fs-caption); color: var(--fg-3); }
 .addkey__btns { display: flex; gap: 6px; }
 .chip {
   padding: 3px 10px;

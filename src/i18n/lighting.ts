@@ -14,7 +14,7 @@ export const lightingVi = {
   'lighting.sideLeft': 'cạnh trái',
 
   // Live preview
-  'lighting.livePreview': 'Xem trước trực tiếp',
+  'lighting.livePreview': 'Xem trực tiếp',
   'lighting.livePreviewHint': 'Đọc liên tục từ bàn phím (~10 Hz)',
   'lighting.liveStatus': 'Trực tiếp',
   'lighting.simStatus': 'Mô phỏng',
@@ -60,8 +60,8 @@ export const lightingVi = {
   'lighting.paletteSlot': 'Màu {n}',
   'lighting.rainbowHint': 'Chế độ cầu vồng được firmware tính toán tự động qua dải phổ.',
   'lighting.editColorBtn': 'Sửa màu…',
+  'lighting.editColorAria': 'Sửa màu {n}',
   'lighting.editColorTitle': 'Sửa màu {n} · Bảng màu {area}',
-  'lighting.rainbowNoEdit': 'Ô Cầu vồng do firmware tính, không có màu để sửa.',
   'lighting.activeSlot': 'Đang chọn: {name}',
 
   // Per-key custom colors
@@ -74,9 +74,8 @@ export const lightingVi = {
   'lighting.applyLedsN': 'Áp dụng cho {count} LED',
   'lighting.applyColor': 'Áp dụng màu',
   'lighting.clearShort': 'Xoá màu',
+  'lighting.clearAll': 'Xoá tất cả màu riêng…',
   'lighting.clearAllN': 'Xoá tất cả màu riêng ({count})…',
-  'lighting.customMetaKeys': '{count} phím đang dùng màu riêng',
-  'lighting.customMetaLeds': '{count} LED đang dùng màu riêng',
   'lighting.clearKeyColor': 'Xoá màu phím đã chọn',
   'lighting.clearAllKeyColors': 'Xoá tất cả màu riêng',
   'lighting.confirmClearKeysTitle': 'Xoá tất cả màu riêng của phím?',

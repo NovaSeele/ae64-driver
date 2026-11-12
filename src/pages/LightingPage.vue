@@ -167,7 +167,7 @@ const ringLeds = computed(() => stripRing().map(({ index, side, t: pos }) => {
     pos,
     label,
     color: stripColor(index),
-    isSel: stripSelection.value.has(index),
+    isSel: activeTab.value === 'strip' && stripSelection.value.has(index), // the display-only ring on the keys tab draws no selection
     custom: ready.value && lighting.stripCustomColors[index]?.custom,
   };
 }));
@@ -345,6 +345,9 @@ const quickColors = computed(() => ['#ffffff', ...Array.from({ length: 7 }, (_, 
   const entry = palette.value[i + 1];
   return entry ? rgbToHex(entry) : '#000000';
 })]);
+
+/** Only the first chip of the picked colour is marked (white and a palette slot can be the same colour). */
+const pickedChip = computed(() => quickColors.value.indexOf(picked[area.value].toLowerCase()));
 
 const selectedCount = computed(() => (area.value === 0 ? sel.count : stripSelection.value.size));
 const overrideCount = computed(() => (area.value === 0
@@ -600,14 +603,14 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
                 />
                 <span class="pal__name">{{ palIsRainbow ? t('lighting.rainbow') : t('lighting.paletteSlot', { n: base.paletteIndex }) }}</span>
                 <Button
+                  v-if="!palIsRainbow"
                   ref="palEditBtn"
                   class="pal__edit"
                   size="sm"
                   variant="secondary"
                   aria-haspopup="dialog"
                   :aria-expanded="palOpen"
-                  :disabled="palIsRainbow"
-                  :title="palIsRainbow ? t('lighting.rainbowNoEdit') : undefined"
+                  :aria-label="t('lighting.editColorAria', { n: editingSlot })"
                   @click="palOpen = !palOpen"
                 >
                   {{ t('lighting.editColorBtn') }}
@@ -624,7 +627,6 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
             <div class="col__head">
               <h3 class="col__title">{{ activeTab === 'keys' ? t('lighting.perKeyTitle') : t('lighting.stripCustomTitle') }}</h3>
               <InfoTip :text="activeTab === 'keys' ? `${t('lighting.perKeyDesc')} ${t('lighting.spaceNote')}` : t('lighting.stripCustomDesc')" placement="top" />
-              <span v-if="overrideCount > 0" class="col__meta">{{ t(activeTab === 'keys' ? 'lighting.customMetaKeys' : 'lighting.customMetaLeds', { count: overrideCount }) }}</span>
             </div>
             <fieldset class="col__body" :disabled="locked">
               <button
@@ -647,11 +649,11 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
                   :key="i"
                   type="button"
                   class="quick__chip"
-                  :class="{ 'quick__chip--on': hex === picked[area].toLowerCase() }"
+                  :class="{ 'quick__chip--on': i === pickedChip }"
                   :style="{ backgroundColor: hex }"
                   :aria-label="hex"
                   :title="hex"
-                  :aria-pressed="hex === picked[area].toLowerCase()"
+                  :aria-pressed="i === pickedChip"
                   @click="picked[area] = hex"
                 />
               </div>
@@ -668,7 +670,7 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
                   {{ t('lighting.clearShort') }}
                 </Button>
                 <Button class="own-actions__all" variant="danger" size="sm" :disabled="overrideCount === 0" @click="confirmClear = true">
-                  {{ t('lighting.clearAllN', { count: overrideCount }) }}
+                  {{ overrideCount > 0 ? t('lighting.clearAllN', { count: overrideCount }) : t('lighting.clearAll') }}
                 </Button>
               </div>
             </fieldset>
@@ -698,9 +700,9 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 <style scoped>
 .wb { display: flex; flex-direction: column; gap: var(--s-2); }
 .wb__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-4); }
-.wb__group { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.wb__group { display: flex; flex: none; align-items: center; gap: var(--s-2); white-space: nowrap; }
 .wb__label { font-size: var(--fs-label); color: var(--fg-2); white-space: nowrap; }
-.wb__live { margin-left: auto; flex: none; white-space: nowrap; }
+.wb__live { margin-left: auto; }
 
 /* Area tabs: the Segmented look, as a tablist. */
 .tabs {
@@ -881,8 +883,7 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 .col:first-child { padding-left: 0; border-left: 0; }
 .col:last-child { padding-right: 0; }
 .col__head { display: flex; align-items: center; gap: var(--s-1); min-height: 24px; }
-.col__title { margin: 0; font-size: var(--fs-card); font-weight: 600; }
-.col__meta { margin-left: auto; color: var(--fg-3); font-size: var(--fs-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.col__title { margin: 0; font-size: var(--fs-card); font-weight: 600; white-space: nowrap; }
 @container (max-width: 919px) {
   .dock__cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .col:nth-child(2) { padding-right: 0; }
@@ -944,7 +945,7 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 .field-inline :deep(.seg) { flex-wrap: nowrap; }
 /* A column with less than 260px of content: the label sits above the Segmented. */
 @container (max-width: 259px) {
-  .field-inline { flex-direction: column; align-items: stretch; gap: 4px; }
+  .field-inline { flex-direction: column; align-items: flex-start; gap: 4px; }
 }
 
 /* c. Palette */
