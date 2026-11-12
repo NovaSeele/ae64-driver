@@ -122,9 +122,9 @@ function onPointerUp(e: PointerEvent) {
   focusId.value = s.id;
 }
 
-function focusKey(id: number) {
+function focusKey(id: number, preventScroll = false) {
   focusId.value = id;
-  root.value?.querySelector<HTMLElement>(`[data-key="${id}"]`)?.focus();
+  root.value?.querySelector<HTMLElement>(`[data-key="${id}"]`)?.focus({ preventScroll });
 }
 
 function neighbour(from: PhysicalKey, key: string): PhysicalKey | undefined {
@@ -160,6 +160,9 @@ function onWindowKey(e: KeyboardEvent) {
   const el = e.target as HTMLElement | null;
   if (el?.closest('[role="dialog"]') || (el?.tagName === 'INPUT' && !el.closest('[data-app-keys]')) || el?.tagName === 'TEXTAREA' || el?.isContentEditable) return;
   sel.clear();
+  // Esc from a clean NumberField also leaves the field: focus lands on the plate's tab stop, so the next
+  // arrow moves between keys instead of editing the selection. Only a selectable board takes it.
+  if (el?.closest('[data-app-keys]') && tabStop.value !== undefined) focusKey(tabStop.value, true);
 }
 
 onMounted(() => {

@@ -68,3 +68,14 @@ describe('NumberField app-keys marker', () => {
     expect(el.hasAttribute('data-app-keys')).toBe(false);
   });
 });
+
+describe('NumberField unit suffix', () => {
+  it('is hidden on a mixed value and back with a value or typing', async () => {
+    w = mount(NumberField, { props: { modelValue: null, min: 0.1, max: 4, label: 'Act' }, attachTo: document.body });
+    expect(w.find('.nf__unit').exists()).toBe(false);
+    await type(w.find('input').element as HTMLInputElement, '1.5');
+    expect(w.find('.nf__unit').exists()).toBe(true);
+    await w.setProps({ modelValue: 2 });
+    expect(w.find('.nf__unit').text()).toBe('mm');
+  });
+});

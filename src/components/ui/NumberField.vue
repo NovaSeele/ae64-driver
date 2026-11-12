@@ -93,7 +93,7 @@ function onKey(e: KeyboardEvent) {
       @blur="focused = false; commit()"
       @keydown="onKey"
     >
-    <span v-if="unit" class="nf__unit">{{ unit }}</span>
+    <span v-if="unit && !(modelValue === null && text === '')" class="nf__unit">{{ unit }}</span>
     <button type="button" class="nf__btn" :aria-label="`${t('ui.increase')} ${label}`" tabindex="-1" :disabled="stepOff" @click="nudge(1, $event.shiftKey)">
       <IconPlus :size="14" stroke-width="1.5" />
     </button>
