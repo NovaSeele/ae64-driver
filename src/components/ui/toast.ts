@@ -20,7 +20,7 @@ function show(text: string, kind: ToastKind = 'info', ms = kind === 'error' ? 60
   return id;
 }
 
-/** Bottom padding the page scroller needs while toasts are open (stack height + 16 px; 0 when none). Published by Toast.vue. */
+/** Bottom padding the page scroller needs while toasts are open (stack height + its 20 px bottom offset + 16 px; 0 when none). Published by Toast.vue. */
 export const toastSafeTarget = ref(0);
 
 /**

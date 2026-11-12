@@ -25,12 +25,12 @@ describe('toast host publishes the target', () => {
   it('is 0 with no toast', () => {
     expect(toastSafeTarget.value).toBe(0);
   });
-  it('is the stack height + 16 px while a toast is open, and 0 once dismissed', async () => {
+  it('is the stack height + its 20 px bottom offset + 16 px while a toast is open, and 0 once dismissed', async () => {
     const { show, dismiss } = useToast();
     const id = show('Đã lưu');
     await nextTick();
     report(56);
-    expect(toastSafeTarget.value).toBe(72);
+    expect(toastSafeTarget.value).toBe(92);
     dismiss(id);
     await nextTick();
     report(0);

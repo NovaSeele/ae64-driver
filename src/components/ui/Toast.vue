@@ -6,11 +6,14 @@ import { toastSafeTarget, useToast } from './toast';
 import { t } from '../../i18n/vi';
 
 const { items, dismiss } = useToast();
-// While a toast is open, App.vue pads the page scroller by the stack height + 16 px (toastSafeTarget) so nothing stays under it.
+// While a toast is open, App.vue pads the page scroller by the stack height + 20 + 16 px (toastSafeTarget) so nothing stays under it.
 const stack = ref<HTMLElement | null>(null);
 let ro: ResizeObserver | null = null;
+// The stack sits STACK_BOTTOM px above the window edge (.toasts bottom); content stays GAP px above its top.
+const STACK_BOTTOM = 20;
+const GAP = 16;
 function setSafe(h: number): void {
-  toastSafeTarget.value = h > 0 ? h + 16 : 0;
+  toastSafeTarget.value = h > 0 ? h + STACK_BOTTOM + GAP : 0;
 }
 onMounted(() => {
   if (typeof ResizeObserver === 'undefined' || !stack.value) return;
