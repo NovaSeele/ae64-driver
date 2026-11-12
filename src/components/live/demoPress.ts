@@ -25,7 +25,7 @@ const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Ho
 /** Keys the focused travel graph uses to pan. */
 const GRAPH_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape']);
 
-const DOWN_MS = 240;
+const DOWN_MS = 300;
 const BOTTOM_HOLD_MS = 60;
 const UP_MS = 320;
 const MAX_QUEUED = 2;
@@ -43,14 +43,20 @@ interface Anim {
 }
 
 /**
- * Listens to window key events while attached. Every tap is one full stroke (240 ms down, 60 ms at the bottom or
+ * Listens to window key events while attached. Every tap is one full stroke (300 ms down, 60 ms at the bottom or
  * until keyup, 320 ms up); taps arriving while the key still moves are queued (at most 2) and run one after another.
  */
 export function attachDemoPress(mock: MockTransport): () => void {
   const anims = new Map<number, Anim>();
   let raf = 0;
 
-  const ease = (k: number) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
+  // Position (0…1) against time (0…1): velocity ramps linearly up over the first RAMP_K, stays constant, ramps down over the
+  // last RAMP_K. The two ramps cover 12% of the distance each, so the middle reads evenly (actuation lands where it is set).
+  const RAMP_K = 0.24 / 1.24;
+  const V_MAX = 1.24;
+  const ease = (k: number) => (k < RAMP_K ? V_MAX * k * k / (2 * RAMP_K)
+    : k > 1 - RAMP_K ? 1 - V_MAX * (1 - k) * (1 - k) / (2 * RAMP_K)
+      : 0.12 + V_MAX * (k - RAMP_K));
 
   let last = 0;
 

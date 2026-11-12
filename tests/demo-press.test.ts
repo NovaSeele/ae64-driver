@@ -92,7 +92,7 @@ describe('demo press stroke timing', () => {
   }
   const strokes = (log: { mm: number }[]) => log.reduce((n, s, i) => n + (s.mm > 0 && (i === 0 || log[i - 1].mm === 0) ? 1 : 0), 0);
 
-  it('a 50 ms tap is a full stroke: bottom 3.31, held for 60 ms, back to 0 by ~620 ms', () => {
+  it('a 50 ms tap is a full stroke: bottom 3.31, held for 60 ms, back to 0 by ~680 ms', () => {
     const { log, key } = setup();
     key('keydown');
     vi.advanceTimersByTime(50);
@@ -102,8 +102,8 @@ describe('demo press stroke timing', () => {
     expect(bottom.length).toBeGreaterThan(0);
     expect(bottom[bottom.length - 1].t - bottom[0].t).toBeGreaterThanOrEqual(60);
     const end = log.find((s, i) => i > 0 && s.mm === 0)!;
-    expect(end.t).toBeGreaterThanOrEqual(600);
-    expect(end.t).toBeLessThanOrEqual(660);
+    expect(end.t).toBeGreaterThanOrEqual(660);
+    expect(end.t).toBeLessThanOrEqual(720);
   });
 
   it('a 1 s hold stays at 3.31 until keyup', () => {
@@ -156,26 +156,51 @@ describe('demo press stroke timing', () => {
 });
 
 describe('demo press reads during a stroke', () => {
-  it('reads every 2 ms see the first travel at or past 1.00 mm within 0.1 mm of it', async () => {
+  afterEach(() => vi.useRealTimers());
+
+  const keyEv = (type: 'keydown' | 'keyup') =>
+    document.body.dispatchEvent(new KeyboardEvent(type, { code: 'KeyW', key: 'w', bubbles: true, cancelable: true }));
+
+  /** Reads travel through the mock's axis path every `cadence` ms (first read `offset` ms after the keydown) during one held stroke. */
+  function readsAt(cadence: number, offset: number): number[] {
     vi.useFakeTimers();
     const mock = new MockTransport({ latencyMs: 0 });
     const seen: number[] = [];
     const real = mock.simulatePress.bind(mock);
     vi.spyOn(mock, 'simulatePress').mockImplementation((id, mm) => { seen.push(mm); real(id, mm); });
     const detach = attachDemoPress(mock);
-    const axis = (mock as unknown as { axisRow(t: number, r: number): number[] });
-    document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', key: 'w', bubbles: true, cancelable: true }));
+    const axis = mock as unknown as { axisRow(t: number, r: number): number[] };
+    keyEv('keydown');
     const reads: number[] = [];
-    for (let i = 0; i < 500; i++) {
-      vi.advanceTimersByTime(2);
-      const before = seen.length;
-      axis.axisRow(1, 2);
-      if (seen.length > before) reads.push(seen[seen.length - 1]);
+    let wait = offset;
+    for (let t = offset; t < 700; t += cadence) {
+      vi.advanceTimersByTime(wait);
+      wait = cadence;
+      axis.axisRow(1, 2); // a frame at this same instant may already have advanced the key: the read sees its position
+      if (seen.length) reads.push(seen[seen.length - 1]);
     }
     detach();
     vi.useRealTimers();
-    const first = reads.find((mm) => mm >= 1)!;
-    expect(first).toBeGreaterThanOrEqual(1);
-    expect(first).toBeLessThanOrEqual(1.1);
+    return reads;
+  }
+
+  it.each([1.0, 2.5])('12 ms reads: the first read at or past %s mm overshoots by 0.10 mm on average, 0.20 at most', (line) => {
+    const over: number[] = [];
+    for (let offset = 1; offset <= 12; offset++) over.push(readsAt(12, offset).find((mm) => mm >= line)! - line);
+    expect(Math.min(...over)).toBeGreaterThanOrEqual(0);
+    expect(over.reduce((a, b) => a + b, 0) / over.length).toBeLessThanOrEqual(0.1);
+    expect(Math.max(...over)).toBeLessThanOrEqual(0.2);
+  });
+
+  it('the descent is monotonic and continuous, with constant velocity between 15% and 85% of the travel', () => {
+    const reads = readsAt(5, 1);
+    const down = reads.slice(0, reads.indexOf(3.31) + 1);
+    const steps = down.slice(1).map((mm, i) => mm - down[i]);
+    expect(steps.every((d) => d >= 0)).toBe(true);
+    expect(Math.max(...steps)).toBeLessThan(0.1); // no jump at 5 ms
+    const mid = down.map((mm, i) => ({ mm, i })).filter(({ mm }) => mm >= 0.15 * 3.31 && mm <= 0.85 * 3.31);
+    const mids = mid.slice(1).map(({ mm }, i) => mm - mid[i].mm);
+    const mean = mids.reduce((a, b) => a + b, 0) / mids.length;
+    for (const d of mids) expect(Math.abs(d - mean)).toBeLessThan(1e-6);
   });
 });

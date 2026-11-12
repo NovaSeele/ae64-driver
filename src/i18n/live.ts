@@ -9,7 +9,7 @@ export const liveVi = {
   'live.allKeys': 'Đo mọi phím',
   'live.allKeysHint': 'Cập nhật hành trình của tất cả phím trên bàn phím (giảm tốc độ đo của phím đang ghim).',
   'live.demoKeys': 'Bàn phím máy tính',
-  'live.demoKeysHint': 'Demo: gõ hoặc giữ một phím trên bàn phím máy tính (ví dụ W). Mỗi lần gõ được mô phỏng thành một lần nhấn chậm (~0,6 giây) cho dễ nhìn; phím thật nhanh hơn nhiều.',
+  'live.demoKeysHint': 'Demo: gõ hoặc giữ một phím trên bàn phím máy tính (ví dụ W). Mỗi lần gõ được mô phỏng thành một lần nhấn chậm (~0,7 giây) cho dễ nhìn; phím thật nhanh hơn nhiều.',
   'live.startHint': 'Nhấn một phím bất kỳ trên AE64 để bắt đầu đo',
   'live.startHintDemo': 'Demo: giữ một phím trên bàn phím máy tính (ví dụ W) để mô phỏng nhấn',
   'live.editKey': 'Sửa cài đặt phím',

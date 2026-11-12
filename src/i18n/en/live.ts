@@ -11,7 +11,7 @@ export const liveEn: Record<keyof typeof liveVi, string> = {
   'live.allKeys': 'All keys',
   'live.allKeysHint': 'Updates travel for all keys (slows down polling for the pinned key).',
   'live.demoKeys': 'Computer keyboard',
-  'live.demoKeysHint': 'Demo: tap or hold a key on your computer keyboard (e.g. W). Each tap is simulated as one slow press (~0.6 s) so it is easy to follow; a real keyboard is much faster.',
+  'live.demoKeysHint': 'Demo: tap or hold a key on your computer keyboard (e.g. W). Each tap is simulated as one slow press (~0.7 s) so it is easy to follow; a real keyboard is much faster.',
   'live.startHint': 'Press any key on the AE64 to start measuring',
   'live.startHintDemo': 'Demo: hold any key on your keyboard (e.g. W) to simulate a press',
   'live.editKey': 'Edit key settings',
