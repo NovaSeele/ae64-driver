@@ -38,7 +38,7 @@ import type { UserPreset } from '../stores/userPresets';
 import { releasePoint, settingsFrom } from '../stores/live';
 import { isRtMode, supportsIntervalRt } from '../protocol';
 import type { Performance, PerfMode, PhysicalKey } from '../protocol';
-import { toastSafeTarget, useToast } from '../components/ui/toast';
+import { revealAboveToast, useToast } from '../components/ui/toast';
 import { t } from '../i18n/vi';
 import type { MessageKey } from '../i18n/vi';
 import type { SubLine } from '../components/keyboard/Keycap.vue';
@@ -524,19 +524,7 @@ async function showSaveResult(id: string) {
   const btn = footer?.querySelector<HTMLButtonElement>('button');
   const target = btn && !btn.disabled ? btn : document.querySelector<HTMLElement>(`.preset[data-preset="${id}"]`);
   target?.focus({ preventScroll: true });
-  if (toastSafeTarget.value <= 0) {
-    // The toast host publishes its height after a ResizeObserver; do not wait for ever when there is none.
-    await new Promise<void>((resolve) => {
-      const stop = watch(toastSafeTarget, (v) => { if (v > 0) done(); });
-      const timer = setTimeout(done, 500);
-      function done() { stop(); clearTimeout(timer); resolve(); }
-    });
-  }
-  if (typeof requestAnimationFrame === 'function') await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-  const el = footer?.querySelector<HTMLElement>('#perf-save-why') ?? btn;
-  if (!el || typeof el.scrollIntoView !== 'function') return;
-  const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  el.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
+  await revealAboveToast(() => footer?.querySelector<HTMLElement>('#perf-save-why') ?? btn);
 }
 
 function tryNow() {

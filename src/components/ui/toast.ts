@@ -1,5 +1,5 @@
 // useToast(): tiny global toast queue rendered by <ToastHost> (Toast.vue) in App.vue.
-import { ref, shallowRef } from 'vue';
+import { ref, shallowRef, watch } from 'vue';
 
 export type ToastKind = 'info' | 'success' | 'warn' | 'error';
 /** A button on the toast (e.g. Hoàn tác); the toast closes when it is pressed. */
@@ -61,6 +61,27 @@ export function createSafePad(scroller: () => HTMLElement | null, apply: (px: nu
     reset(): void { unlisten(); set(target); },
     stop: unlisten,
   };
+}
+
+/**
+ * Scroll `el` into view (nearest) once the toast's pad is in place: waits for toastSafeTarget > 0 (the toast host publishes it after a
+ * ResizeObserver; capped at 500 ms), then one frame. Smooth unless the user prefers reduced motion; nothing scrolls if `el` is already clear.
+ */
+type Target = HTMLElement | null | undefined;
+/** `target` may be a function, looked up after the wait, when the element can still render meanwhile. */
+export async function revealAboveToast(target: Target | (() => Target)): Promise<void> {
+  if (toastSafeTarget.value <= 0) {
+    await new Promise<void>((resolve) => {
+      const stop = watch(toastSafeTarget, (v) => { if (v > 0) done(); });
+      const timer = setTimeout(done, 500);
+      function done() { stop(); clearTimeout(timer); resolve(); }
+    });
+  }
+  if (typeof requestAnimationFrame === 'function') await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  const el = typeof target === 'function' ? target() : target;
+  if (!el || typeof el.scrollIntoView !== 'function') return;
+  const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  el.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
 }
 
 export function useToast() {

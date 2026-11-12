@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Switch card of the Switch page: the switch fitted in the selected keys. Picking happens in SwitchPicker.
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { IconAlertTriangle, IconInfoCircle, IconReplace } from '@tabler/icons-vue';
 import Card from '../ui/Card.vue';
 import Button from '../ui/Button.vue';
@@ -12,6 +12,7 @@ import { groupName, switchBrand, switchName } from '../../data/switchDisplay';
 import type { SwitchEntry } from '../../protocol/switches';
 import { useDeviceStore } from '../../stores/device';
 import { usePerformanceStore } from '../../stores/performance';
+import { revealAboveToast } from '../ui/toast';
 import { t } from '../../i18n/vi';
 
 const props = defineProps<{ ids: number[] }>();
@@ -19,6 +20,16 @@ const perf = usePerformanceStore();
 const device = useDeviceStore();
 
 const open = ref(false);
+const foot = ref<HTMLElement | null>(null);
+
+/** After Apply: keep focus on the trigger (the Dialog restores it on close) and scroll it clear of the toast. */
+async function onApplied() {
+  await nextTick();
+  const btn = foot.value?.querySelector<HTMLButtonElement>('button');
+  if (!btn) return;
+  if (document.activeElement !== btn) btn.focus({ preventScroll: true });
+  await revealAboveToast(btn);
+}
 
 const groups = computed(() => {
   const order = (id: number) => { const i = perf.catalog?.findIndex((e) => e.id === id) ?? -1; return i < 0 ? Infinity : i; };
@@ -69,16 +80,16 @@ const rowName = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknownRow'
         <IconAlertTriangle :size="14" aria-hidden="true" />{{ t('sw.normalised', { n: normalisedN }) }}
       </p>
     </div>
-    <div class="swc__foot">
+    <div ref="foot" class="swc__foot">
       <Button variant="secondary" size="sm" :icon="IconReplace" :disabled="!perf.catalog || !ids.length" :title="perf.catalog ? undefined : unsupportedText" @click="open = true">{{ t('sw.change') }}</Button>
     </div>
-    <SwitchPicker v-model:open="open" :ids="ids" />
+    <SwitchPicker v-model:open="open" :ids="ids" @applied="onApplied" />
   </Card>
 </template>
 
 <style scoped>
 .swc { display: flex; flex-direction: column; gap: var(--s-3); }
-.swc__foot { margin-top: auto; display: flex; justify-content: flex-start; }
+.swc__foot { margin-top: var(--s-4); display: flex; justify-content: flex-start; }
 .swc__current { display: flex; align-items: center; gap: var(--s-3); }
 .swc__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .swc__name { font-size: var(--fs-card); font-weight: 600; color: var(--fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
