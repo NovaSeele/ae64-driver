@@ -4,6 +4,7 @@ import { defineStore } from 'pinia';
 import { computed, ref, shallowRef, watch } from 'vue';
 import { FIRMWARE_ROWS, LAYER_COUNT, SAVE_GROUP, keycodeLabel } from '../protocol';
 import { BLOCKED_KEYCODES, isWritableKeycode } from '../protocol/safety';
+import { isFnSwitch } from '../protocol/keycodes';
 import type { Ae64Transport, PhysicalKey } from '../protocol';
 import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
@@ -41,9 +42,8 @@ export interface KeycodePlan {
   factoryLost: FactoryKey[];
 }
 
-export function isFnSwitch(code: number): boolean {
-  return code >= 0xf101 && code <= 0xf103;
-}
+/** Moved to protocol/keycodes (the selection's key groups use it too); kept here for the existing imports. */
+export { isFnSwitch } from '../protocol/keycodes';
 
 export const useKeymapStore = defineStore('keymap', () => {
   const device = useDeviceStore();

@@ -23,6 +23,7 @@ import { useSelectionStore } from '../stores/selection';
 import { isKnownMode, usePerformanceStore } from '../stores/performance';
 import { useCalibrationStore } from '../stores/calibration';
 import type { PhysicalKey } from '../protocol';
+import type { LegendItem } from '../components/keyboard/SelectionBar.vue';
 import { t } from '../i18n/vi';
 
 const device = useDeviceStore();
@@ -109,6 +110,14 @@ function nameOfKey(k: PhysicalKey): string | undefined {
   const e = perf.switchOf(k.id);
   return e ? switchName(e) : t('sw.unknown');
 }
+// The keycap legend (DESIGN B §3.4): the switch photo, the group bars when there are two or more groups, the dashed flag.
+const shows = computed<LegendItem[] | undefined>(() => {
+  if (perf.loading || perf.loadError || !loaded.value.length) return undefined;
+  const items: LegendItem[] = [{ text: t('swp.shows') }];
+  if (multi.value) items.push({ sample: 'bar', colors: groups.value.map((_, i) => toneOf(i)), label: t('swp.showsGroupsGlyph'), text: t('swp.showsGroups') });
+  if (perf.uncalibrated.length) items.push({ sample: 'flag', label: t('sel.flaggedGlyph'), text: t('sel.flagged') });
+  return items;
+});
 const uncalFlag = (k: PhysicalKey) => (perf.uncalibrated.includes(k.id) ? { label: t('kb.uncalibrated') } : undefined);
 // Legends of the uncalibrated keys in board order: the first 8, then " +m" for the rest.
 const UNCAL_SHOWN = 8;
@@ -120,7 +129,7 @@ const uncalKeys = computed(() => {
 </script>
 
 <template>
-  <PageLayout :title="t('page.switch')" :keyboard="tab === 'switch'">
+  <PageLayout :title="t('page.switch')" :keyboard="tab === 'switch'" :shows="shows">
     <template #toolbar>
       <div class="feat-row">
         <FeatureSwitch :model-value="tab" :items="tabs" :label="t('page.switch')" @update:model-value="pickTab" />

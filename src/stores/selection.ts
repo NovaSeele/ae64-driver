@@ -2,18 +2,23 @@
 import { defineStore } from 'pinia';
 import { computed, ref, shallowRef, watch } from 'vue';
 import { PHYSICAL_KEYS } from '../protocol';
+import { keyGroups } from '../data/keyGroups';
 import { useDeviceStore } from './device';
 
 export type SelectMode = 'replace' | 'toggle' | 'range';
+/** Quick-select buttons: replace the selection with the group, or add the group to it (Ctrl/⌘/Shift). */
+export type GroupMode = 'replace' | 'add';
 
 const ALL_IDS = PHYSICAL_KEYS.map((k) => k.id);
-const WASD_IDS = ['W', 'A', 'S', 'D'].map((n) => PHYSICAL_KEYS.find((k) => k.name === n)!.id);
 
 export const useSelectionStore = defineStore('selection', () => {
   const selected = shallowRef<Set<number>>(new Set());
   const focused = ref<number | null>(null);
+  const device = useDeviceStore();
   // Another keyboard (or the demo) was connected: the selection was of the old one.
-  watch(() => useDeviceStore().connection, () => { selected.value = new Set(); focused.value = null; });
+  watch(() => device.connection, () => { selected.value = new Set(); focused.value = null; });
+  /** Letters / digits / modifiers / WASD by what each key does on the Main layer (DESIGN B §3.1); recomputed when it changes. */
+  const groups = computed(() => keyGroups(device.keys, device.layer0));
   const ids = computed(() => [...selected.value].sort((a, b) => a - b));
   const count = computed(() => selected.value.size);
 
@@ -53,7 +58,17 @@ export const useSelectionStore = defineStore('selection', () => {
   function clear(): void { set([]); }
   function all(): void { set(ALL_IDS); }
   function invert(): void { set(ALL_IDS.filter((id) => !selected.value.has(id))); }
-  function wasd(): void { set(WASD_IDS); focused.value = WASD_IDS[0]; }
+  /** replace: exactly the group · add: the union with the selection. An empty group changes nothing (a replace with []
+   *  would quietly turn Performance into "all 64 keys"). The first id anchors the next Shift-click. */
+  function group(list: readonly number[], mode: GroupMode = 'replace'): void {
+    if (!list.length) return;
+    set(mode === 'add' ? [...selected.value, ...list] : list);
+    focused.value = list[0];
+  }
+  function wasd(mode: GroupMode = 'replace'): void { group(groups.value.wasd, mode); }
+  function letters(mode: GroupMode = 'replace'): void { group(groups.value.letters, mode); }
+  function digits(mode: GroupMode = 'replace'): void { group(groups.value.digits, mode); }
+  function modifiers(mode: GroupMode = 'replace'): void { group(groups.value.mods, mode); }
 
-  return { selected, focused, ids, count, select, selectMany, clear, all, invert, wasd };
+  return { selected, focused, ids, count, groups, select, selectMany, clear, all, invert, group, wasd, letters, digits, modifiers };
 });

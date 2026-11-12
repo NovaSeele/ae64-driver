@@ -157,4 +157,6 @@ export const advancedVi = {
   'advanced.unknownDetail': 'Mode {mode} chưa biết',
   'advanced.orphanDetail': 'Thiếu phím ghép cặp',
   'advanced.pairDetail': '{a} / {b} · {delay} ms',
+  'advanced.shows': 'loại phím nâng cao',
+  'advanced.showsPair': 'hai phím của một cặp',
 } as const;

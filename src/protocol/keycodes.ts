@@ -164,6 +164,11 @@ export function decodeCombo(code: number): { mask: number; trigger: number } | n
   return { mask, trigger };
 }
 
+/** Fn1–Fn3 layer switch keycodes (0xF101–0xF103). */
+export function isFnSwitch(code: number): boolean {
+  return code >= 0xf101 && code <= 0xf103;
+}
+
 export function keycodeLabel(code: number): { label: string; group: string; long?: string } {
   const known = BY_CODE.get(code);
   if (known) return { label: known.entry.label, group: known.group, long: known.entry.long ?? known.entry.label };

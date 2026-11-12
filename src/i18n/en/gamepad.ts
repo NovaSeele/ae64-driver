@@ -205,4 +205,6 @@ export const gamepadEn: Record<keyof typeof gamepadVi, string> = {
   'gp.stickL': 'left stick',
   'gp.stickR': 'right stick',
   'gp.none': 'none',
+  'gp.shows': 'gamepad output assigned',
+  'gp.showsGroups': 'color = output group',
 };

@@ -58,8 +58,7 @@
 /* keycaps */
 .gp-kb--off .cap__fill { opacity: 0.35; }
 .gp-kb--off .cap__sub { opacity: 0.6; }
-.gp-page .sb__hint.gp-armed-hint { color: var(--fg-1); font-weight: 600; }
-.gp-page .sb__hint { flex: 1; min-width: 0; color: var(--fg-4); font-size: var(--fs-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gp-page .gp-armed { min-width: 0; color: var(--fg-1); font-weight: 600; font-size: var(--fs-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* panels grid */
 .gpg { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--s-5); align-items: stretch; }

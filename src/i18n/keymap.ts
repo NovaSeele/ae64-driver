@@ -42,4 +42,7 @@ export const keymapVi = {
   'keymap.factoryListTitle': 'Phím nhà máy đang có trên bàn phím',
   'keymap.factoryListHint': 'Reset / Link / không dây: ứng dụng không bao giờ ghi các phím này. Nếu bạn gán đè, không thể ghi lại.',
   'keymap.factoryItem': '{layer} · {key}: {code}',
+  'keymap.shows': 'chức năng ở {layer}',
+  'keymap.showsTrans': 'theo layer dưới',
+  'keymap.showsNone': 'trống',
 } as const;

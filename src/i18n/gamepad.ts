@@ -203,4 +203,6 @@ export const gamepadVi = {
   'gp.stickL': 'cần trái',
   'gp.stickR': 'cần phải',
   'gp.none': 'không có',
+  'gp.shows': 'đầu ra tay cầm đang gán',
+  'gp.showsGroups': 'màu = nhóm đầu ra',
 } as const;

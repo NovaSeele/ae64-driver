@@ -3,6 +3,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { IconAlertTriangle, IconInfoCircle, IconRefresh, IconRotateDot } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
+import type { LegendItem } from '../components/keyboard/SelectionBar.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import KeyPicker from '../components/ui/KeyPicker.vue';
 import Segmented from '../components/ui/Segmented.vue';
@@ -40,6 +41,17 @@ onBeforeUnmount(() => offProfile?.());
 
 const readOnly = computed(() => !device.boardAllowed);
 const ready = computed(() => !keymap.loading && !keymap.loadError && keymap.loadedProfile === device.activeProfile);
+
+const LAYER_LABEL = ['keymap.layerMain', 'keymap.layerFn1', 'keymap.layerFn2', 'keymap.layerFn3'] as const;
+/** Selection bar "Keycap: …" (DESIGN B §3.4): the function on the layer shown; ▽ and — only while some key has them. */
+const shows = computed<LegendItem[] | undefined>(() => {
+  if (!ready.value) return undefined;
+  const codes = keymap.values[keymap.activeLayer] ?? [];
+  const items: LegendItem[] = [{ text: t('keymap.shows', { layer: t(LAYER_LABEL[keymap.activeLayer]) }) }];
+  if (device.keys.some((k) => codes[k.id] === 0x0001)) items.push({ glyph: '▽', text: t('keymap.showsTrans') });
+  if (device.keys.some((k) => codes[k.id] === 0x0000)) items.push({ glyph: '—', text: t('keymap.showsNone') });
+  return items;
+});
 const totalRows = LAYER_COUNT * FIRMWARE_ROWS.length;
 
 const layerOptions = computed(() =>
@@ -151,7 +163,7 @@ function doRestoreDefault() {
 </script>
 
 <template>
-  <PageLayout :title="t('page.keymap')" keyboard>
+  <PageLayout :title="t('page.keymap')" keyboard :shows="shows">
     <template #keyboard-aside>
       <div class="kaside">
         <Segmented

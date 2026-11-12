@@ -1,6 +1,9 @@
 <script lang="ts">
 /** One line of a multi-line sublabel, optionally in its own colour. */
 export type SubLine = { text: string; tone?: string };
+/** Colour of the badge on a glowing keycap; the selection bar's legend draws its ● in the same colour (DESIGN B §3.4).
+ *  Must stay equal to the `.cap.cap--glow .cap__badge` rule below (a test checks it). */
+export const GLOW_BADGE_TONE = 'var(--fg-1)';
 </script>
 
 <script setup lang="ts">

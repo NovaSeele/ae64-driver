@@ -44,4 +44,7 @@ export const keymapEn: Record<keyof typeof keymapVi, string> = {
   'keymap.factoryListTitle': 'Factory keys currently on the keyboard',
   'keymap.factoryListHint': 'Reset / Link / wireless: this app never writes these keys. If you overwrite one, it cannot be written back.',
   'keymap.factoryItem': '{layer} · {key}: {code}',
+  'keymap.shows': 'function on {layer}',
+  'keymap.showsTrans': 'falls through',
+  'keymap.showsNone': 'none',
 };

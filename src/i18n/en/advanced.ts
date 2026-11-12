@@ -159,4 +159,6 @@ export const advancedEn: Record<keyof typeof advancedVi, string> = {
   'advanced.unknownDetail': 'Unknown mode {mode}',
   'advanced.orphanDetail': 'Missing paired key',
   'advanced.pairDetail': '{a} / {b} · {delay} ms',
+  'advanced.shows': 'advanced key type',
+  'advanced.showsPair': 'the two keys of a pair',
 };

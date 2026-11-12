@@ -10,6 +10,7 @@ import {
   IconLock, IconPencil, IconRefresh, IconStairs, IconTimeline, IconToggleRight, IconTrash,
 } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
+import type { LegendItem } from '../components/keyboard/SelectionBar.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import Card from '../components/ui/Card.vue';
 import Button from '../components/ui/Button.vue';
@@ -170,6 +171,14 @@ function tone(k: PhysicalKey): string | undefined {
 }
 const kindStyle = (kind: string) => ({ '--k': kindVar(kind) });
 /** Overview only: the one picked key's entry, summarised in the selection bar (same helpers as the list rows). */
+/** Selection bar "Keycap: …" (DESIGN B §3.4): what the keycap text means; A/B only while a pair is assigned. */
+const shows = computed<LegendItem[] | undefined>(() => {
+  if (adv.loading || adv.loadError) return undefined;
+  const items: LegendItem[] = [{ text: t('advanced.shows') }];
+  if (adv.assignments.some((a) => a.type === 'SOCD' || a.type === 'RS')) items.push({ glyph: 'A/B', text: t('advanced.showsPair') });
+  return items;
+});
+
 const summary = computed(() => {
   const a = sel.ids.length === 1 && !draft.value ? adv.byKey.get(sel.ids[0]) : undefined;
   if (!a) return null;
@@ -443,8 +452,8 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
 </script>
 
 <template>
-  <PageLayout :title="t('page.advanced')" keyboard>
-    <template v-if="summary" #hint>
+  <PageLayout :title="t('page.advanced')" keyboard :shows="shows">
+    <template v-if="summary" #detail>
       <span class="sum">
         <span class="sum__text" :title="summary.text">{{ summary.text }}</span>
         <Button v-if="!summary.ro" size="sm" variant="ghost" :aria-label="t('advanced.editEntry', { type: shortOf(summary.a), keys: keysOf(summary.a) })" @click="edit(summary.a)">{{ t('advanced.edit') }}</Button>

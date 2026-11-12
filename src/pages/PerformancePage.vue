@@ -16,6 +16,7 @@ import { IconAlertTriangle, IconFlask, IconLink, IconLinkOff, IconLock, IconRefr
 import PageLayout from '../components/shell/PageLayout.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import SelectionBar from '../components/keyboard/SelectionBar.vue';
+import type { LegendItem } from '../components/keyboard/SelectionBar.vue';
 import TravelEditor from '../components/performance/TravelEditor.vue';
 import StdCycleCard from '../components/performance/StdCycleCard.vue';
 import InfoTip from '../components/ui/InfoTip.vue';
@@ -208,6 +209,29 @@ function badgeIcon(k: PhysicalKey) {
   const p = perf.values[k.id];
   return p && !isKnownMode(p.mode) ? IconLock : undefined;
 }
+// The keycap legend of the active chip (DESIGN B §3.4). "If any" items look at every loaded key, not only the selection,
+// with the same tests as badge() / sublabel() / badgeIcon() so an item is listed exactly when a keycap shows it.
+const shows = computed<LegendItem[] | undefined>(() => {
+  if (perf.loading || perf.loadError) return undefined;
+  const recs = device.keys.map((k) => perf.values[k.id]).filter(Boolean);
+  if (!recs.length) return undefined;
+  const known = recs.filter((p) => isKnownMode(p.mode));
+  const items: LegendItem[] = [];
+  if (metric.value === 'actuation') {
+    items.push({ text: t('perf.showsAct'), tone: METRIC_TONE.actuation });
+    if (recs.some((p) => isRtMode(p.mode))) items.push({ glyph: 'RT', tone: 'var(--m-press)', text: t('perf.showsRtTag') });
+  } else if (metric.value === 'rt') {
+    items.push({ glyph: '↓', tone: 'var(--m-press)', text: t('perf.showsRtPress') });
+    items.push({ glyph: '↑', tone: 'var(--m-release)', text: t('perf.showsRtRelease') });
+    if (recs.some((p) => !isRtMode(p.mode))) items.push({ glyph: '—', text: t('perf.showsRtOff') });
+  } else {
+    items.push({ glyph: '↑', tone: 'var(--m-deadzone)', text: t('perf.showsDzTop') });
+    items.push({ glyph: '↓', tone: 'var(--m-deadzone)', text: t('perf.showsDzBottom') });
+  }
+  if (known.length < recs.length) items.push({ sample: 'lock', label: t('perf.showsLockedGlyph'), text: t('perf.showsLocked'), tone: METRIC_TONE[metric.value] });
+  if (perf.uncalibrated.length) items.push({ sample: 'flag', label: t('sel.flaggedGlyph'), text: t('sel.flagged') });
+  return items;
+});
 const uncalFlag = (k: PhysicalKey) => (perf.uncalibrated.includes(k.id) ? { label: t('kb.uncalibrated') } : undefined);
 function badgeTitle(k: PhysicalKey): string | undefined {
   const p = perf.values[k.id];
@@ -585,12 +609,12 @@ const modeOptions = computed(() => [
           selectable
         />
       </div>
-      <SelectionBar>
+      <SelectionBar :shows="shows" :tip="scoped ? t('perf.scopeSelTip') : t('perf.scopeAllTip', { n: device.keys.length })">
         <template #lead>
           <span class="scope" aria-live="polite">
             <strong class="num">{{ scoped ? t('perf.scopeSel', { n: loadedIds.length }) : t('perf.scopeAll', { n: device.keys.length }) }}</strong>
-            <span v-if="scoped && scopeNames" class="scope__names"> ({{ scopeNames }})</span>
-            <span class="scope__hint"> · {{ scoped ? t('perf.scopeSelHint') : t('perf.scopeAllHint') }}</span>
+            <span v-if="scoped && scopeNames" class="scope__names sb__opt"> ({{ scopeNames }})</span>
+            <span class="scope__hint sb__opt"> · {{ scoped ? t('perf.scopeSelHint') : t('perf.scopeAllHint') }}</span>
           </span>
         </template>
       </SelectionBar>

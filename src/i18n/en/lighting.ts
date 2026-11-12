@@ -109,4 +109,8 @@ export const lightingEn: Record<keyof typeof lightingVi, string> = {
   'lighting.syncBase': 'Change lighting settings ({area})',
   'lighting.syncPalette': 'Change palette ({area})',
   'lighting.syncMatrix': 'Change LED colors ({area})',
+  'lighting.showsLive': 'LED colors read live',
+  'lighting.showsSim': 'simulated LED colors',
+  'lighting.showsSaved': 'LED colors from the settings',
+  'lighting.showsOwn': 'own color',
 };

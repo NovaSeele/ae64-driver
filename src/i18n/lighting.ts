@@ -107,4 +107,8 @@ export const lightingVi = {
   'lighting.syncBase': 'Đổi cài đặt đèn ({area})',
   'lighting.syncPalette': 'Đổi bảng màu ({area})',
   'lighting.syncMatrix': 'Đổi màu riêng ({area})',
+  'lighting.showsLive': 'màu LED đọc từ phím',
+  'lighting.showsSim': 'màu LED mô phỏng',
+  'lighting.showsSaved': 'màu LED theo cài đặt',
+  'lighting.showsOwn': 'màu riêng',
 } as const;

@@ -4,6 +4,7 @@
 // protocol get a card instead (nothing is sent to an AE64 Max). Every edit goes through stores/gamepad (history + sync).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import PageLayout from '../components/shell/PageLayout.vue';
+import type { LegendItem } from '../components/keyboard/SelectionBar.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import GamepadStatus from '../components/gamepad/GamepadStatus.vue';
 import GamepadNotReady from '../components/gamepad/GamepadNotReady.vue';
@@ -111,7 +112,9 @@ function toKeyboard(): void {
 }
 onMounted(() => window.addEventListener('keydown', onEsc, true));
 
-const hint = computed(() => (armed.value !== null ? t('gp.armed', { out: longNameOf(armed.value) }) : t('gp.hint')));
+const armedHint = computed(() => (armed.value !== null ? t('gp.armed', { out: longNameOf(armed.value) }) : ''));
+/** Selection bar "Keycap: …" (DESIGN B §3.4), only once the config is shown on the keys. */
+const shows = computed<LegendItem[] | undefined>(() => (ready.value ? [{ text: t('gp.shows') }, { text: t('gp.showsGroups') }] : undefined));
 
 // ------------------------------------------------------------------ live key travel (the "computed" pane, §5.6)
 
@@ -215,6 +218,8 @@ const keyState = (k: PhysicalKey): 'pressed' | undefined => {
   <PageLayout
     :title="t('page.gamepad')"
     :keyboard="!notReady"
+    :shows="shows"
+    :hint="t('gp.hint')"
     class="gp-page"
     :class="{ 'gp-locked': gp.locked, 'gp-busy': gp.usbBusy }"
     :aria-busy="gp.usbBusy || undefined"
@@ -223,6 +228,8 @@ const keyState = (k: PhysicalKey): 'pressed' | undefined => {
       <GamepadStatus :loading="loading || !gp.config" :inert="gp.usbBusy || undefined" />
     </template>
     <template v-if="!notReady" #keyboard>
+      <!-- one persistent live region, so arming an output is announced even though the bar's detail is new -->
+      <span class="sr-only" role="status">{{ armedHint }}</span>
       <div :class="{ 'gp-kb--off': modeOff }" :inert="gp.usbBusy || undefined">
         <KeyboardView
           :keys="device.keys" :legend="device.legend" :sublabel="ready ? sublabel : undefined" :fill="ready ? fill : undefined"
@@ -230,8 +237,9 @@ const keyState = (k: PhysicalKey): 'pressed' | undefined => {
         />
       </div>
     </template>
-    <template v-if="!notReady" #hint>
-      <span class="sb__hint" :class="{ 'gp-armed-hint': armed !== null }" role="status">{{ hint }}</span>
+    <!-- an output is armed: the bar says which one waits for a key, in place of the keycap legend -->
+    <template v-if="!notReady && armed !== null" #detail>
+      <span class="gp-armed">{{ armedHint }}</span>
     </template>
 
     <GamepadNotReady v-if="notReady" :kind="notReady" />

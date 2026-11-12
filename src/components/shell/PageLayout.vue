@@ -5,10 +5,18 @@
 import { watchEffect } from 'vue';
 import KeyboardView from '../keyboard/KeyboardView.vue';
 import SelectionBar from '../keyboard/SelectionBar.vue';
+import type { LegendItem } from '../keyboard/SelectionBar.vue';
 import { useDeviceStore } from '../../stores/device';
 import { t } from '../../i18n/vi';
 
-const props = defineProps<{ title: string; keyboard?: boolean }>();
+const props = defineProps<{
+  title: string;
+  keyboard?: boolean;
+  /** Selection bar: the keycap legend, the how-to-select line and the page's (i) sentence (SelectionBar props). */
+  shows?: LegendItem[];
+  hint?: string;
+  tip?: string;
+}>();
 const device = useDeviceStore();
 
 watchEffect(() => {
@@ -29,8 +37,8 @@ watchEffect(() => {
         </div>
         <aside v-if="$slots['keyboard-aside']" class="page__aside"><slot name="keyboard-aside" /></aside>
       </div>
-      <SelectionBar>
-        <template v-if="$slots.hint" #hint><slot name="hint" /></template>
+      <SelectionBar :shows="shows" :hint="hint" :tip="tip">
+        <template v-if="$slots.detail" #detail><slot name="detail" /></template>
       </SelectionBar>
     </section>
     <div class="page__panels"><slot /></div>

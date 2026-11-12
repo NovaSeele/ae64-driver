@@ -42,6 +42,8 @@ describe('Advanced page: the picked key\'s entry summarised in the selection bar
     return { w, device, adv, sel, noWrites };
   }
   const hint = (w: VueWrapper) => w.find('.sb__hint');
+  /** The keycap legend (DESIGN B §3.4); a one-key summary takes its place in the bar's detail slot. */
+  const shows = (w: VueWrapper) => w.find('.sb__shows');
 
   it('one key with an entry: summary text and a Sửa button that opens its editor', async () => {
     const { w, adv, sel, noWrites } = await page();
@@ -55,14 +57,17 @@ describe('Advanced page: the picked key\'s entry summarised in the selection bar
     expect(text.attributes('aria-live')).toBeUndefined();
     const live = w.find('.sr-only[aria-live="polite"]');
     expect(live.text()).toBe(text.text()); // persistent region, present before the summary was
-    expect(hint(w).exists()).toBe(false);
+    expect(shows(w).exists()).toBe(false); // the summary stands where the keycap legend was
+    expect(w.find('.sb__detail .sum').exists()).toBe(true);
+    expect(hint(w).text()).toBe(tr('sel.hint')); // the how-to-select line stays (inline or in the (i))
     const btn = w.find('.sum button');
     expect(btn.text()).toBe(tr('advanced.edit'));
     expect(btn.attributes('aria-label')).toBe(tr('advanced.editEntry', { type: 'SOCD', keys }));
     await btn.trigger('click');
     await flushPromises();
     expect(w.find('.ed__title').text()).toContain('SOCD');
-    expect(w.find('.sum').exists()).toBe(false); // editor open: the plain hint
+    expect(w.find('.sum').exists()).toBe(false); // editor open: the keycap legend is back
+    expect(shows(w).text()).toContain(tr('advanced.shows'));
     expect(hint(w).text()).toBe(tr('sel.hint'));
     noWrites();
   });
@@ -73,6 +78,7 @@ describe('Advanced page: the picked key\'s entry summarised in the selection bar
     sel.selectMany([a.keys[0], a.keys[1]]);
     await flushPromises();
     expect(w.find('.sum').exists()).toBe(false);
+    expect(shows(w).text()).toContain(tr('advanced.shows'));
     expect(hint(w).text()).toBe(tr('sel.hint'));
     expect(w.find('.sr-only[aria-live="polite"]').exists()).toBe(true); // the live region stays, empty
     expect(w.find('.sr-only[aria-live="polite"]').text()).toBe('');

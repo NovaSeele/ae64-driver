@@ -7,6 +7,8 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import PageLayout from '../components/shell/PageLayout.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import SelectionBar from '../components/keyboard/SelectionBar.vue';
+import type { LegendItem } from '../components/keyboard/SelectionBar.vue';
+import { GLOW_BADGE_TONE } from '../components/keyboard/Keycap.vue';
 import Button from '../components/ui/Button.vue';
 import Dialog from '../components/ui/Dialog.vue';
 import InfoTip from '../components/ui/InfoTip.vue';
@@ -419,6 +421,15 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
   if (!lighting.livePreview) return 'paused';
   return lighting.liveError ? 'error' : 'live';
 });
+// The keycap legend (DESIGN B §3.4): where the key colours come from, and the ● of a key with its own colour. Paused or
+// failed live reading shows the colours computed from the settings.
+const shows = computed<LegendItem[] | undefined>(() => {
+  if (!ready.value) return undefined;
+  const source = liveState.value !== 'live' ? 'lighting.showsSaved' : device.demo ? 'lighting.showsSim' : 'lighting.showsLive';
+  const items: LegendItem[] = [{ text: t(source) }];
+  if (device.keys.some((k) => keyBadge(k))) items.push({ glyph: '●', tone: GLOW_BADGE_TONE, text: t('lighting.showsOwn') });
+  return items;
+});
 </script>
 
 <template>
@@ -505,7 +516,7 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
       </div>
 
       <!-- selection bar -->
-      <SelectionBar v-if="activeTab === 'keys'" />
+      <SelectionBar v-if="activeTab === 'keys'" :shows="shows" />
       <div v-else class="sb">
         <span class="sb__count" :class="{ 'sb__count--on': stripSelection.size > 0 }" aria-live="polite">
           <span class="num">{{ stripCountText }}</span>
