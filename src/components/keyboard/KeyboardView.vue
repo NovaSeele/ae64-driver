@@ -164,7 +164,22 @@ function onWindowKey(e: KeyboardEvent) {
   sel.clear();
   // Esc from a clean NumberField also leaves the field: focus lands on the plate's tab stop, so the next
   // arrow moves between keys instead of editing the selection. Only a selectable board takes it.
-  if (el?.closest('[data-app-keys]') && tabStop.value !== undefined) focusKey(tabStop.value, true);
+  if (el?.closest('[data-app-keys]') && tabStop.value !== undefined) {
+    focusKey(tabStop.value, true);
+    revealBoard(tabStop.value);
+  }
+}
+
+/** The page may be scrolled so the tab-stop key is off screen; preventScroll kept the page still, so bring the
+ *  board into view (instantly, nearest edge) only in that case. Otherwise the next arrow would make the browser jump. */
+function revealBoard(id: number) {
+  const keyEl = root.value?.querySelector<HTMLElement>(`[data-key="${id}"]`);
+  const scroller = root.value?.closest('.main__scroll');
+  if (!keyEl || !scroller) return;
+  const k = keyEl.getBoundingClientRect();
+  const s = scroller.getBoundingClientRect();
+  if (k.top >= s.top && k.bottom <= s.bottom) return;
+  (root.value!.closest('.wb__board') ?? root.value!).scrollIntoView({ block: 'nearest', behavior: 'instant' });
 }
 
 onMounted(() => {

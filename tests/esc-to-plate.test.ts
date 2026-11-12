@@ -28,8 +28,8 @@ function setup() {
   const value = ref(1);
   const changes = vi.fn();
   w = mount(defineComponent({
-    setup: () => () => h('div', [
-      h(KeyboardView, { keys: KEYS, selectable: true }),
+    setup: () => () => h('div', { class: 'main__scroll' }, [
+      h('div', { class: 'wb__board' }, [h(KeyboardView, { keys: KEYS, selectable: true })]),
       h(NumberField, { modelValue: value.value, min: 0.1, max: 4, label: 'Act', 'onUpdate:modelValue': (v: number) => { value.value = v; changes(v); } }),
     ]),
   }), { attachTo: document.body });
@@ -110,6 +110,46 @@ describe('Esc from a clean NumberField goes to the plate', () => {
     press(outside, 'Escape');
     expect(document.activeElement).toBe(outside);
     expect(document.activeElement).not.toBe(keyEl(2));
+  });
+
+  describe('WB-FOCUS-3 reveals the board when the tab-stop key is off screen', () => {
+    const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 100, width: 100, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+    const scrollIntoView = vi.fn();
+    beforeEach(() => {
+      scrollIntoView.mockClear();
+      Object.defineProperty(Element.prototype, 'scrollIntoView', { value: scrollIntoView, configurable: true, writable: true });
+    });
+    afterEach(() => { delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView; });
+
+    async function escWith(keyRect: DOMRect) {
+      const { sel, field, keyEl, press } = setup();
+      sel.select(2, 'replace');
+      keyEl(2).focus();
+      field.focus();
+      await nextTick();
+      keyEl(2).getBoundingClientRect = () => keyRect;
+      document.querySelector('.main__scroll')!.getBoundingClientRect = () => rect(0, 600);
+      press(field, 'Escape');
+      return keyEl;
+    }
+
+    it('h. a key above the scroller top scrolls the board into view, nearest and instant', async () => {
+      const keyEl = await escWith(rect(-134, -90));
+      expect(document.activeElement).toBe(keyEl(2));
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'instant' });
+      expect(scrollIntoView.mock.contexts[0]).toBe(document.querySelector('.wb__board'));
+    });
+
+    it('i. a key partly below the scroller bottom scrolls too', async () => {
+      await escWith(rect(580, 620));
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    });
+
+    it('j. a fully visible key does not scroll at all', async () => {
+      await escWith(rect(100, 150));
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    });
   });
 
   it('e. a field with a draft reverts and blurs, keeps the selection; a second Esc clears it', async () => {
