@@ -13,6 +13,7 @@ export const lightingEn: Record<keyof typeof lightingVi, string> = {
   'lighting.livePreview': 'Live preview',
   'lighting.livePreviewHint': 'Continuous read from keyboard (~10 Hz)',
   'lighting.liveStatus': 'Live',
+  'lighting.simStatus': 'Simulated',
   'lighting.pausedStatus': 'Paused',
   'lighting.liveError': 'Read error',
 
@@ -29,6 +30,7 @@ export const lightingEn: Record<keyof typeof lightingVi, string> = {
   // Effects
   'lighting.effectsTitle': 'Lighting Effects',
   'lighting.effectsDesc': 'Select an effect pattern for the active lighting zone.',
+  'lighting.demoSimNote': 'Demo: the preview only simulates motion so you can see how effect, brightness, speed, direction and colour change it. On a real keyboard it reads the LEDs straight from the keyboard, so effects may look different.',
   'lighting.effectN': 'Effect {n}',
   'lighting.experimentalEffect': 'Experimental',
 

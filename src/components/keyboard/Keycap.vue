@@ -117,6 +117,10 @@ defineProps<{
   border-radius: 2px;
   opacity: 0.9;
   pointer-events: none;
+  transition: background 100ms linear, box-shadow 100ms linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cap__led { transition: none; }
 }
 .cap__legend {
   position: relative;

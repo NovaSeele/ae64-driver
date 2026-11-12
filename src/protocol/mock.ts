@@ -6,6 +6,7 @@
 import type { Bytes, Performance, PhysicalKey } from './types';
 import { BaseTransport } from './client';
 import { encodeLayoutStyleEntry, encodePerformance, le16, mmToUm, read16 } from './codec';
+import { STRIP_ORDER } from './ledLayout';
 import { LED_MATRIX_COLS, PRODUCT_ID_MAX, PRODUCT_ID_PRO, LED_RECORDS_PER_PACKET, LED_STRIP_COUNT, MACRO_ACTIONS_PER_PAGE, RATIO_UNITS } from './constants';
 import { PHYSICAL_KEYS } from './layout';
 
@@ -363,25 +364,145 @@ export class MockTransport extends BaseTransport {
     });
   }
 
-  /** 05 03 is also the live framebuffer: custom LEDs return their colour, others a slow rainbow. */
+  /**
+   * 05 03 is also the live framebuffer: custom LEDs return their colour, the others a stand-in motion pattern
+   * (demo only; nobody has recorded what the firmware modes look like). Pure in Date.now(): the ghost presses
+   * of the reactive families exist only here.
+   */
   private ledPacket(prof: MockProfile, area: number, packet: number): number[] {
     const leds = prof.leds[area] ?? [];
-    const [open, mode, brightness] = prof.lightBase[area] ?? [0, 0, 0];
-    const t = Date.now() / 4000;
+    const [open, mode, brightness, speed, direction, paletteIndex] = prof.lightBase[area] ?? [0, 0, 0, 50, 0, 0];
+    const pal = paletteIndex > 0 ? (prof.palette[area] ?? []).slice(paletteIndex * 4, paletteIndex * 4 + 3) : null; // B, G, R
+    const frame = open ? makeLedFrame(area, mode, speed, direction, !pal, Date.now() / 1000) : null;
     const out: number[] = [];
     for (let i = 0; i < LED_RECORDS_PER_PACKET; i++) {
       const idx = packet * LED_RECORDS_PER_PACKET + i;
       const rec = leds[idx];
       if (!rec) { out.push(0, 0, 0, 0); continue; }
       if (rec[3] === 0xff) { out.push(...rec); continue; }
-      if (!open) { out.push(0, 0, 0, 0); continue; }
-      const col = area === 0 ? idx % LED_MATRIX_COLS : idx;
-      const h = ((col / (area === 0 ? LED_MATRIX_COLS : LED_STRIP_COUNT) + (mode ? t : 0)) % 1) * 6;
-      const k = (n: number) => Math.round(255 * (brightness / 100) * Math.max(0, Math.min(1, Math.abs(((h + n) % 6) - 3) - 1)));
-      out.push(k(4), k(2), k(0), 0); // B, G, R
+      if (!frame) { out.push(0, 0, 0, 0); continue; }
+      const { hue, lvl } = frame(idx);
+      const k = brightness / 100 * lvl;
+      if (pal) {
+        out.push(...[0, 1, 2].map((n) => Math.round((pal[n] ?? 0) * k)), 0);
+      } else {
+        const h = frac(hue) * 6;
+        const ch = (n: number) => Math.round(255 * k * Math.max(0, Math.min(1, Math.abs(((h + n) % 6) - 3) - 1)));
+        out.push(ch(4), ch(2), ch(0), 0); // B, G, R
+      }
     }
     return out;
   }
+}
+
+// ---------------------------------------------------------------- demo LED patterns (stand-ins, see ledPacket)
+const frac = (v: number) => v - Math.floor(v);
+
+/** Fixed hash of (n, salt) to 0…1. */
+function hash01(n: number, salt = 0): number {
+  let h = Math.imul(n | 0, 0x85ebca6b) ^ Math.imul(salt + 1, 0x9e3779b1);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+const STRIP_FAMILIES = [0, 1, 2, 5, 6];
+const KEY_CELLS = PHYSICAL_KEYS.map((k) => k.row * LED_MATRIX_COLS + k.col);
+const STRIP_POS = new Map(STRIP_ORDER.map((led, i) => [led, i / LED_STRIP_COUNT]));
+
+/**
+ * The pattern of one area at one instant: LED index → hue (cycles, rainbow source) and level (0…1, multiplies
+ * the colour). Families: 0 static, 1 breathing, 2 wave, 3 ripple, 4 scanner, 5 twinkle, 6 reactive key,
+ * 7 reactive ripple. Area 0: family = mode % 8, modes 8–15 a variant, 16–19 a fixed list; the strip has 5 modes.
+ */
+function makeLedFrame(area: number, mode: number, speed: number, direction: number, rainbow: boolean, now: number) {
+  const T = 6 - 5.2 * speed / 100;
+  let dir = direction ? -1 : 1;
+  let phi = now / T;
+  let family: number;
+  let diag = false;      // spatial families use (x + y) / 2 in place of x
+  let slow = 1;          // reactive fade factor
+  let vertical = false;  // wave along y
+  let step = false;      // breathing with a colour step
+  if (area === 1) {
+    family = STRIP_FAMILIES[mode % 5];
+  } else if (mode >= 16) {
+    family = [2, 3, 2, 1][Math.min(mode, 19) - 16];
+    if (mode === 16) { diag = true; dir = -dir; }
+    else if (mode === 17) dir = -dir;
+    else if (mode === 18) vertical = true;
+    else step = true;
+  } else {
+    family = mode % 8;
+    if (mode >= 8) {
+      if (family === 0 || family === 2 || family === 3 || family === 4) diag = true;
+      else if (family === 1 || family === 5) phi *= 2;
+      else slow = 2;
+    }
+  }
+
+  // Ghost presses: one key every max(0.35, T/4) s, the key chosen by a hash of the step number.
+  const period = Math.max(0.35, T / 4);
+  const presses: { age: number; cell: number }[] = [];
+  const fade6 = (0.3 + 1.2 * (1 - speed / 100)) * slow;
+  const fade7 = 1.5 * slow;
+  if (family === 6 || family === 7) {
+    const fadeMax = family === 6 ? fade6 : fade7;
+    const n = Math.floor(now / period);
+    for (let j = 0; j <= Math.ceil(fadeMax / period); j++) {
+      const age = now - (n - j) * period;
+      if (age < fadeMax) presses.push({ age, cell: KEY_CELLS[Math.floor(hash01(n - j) * KEY_CELLS.length)] });
+    }
+  }
+  const xyOf = (cell: number) => [Math.min((cell % LED_MATRIX_COLS) / 14, 1), Math.min(Math.floor(cell / LED_MATRIX_COLS), 4) / 4];
+  const breath = 0.08 + 0.92 * (0.5 - 0.5 * Math.cos(2 * Math.PI * phi));
+  const bx = 1 - Math.abs(2 * frac(phi) - 1);                 // scanner bar, 0 → 1 → 0
+  const forward = frac(phi) < 0.5 ? 1 : -1;                  // its direction of travel
+
+  return (idx: number): { hue: number; lvl: number } => {
+    const [x, y] = area === 0 ? xyOf(idx) : [STRIP_POS.get(idx) ?? 0, 0.5];
+    const u = vertical ? y : diag ? (x + y) / 2 : x;
+    switch (family) {
+      case 1:
+        if (step) return { hue: x + 0.17 * Math.floor(phi), lvl: breath * (Math.floor(phi) % 2 === 0 ? 1 : 0.6) };
+        return { hue: x, lvl: breath };
+      case 2: {
+        const p = u - dir * phi;
+        return { hue: p, lvl: rainbow ? 1 : 0.15 + 0.85 * (0.5 + 0.5 * Math.cos(2 * Math.PI * p)) };
+      }
+      case 3: {
+        const d = diag ? Math.hypot(x, y) / Math.SQRT2 : Math.hypot(x - 0.5, y - 0.5);
+        return { hue: d - dir * phi, lvl: rainbow ? 1 : 0.1 + 0.9 * Math.max(0, Math.cos(2 * Math.PI * (2 * d - dir * phi))) };
+      }
+      case 4: {
+        const s = dir > 0 ? u : 1 - u;
+        const behind = (bx - s) * forward;                   // > 0: the LED is behind the bar
+        const lvl = Math.max(0, 1 - Math.abs(s - bx) / 0.12, behind > 0 && behind < 0.25 ? 1 - behind / 0.25 : 0);
+        return { hue: u, lvl };
+      }
+      case 5: {
+        const s = frac(phi * 0.7 + hash01(idx));
+        return { hue: hash01(idx, 1), lvl: s < 0.25 ? Math.sin(Math.PI * s / 0.25) : 0 };
+      }
+      case 6: {
+        let lvl = 0;
+        for (const p of presses) if (area === 1 || p.cell === idx) lvl = Math.max(lvl, 1 - p.age / fade6);
+        return { hue: u, lvl };
+      }
+      case 7: {
+        let lvl = 0;
+        let hue = 0;
+        for (const p of presses) {
+          const [px, py] = xyOf(p.cell);
+          const ring = Math.max(0, 1 - Math.abs(Math.hypot(x - px, y - py) - p.age * 0.9 / T) / 0.08) * (1 - p.age / fade7);
+          if (ring > lvl) { lvl = ring; hue = p.age / 1.5; }
+        }
+        return { hue, lvl };
+      }
+      default: return { hue: u, lvl: 1 };
+    }
+  };
 }
 
 export function createMockTransport(opts?: { seed?: 'max' | 'pro' }): MockTransport {

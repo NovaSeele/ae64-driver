@@ -11,6 +11,7 @@ export const lightingVi = {
   'lighting.livePreview': 'Xem trước trực tiếp',
   'lighting.livePreviewHint': 'Đọc liên tục từ bàn phím (~10 Hz)',
   'lighting.liveStatus': 'Trực tiếp',
+  'lighting.simStatus': 'Mô phỏng',
   'lighting.pausedStatus': 'Tạm dừng',
   'lighting.liveError': 'Lỗi đọc',
 
@@ -27,6 +28,7 @@ export const lightingVi = {
   // Effects
   'lighting.effectsTitle': 'Hiệu ứng ánh sáng',
   'lighting.effectsDesc': 'Chọn kiểu chiếu sáng cho vùng đang chọn.',
+  'lighting.demoSimNote': 'Demo: khung xem trước chỉ mô phỏng chuyển động để bạn thấy hiệu ứng, độ sáng, tốc độ, hướng và màu thay đổi thế nào. Trên bàn phím thật, khung này đọc đèn trực tiếp từ phím nên hiệu ứng có thể trông khác.',
   'lighting.effectN': 'Hiệu ứng {n}',
   'lighting.experimentalEffect': 'Thử nghiệm',
 
