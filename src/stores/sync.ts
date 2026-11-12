@@ -50,6 +50,8 @@ export const SYNC_DEBOUNCE_MS = 350;
 export const MAX_ATTEMPTS = 3;
 
 interface Entry { job: SyncJob; attempts: number }
+/** A job given up on, with the bare reason (no label) the drop toast summarizes. */
+interface Dropped { entry: Entry; reason: string }
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -73,13 +75,31 @@ function commonPrefix(labels: string[]): string {
   return words[0].slice(0, i).join(' ');
 }
 
-/** A short "Not saved" message: all of them when few, else "N items (group): reason" or the first few + a count. */
+/** Reason as shown after a colon: no trailing ".", first letter lowercase. */
+function inlineReason(reason: string): string {
+  const r = reason.replace(/\.+$/, '');
+  return r.charAt(0).toLocaleLowerCase() + r.slice(1);
+}
+
+/** Distinct reasons with counts (most frequent first, ties in first-seen order), at most MAX_LISTED, then "+k other errors". */
+function reasonList(problems: Problem[]): string {
+  const counts = new Map<string, number>();
+  for (const p of problems) {
+    const r = inlineReason(p.reason);
+    counts.set(r, (counts.get(r) ?? 0) + 1);
+  }
+  if (counts.size === 1) return [...counts.keys()][0];
+  const sorted = [...counts].sort((a, b) => b[1] - a[1]);
+  const parts = sorted.slice(0, MAX_LISTED).map(([r, n]) => `${r} (${n})`);
+  if (sorted.length > MAX_LISTED) parts.push(tr('sync.reasonsMore', { k: sorted.length - MAX_LISTED }));
+  return parts.join(', ');
+}
+
+/** A short "Not saved" message: all of them when few, else "N items (group): reasons" or the first few + a count. */
 function summarize(problems: Problem[]): string {
   if (problems.length <= MAX_LISTED) return tr('sync.failed', { labels: problems.map((p) => `${p.label}: ${p.reason}`).join('; ') });
   const group = commonPrefix(problems.map((p) => p.label));
-  if (group && problems.every((p) => p.reason === problems[0].reason)) {
-    return tr('sync.failedSame', { n: problems.length, group, reason: problems[0].reason });
-  }
+  if (group) return tr('sync.failedSame', { n: problems.length, group, reasons: reasonList(problems) });
   const first = problems.slice(0, MAX_LISTED).map((p) => `${p.label}: ${p.reason}`).join('; ');
   return tr('sync.failedMore', { labels: first, n: problems.length - MAX_LISTED });
 }
@@ -114,8 +134,8 @@ export const useSyncStore = defineStore('sync', () => {
   }
 
   /** Dropped jobs are collected per batch and reported once (toast + flashing keys) by reportDropped. */
-  function drop(e: Entry, reason: string, dropped: Entry[]): void {
-    dropped.push(e);
+  function drop(e: Entry, reason: string, dropped: Dropped[], bareReason = reason): void {
+    dropped.push({ entry: e, reason: bareReason });
     try {
       e.job.onDrop?.(reason);
     } catch {
@@ -124,13 +144,12 @@ export const useSyncStore = defineStore('sync', () => {
   }
 
   /** One error toast per batch that gave up on jobs, and the keys they write flash on the keyboard view. */
-  function reportDropped(dropped: Entry[]): void {
+  function reportDropped(dropped: Dropped[]): void {
     if (!dropped.length) return;
-    const labels = dropped.map((e) => e.job.label);
-    const shown = labels.slice(0, 2).join(', ') + (labels.length > 2 ? ` +${labels.length - 2}` : '');
-    const restored = dropped.every((e) => e.job.onDrop);
-    useToast().show(tr('sync.dropped', { labels: shown }) + (restored ? ` ${tr('sync.restored')}` : ''), 'error');
-    useFlashStore().flash([...new Set(dropped.flatMap((e) => e.job.keys ?? []))]);
+    const summary = summarize(dropped.map((d) => ({ label: d.entry.job.label, reason: d.reason })));
+    const restored = dropped.every((d) => d.entry.job.onDrop);
+    useToast().show(tr('sync.dropped', { summary: summary.replace(/\.+$/, '') }) + (restored ? ` ${tr('sync.restored')}` : ''), 'error');
+    useFlashStore().flash([...new Set(dropped.flatMap((d) => d.entry.job.keys ?? []))]);
   }
 
   /** Runs one batch; returns true when every job was written and verified. */
@@ -138,12 +157,12 @@ export const useSyncStore = defineStore('sync', () => {
     const device = useDeviceStore();
     const problems: Problem[] = [];
     const retry: Entry[] = [];
-    const dropped: Entry[] = [];
+    const dropped: Dropped[] = [];
     const fail = (e: Entry, err: unknown) => {
       const msg = `${e.job.label}: ${messageOf(err)}`;
       problems.push({ label: e.job.label, reason: messageOf(err) });
       e.attempts++;
-      if (isPermanent(err) || e.attempts >= MAX_ATTEMPTS) drop(e, msg, dropped);
+      if (isPermanent(err) || e.attempts >= MAX_ATTEMPTS) drop(e, msg, dropped, messageOf(err));
       else retry.push(e);
     };
     try {
@@ -153,7 +172,7 @@ export const useSyncStore = defineStore('sync', () => {
           if (e.job.profile !== undefined && e.job.profile !== device.activeProfile) {
             const msg = `${e.job.label}: ${tr('sync.otherProfile')}`;
             problems.push({ label: e.job.label, reason: tr('sync.otherProfile') });
-            drop(e, msg, dropped);
+            drop(e, msg, dropped, tr('sync.otherProfile'));
             continue;
           }
           try {

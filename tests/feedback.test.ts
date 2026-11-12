@@ -23,14 +23,14 @@ describe('dropped sync jobs', () => {
     vi.useRealTimers();
   });
 
-  it('shows one error toast per batch, truncated to two labels plus +N', async () => {
+  it('shows one error toast per batch, summarized like the sync message', async () => {
     const sync = useSyncStore();
     for (const l of ['A', 'B', 'C', 'D']) sync.enqueue(job(l, l));
     await sync.flush().catch(() => undefined);
     const items = useToast().items.value;
     expect(items).toHaveLength(1);
     expect(items[0].kind).toBe('error');
-    expect(items[0].text).toBe(t('sync.dropped', { labels: 'A, B +2' }));
+    expect(items[0].text).toBe(`${t('sync.failedMore', { labels: 'A: nope; B: nope; C: nope', n: 1 })}.`);
     expect(items[0].text).not.toContain(t('sync.restored'));
     expect(sync.lastErrorDetail).toContain('D');
   });
@@ -39,7 +39,22 @@ describe('dropped sync jobs', () => {
     const sync = useSyncStore();
     sync.enqueue(job('a', 'A', { onDrop: () => undefined }));
     await sync.flush().catch(() => undefined);
-    expect(useToast().items.value[0].text).toBe(`${t('sync.dropped', { labels: 'A' })} ${t('sync.restored')}`);
+    expect(useToast().items.value[0].text).toBe(`${t('sync.failed', { labels: 'A: nope' })}. ${t('sync.restored')}`);
+  });
+
+  it('64 equal drops: the grouped summary plus the restored sentence', async () => {
+    const sync = useSyncStore();
+    for (let i = 0; i < 64; i++) sync.enqueue(job(`k${i}`, `Hành trình K${i}`, { onDrop: () => undefined }));
+    await sync.flush().catch(() => undefined);
+    expect(useToast().items.value[0].text).toBe(`${t('sync.failedSame', { n: 64, group: 'Hành trình', reasons: 'nope' })}. ${t('sync.restored')}`);
+  });
+
+  it('2 drops are listed in full, plus the restored sentence', async () => {
+    const sync = useSyncStore();
+    sync.enqueue(job('a', 'Hành trình 1', { onDrop: () => undefined }));
+    sync.enqueue(job('b', 'Hành trình 2', { onDrop: () => undefined }));
+    await sync.flush().catch(() => undefined);
+    expect(useToast().items.value[0].text).toBe(`${t('sync.failed', { labels: 'Hành trình 1: nope; Hành trình 2: nope' })}. ${t('sync.restored')}`);
   });
 
   it('does not toast for a failure that will be retried', async () => {

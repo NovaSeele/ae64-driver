@@ -21,21 +21,49 @@ describe('sync failure message', () => {
     const sync = useSyncStore();
     for (let i = 0; i < 64; i++) sync.enqueue(job(i));
     await sync.flush().catch(() => undefined);
-    expect(sync.lastError).toBe(t('sync.failedSame', { n: 64, group: 'Hành trình', reason: 'nope' }));
+    expect(sync.lastError).toBe(t('sync.failedSame', { n: 64, group: 'Hành trình', reasons: 'nope' }));
+    expect(sync.lastError).toBe(t('sync.failedSame', { n: 64, group: 'Hành trình', reasons: 'nope' }));
     expect(sync.lastError!.length).toBeLessThan(200);
     expect(sync.lastError).toContain('64');
     expect(sync.lastErrorDetail).toContain('Hành trình K63: nope');
     expect(sync.lastErrorDetail!.length).toBeGreaterThan(1000);
   });
 
-  it('64 failures with different reasons: first 3 and a count of the rest', async () => {
+  it('64 failures with different reasons: grouped, 3 reasons and a count of the other errors', async () => {
     const sync = useSyncStore();
     for (let i = 0; i < 64; i++) sync.enqueue(job(i, `r${i}`));
     await sync.flush().catch(() => undefined);
-    expect(sync.lastError!.length).toBeLessThan(200);
-    expect(sync.lastError).toContain('Hành trình K0: r0; Hành trình K1: r1; Hành trình K2: r2');
-    expect(sync.lastError).not.toContain('K3:');
-    expect(sync.lastError).toContain('61');
+    expect(sync.lastError).toBe(t('sync.failedSame', { n: 64, group: 'Hành trình', reasons: `r0 (1), r1 (1), r2 (1), ${t('sync.reasonsMore', { k: 61 })}` }));
+    expect(sync.lastErrorDetail).toContain('Hành trình K63: r63');
+  });
+
+  it('two reasons of 14 each: both with their counts, first-seen order on the tie', async () => {
+    const sync = useSyncStore();
+    for (let i = 0; i < 28; i++) sync.enqueue(job(i, i < 14 ? 'timeout' : 'read-back mismatch'));
+    await sync.flush().catch(() => undefined);
+    expect(sync.lastError).toBe(t('sync.failedSame', { n: 28, group: 'Hành trình', reasons: 'timeout (14), read-back mismatch (14)' }));
+  });
+
+  it('sorts reasons by count, descending', async () => {
+    const sync = useSyncStore();
+    for (let i = 0; i < 6; i++) sync.enqueue(job(i, i < 2 ? 'a' : 'b'));
+    await sync.flush().catch(() => undefined);
+    expect(sync.lastError).toBe(t('sync.failedSame', { n: 6, group: 'Hành trình', reasons: 'b (4), a (2)' }));
+  });
+
+  it('5 distinct reasons: 3 listed, then +2 other errors', async () => {
+    const sync = useSyncStore();
+    for (let i = 0; i < 5; i++) sync.enqueue(job(i, `r${i}`));
+    await sync.flush().catch(() => undefined);
+    expect(sync.lastError).toBe(t('sync.failedSame', { n: 5, group: 'Hành trình', reasons: `r0 (1), r1 (1), r2 (1), ${t('sync.reasonsMore', { k: 2 })}` }));
+  });
+
+  it('a reason loses its trailing "." and starts lowercase in the summary only', async () => {
+    const sync = useSyncStore();
+    for (let i = 0; i < 4; i++) sync.enqueue(job(i, 'Đọc lại không khớp.'));
+    await sync.flush().catch(() => undefined);
+    expect(sync.lastError).toBe(t('sync.failedSame', { n: 4, group: 'Hành trình', reasons: 'đọc lại không khớp' }));
+    expect(sync.lastErrorDetail).toContain('Hành trình K0: Đọc lại không khớp.');
   });
 
   it('labels without a shared prefix use the count form', async () => {
