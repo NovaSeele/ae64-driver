@@ -113,6 +113,8 @@ function toKeyboard(): void {
 onMounted(() => window.addEventListener('keydown', onEsc, true));
 
 const armedHint = computed(() => (armed.value !== null ? t('gp.armed', { out: longNameOf(armed.value) }) : ''));
+/** The bar's short form; the full sentence is its title and the live region's text. */
+const armedShort = computed(() => (armed.value !== null ? t('gp.armedShort', { out: longNameOf(armed.value) }) : ''));
 /** Selection bar "Keycap: …" (DESIGN B §3.4), only once the config is shown on the keys. */
 const shows = computed<LegendItem[] | undefined>(() => (ready.value ? [{ text: t('gp.shows') }, { text: t('gp.showsGroups') }] : undefined));
 
@@ -239,7 +241,7 @@ const keyState = (k: PhysicalKey): 'pressed' | undefined => {
     </template>
     <!-- an output is armed: the bar says which one waits for a key, in place of the keycap legend -->
     <template v-if="!notReady && armed !== null" #detail>
-      <span class="gp-armed">{{ armedHint }}</span>
+      <span class="gp-armed" :title="armedHint">{{ armedShort }}</span>
     </template>
 
     <GamepadNotReady v-if="notReady" :kind="notReady" />

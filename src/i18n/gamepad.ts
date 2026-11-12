@@ -123,6 +123,7 @@ export const gamepadVi = {
   'gp.clearAll': 'Bỏ gán tất cả',
   'gp.hint': 'Chọn phím rồi chọn đầu ra, hoặc chọn đầu ra rồi bấm phím',
   'gp.armed': 'Bấm một phím trên bàn phím để gán {out}. Esc để huỷ.',
+  'gp.armedShort': 'Bấm phím để gán {out} · Esc huỷ',
   'gp.armedTile': 'Bấm…',
   'gp.tileAssign': 'Gán {out} cho phím {key}',
   'gp.tileArm': '{out}: {key}. Chọn rồi bấm một phím để gán',

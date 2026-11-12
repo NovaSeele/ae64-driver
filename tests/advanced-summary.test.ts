@@ -57,7 +57,7 @@ describe('Advanced page: the picked key\'s entry summarised in the selection bar
     expect(text.attributes('aria-live')).toBeUndefined();
     const live = w.find('.sr-only[aria-live="polite"]');
     expect(live.text()).toBe(text.text()); // persistent region, present before the summary was
-    expect(shows(w).exists()).toBe(false); // the summary stands where the keycap legend was
+    expect(shows(w).classes()).toContain('sb__shows--off'); // the summary stands where the keycap legend was (kept hidden for measuring)
     expect(w.find('.sb__detail .sum').exists()).toBe(true);
     expect(hint(w).text()).toBe(tr('sel.hint')); // the how-to-select line stays (inline or in the (i))
     const btn = w.find('.sum button');

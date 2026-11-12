@@ -211,16 +211,16 @@ function badgeIcon(k: PhysicalKey) {
 }
 // The keycap legend of the active chip (DESIGN B §3.4). "If any" items look at every loaded key, not only the selection,
 // with the same tests as badge() / sublabel() / badgeIcon() so an item is listed exactly when a keycap shows it.
-const shows = computed<LegendItem[] | undefined>(() => {
+function legendFor(m: Metric): LegendItem[] | undefined {
   if (perf.loading || perf.loadError) return undefined;
   const recs = device.keys.map((k) => perf.values[k.id]).filter(Boolean);
   if (!recs.length) return undefined;
   const known = recs.filter((p) => isKnownMode(p.mode));
   const items: LegendItem[] = [];
-  if (metric.value === 'actuation') {
+  if (m === 'actuation') {
     items.push({ text: t('perf.showsAct'), tone: METRIC_TONE.actuation });
     if (recs.some((p) => isRtMode(p.mode))) items.push({ glyph: 'RT', tone: 'var(--m-press)', text: t('perf.showsRtTag') });
-  } else if (metric.value === 'rt') {
+  } else if (m === 'rt') {
     items.push({ glyph: '↓', tone: 'var(--m-press)', text: t('perf.showsRtPress') });
     items.push({ glyph: '↑', tone: 'var(--m-release)', text: t('perf.showsRtRelease') });
     if (recs.some((p) => !isRtMode(p.mode))) items.push({ glyph: '—', text: t('perf.showsRtOff') });
@@ -228,10 +228,13 @@ const shows = computed<LegendItem[] | undefined>(() => {
     items.push({ glyph: '↑', tone: 'var(--m-deadzone)', text: t('perf.showsDzTop') });
     items.push({ glyph: '↓', tone: 'var(--m-deadzone)', text: t('perf.showsDzBottom') });
   }
-  if (known.length < recs.length) items.push({ sample: 'lock', label: t('perf.showsLockedGlyph'), text: t('perf.showsLocked'), tone: METRIC_TONE[metric.value] });
+  if (known.length < recs.length) items.push({ sample: 'lock', label: t('perf.showsLockedGlyph'), text: t('perf.showsLocked'), tone: METRIC_TONE[m] });
   if (perf.uncalibrated.length) items.push({ sample: 'flag', label: t('sel.flaggedGlyph'), text: t('sel.flagged') });
   return items;
-});
+}
+const shows = computed(() => legendFor(metric.value));
+/** The other chips' legends: the bar keeps one row count across chips. */
+const showsAlt = computed(() => METRICS.filter((m) => m.id !== metric.value).map((m) => legendFor(m.id)).filter((l): l is LegendItem[] => !!l));
 const uncalFlag = (k: PhysicalKey) => (perf.uncalibrated.includes(k.id) ? { label: t('kb.uncalibrated') } : undefined);
 function badgeTitle(k: PhysicalKey): string | undefined {
   const p = perf.values[k.id];
@@ -609,13 +612,18 @@ const modeOptions = computed(() => [
           selectable
         />
       </div>
-      <SelectionBar :shows="shows" :tip="scoped ? t('perf.scopeSelTip') : t('perf.scopeAllTip', { n: device.keys.length })">
+      <SelectionBar :shows="shows" :shows-alt="showsAlt" :tip="scoped ? t('perf.scopeSelTip') : t('perf.scopeAllTip', { n: device.keys.length })">
         <template #lead>
           <span class="scope" aria-live="polite">
             <strong class="num">{{ scoped ? t('perf.scopeSel', { n: loadedIds.length }) : t('perf.scopeAll', { n: device.keys.length }) }}</strong>
             <span v-if="scoped && scopeNames" class="scope__names sb__opt"> ({{ scopeNames }})</span>
             <span class="scope__hint sb__opt"> · {{ scoped ? t('perf.scopeSelHint') : t('perf.scopeAllHint') }}</span>
           </span>
+        </template>
+        <!-- the widest compact lead: what the bar keeps room for, whatever is selected -->
+        <template #leadWidest>
+          <span class="scope"><strong class="num">{{ t('perf.scopeAll', { n: device.keys.length }) }}</strong></span>
+          <span class="scope"><strong class="num">{{ t('perf.scopeSel', { n: device.keys.length }) }}</strong></span>
         </template>
       </SelectionBar>
 

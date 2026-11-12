@@ -18,6 +18,11 @@ import PerformancePage from '../src/pages/PerformancePage.vue';
 import SwitchPage from '../src/pages/SwitchPage.vue';
 import LightingPage from '../src/pages/LightingPage.vue';
 import KeymapPage from '../src/pages/KeymapPage.vue';
+import AdvancedPage from '../src/pages/AdvancedPage.vue';
+import GamepadPage from '../src/pages/GamepadPage.vue';
+import PageLayout from '../src/components/shell/PageLayout.vue';
+import { useAdvancedStore } from '../src/stores/advanced';
+import { useGamepadStore } from '../src/stores/gamepad';
 import { useKeymapStore } from '../src/stores/keymap';
 import { findSwitch } from '../src/protocol/switches';
 import { useDeviceStore } from '../src/stores/device';
@@ -58,7 +63,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function demo(model: 'max' | 'pro' = 'max') {
+async function demo(model: 'max' | 'pro' | 'pro-xinput' = 'max') {
   const device = useDeviceStore();
   await device.connectDemo(model);
   return device;
@@ -108,6 +113,16 @@ describe('keyGroups (§3.1)', () => {
     expect(g.letters).toContain(17);
   });
 
+  it('WASD is ordered W, A, S, D by function, not by id: W anchors the next Shift-click', async () => {
+    const device = await demo();
+    remap(device, { 40: 0x1a, 16: 0x05 }); // W moves to id 40, above A (29), S (30) and D (31); the old W is B
+    expect(keyGroups(device.keys, device.layer0).wasd).toEqual([40, 29, 30, 31]);
+    const sel = useSelectionStore();
+    sel.wasd();
+    expect(sel.ids).toEqual([29, 30, 31, 40]);
+    expect(sel.focused).toBe(40);
+  });
+
   it('Fn1–Fn3 layer keys count as modifiers', async () => {
     const device = await demo();
     remap(device, { 54: 0xf101, 52: 0xf103 });
@@ -146,8 +161,10 @@ describe('selection store: replace and add (§5)', () => {
     expect(sel.ids).toEqual([...DIGITS, ...WASD].sort((a, b) => a - b));
     sel.modifiers('replace');
     expect(sel.ids).toEqual(MODS);
+    expect(sel.focused).toBe(MODS[0]); // the group's first key anchors the next Shift-click
     sel.letters('add');
     expect(sel.ids).toEqual([...LETTERS, ...MODS].sort((a, b) => a - b));
+    expect(sel.focused).toBe(LETTERS[0]);
     remap(device, Object.fromEntries(DIGITS.map((id) => [id, 0x3a])));
     const before = [...sel.ids];
     sel.digits();
@@ -240,27 +257,58 @@ describe('SelectionBar quick-select buttons', () => {
     w.unmount();
     w = mount(SelectionBar, { props: { shows: [{ text: 'a' }], tip: 'T' }, slots: { detail: '<b class="d">x</b>' }, attachTo: document.body });
     await flushPromises();
-    expect(w.find('.sb__shows').exists()).toBe(false);
+    expect(w.find('.sb__shows').classes()).toContain('sb__shows--off'); // hidden, still measured for the row count
     expect(w.find('.sb__detail .d').exists()).toBe(true);
     expect(w.find('.sb__hint').text()).toBe(tr('sel.hint'));
   });
 });
 
 describe('pickFit (§3.3)', () => {
-  // row(lead) = lead + 12 + 1 + 12 + middle + 12 + actions; fit 1 adds 12 + hint and drops the (i)
-  const base: FitInput = { bar: 0, lead: 200, leadCompact: 120, tip: 24, middle: 300, hint: 250, actions: 400, gap: 12, detail: false };
+  // row(lead, middle) = lead + 12 + 1 + 12 + middle + 12 + actions; fit 1 adds 12 + hint and drops the (i)
+  const base: FitInput = {
+    bar: 0, lead: 200, leadCompact: 120, leadMax: 140, tip: 24, legend: 300, legendMax: 300, detail: 0, hint: 250, actions: 400, gap: 12,
+  };
   const fit1 = 176 + 300 + 400 + 37 + 12 + 250; // 1175
   const fit2 = 200 + 300 + 400 + 37; // 937
-  const fit3 = 120 + 300 + 400 + 37; // 857
+  const oneRow = 140 + 300 + 400 + 37; // 877: the widest lead and the widest legend on one row
   it.each([
-    [2000, 1], [fit1, 1], [fit1 - 1, 2], [fit2, 2], [fit2 - 1, 3], [fit3, 3], [fit3 - 1, 4], [300, 4],
+    [2000, 1], [fit1, 1], [fit1 - 1, 2], [fit2, 2], [fit2 - 1, 3], [oneRow, 3], [oneRow - 1, 4], [300, 4],
   ])('bar %i → fit %i', (bar, expected) => {
     expect(pickFit({ ...base, bar })).toBe(expected);
   });
-  it('a detail never moves to a second row: it stops at 3', () => {
-    for (const bar of [fit3 - 1, 600, 1]) expect(pickFit({ ...base, bar, detail: true })).toBe(3);
-    expect(pickFit({ ...base, bar: fit1, detail: true })).toBe(1);
-    expect(pickFit({ ...base, bar: fit2, detail: true })).toBe(2);
+  it('the row count does not depend on the selection: "all 64 keys" and "4 keys" give the same rows', () => {
+    // compact lead 160 for "all 64 keys", 110 for "4 keys"; the widest (160) decides for both
+    const all = { ...base, lead: 240, leadCompact: 160, leadMax: 160 };
+    const four = { ...base, lead: 180, leadCompact: 110, leadMax: 160 };
+    for (let bar = 700; bar <= 1300; bar += 1) {
+      const rows = (f: FitInput) => (pickFit({ ...f, bar }) === 4 ? 2 : 1);
+      expect(rows(four), `bar ${bar}`).toBe(rows(all));
+    }
+    expect(pickFit({ ...four, bar: 896 })).toBe(4); // 160 + 300 + 400 + 37 = 897
+    expect(pickFit({ ...four, bar: 897 })).toBe(3);
+    // a lead wider than the ghost's (should not happen) still counts
+    expect(pickFit({ ...base, leadCompact: 200, leadMax: 140, bar: 936 })).toBe(4);
+  });
+  it('the widest legend the page can switch to decides the rows (a chip change keeps them)', () => {
+    expect(pickFit({ ...base, legend: 250, legendMax: 300, bar: oneRow - 1 })).toBe(4);
+    expect(pickFit({ ...base, legend: 300, legendMax: 300, bar: oneRow - 1 })).toBe(4);
+    expect(pickFit({ ...base, legend: 250, legendMax: 300, bar: oneRow })).toBe(3);
+  });
+  it('a detail keeps the rows of the legend it replaces: one row shortens it, two rows put it on the second', () => {
+    expect(pickFit({ ...base, detail: 600, bar: oneRow })).toBe(3); // too long for one row: ellipsis, not a new row
+    expect(pickFit({ ...base, detail: 600, bar: oneRow - 1 })).toBe(4); // the bar was two rows already: it stays
+    expect(pickFit({ ...base, detail: 100, bar: oneRow - 1 })).toBe(4); // even a short detail does not lift it to one
+    expect(pickFit({ ...base, detail: 100, bar: 140 + 100 + 400 + 37 + 12 + 250 - 24 + 60 })).toBe(1);
+    // the detail is measured, not the hidden legend, for fits 1–3
+    expect(pickFit({ ...base, legend: 50, legendMax: 50, detail: 100, bar: 200 + 100 + 437 })).toBe(2);
+    expect(pickFit({ ...base, legend: 50, legendMax: 50, detail: 100, bar: 200 + 100 + 437 - 1 })).toBe(3);
+    // no legend at all (still loading): never two rows
+    expect(pickFit({ ...base, legend: 0, legendMax: 0, detail: 900, bar: 500 })).toBe(3);
+  });
+  it('without a middle part there is no divider either', () => {
+    const none = { ...base, legend: 0, legendMax: 0 };
+    expect(pickFit({ ...none, bar: 200 + 12 + 400 })).toBe(2);
+    expect(pickFit({ ...none, bar: 200 + 12 + 400 - 1 })).toBe(3);
   });
   it('the layouts set the right classes; only fit 4 stacks', () => {
     expect(FIT_CLASSES).toEqual({ 1: ['sb--hint'], 2: [], 3: ['sb--compact'], 4: ['sb--compact', 'sb--stack'] });
@@ -306,6 +354,23 @@ describe('the keycap legend of each page (§3.4)', () => {
     useSelectionStore().selectMany([5]);
     await flushPromises();
     expect(w.find('.scope__names').classes()).toContain('sb__opt');
+    // the (i): the scope sentence first, then how to select
+    useSelectionStore().clear();
+    await flushPromises();
+    expect(w.find('.sb__tip').text()).toContain(tr('perf.scopeAllTip', { n: device.keys.length }));
+    useSelectionStore().selectMany([5]);
+    await flushPromises();
+    expect(w.find('.sb__tip').text()).toContain(tr('perf.scopeSelTip'));
+    expect(w.find('.sb__tip').text()).not.toContain(tr('perf.scopeAllTip', { n: device.keys.length }));
+    // the widest lead the bar keeps room for is "all 64 keys", whatever is selected
+    expect(w.find('.sb__ghost-lead').text()).toContain(tr('perf.scopeAll', { n: device.keys.length }));
+    // the other chips' legends are measured too (one row count across chips)
+    expect(w.findAll('.sb__ghost > .sb__shows')).toHaveLength(3);
+    // a read error: no legend
+    perf.loadError = 'read failed';
+    await flushPromises();
+    expect(w.find('.sb__shows').exists()).toBe(false);
+    perf.loadError = null;
     // while loading there is no legend
     perf.loading = true;
     await flushPromises();
@@ -388,6 +453,96 @@ describe('the keycap legend of each page (§3.4)', () => {
     await flushPromises();
     expect(legend()).toContain(`— = ${tr('keymap.showsNone')}`);
     expect(legend()).not.toContain('▽');
+    // Fn1 has a transparent and an empty key that Main does not have: the legend reads the layer shown
+    set(0, {});
+    set(1, { 7: 0x0001, 8: 0x0000 });
+    keymap.activeLayer = 1;
+    await flushPromises();
+    expect(legend()).toBe(`${tr('sel.shows')}: ${tr('keymap.shows', { layer: tr('keymap.layerFn1') })} · ▽ = ${tr('keymap.showsTrans')} · — = ${tr('keymap.showsNone')}`);
+    keymap.activeLayer = 0;
+    await flushPromises();
+    expect(legend()).toBe(`${tr('sel.shows')}: ${main}`);
+    expect(w.findAll('.sb__ghost > .sb__shows')).toHaveLength(4); // every layer's legend is measured
+  });
+
+  it('Keymap: a group button keeps the focus when the key picker opens; a key selected elsewhere focuses the search', async () => {
+    await demo();
+    const keymap = useKeymapStore();
+    w = mount(KeymapPage, { global: { plugins: [router()], stubs: { KeyboardView: true } }, attachTo: document.body });
+    await flushPromises();
+    await keymap.load();
+    await flushPromises();
+    const btn = w.find('[data-group="letters"]');
+    (btn.element as HTMLElement).focus();
+    await btn.trigger('click');
+    await flushPromises();
+    expect(w.find('.km-quick').exists()).toBe(true); // the picker is open
+    expect(document.activeElement).toBe(btn.element);
+    useSelectionStore().clear();
+    await flushPromises();
+    (document.activeElement as HTMLElement | null)?.blur();
+    useSelectionStore().selectMany([5]);
+    await flushPromises();
+    expect(document.activeElement?.tagName).toBe('INPUT'); // the picker's search
+  });
+
+  it('Advanced: the A/B item only while a SOCD or RS pair exists', async () => {
+    const device = await demo();
+    const adv = useAdvancedStore();
+    await adv.load();
+    w = mount(AdvancedPage, { global: { plugins: [router()], stubs: { KeyboardView: true } }, attachTo: document.body });
+    await flushPromises();
+    const [a, b] = [device.keys[20], device.keys[21]];
+    const pair = (type: 'SOCD' | 'RS') => {
+      const base = { row: 0, col: 0, pairedRow: 0, pairedCol: 0, keycodes: [0x04, 0x07] as [number, number], delay: 0 };
+      const rec = (k: typeof a, o: typeof a) => (type === 'SOCD'
+        ? { ...base, mode: 6 as const, type, socdMode: 0, row: k.row, col: k.col, pairedRow: o.row, pairedCol: o.col }
+        : { ...base, mode: 7 as const, type, row: k.row, col: k.col, pairedRow: o.row, pairedCol: o.col });
+      adv.records = { [a.id]: rec(a, b), [b.id]: rec(b, a) };
+    };
+    const dks = { mode: 1 as const, row: a.row, col: a.col, type: 'DKS' as const, keycodes: [0x04, 0x2c, 0, 0] as [number, number, number, number], travels: [0xff, 0x01, 0, 0] as [number, number, number, number], deadzones: [1.2, 2.8] as [number, number] };
+    adv.records = { [a.id]: dks };
+    await flushPromises();
+    expect(legend()).toBe(`${tr('sel.shows')}: ${tr('advanced.shows')}`);
+    pair('RS');
+    await flushPromises();
+    expect(adv.assignments.map((x) => x.type)).toEqual(['RS']);
+    expect(legend()).toBe(`${tr('sel.shows')}: ${tr('advanced.shows')} · A/B = ${tr('advanced.showsPair')}`);
+    pair('SOCD');
+    await flushPromises();
+    expect(legend()).toContain(`A/B = ${tr('advanced.showsPair')}`);
+    adv.records = {};
+    await flushPromises();
+    expect(legend()).toBe(`${tr('sel.shows')}: ${tr('advanced.shows')}`);
+  });
+
+  it('Gamepad: no legend before the gamepad config is ready', async () => {
+    await demo('pro-xinput');
+    w = mount(GamepadPage, { global: { plugins: [router()], stubs: { KeyboardView: true } }, attachTo: document.body });
+    await flushPromises();
+    const gp = useGamepadStore();
+    await vi.waitFor(() => expect(w!.find('.sb__shows .sr-only').exists()).toBe(true), { timeout: 10000 });
+    expect(legend()).toBe(`${tr('sel.shows')}: ${tr('gp.shows')} · ${tr('gp.showsGroups')}`);
+    const config = gp.config;
+    gp.config = null;
+    await flushPromises();
+    expect(w.find('.sb__shows').exists()).toBe(false);
+    gp.config = config;
+    await vi.waitFor(() => expect(w!.find('.sb__shows').exists()).toBe(true), { timeout: 10000 });
+  });
+
+  it('PageLayout hands the hint, the tip and the other legends to the bar', async () => {
+    await demo();
+    w = mount(PageLayout, {
+      props: { title: 'T', keyboard: true, hint: 'HINT', tip: 'TIP', shows: [{ text: 'one' }], showsAlt: [[{ text: 'two' }]] },
+      slots: { keyboard: '<i />' },
+      global: { plugins: [router()] },
+      attachTo: document.body,
+    });
+    await flushPromises();
+    expect(w.find('.sb__hint').text()).toBe('HINT');
+    expect(w.find('.sb__tip').text()).toContain('TIP HINT');
+    expect(w.findAll('.sb__ghost > .sb__shows').map((p) => p.text())).toEqual([`${tr('sel.shows')}:one`, `${tr('sel.shows')}:two`]);
   });
 
   it('GLOW_BADGE_TONE is the colour of the glowing keycap badge', () => {

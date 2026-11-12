@@ -125,6 +125,7 @@ export const gamepadEn: Record<keyof typeof gamepadVi, string> = {
   'gp.clearAll': 'Unassign all',
   'gp.hint': 'Pick a key, then an output, or pick an output, then press a key',
   'gp.armed': 'Press a key on the keyboard to assign {out}. Esc to cancel.',
+  'gp.armedShort': 'Press a key to assign {out} · Esc cancels',
   'gp.armedTile': 'Press…',
   'gp.tileAssign': 'Assign {out} to key {key}',
   'gp.tileArm': '{out}: {key}. Choose, then press a key to assign',
@@ -205,6 +206,6 @@ export const gamepadEn: Record<keyof typeof gamepadVi, string> = {
   'gp.stickL': 'left stick',
   'gp.stickR': 'right stick',
   'gp.none': 'none',
-  'gp.shows': 'gamepad output assigned',
+  'gp.shows': 'assigned output',
   'gp.showsGroups': 'color = output group',
 };

@@ -16,6 +16,7 @@ const props = defineProps<{
   shows?: LegendItem[];
   hint?: string;
   tip?: string;
+  showsAlt?: LegendItem[][];
 }>();
 const device = useDeviceStore();
 
@@ -37,7 +38,7 @@ watchEffect(() => {
         </div>
         <aside v-if="$slots['keyboard-aside']" class="page__aside"><slot name="keyboard-aside" /></aside>
       </div>
-      <SelectionBar :shows="shows" :hint="hint" :tip="tip">
+      <SelectionBar :shows="shows" :shows-alt="showsAlt" :hint="hint" :tip="tip">
         <template v-if="$slots.detail" #detail><slot name="detail" /></template>
       </SelectionBar>
     </section>

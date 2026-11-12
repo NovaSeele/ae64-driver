@@ -423,13 +423,18 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 });
 // The keycap legend (DESIGN B §3.4): where the key colours come from, and the ● of a key with its own colour. Paused or
 // failed live reading shows the colours computed from the settings.
-const shows = computed<LegendItem[] | undefined>(() => {
+type Source = 'lighting.showsLive' | 'lighting.showsSim' | 'lighting.showsSaved';
+function legendFor(source: Source): LegendItem[] | undefined {
   if (!ready.value) return undefined;
-  const source = liveState.value !== 'live' ? 'lighting.showsSaved' : device.demo ? 'lighting.showsSim' : 'lighting.showsLive';
   const items: LegendItem[] = [{ text: t(source) }];
   if (device.keys.some((k) => keyBadge(k))) items.push({ glyph: '●', tone: GLOW_BADGE_TONE, text: t('lighting.showsOwn') });
   return items;
-});
+}
+const source = computed<Source>(() => (liveState.value !== 'live' ? 'lighting.showsSaved' : device.demo ? 'lighting.showsSim' : 'lighting.showsLive'));
+const shows = computed(() => legendFor(source.value));
+/** Turning live preview on or off (or a read error) switches the source: the bar keeps one row count across them. */
+const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'lighting.showsSaved'] as const)
+  .filter((s) => s !== source.value).map(legendFor).filter((l): l is LegendItem[] => !!l));
 </script>
 
 <template>
@@ -516,7 +521,7 @@ const shows = computed<LegendItem[] | undefined>(() => {
       </div>
 
       <!-- selection bar -->
-      <SelectionBar v-if="activeTab === 'keys'" :shows="shows" />
+      <SelectionBar v-if="activeTab === 'keys'" :shows="shows" :shows-alt="showsAlt" />
       <div v-else class="sb">
         <span class="sb__count" :class="{ 'sb__count--on': stripSelection.size > 0 }" aria-live="polite">
           <span class="num">{{ stripCountText }}</span>

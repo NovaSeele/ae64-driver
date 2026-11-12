@@ -22,7 +22,12 @@ const mask = ref(initial?.mask ?? 0);
 const searchInput = ref<HTMLInputElement | null>(null);
 let lastPicked: number | null = null;
 
-onMounted(() => searchInput.value?.focus());
+// Focus the search, except when the picker opened because of a control that keeps its focus (the selection bar's group
+// buttons, [data-keep-focus]): a keyboard user stays on the button they pressed (DESIGN B §5).
+onMounted(() => {
+  if (document.activeElement?.closest('[data-keep-focus]')) return;
+  searchInput.value?.focus();
+});
 // A different key was selected (not the echo of our own pick): load its combo again.
 watch(() => props.current, (code) => {
   if (code === lastPicked) return;

@@ -75,7 +75,7 @@ export const performanceVi = {
   'perf.presetUserMeta': '{mode} · {act} mm',
   'perf.presetUserTitle': 'Mẫu riêng · {mode} · {act} mm · chỉ ghi vào phím khi bấm',
   'perf.showsAct': 'Actuation (mm)',
-  'perf.showsRtTag': 'bật Rapid Trigger',
+  'perf.showsRtTag': 'Rapid Trigger',
   'perf.showsRtPress': 'nhấn',
   'perf.showsRtRelease': 'nhả (mm)',
   'perf.showsRtOff': 'tắt RT',

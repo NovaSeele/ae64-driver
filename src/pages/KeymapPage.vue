@@ -44,14 +44,17 @@ const ready = computed(() => !keymap.loading && !keymap.loadError && keymap.load
 
 const LAYER_LABEL = ['keymap.layerMain', 'keymap.layerFn1', 'keymap.layerFn2', 'keymap.layerFn3'] as const;
 /** Selection bar "Keycap: …" (DESIGN B §3.4): the function on the layer shown; ▽ and — only while some key has them. */
-const shows = computed<LegendItem[] | undefined>(() => {
+function legendFor(layer: LayerIndex): LegendItem[] | undefined {
   if (!ready.value) return undefined;
-  const codes = keymap.values[keymap.activeLayer] ?? [];
-  const items: LegendItem[] = [{ text: t('keymap.shows', { layer: t(LAYER_LABEL[keymap.activeLayer]) }) }];
+  const codes = keymap.values[layer] ?? [];
+  const items: LegendItem[] = [{ text: t('keymap.shows', { layer: t(LAYER_LABEL[layer]) }) }];
   if (device.keys.some((k) => codes[k.id] === 0x0001)) items.push({ glyph: '▽', text: t('keymap.showsTrans') });
   if (device.keys.some((k) => codes[k.id] === 0x0000)) items.push({ glyph: '—', text: t('keymap.showsNone') });
   return items;
-});
+}
+const shows = computed(() => legendFor(keymap.activeLayer));
+/** The other layers' legends: switching the layer keeps the bar's row count. */
+const showsAlt = computed(() => ([0, 1, 2, 3] as LayerIndex[]).filter((l) => l !== keymap.activeLayer).map(legendFor).filter((l): l is LegendItem[] => !!l));
 const totalRows = LAYER_COUNT * FIRMWARE_ROWS.length;
 
 const layerOptions = computed(() =>
@@ -163,7 +166,7 @@ function doRestoreDefault() {
 </script>
 
 <template>
-  <PageLayout :title="t('page.keymap')" keyboard :shows="shows">
+  <PageLayout :title="t('page.keymap')" keyboard :shows="shows" :shows-alt="showsAlt">
     <template #keyboard-aside>
       <div class="kaside">
         <Segmented

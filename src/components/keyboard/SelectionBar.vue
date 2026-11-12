@@ -12,15 +12,18 @@ export type LegendItem =
 <script setup lang="ts">
 // Selection bar under the keyboard: the count (or the page's lead), the keycap legend (or the page's detail), the
 // how-to-select line, and the quick-select buttons. Selecting keys is UI state only: nothing here talks to the keyboard.
-// The bar measures itself and picks the first layout that fits (selectionFit.ts); the buttons never wrap.
+// The bar measures itself and picks the first layout that fits (selectionFit.ts); the buttons never wrap. Whether it takes
+// one row or two depends only on the widest lead and the widest legend the page can show (both measured in a hidden ghost),
+// never on the selection or a page's detail, so picking keys never moves the cards below.
 import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, useId, useSlots, watch } from 'vue';
-import { IconLock } from '@tabler/icons-vue';
 import { useSelectionStore } from '../../stores/selection';
+import { useDeviceStore } from '../../stores/device';
 import type { GroupMode } from '../../stores/selection';
 import type { KeyGroup } from '../../data/keyGroups';
 import Button from '../ui/Button.vue';
 import InfoTip from '../ui/InfoTip.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import SelectionLegend from './SelectionLegend.vue';
 import { FIT_CLASSES, pickFit } from './selectionFit';
 import type { Fit } from './selectionFit';
 import { t } from '../../i18n/vi';
@@ -33,9 +36,13 @@ const props = defineProps<{
   hint?: string;
   /** The page's own sentence, first in the (i) (Performance: what the scope means). */
   tip?: string;
+  /** The other legends the page switches to without a reload (chip, layer, colour source): the row count uses the widest,
+   *  so switching never moves the cards below. */
+  showsAlt?: LegendItem[][];
 }>();
 const slots = useSlots();
 const sel = useSelectionStore();
+const device = useDeviceStore();
 const uid = useId();
 
 const hintText = computed(() => props.hint ?? t('sel.hint'));
@@ -62,20 +69,18 @@ function pick(g: { fn: 'wasd' | 'letters' | 'digits' | 'modifiers'; n: number },
   sel[g.fn](mode);
 }
 
-const isGlyph = (i: LegendItem): i is { glyph: string; tone?: string; text: string } => 'glyph' in i;
-const isSample = (i: LegendItem): i is { sample: 'flag' | 'bar' | 'lock'; label: string; colors?: string[]; tone?: string; text: string } => 'sample' in i;
 /** The legend read once by a screen reader, and its title. */
 const plain = computed(() => props.shows
-  ? `${t('sel.shows')}: ${props.shows.map((i) => (isGlyph(i) ? `${i.glyph} = ${i.text}` : isSample(i) ? `${i.label} = ${i.text}` : i.text)).join(' · ')}`
+  ? `${t('sel.shows')}: ${props.shows.map((i) => ('glyph' in i ? `${i.glyph} = ${i.text}` : 'sample' in i ? `${i.label} = ${i.text}` : i.text)).join(' · ')}`
   : '');
-const barGradient = (colors: string[] = []) => (colors.length > 1
-  ? `linear-gradient(90deg, ${colors.map((c, i) => `${c} ${(i / colors.length) * 100}% ${((i + 1) / colors.length) * 100}%`).join(', ')})`
-  : colors[0] ?? 'var(--fg-3)');
+/** The legends measured for the row count: the one shown and the ones the page can switch to. */
+const ghostLegends = computed(() => (props.shows ? [props.shows, ...(props.showsAlt ?? [])] : []));
 
 // ------------------------------------------------------------------ fit (§3.3)
 const root = ref<HTMLElement | null>(null);
 const fit = ref<Fit>(2);
 const ALL_FIT = ['sb--hint', 'sb--compact', 'sb--stack'];
+const widest = (els: Iterable<HTMLElement>) => Math.max(0, ...[...els].map((e) => e.offsetWidth));
 
 /** Measures the natural widths, picks the layout and sets its classes. The classes are set on the element directly (not
  *  bound in the template), so the measuring can toggle them without a re-render. jsdom has no layout: nothing to do. */
@@ -86,19 +91,24 @@ function measure(): void {
   const bar = sb.clientWidth;
   if (!bar) return;
   const q = (s: string) => sb.querySelector<HTMLElement>(s);
-  const mid = q(':scope > .sb__shows') ?? q(':scope > .sb__detail');
   const leadEl = q(':scope > .sb__lead');
   const lead = leadEl?.offsetWidth ?? 0;
-  const tip = (q('.sb__tip')?.offsetWidth ?? 0) + 4;
+  const tip = (q('.sb__tip')?.offsetWidth ?? 0) + 4; // the (i) and the lead's 4px gap
   sb.classList.add('sb--hint');
   const hint = q(':scope > .sb__hint')?.scrollWidth ?? 0;
   sb.classList.remove('sb--hint');
   sb.classList.add('sb--compact');
   const leadCompact = leadEl?.offsetWidth ?? 0;
   sb.classList.remove('sb--compact');
+  // natural (unclipped) widths: the detail and a hidden legend are laid out at max-content for the moment of measuring
+  sb.classList.add('sb--measure');
+  const legend = q(':scope > .sb__shows')?.offsetWidth ?? 0;
+  const detail = q(':scope > .sb__detail')?.offsetWidth ?? 0;
+  sb.classList.remove('sb--measure');
   const next = pickFit({
     bar, lead, leadCompact, tip, hint, gap: 12, actions: q(':scope > .sb__actions')?.offsetWidth ?? 0,
-    middle: mid?.scrollWidth ?? 0, detail: !!mid?.classList.contains('sb__detail'),
+    leadMax: widest(sb.querySelectorAll<HTMLElement>(':scope > .sb__ghost > .sb__ghost-lead > *')) + tip,
+    legend, legendMax: Math.max(legend, widest(sb.querySelectorAll<HTMLElement>(':scope > .sb__ghost > .sb__shows'))), detail,
   });
   sb.classList.add(...FIT_CLASSES[next]);
   sb.dataset.fit = String(next);
@@ -134,7 +144,7 @@ defineExpose({ fit, measure });
 </script>
 
 <template>
-  <div ref="root" class="sb">
+  <div ref="root" class="sb" data-keep-focus>
     <div class="sb__lead">
       <slot name="lead">
         <span class="sb__count" :class="{ 'sb__count--on': sel.count > 0 }" aria-live="polite">
@@ -145,9 +155,10 @@ defineExpose({ fit, measure });
     </div>
     <span v-if="slots.detail || shows" class="sb__div" aria-hidden="true" />
     <div v-if="slots.detail" class="sb__detail"><slot name="detail" /></div>
-    <p v-else-if="shows" class="sb__shows" :title="plain">
+    <!-- with a detail the legend stays in the DOM, hidden, so the row count is still measured from it -->
+    <p v-if="shows" class="sb__shows" :class="{ 'sb__shows--off': !!slots.detail }" :title="plain">
       <span class="sr-only">{{ plain }}</span>
-      <span aria-hidden="true"><span class="sb__k">{{ t('sel.shows') }}:</span><template v-for="(item, i) in shows" :key="i"><span v-if="i" class="sb__dot">·</span><template v-if="isGlyph(item)"><b class="sb__g" :style="item.tone ? { '--tone': item.tone } : undefined">{{ item.glyph }}</b><span class="sb__eq"> = </span><span class="sb__t">{{ item.text }}</span></template><template v-else-if="isSample(item)"><span v-if="item.sample === 'flag'" class="sb__flag" /><span v-else-if="item.sample === 'bar'" class="sb__bar" :style="{ background: barGradient(item.colors) }" /><span v-else class="sb__icon" :style="item.tone ? { '--tone': item.tone } : undefined"><IconLock :size="12" stroke-width="1.8" /></span><span class="sb__eq"> = </span><span class="sb__t">{{ item.text }}</span></template><span v-else class="sb__t" :style="item.tone ? { '--tone': item.tone } : undefined">{{ item.text }}</span></template></span>
+      <SelectionLegend :items="shows" />
     </p>
     <span class="sb__hint">{{ hintText }}</span>
     <div class="sb__actions">
@@ -167,11 +178,22 @@ defineExpose({ fit, measure });
         <Button size="sm" variant="ghost" @click="sel.invert()">{{ t('sel.invert') }}</Button>
       </div>
     </div>
+    <!-- measuring ghost (never seen, never read): the widest lead and the widest legend the page can show -->
+    <div class="sb__ghost" aria-hidden="true">
+      <div class="sb__ghost-lead">
+        <slot name="leadWidest">
+          <span class="sb__count"><span class="num">{{ t('sel.none') }}</span></span>
+          <span class="sb__count"><span class="num">{{ t('sel.count', { n: device.keys.length || 64 }) }}</span></span>
+        </slot>
+      </div>
+      <p v-for="(items, i) in ghostLegends" :key="i" class="sb__shows"><SelectionLegend :items="items" /></p>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .sb {
+  position: relative; /* the measuring ghost */
   display: flex;
   align-items: center;
   gap: var(--s-3);
@@ -199,21 +221,24 @@ defineExpose({ fit, measure });
   overflow: hidden;
   text-overflow: ellipsis; /* last resort only: a bar narrower than any supported size */
 }
-.sb__k { color: var(--fg-3); font-weight: 500; margin-right: 6px; }
-.sb__dot { color: var(--fg-4); margin: 0 6px; }
-.sb__t { color: var(--tone, var(--fg-2)); }
-/* a glyph is drawn the way the keycap draws it: same character, same tone */
-.sb__g { font-weight: 600; color: var(--tone, var(--fg-1)); font-variant-numeric: tabular-nums; }
-.sb__eq { color: var(--fg-3); }
-/* the keycap's "not calibrated" outline (Keycap .cap--flag: 1.5px dashed --warn) */
-.sb__flag { display: inline-block; width: 14px; height: 12px; vertical-align: -1px; border-radius: 3px; outline: 1.5px dashed var(--warn); outline-offset: -1.5px; }
-/* the switch-group LED bar (KeyboardView led-height 3) */
-.sb__bar { display: inline-block; width: 16px; height: 3px; vertical-align: 3px; border-radius: 2px; }
-/* the "unsupported mode" lock badge (Keycap .cap__badge--icon, the view's metric tone) */
-.sb__icon { display: inline-flex; vertical-align: -1px; color: var(--tone, var(--fg-2)); }
-
-/* the page's own detail takes the legend's place; it shortens instead of moving rows */
+/* a page's detail takes the legend's place; on one row it shortens (ellipsis + title) instead of moving rows */
 .sb__detail { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; }
+.sb__shows--off { display: none; }
+
+/* measuring: natural widths of the detail and of a hidden legend (set and removed within one measure() call) */
+.sb--measure > .sb__detail { flex: none; min-width: max-content; }
+.sb--measure > .sb__shows { display: block; flex: none; }
+.sb__ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+.sb__ghost > .sb__shows { display: block; width: max-content; }
+.sb__ghost-lead > :deep(*) { display: block; width: max-content; }
 
 /* the how-to-select line: inline only in fit 1, right-aligned next to the buttons it explains */
 .sb__hint {
@@ -235,13 +260,17 @@ defineExpose({ fit, measure });
 /* fit 4: the legend on its own row, left-aligned under the count */
 .sb--stack { flex-wrap: wrap; row-gap: 0; }
 .sb--stack > .sb__div { display: none; }
-.sb--stack > .sb__shows { order: 9; flex: 1 0 100%; padding-bottom: 4px; }
+.sb--stack > .sb__shows, .sb--stack > .sb__detail { order: 9; flex: 1 0 100%; }
+.sb--stack > .sb__shows { padding-bottom: 4px; }
+.sb--stack > .sb__detail { min-height: 24px; padding-bottom: 4px; }
 
 /* the buttons: two labelled groups, never wrap, always right-aligned */
 .sb__actions { display: flex; align-items: center; gap: 2px; flex: none; margin-left: auto; }
 .sb__grp { display: flex; gap: 2px; }
 .sb__actions > .sb__div { margin: 0 var(--s-2); }
 .sb__grp .btn[aria-disabled='true'] { opacity: 0.45; cursor: not-allowed; }
+/* 8px sides (the shared small button has 10): the seven buttons fit the 1280 budget of DESIGN B §2 */
+.sb__actions .btn { padding: 0 8px; }
 
 /* Performance's own lead keeps its classes */
 .sb :deep(.scope) { flex: none; }

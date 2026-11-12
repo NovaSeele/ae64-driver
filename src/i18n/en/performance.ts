@@ -77,7 +77,7 @@ export const performanceEn: Record<keyof typeof performanceVi, string> = {
   'perf.presetUserMeta': '{mode} · {act} mm',
   'perf.presetUserTitle': 'Own preset · {mode} · {act} mm · written to the keyboard only when you click it',
   'perf.showsAct': 'actuation (mm)',
-  'perf.showsRtTag': 'Rapid Trigger on',
+  'perf.showsRtTag': 'Rapid Trigger',
   'perf.showsRtPress': 'press',
   'perf.showsRtRelease': 'release (mm)',
   'perf.showsRtOff': 'RT off',
