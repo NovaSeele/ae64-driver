@@ -27,6 +27,8 @@ export const advancedVi = {
   'advanced.addTypeForKey': 'Thêm {type} cho phím {key}',
   'advanced.noneHint': 'Chọn một chức năng bên trái để bắt đầu.',
   'advanced.edit': 'Sửa',
+  'advanced.editEntry': 'Sửa {type} {keys}',
+  'advanced.readOnlySuffix': 'chỉ đọc',
   'advanced.delete': 'Xoá',
   'advanced.back': 'Quay lại',
   'advanced.cancel': 'Huỷ',

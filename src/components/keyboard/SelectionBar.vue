@@ -13,7 +13,7 @@ const sel = useSelectionStore();
         <span class="num">{{ sel.count ? t('sel.count', { n: sel.count }) : t('sel.none') }}</span>
       </span>
     </slot>
-    <span class="sb__hint">{{ t('sel.hint') }}</span>
+    <slot name="hint"><span class="sb__hint">{{ t('sel.hint') }}</span></slot>
     <div class="sb__actions">
       <Button size="sm" variant="ghost" @click="sel.wasd()">{{ t('sel.wasd') }}</Button>
       <Button size="sm" variant="ghost" @click="sel.all()">{{ t('sel.all') }}</Button>

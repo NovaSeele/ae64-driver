@@ -29,7 +29,9 @@ watchEffect(() => {
         </div>
         <aside v-if="$slots['keyboard-aside']" class="page__aside"><slot name="keyboard-aside" /></aside>
       </div>
-      <SelectionBar />
+      <SelectionBar>
+        <template v-if="$slots.hint" #hint><slot name="hint" /></template>
+      </SelectionBar>
     </section>
     <div class="page__panels"><slot /></div>
   </div>

@@ -169,6 +169,13 @@ function tone(k: PhysicalKey): string | undefined {
   return kindVar(a.type === 'READONLY' ? a.record.type : a.type);
 }
 const kindStyle = (kind: string) => ({ '--k': kindVar(kind) });
+/** Overview only: the one picked key's entry, summarised in the selection bar (same helpers as the list rows). */
+const summary = computed(() => {
+  const a = sel.ids.length === 1 && !draft.value ? adv.byKey.get(sel.ids[0]) : undefined;
+  if (!a) return null;
+  const ro = a.type === 'READONLY';
+  return { a, ro, text: `${shortOf(a)} ${keysOf(a)} · ${detailOf(a)}${ro ? ` · ${t('advanced.readOnlySuffix')}` : ''}` };
+});
 const highlighted = computed(() => new Set(sel.ids.map((id) => adv.byKey.get(id)).filter(Boolean)));
 
 /** One key picked, no editor, and the key has no advanced key yet: offer to add one for it. */
@@ -437,6 +444,12 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
 
 <template>
   <PageLayout :title="t('page.advanced')" keyboard>
+    <template v-if="summary" #hint>
+      <span class="sum">
+        <span class="sum__text" aria-live="polite" :title="summary.text">{{ summary.text }}</span>
+        <Button v-if="!summary.ro" size="sm" variant="ghost" :aria-label="t('advanced.editEntry', { type: shortOf(summary.a), keys: keysOf(summary.a) })" @click="edit(summary.a)">{{ t('advanced.edit') }}</Button>
+      </span>
+    </template>
     <template #keyboard>
       <KeyboardView :keys="device.keys" :legend="device.legend" :sublabel="sublabel" :tone="tone" :loading="adv.loading" selectable />
     </template>
@@ -586,6 +599,11 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
 }
 .muted { color: var(--fg-3); }
 .warn { color: var(--warn); }
+
+/* selection-bar summary of the picked key's entry */
+.sum { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--s-2); }
+.sum__text { min-width: 0; color: var(--fg-2); font-size: var(--fs-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sum .btn { flex: none; }
 
 /* types */
 .types { display: flex; flex-direction: column; gap: 6px; }

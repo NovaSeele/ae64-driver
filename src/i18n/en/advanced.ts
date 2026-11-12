@@ -29,6 +29,8 @@ export const advancedEn: Record<keyof typeof advancedVi, string> = {
   'advanced.addTypeForKey': 'Add {type} to key {key}',
   'advanced.noneHint': 'Select a feature on the left to get started.',
   'advanced.edit': 'Edit',
+  'advanced.editEntry': 'Edit {type} {keys}',
+  'advanced.readOnlySuffix': 'read-only',
   'advanced.delete': 'Delete',
   'advanced.back': 'Back',
   'advanced.cancel': 'Cancel',
