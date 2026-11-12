@@ -13,6 +13,7 @@ import { locale } from '../src/i18n/locale';
 import { t } from '../src/i18n/vi';
 import { switchName } from '../src/data/switchDisplay';
 
+type SwEntry = { id: number; rangeMax: number; coefficient: number };
 const W = PHYSICAL_KEYS.find((k) => k.name === 'W')!;
 
 let w: VueWrapper | null = null;
@@ -67,6 +68,33 @@ describe('Apply toast says whether recalibration is needed', () => {
     perf.values[W.id] = { ...perf.values[W.id], normalPress: cur.rangeMax / 1000 + 1 };
     await pickAndApply([W.id], '', switchName(cur));
     expect(lastToast()).toBe(t('sw.applied', { n: 1, name: switchName(cur) }));
+  });
+
+  it('a key already uncalibrated stays so: same triple, clamp-only plan, still asks for recalibration', async () => {
+    const device = useDeviceStore();
+    await device.connectDemo();
+    const perf = usePerformanceStore();
+    await perf.load();
+    const cur = perf.switchOf(W.id)!;
+    perf.values[W.id] = { ...perf.values[W.id], normalPress: cur.rangeMax / 1000 + 1 };
+    perf.uncalibrated = [W.id];
+    await pickAndApply([W.id], '', switchName(cur));
+    expect(lastToast()).toBe(t('sw.appliedUncal', { n: 1, name: switchName(cur) }));
+  });
+
+  it.each([
+    ['id only', (_cur: SwEntry, same: SwEntry) => ({ axisV2Id: same.id })],
+    ['rangeMax only', (cur: SwEntry) => ({ axisRangeMax: cur.rangeMax + 1 })],
+    ['coefficient only', (cur: SwEntry) => ({ axisCoefficient: cur.coefficient + 1 })],
+  ])('a stored triple differing from the entry in %s asks for recalibration', async (_n, diff) => {
+    const device = useDeviceStore();
+    await device.connectDemo();
+    const perf = usePerformanceStore();
+    await perf.load();
+    const cur = perf.switchOf(W.id)!;
+    perf.values[W.id] = { ...perf.values[W.id], ...diff(cur, perf.catalog!.find((e) => e.id !== cur.id && e.group === cur.group)!) };
+    await pickAndApply([W.id], '', switchName(cur));
+    expect(lastToast()).toBe(t('sw.appliedUncal', { n: 1, name: switchName(cur) }));
   });
 
   it('the recalibration status comes before the key list in the card', async () => {
