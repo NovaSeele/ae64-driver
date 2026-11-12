@@ -9,16 +9,15 @@ export function deriveRtLinked(recs: PerformanceRec[], isRt: (mode: number) => b
 
 <script setup lang="ts">
 // Hành trình — reference implementation of the per-key page pattern (docs/ARCHITECTURE.md), laid out as a workbench:
-// toolbar → keyboard → scope bar → one editor dock. With nothing selected the editors work on every key.
+// toolbar → keyboard → scope bar → the editor cards. With nothing selected the editors work on every key.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { IconAlertTriangle, IconBookmark, IconFlask, IconLink, IconLinkOff, IconLock, IconRefresh } from '@tabler/icons-vue';
+import { IconAlertTriangle, IconFlask, IconLink, IconLinkOff, IconLock, IconRefresh, IconX } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import SelectionBar from '../components/keyboard/SelectionBar.vue';
 import TravelEditor from '../components/performance/TravelEditor.vue';
 import StdCycleCard from '../components/performance/StdCycleCard.vue';
-import UserPresetMenu from '../components/performance/UserPresetMenu.vue';
 import InfoTip from '../components/ui/InfoTip.vue';
 import Card from '../components/ui/Card.vue';
 import Button from '../components/ui/Button.vue';
@@ -26,7 +25,8 @@ import Dialog from '../components/ui/Dialog.vue';
 import Segmented from '../components/ui/Segmented.vue';
 import Slider from '../components/ui/Slider.vue';
 import Switch from '../components/ui/Switch.vue';
-import NumberField, { formatMm } from '../components/ui/NumberField.vue';
+import NumberField, { decimalsFor, formatMm } from '../components/ui/NumberField.vue';
+import AnimatedNumber from '../components/ui/AnimatedNumber.vue';
 import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
 import { useHistoryStore } from '../stores/history';
@@ -132,6 +132,17 @@ watch(gridEl, (el, old) => {
     gridObserver?.observe(el);
   }
 });
+// ----- columns: real wrappers (so every column can stretch to the same bottom), chosen by width.
+// 3 columns from 1361px, 2 from 761px, else 1. Without matchMedia (tests) the layout is the widest one.
+const colCount = ref<1 | 2 | 3>(3);
+const mqlWide = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 1361px)') : null;
+const mqlMid = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 761px)') : null;
+function updateColCount() {
+  if (mqlWide && mqlMid) colCount.value = mqlWide.matches ? 3 : mqlMid.matches ? 2 : 1;
+}
+updateColCount();
+mqlWide?.addEventListener('change', updateColCount);
+mqlMid?.addEventListener('change', updateColCount);
 let lastWidth = window.innerWidth;
 function onWindowResize() {
   if (window.innerWidth === lastWidth) return;
@@ -161,11 +172,15 @@ onBeforeUnmount(() => {
   offProfile?.();
   window.removeEventListener('resize', onWindowResize);
   window.removeEventListener('keydown', onEscCapture, true);
+  mqlWide?.removeEventListener('change', updateColCount);
+  mqlMid?.removeEventListener('change', updateColCount);
   gridObserver?.disconnect();
   dismissUndoToast();
 });
 
 const decimals = computed(() => (device.rtPrecision < 0.01 ? 3 : 2));
+/** Editor value text: 2 decimals unless the value needs the third. */
+const fmtEdit = (v: number) => formatMm(v, decimals.value);
 function fmt(v: number): string {
   const s = v.toFixed(decimals.value).replace(/0+$/, '');
   return s.endsWith('.') ? `${s}0` : s;
@@ -243,8 +258,28 @@ const continuous = computed<boolean | null>(() => {
   const m = new Set(recs.value.filter((p) => isRtMode(p.mode)).map((p) => p.mode));
   return m.size === 1 ? m.has(1) : null;
 });
-/** The middle column: Rapid Trigger when any key in scope uses it, else the read-only Standard diagram. */
-const slot = computed<'rt' | 'std'>(() => (anyRt.value ? 'rt' : 'std'));
+/** The Standard card takes the RT card's slot, only when every key in scope is Standard (neither card when mixed). */
+const stdShown = computed(() => recs.value.length > 0 && mode.value === 0);
+type CardId = 'act' | 'mode' | 'rt' | 'std' | 'dead' | 'presets';
+const slotId = computed<'rt' | 'std' | null>(() => (anyRt.value ? 'rt' : stdShown.value ? 'std' : null));
+/** Mode always heads the second column, so it never moves when the RT / Standard card swaps. */
+const cols = computed<CardId[][]>(() => {
+  // Only unknown-mode keys in scope: no editors (they would edit 0 keys); the .unknown note stands alone.
+  if (!recs.value.length) return [];
+  const slot = slotId.value ? [slotId.value] : [];
+  const mid: CardId[] = ['mode', ...slot];
+  const all = (c: CardId[][]) => c.filter((x) => x.length);
+  if (colCount.value === 3) return all([['act'], mid, ['dead', 'presets']]);
+  if (colCount.value === 2) return all([['act', 'dead'], [...mid, 'presets']]);
+  return [['act', 'mode', ...slot, 'dead', 'presets']];
+});
+/** One named grower per column (two in the RT column: Mode and RT split the spare height); none in a single column. */
+const growers = computed<Set<CardId>>(() => {
+  if (colCount.value === 1) return new Set();
+  const slot = slotId.value;
+  const mid: CardId[] = slot === 'rt' ? ['mode', 'rt'] : slot === 'std' ? ['std'] : colCount.value === 3 ? ['mode'] : ['presets'];
+  return new Set<CardId>(colCount.value === 3 ? ['act', 'presets', ...mid] : ['dead', ...mid]);
+});
 const maxTravel = computed(() => (recs.value.length ? Math.min(...recs.value.map(rangeMm)) : 3.31));
 const act = computed(() => summary(actuationOf));
 const stdRelease = computed(() => summary((p) => releasePoint(settingsFrom(p))));
@@ -256,9 +291,6 @@ const deadFields = computed(() => [
   { field: 'pressDeadStroke' as const, label: t('perf.deadTop'), s: deadTop.value },
   { field: 'releaseDeadStroke' as const, label: t('perf.deadBottom'), s: deadBottom.value },
 ]);
-const modeTip = computed(() =>
-  mode.value === null ? t('perf.modeMixed') : mode.value === 1 ? t('perf.modeHintRt') : t('perf.modeHintStandard'),
-);
 
 // ----- undo toast: "Đã áp dụng cho N phím · Hoàn tác". Hoàn tác is the history store's own undo (the same as Ctrl+Z).
 // An undo toast lives only while its entry is on top of the undo stack, and there is at most one on the page.
@@ -483,22 +515,6 @@ const modeOptions = computed(() => [
           <Switch v-model="depthShading" :label="t('perf.depthShading')" :disabled="metric !== 'actuation'" />
           <InfoTip :text="t('perf.depthShadingHint')" />
         </div>
-        <div class="wb__group wb__presets" role="group" :aria-label="t('perf.presetsLabel')">
-          <IconBookmark class="wb__presets-icon" :size="16" stroke-width="1.5" aria-hidden="true" />
-          <button v-for="p in PRESETS" :key="p.id" type="button" class="chip chip--plain" :disabled="!ids.length" :title="t(PRESET_TEXT[p.id][1])" @click="applyPreset(p.id)">
-            {{ t(PRESET_TEXT[p.id][0]) }}
-          </button>
-          <UserPresetMenu
-            :presets="userPresets.presets"
-            :can-apply="!!ids.length"
-            :save-blocked="saveBlocked"
-            :meta="userPresetMeta"
-            :title="userPresetTitle"
-            @apply="applyUserPreset"
-            @remove="removeUserPreset"
-            @save="openSave"
-          />
-        </div>
         <Button class="wb__try" variant="secondary" size="sm" :icon="IconFlask" :disabled="!hasKeys" :title="t('perf.tryNowHint')" @click="tryNow">
           {{ t('perf.tryNow') }}
         </Button>
@@ -535,188 +551,220 @@ const modeOptions = computed(() => [
       </Card>
 
       <!-- loading skeleton -->
-      <div v-else-if="perf.loading" class="dock dock--skel" aria-busy="true">
+      <div v-else-if="perf.loading" class="grid" :style="{ '--cols': colCount }" aria-busy="true">
         <p class="loading num">{{ t('perf.loading', { n: perf.loadedCount }) }}</p>
-        <div class="skeleton" style="height: 120px" />
+        <div v-for="i in 3" :key="i" class="skel-card">
+          <div class="skeleton" style="width: 40%; height: 14px" />
+          <div class="skeleton" style="height: 120px" />
+          <div class="skeleton" style="width: 70%; height: 12px" />
+        </div>
       </div>
 
-      <!-- editor dock -->
-      <section v-else-if="hasKeys" class="dock" :aria-label="t('perf.dock')">
+      <!-- editors -->
+      <div
+        v-else-if="hasKeys"
+        ref="gridEl"
+        class="grid"
+        :class="{ 'grid--note': unknownCount }"
+        :style="{ '--cols': cols.length || 1, minHeight: gridMinH ? gridMinH + 'px' : undefined }"
+      >
         <div v-if="unknownCount" class="unknown" role="note">
           <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />
           <span>{{ t('perf.unknownModes', { n: unknownCount }) }}</span>
         </div>
-        <template v-if="recs.length">
-          <header class="dock__head">
-            <div class="dock__mode">
-              <h3 class="dock__title">{{ t('perf.mode') }}</h3>
-              <Segmented :model-value="mode" :options="modeOptions" :label="t('perf.mode')" size="sm" @update:model-value="setMode" />
-              <InfoTip :text="modeTip" />
-            </div>
-            <div v-if="anyRt && intervalRt" class="dock__cont">
-              <Switch
-                :model-value="continuous ?? false"
-                :label="continuous === null ? `${t('perf.continuous')} (${t('perf.mixed')})` : t('perf.continuous')"
-                @update:model-value="setContinuous"
+        <div v-for="(col, ci) in cols" :key="ci" class="pcol">
+        <template v-for="id in col" :key="id">
+        <Card v-if="id === 'act'" :class="{ grow: growers.has('act') }" :title="t('perf.actuation')" :subtitle="t('perf.actuationHint')">
+          <div class="act">
+            <TravelEditor
+              :value="act.value"
+              :range="act.range"
+              :min="LIMITS.actuationMin"
+              :max="maxTravel"
+              :step="0.01"
+              :dead-top="deadTop.value"
+              :dead-bottom="deadBottom.value"
+              :label="t('perf.actuation')"
+              @update="setActuation"
+              @commit="endGesture"
+            />
+            <div class="act__readout">
+              <span class="micro">{{ t('perf.travel') }}</span>
+              <div class="big">
+                <AnimatedNumber v-if="act.value !== null" :value="act.value" :decimals="decimalsFor(act.value, decimals)" />
+                <span v-else class="mixed">{{ fmtEdit(act.range[0]) }}–{{ fmtEdit(act.range[1]) }}</span>
+                <span class="unit">mm</span>
+              </div>
+              <NumberField
+                :model-value="act.value"
+                :min="LIMITS.actuationMin"
+                :max="maxTravel"
+                :step="0.01"
+                :decimals="decimals"
+                :label="t('perf.actuation')"
+                relative
+                @update:model-value="setActuation($event, false)"
+                @step="stepActuation"
               />
-              <InfoTip :text="continuous === false ? t('perf.continuousOffHint') : t('perf.continuousOnHint')" />
-            </div>
-          </header>
-
-          <div ref="gridEl" class="grid dock__cols" :style="{ minHeight: gridMinH ? gridMinH + 'px' : undefined }">
-            <!-- Actuation -->
-            <div class="pcol pcol--act">
-              <div class="pcol__head">
-                <h3 class="pcol__title">{{ t('perf.actuation') }}</h3>
-                <InfoTip :text="decimals === 3 ? `${t('perf.actuationHint')} ${t('perf.fineHint')}` : t('perf.actuationHint')" placement="top" />
-              </div>
-              <div class="act">
-                <TravelEditor
-                  :value="act.value"
-                  :range="act.range"
-                  :min="LIMITS.actuationMin"
-                  :max="maxTravel"
-                  :step="0.01"
-                  :dead-top="deadTop.value"
-                  :dead-bottom="deadBottom.value"
-                  :label="t('perf.actuation')"
-                  @update="setActuation"
-                  @commit="endGesture"
-                />
-                <div class="act__readout">
-                  <span class="micro">{{ t('perf.travel') }}</span>
-                  <NumberField
-                    :model-value="act.value"
-                    :min="LIMITS.actuationMin"
-                    :max="maxTravel"
-                    :step="0.01"
-                    :decimals="decimals"
-                    :label="t('perf.actuation')"
-                    relative
-                    @update:model-value="setActuation($event, false)"
-                    @step="stepActuation"
-                  />
-                  <span class="hint num">{{ t('perf.range', { max: fmt(maxTravel) }) }}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Rapid Trigger (or the Standard diagram) -->
-            <div v-if="slot === 'rt'" class="pcol pcol--rt">
-              <div class="pcol__head">
-                <h3 class="pcol__title">{{ t('perf.rt') }}</h3>
-                <button
-                  type="button"
-                  class="link"
-                  :class="{ 'link--on': rtLinked }"
-                  :aria-pressed="rtLinked"
-                  :aria-label="t('perf.rtLinkLabel')"
-                  :title="t('perf.rtLinkHint')"
-                  @click="rtLinkOverride = !rtLinked"
-                >
-                  <component :is="rtLinked ? IconLink : IconLinkOff" :size="16" stroke-width="1.5" aria-hidden="true" />
-                  <span class="link__text">{{ t('perf.rtLinkLabel') }}</span>
-                </button>
-              </div>
-              <div class="field">
-                <div class="field__row">
-                  <span class="field__label">{{ t('perf.rtPress') }}</span>
-                  <NumberField
-                    :model-value="rtPress.value"
-                    :min="LIMITS.rtMin"
-                    :max="LIMITS.rtMax"
-                    :step="0.01"
-                    :decimals="decimals"
-                    :label="t('perf.rtPress')"
-                    relative
-                    @update:model-value="setRt('rtPress', $event, false)"
-                    @step="stepRt('rtPress', $event)"
-                  />
-                </div>
-                <Slider
-                  :model-value="rtPress.value ?? rtPress.range[0]"
-                  :range="rtPress.value === null ? rtPress.range : null"
-                  :min="LIMITS.rtMin"
-                  :max="LIMITS.rtMax"
-                  :step="0.01"
-                  :fine-step="0.001"
-                  :label="t('perf.rtPress')"
-                  style="--sl-tone: var(--m-press)"
-                  @update:model-value="setRt('rtPress', $event)"
-                  @commit="endGesture"
-                />
-              </div>
-              <div class="field">
-                <div class="field__row">
-                  <span class="field__label">{{ t('perf.rtRelease') }}</span>
-                  <NumberField
-                    :model-value="rtRelease.value"
-                    :min="LIMITS.rtMin"
-                    :max="LIMITS.rtMax"
-                    :step="0.01"
-                    :decimals="decimals"
-                    :label="t('perf.rtRelease')"
-                    relative
-                    @update:model-value="setRt('rtRelease', $event, false)"
-                    @step="stepRt('rtRelease', $event)"
-                  />
-                </div>
-                <Slider
-                  :model-value="rtRelease.value ?? rtRelease.range[0]"
-                  :range="rtRelease.value === null ? rtRelease.range : null"
-                  :min="LIMITS.rtMin"
-                  :max="LIMITS.rtMax"
-                  :step="0.01"
-                  :fine-step="0.001"
-                  :label="t('perf.rtRelease')"
-                  style="--sl-tone: var(--m-release)"
-                  @update:model-value="setRt('rtRelease', $event)"
-                  @commit="endGesture"
-                />
-              </div>
-            </div>
-            <div v-else class="pcol pcol--std">
-              <StdCycleCard :actuation="act.range" :release="stdRelease.range" :max-travel="maxTravel" :fmt="fmt" />
-            </div>
-
-            <!-- Deadzone -->
-            <div class="pcol pcol--dead">
-              <div class="pcol__head">
-                <h3 class="pcol__title">{{ t('perf.deadzones') }}</h3>
-                <InfoTip :text="t('perf.deadHint')" placement="top" />
-              </div>
-              <div v-for="dz in deadFields" :key="dz.field" class="field">
-                <div class="field__row">
-                  <span class="field__label">{{ dz.label }}</span>
-                  <NumberField
-                    :model-value="dz.s.value"
-                    :min="0"
-                    :max="LIMITS.deadMax"
-                    :step="0.01"
-                    :decimals="decimals"
-                    :label="dz.label"
-                    relative
-                    @update:model-value="setDead(dz.field, $event, false)"
-                    @step="stepDead(dz.field, $event)"
-                  />
-                </div>
-                <Slider
-                  :model-value="dz.s.value ?? dz.s.range[0]"
-                  :range="dz.s.value === null ? dz.s.range : null"
-                  :min="0"
-                  :max="LIMITS.deadMax"
-                  :step="0.01"
-                  :fine-step="0.001"
-                  :label="dz.label"
-                  :style="{ '--sl-tone': 'var(--m-deadzone)' }"
-                  @update:model-value="setDead(dz.field, $event)"
-                  @commit="endGesture"
-                />
-              </div>
+              <span class="hint num">{{ t('perf.range', { max: fmt(maxTravel) }) }}</span>
+              <span v-if="decimals === 3" class="hint">{{ t('perf.fineHint') }}</span>
             </div>
           </div>
+        </Card>
+
+        <Card v-else-if="id === 'mode'" class="c-mode" :class="{ grow: growers.has('mode') }" :title="t('perf.mode')">
+          <Segmented :model-value="mode" :options="modeOptions" :label="t('perf.mode')" @update:model-value="setMode" />
+          <p class="hint">
+            {{ mode === null ? t('perf.modeMixed') : mode === 1 ? t('perf.modeHintRt') : t('perf.modeHintStandard') }}
+          </p>
+          <div v-if="anyRt && intervalRt" class="continuous">
+            <Switch
+              :model-value="continuous ?? false"
+              :label="continuous === null ? `${t('perf.continuous')} (${t('perf.mixed')})` : t('perf.continuous')"
+              @update:model-value="setContinuous"
+            />
+            <p class="hint">{{ continuous === false ? t('perf.continuousOffHint') : t('perf.continuousOnHint') }}</p>
+          </div>
+        </Card>
+
+        <Card v-else-if="id === 'rt'" class="c-rt" :class="{ grow: growers.has('rt') }" :title="t('perf.rt')">
+          <template #actions>
+            <button
+              type="button"
+              class="link"
+              :class="{ 'link--on': rtLinked }"
+              :aria-pressed="rtLinked"
+              :title="t('perf.rtLinkHint')"
+              @click="rtLinkOverride = !rtLinked"
+            >
+              <component :is="rtLinked ? IconLink : IconLinkOff" :size="16" stroke-width="1.5" aria-hidden="true" />
+              {{ t('perf.rtLinkLabel') }}
+            </button>
+          </template>
+          <div class="field">
+            <div class="field__row">
+              <span class="field__label">{{ t('perf.rtPress') }}</span>
+              <NumberField
+                :model-value="rtPress.value"
+                :min="LIMITS.rtMin"
+                :max="LIMITS.rtMax"
+                :step="0.01"
+                :decimals="decimals"
+                :label="t('perf.rtPress')"
+                relative
+                @update:model-value="setRt('rtPress', $event, false)"
+                @step="stepRt('rtPress', $event)"
+              />
+            </div>
+            <Slider
+              :model-value="rtPress.value ?? rtPress.range[0]"
+              :range="rtPress.value === null ? rtPress.range : null"
+              :min="LIMITS.rtMin"
+              :max="LIMITS.rtMax"
+              :step="0.01"
+              :fine-step="0.001"
+              :label="t('perf.rtPress')"
+              style="--sl-tone: var(--m-press)"
+              @update:model-value="setRt('rtPress', $event)"
+              @commit="endGesture"
+            />
+          </div>
+          <div class="field">
+            <div class="field__row">
+              <span class="field__label">{{ t('perf.rtRelease') }}</span>
+              <NumberField
+                :model-value="rtRelease.value"
+                :min="LIMITS.rtMin"
+                :max="LIMITS.rtMax"
+                :step="0.01"
+                :decimals="decimals"
+                :label="t('perf.rtRelease')"
+                relative
+                @update:model-value="setRt('rtRelease', $event, false)"
+                @step="stepRt('rtRelease', $event)"
+              />
+            </div>
+            <Slider
+              :model-value="rtRelease.value ?? rtRelease.range[0]"
+              :range="rtRelease.value === null ? rtRelease.range : null"
+              :min="LIMITS.rtMin"
+              :max="LIMITS.rtMax"
+              :step="0.01"
+              :fine-step="0.001"
+              :label="t('perf.rtRelease')"
+              style="--sl-tone: var(--m-release)"
+              @update:model-value="setRt('rtRelease', $event)"
+              @commit="endGesture"
+            />
+          </div>
+        </Card>
+
+        <Card v-else-if="id === 'dead'" class="c-dead" :class="{ grow: growers.has('dead') }" :title="t('perf.deadzones')" :subtitle="t('perf.deadHint')">
+          <div v-for="dz in deadFields" :key="dz.field" class="field">
+            <div class="field__row">
+              <span class="field__label">{{ dz.label }}</span>
+              <NumberField
+                :model-value="dz.s.value"
+                :min="0"
+                :max="LIMITS.deadMax"
+                :step="0.01"
+                :decimals="decimals"
+                :label="dz.label"
+                relative
+                @update:model-value="setDead(dz.field, $event, false)"
+                @step="stepDead(dz.field, $event)"
+              />
+            </div>
+            <Slider
+              :model-value="dz.s.value ?? dz.s.range[0]"
+              :range="dz.s.value === null ? dz.s.range : null"
+              :min="0"
+              :max="LIMITS.deadMax"
+              :step="0.01"
+              :fine-step="0.001"
+              :label="dz.label"
+              :style="{ '--sl-tone': 'var(--m-deadzone)' }"
+              @update:model-value="setDead(dz.field, $event)"
+              @commit="endGesture"
+            />
+          </div>
+        </Card>
+
+        <StdCycleCard
+          v-else-if="id === 'std'"
+          :class="{ grow: growers.has('std') }"
+          :actuation="act.range"
+          :release="stdRelease.range"
+          :max-travel="maxTravel"
+          :fmt="fmt"
+        />
+
+        <Card v-else :class="{ grow: growers.has('presets') }" :title="t('perf.presets')">
+          <div class="presets">
+            <button v-for="p in PRESETS" :key="p.id" type="button" class="preset" @click="applyPreset(p.id)">
+              <span class="preset__name">{{ t(PRESET_TEXT[p.id][0]) }}</span>
+              <span class="preset__desc num">{{ t(PRESET_TEXT[p.id][1]) }}</span>
+            </button>
+            <div v-for="u in userPresets.presets" :key="u.id" class="preset-row">
+              <button type="button" class="preset" :data-preset="u.id" :title="userPresetTitle(u)" @click="applyUserPreset(u)">
+                <span class="preset__name">{{ u.name }}</span>
+                <span class="preset__desc num">{{ userPresetMeta(u) }}</span>
+              </button>
+              <button type="button" class="preset-x" :aria-label="t('perf.presetDelete', { name: u.name })" :title="t('perf.presetDelete', { name: u.name })" @click="removeUserPreset(u)">
+                <IconX :size="14" stroke-width="2" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+          <div class="presets__save">
+            <Button variant="secondary" size="sm" :disabled="!!saveBlocked" :aria-describedby="saveBlocked ? 'perf-save-why' : undefined" @click="openSave">
+              {{ t('perf.presetSaveCurrent') }}
+            </Button>
+            <p v-if="saveBlocked" id="perf-save-why" class="hint">{{ saveBlocked }}</p>
+          </div>
+        </Card>
         </template>
-      </section>
+        </div>
+      </div>
     </div>
 
     <Dialog v-model:open="saveOpen" :title="t('perf.presetSaveTitle')" :width="400">
@@ -740,8 +788,6 @@ const modeOptions = computed(() => [
 .wb__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); white-space: nowrap; }
 /* If the bar ever wraps, a whole group moves to the next row; no label is squeezed under its neighbour. */
 .wb__group { display: flex; flex: none; align-items: center; gap: var(--s-1); }
-.wb__presets { margin-left: auto; gap: 4px; }
-.wb__presets-icon { flex: none; color: var(--fg-3); }
 .wb__try { flex: none; }
 .chips { display: flex; gap: 4px; }
 .chip {
@@ -760,12 +806,9 @@ const modeOptions = computed(() => [
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
 .chip:hover:not(:disabled) { color: var(--fg-1); border-color: var(--line-3); }
-.chip:disabled { opacity: 0.45; cursor: not-allowed; }
 .chip__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--chip); flex: none; }
 .chip__dot--rt { background: linear-gradient(90deg, var(--m-press) 50%, var(--m-release) 50%); }
 .chip[aria-checked='true'] { background: var(--sel-bg); border-color: var(--acc-line); color: var(--fg-1); }
-.chip--plain { height: 28px; padding: 0 8px; background: var(--bg-3); }
-.chip--plain:hover:not(:disabled) { background: var(--bg-4); border-color: var(--acc-line); }
 /* The RT tag on a keycap (actuation view). */
 .kb :deep(.cap__badge) { font-size: var(--fs-caption); font-weight: 600; opacity: 1; }
 
@@ -779,65 +822,35 @@ const modeOptions = computed(() => [
   .wb__board { max-width: 1100px; }
 }
 
-/* ----- editor dock: one card, header row, three columns (2 + 1 under 1100px of content width) */
-.dock {
-  container-type: inline-size;
+.grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
+  gap: var(--s-4);
+}
+/* A note above the columns takes its own row; the columns' row takes all the spare height (the min-height hold). */
+.grid--note { grid-template-rows: auto 1fr; }
+.pcol { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; }
+/* The grower of a column takes its spare height (Mode and RT split it); each puts it in a named region, never a blank tail. */
+.pcol > .grow { flex: 1 1 auto; }
+
+.loading { grid-column: 1 / -1; margin: 0; color: var(--fg-3); }
+.skel-card {
   display: flex;
   flex-direction: column;
-  gap: var(--s-2);
-  padding: var(--s-3) var(--s-5);
+  gap: var(--s-3);
+  padding: var(--s-5);
   background: var(--bg-2);
   border: 1px solid var(--line-1);
   border-radius: var(--r-card);
-  min-width: 0;
 }
-.dock__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-3) var(--s-5); }
-.dock__mode, .dock__cont { display: flex; align-items: center; gap: var(--s-2); }
-.dock__title, .pcol__title { font-size: var(--fs-card); font-weight: 600; }
-.grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--s-4) 0;
-}
-.pcol {
-  container-type: inline-size;
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
-  min-width: 0;
-  padding: 0 var(--s-5);
-  border-left: 1px solid var(--line-1);
-}
-.pcol:first-child { padding-left: 0; border-left: 0; }
-.pcol:last-child { padding-right: 0; }
-.pcol__head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); min-height: 28px; }
-.pcol__head .info { margin-right: auto; margin-left: var(--s-1); }
-.pcol__head .link { margin-left: var(--s-2); }
-/* A narrow Rapid Trigger column: the link button shows its icon only (aria-label and title keep the text). */
-@container (max-width: 289px) {
-  .pcol--rt .link { width: 28px; padding: 0; justify-content: center; }
-  .pcol--rt .link__text { display: none; }
-}
-@container (max-width: 859px) {
-  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .pcol:nth-child(2) { padding-right: 0; }
-  .pcol:nth-child(3) {
-    grid-column: 1 / -1;
-    padding: var(--s-4) 0 0;
-    border-left: 0;
-    border-top: 1px solid var(--line-1);
-  }
-}
-/* The Standard diagram is a card of its own: inside the dock it drops its frame. */
-.pcol--std :deep(.std) { padding: 0; border: 0; background: transparent; flex: 1 1 auto; }
-.pcol--std :deep(.std__plot) { min-height: 56px; }
 
-.dock--skel { gap: var(--s-3); }
-.loading { margin: 0; color: var(--fg-3); }
-
-.act { display: flex; flex: 1 1 auto; gap: var(--s-4); align-items: flex-start; }
-.act__readout { display: flex; flex-direction: column; gap: var(--s-1); min-width: 0; }
-.act__readout :deep(.nf) { width: 138px; }
+/* In the Actuation grower the editor and readout are centred in the spare height. */
+.act { display: flex; flex: 1 1 auto; gap: var(--s-6); align-items: center; flex-wrap: wrap; }
+.act__readout { display: flex; flex-direction: column; gap: var(--s-2); min-width: 150px; }
+.big { display: flex; align-items: baseline; gap: 6px; font-size: 40px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.05; }
+.big .unit { font-size: var(--fs-card); font-weight: 500; color: var(--fg-3); letter-spacing: 0; }
+.big .mixed { font-size: var(--fs-hero); color: var(--fg-2); }
+.act__readout :deep(.nf) { width: 150px; }
 
 .link {
   display: inline-flex;
@@ -850,33 +863,60 @@ const modeOptions = computed(() => [
   background: transparent;
   color: var(--fg-2);
   font-size: var(--fs-label);
-  white-space: nowrap;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
 .link:hover:not(:disabled) { background: var(--bg-3); color: var(--fg-1); }
 .link:disabled { opacity: 0.35; cursor: not-allowed; }
 .link--on { color: var(--acc); background: var(--acc-soft); border-color: var(--acc-line); }
 .unknown {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: var(--s-2);
   padding: var(--s-3) var(--s-4);
   border: 1px solid var(--line-2);
   border-radius: var(--r-control);
-  background: var(--bg-1);
+  background: var(--bg-2);
   color: var(--fg-2);
   font-size: var(--fs-label);
 }
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
-.field { display: flex; flex-direction: column; justify-content: center; gap: 6px; }
+/* Pinned to the bottom of the Mode card: the spare height opens above it, between the hint and the switch. */
+.continuous { display: grid; gap: var(--s-2); margin-top: auto; padding-top: var(--s-4); border-top: 1px solid var(--line-1); }
+/* In a grower the fields share the spare height, each centred in its share. */
+.field { display: flex; flex: 1 1 auto; flex-direction: column; justify-content: center; gap: var(--s-2); }
 .field__row { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); }
 .field__label { color: var(--fg-2); }
 .field__row :deep(.nf) { width: 132px; }
-/* A column under 280px: the label sits above its field instead of wrapping beside it. */
-@container (max-width: 279px) {
-  .field__row { flex-direction: column; align-items: stretch; gap: var(--s-1); }
-  .field__row :deep(.nf) { width: 100%; }
+
+.presets { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--s-2); }
+.preset {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  flex: 1 1 auto;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--line-1);
+  background: var(--bg-3);
+  text-align: left;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
 }
+.preset:hover { background: var(--bg-4); border-color: var(--acc-line); }
+.preset:active { transform: translateY(1px); }
+.preset__name { font-weight: 600; }
+.preset__desc { font-size: var(--fs-label); color: var(--fg-3); }
+.preset:hover .preset__desc { color: var(--fg-2); }
+/* Saved presets: the same rows as the built-ins, with a × beside each. */
+.preset-row { position: relative; display: flex; flex: 1 1 auto; }
+.preset-row .preset { flex: 1; min-width: 0; padding-right: 40px; }
+.preset__name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preset-x { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); display: grid; place-items: center; width: 24px; height: 24px; border: 0; background: transparent; border-radius: var(--r-control); color: var(--fg-3); }
+.preset-x:hover { color: var(--danger); background: var(--bg-4); }
+.presets__save { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-1); }
+.presets__save .hint { margin: 0; font-size: var(--fs-caption); }
 
 .save { display: grid; gap: var(--s-3); }
 .save__label { display: grid; gap: var(--s-2); color: var(--fg-2); }

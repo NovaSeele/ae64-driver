@@ -53,13 +53,18 @@ async function setup(select: number[], tweak?: (perf: Perf) => void) {
   return perf;
 }
 function nameOf(c: Element): string {
-  return ['act', 'rt', 'std', 'dead'].find((n) => c.classList.contains(`pcol--${n}`)) ?? '?';
+  if (c.classList.contains('c-mode')) return 'mode';
+  if (c.classList.contains('c-rt')) return 'rt';
+  if (c.classList.contains('c-dead')) return 'dead';
+  if (c.classList.contains('std')) return 'std';
+  return c.querySelector('.act') ? 'act' : 'presets';
 }
-/** Column names of the editor dock, in order. */
-const layout = () => [...document.body.querySelectorAll('.dock__cols > .pcol')].map(nameOf);
+/** Card names per column, in order. */
+const layout = () => [...document.body.querySelectorAll('.grid > .pcol')].map((col) => [...col.children].map(nameOf));
+const growing = () => [...document.body.querySelectorAll('.pcol > .grow')].map(nameOf).sort();
 const seg = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>('.seg button')].find((b) => b.textContent?.trim() === label)!;
 
-describe('Performance editor dock', () => {
+describe('Performance columns', () => {
   beforeEach(() => setActivePinia(createPinia()));
   afterEach(() => {
     teardown();
@@ -67,44 +72,71 @@ describe('Performance editor dock', () => {
     vi.restoreAllMocks();
   });
 
-  it('RT: columns Actuation | Rapid Trigger | Deadzone; the stacking under 1100px is CSS only (always three columns)', async () => {
-    for (const width of [1440, 1280, 760]) {
+  it('1440 (RT): [Act] [Mode, RT] [Dead, Presets]; Act, Mode + RT and Presets grow', async () => {
+    stubWidth(1440);
+    await setup([W], (p) => setModeOf(p, [W], 1));
+    expect(layout()).toEqual([['act'], ['mode', 'rt'], ['dead', 'presets']]);
+    expect(growing()).toEqual(['act', 'mode', 'presets', 'rt']);
+  });
+
+  it('1280 (RT): [Act, Dead] [Mode, RT, Presets]; Dead, Mode + RT grow', async () => {
+    stubWidth(1280);
+    await setup([W], (p) => setModeOf(p, [W], 1));
+    expect(layout()).toEqual([['act', 'dead'], ['mode', 'rt', 'presets']]);
+    expect(growing()).toEqual(['dead', 'mode', 'rt']);
+  });
+
+  it('760: one column in the order Act, Mode, RT, Dead, Presets, no growers', async () => {
+    stubWidth(760);
+    await setup([W], (p) => setModeOf(p, [W], 1));
+    expect(layout()).toEqual([['act', 'mode', 'rt', 'dead', 'presets']]);
+    expect(growing()).toEqual([]);
+  });
+
+  it('breakpoints: 1361 is 3 columns, 1360 and 761 are 2, 760 is 1', async () => {
+    for (const [width, n] of [[1361, 3], [1360, 2], [761, 2], [760, 1]] as const) {
       stubWidth(width);
-      await setup([W], (p) => setModeOf(p, [W], 1));
-      expect(layout()).toEqual(['act', 'rt', 'dead']);
+      await setup([W]);
+      expect(layout().length).toBe(n);
       teardown();
     }
   }, 30000);
 
-  it('Standard: the Standard diagram takes the Rapid Trigger column', async () => {
+  it('Standard: the Standard card takes the RT slot and is the only grower of the middle column', async () => {
     stubWidth(1440);
     await setup([Q]);
-    expect(layout()).toEqual(['act', 'std', 'dead']);
+    expect(layout()).toEqual([['act'], ['mode', 'std'], ['dead', 'presets']]);
+    expect(growing()).toEqual(['act', 'presets', 'std']);
+    teardown();
+    stubWidth(1280);
+    await setup([Q]);
+    expect(layout()).toEqual([['act', 'dead'], ['mode', 'std', 'presets']]);
+    expect(growing()).toEqual(['dead', 'std']);
   });
 
-  it('the Standard card shows exactly when every key in scope is Standard', async () => {
+  it('the Standard card shows exactly when every selected key is Standard', async () => {
     stubWidth(1440);
     const perf = await setup([Q, W]);
     expect(document.body.querySelector('.std')).not.toBeNull();
-    expect(document.body.querySelector('.pcol--rt')).toBeNull();
-    setModeOf(perf, [W], 1); // mixed Standard + RT: the RT column shows for W, no Standard card
+    expect(document.body.querySelector('.c-rt')).toBeNull();
+    setModeOf(perf, [W], 1); // mixed Standard + RT: the RT card shows for W, no Standard card
     await flushPromises();
     expect(document.body.querySelector('.std')).toBeNull();
-    expect(document.body.querySelector('.pcol--rt')).not.toBeNull();
+    expect(document.body.querySelector('.c-rt')).not.toBeNull();
     setModeOf(perf, [Q, W], 1);
     await flushPromises();
     expect(document.body.querySelector('.std')).toBeNull();
   });
 
-  it('a selection of only unknown-mode keys shows no editor columns, only the note', async () => {
+  it('a selection of only unknown-mode keys shows neither card', async () => {
     stubWidth(1440);
     await setup([Q], (p) => setModeOf(p, [Q], 7 as PerfMode));
     expect(document.body.querySelector('.std')).toBeNull();
-    expect(document.body.querySelector('.pcol--rt')).toBeNull();
-    // no editors (they would act on 0 keys and toast a false "saved"); the note stands alone
-    expect(document.body.querySelectorAll('.dock .pcol').length).toBe(0);
-    expect(document.body.querySelector('.dock .seg')).toBeNull();
-    expect(document.body.querySelector('.dock .unknown')).not.toBeNull();
+    expect(document.body.querySelector('.c-rt')).toBeNull();
+    // no editor cards at all (they would act on 0 keys and toast a false "saved"); the note stands alone
+    expect(document.body.querySelectorAll('.grid .card').length).toBe(0);
+    expect(document.body.querySelectorAll('.grid .pcol').length).toBe(0);
+    expect(document.body.querySelector('.grid .unknown')).not.toBeNull();
   });
 
   it('its text uses releasePoint (release shallower than the press point)', async () => {
@@ -137,18 +169,25 @@ describe('Performance editor dock', () => {
     expect(card().querySelector('.std__line--act')!.getAttribute('y1')).not.toBe(before);
   });
 
-  it('the Mode control stays in the dock header (same place) when Standard ↔ RT swaps the middle column', async () => {
-    stubWidth(1440);
-    await setup([Q]);
-    const inHead = () => document.body.querySelector('.dock__head .seg') !== null;
-    expect(inHead()).toBe(true);
-    seg(t('perf.modeRt')).click();
-    await flushPromises();
-    expect(layout()).toEqual(['act', 'rt', 'dead']);
-    expect(inHead()).toBe(true);
-    seg(t('perf.modeStandard')).click();
-    await flushPromises();
-    expect(layout()).toEqual(['act', 'std', 'dead']);
-    expect(inHead()).toBe(true);
+  it('Mode keeps its column and index when Standard ↔ RT toggles, at 3 and 2 columns', async () => {
+    for (const width of [1440, 1280]) {
+      stubWidth(width);
+      await setup([Q]);
+      const where = () => {
+        const cols = layout();
+        const c = cols.findIndex((col) => col.includes('mode'));
+        return [c, cols[c].indexOf('mode')];
+      };
+      const before = where();
+      seg(t('perf.modeRt')).click();
+      await flushPromises();
+      expect(document.body.querySelector('.c-rt')).not.toBeNull();
+      expect(where()).toEqual(before);
+      seg(t('perf.modeStandard')).click();
+      await flushPromises();
+      expect(document.body.querySelector('.std')).not.toBeNull();
+      expect(where()).toEqual(before);
+      teardown();
+    }
   });
 });

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// Actuation editor: a vertical travel slider with a mm ruler, the actuation marker and dead-zone bands.
-// 0 mm is at the top, deeper is lower.
+// Actuation editor: switch illustration (cap sinks to the actuation depth) + vertical travel slider
+// with a mm ruler and dead-zone bands. 0 mm is at the top, deeper is lower.
 import { computed } from 'vue';
 import Slider from '../ui/Slider.vue';
 
@@ -19,6 +19,7 @@ const props = defineProps<{
 const emit = defineEmits<{ update: [number]; commit: [number] }>();
 
 const shown = computed(() => props.value ?? props.range[0]);
+const ratio = computed(() => Math.min(1, Math.max(0, shown.value / props.max)));
 /** Same mapping as the vertical Slider: `min` at the top, `max` at the bottom. */
 const pctNum = (v: number) => Math.min(100, Math.max(0, props.max === props.min ? 0 : ((v - props.min) / (props.max - props.min)) * 100));
 const pct = (v: number) => `${pctNum(v)}%`;
@@ -28,10 +29,43 @@ const ticks = computed(() => {
   for (let v = 0; v <= props.max + 1e-6; v += 0.25) if (v >= props.min - 1e-6) out.push({ v: Number(v.toFixed(2)), major: Math.abs(v % 1) < 1e-6 || Math.abs((v % 1) - 0.5) < 1e-6 });
   return out;
 });
+
+const CAP_TRAVEL = 46; // px the illustrated cap moves at full travel
 </script>
 
 <template>
   <div class="te" :class="{ 'te--disabled': disabled }">
+    <svg class="te__switch" viewBox="0 0 132 236" aria-hidden="true">
+      <defs>
+        <linearGradient id="te-cap" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="var(--ill-cap-top)" />
+          <stop offset="1" stop-color="var(--ill-cap-bottom)" />
+        </linearGradient>
+        <linearGradient id="te-house" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="var(--ill-house-top)" />
+          <stop offset="1" stop-color="var(--ill-house-bottom)" />
+        </linearGradient>
+      </defs>
+      <!-- plate -->
+      <rect x="4" y="150" width="124" height="6" rx="2" fill="var(--ill-plate)" />
+      <!-- housing -->
+      <path d="M26 118 h80 l6 32 v52 a6 6 0 0 1 -6 6 h-80 a6 6 0 0 1 -6 -6 v-52 z" fill="url(#te-house)" stroke="var(--ill-edge)" />
+      <!-- magnet + sensor hint -->
+      <rect x="56" y="196" width="20" height="5" rx="2" fill="var(--m-actuation)" opacity=".55" />
+      <rect x="50" y="214" width="32" height="6" rx="2" fill="var(--ill-stem)" />
+      <g class="te__moving" :style="{ transform: `translateY(${ratio * CAP_TRAVEL}px)` }">
+        <!-- stem -->
+        <rect x="58" y="68" width="16" height="74" rx="3" fill="var(--ill-stem)" />
+        <!-- spring hint -->
+        <path d="M60 142 l12 -6 l-12 -6 l12 -6 l-12 -6 l12 -6" fill="none" stroke="var(--ill-edge)" stroke-width="1.5" />
+        <!-- keycap -->
+        <path d="M14 34 a8 8 0 0 1 8 -8 h88 a8 8 0 0 1 8 8 l-4 36 a6 6 0 0 1 -6 5 h-84 a6 6 0 0 1 -6 -5 z" fill="url(#te-cap)" stroke="var(--ill-edge)" />
+        <path d="M24 30 h84" stroke="var(--ill-hi)" stroke-width="2" stroke-linecap="round" />
+      </g>
+      <!-- resting reference -->
+      <path d="M2 75 h10" stroke="var(--fg-4)" stroke-dasharray="2 2" />
+    </svg>
+
     <div class="te__scale">
       <div class="te__ruler">
         <span
@@ -66,9 +100,11 @@ const ticks = computed(() => {
 </template>
 
 <style scoped>
-.te { display: flex; align-items: stretch; height: 118px; }
+.te { display: flex; align-items: stretch; gap: var(--s-4); height: 236px; }
 .te--disabled { opacity: 0.5; }
-.te__scale { display: flex; gap: 6px; padding: 6px 0; }
+.te__switch { width: 132px; height: 236px; flex: none; }
+.te__moving { transition: transform var(--t-med) var(--ease); }
+.te__scale { display: flex; gap: 6px; padding: 10px 0; }
 .te__ruler { position: relative; width: 34px; }
 .te__tick {
   position: absolute;

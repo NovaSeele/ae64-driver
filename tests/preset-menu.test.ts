@@ -1,4 +1,4 @@
-// The "Mẫu riêng" menu on the Hành trình toolbar: apply, delete with undo, empty state, disabled save, Esc and focus.
+// The Mẫu cài đặt card on Hành trình: built-in apply, saved rows (0, 3, 6), delete with undo at the same index, the save button and its reason.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { flushPromises, mount } from '@vue/test-utils';
@@ -40,17 +40,11 @@ async function setup() {
   const exchange = vi.spyOn(device.transport as MockTransport as unknown as { exchange: () => unknown }, 'exchange');
   return { perf, exchange, history: useHistoryStore() };
 }
-const btn = () => document.body.querySelector<HTMLButtonElement>('.umenu__btn')!;
-const rows = () => [...document.body.querySelectorAll<HTMLElement>('.umenu__row')];
-const names = () => rows().map((r) => r.querySelector('.umenu__name')!.textContent);
-const saveItem = () => document.body.querySelector<HTMLButtonElement>('.umenu__save')!;
-const isOpen = () => document.body.querySelector('.umenu') !== null;
+const rows = () => [...document.body.querySelectorAll<HTMLElement>('.preset-row')];
+const names = () => rows().map((r) => r.querySelector('.preset__name')!.textContent);
+const saveBtn = () => document.body.querySelector<HTMLButtonElement>('.presets__save button')!;
+const why = () => document.body.querySelector('.presets__save .hint');
 const stored = () => (JSON.parse(localStorage.getItem(STORAGE_KEY)!) as UserPreset[]).map((p) => p.name);
-async function open() {
-  btn().click();
-  await flushPromises();
-}
-const key = (el: Element, k: string) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
 
 beforeEach(() => {
   localStorage.clear();
@@ -68,52 +62,55 @@ afterEach(async () => {
   useToast().items.value = [];
 });
 
-describe('Mẫu riêng menu', () => {
-  it('applying from the menu is one history entry; the menu closes and focus returns to the button', async () => {
-    useUserPresetsStore().add('Nhạy', values());
+describe('Mẫu cài đặt card', () => {
+  it('a built-in preset is one history entry', async () => {
     const { perf, history } = await setup();
-    await open();
-    expect(btn().getAttribute('aria-expanded')).toBe('true');
-    document.body.querySelector<HTMLButtonElement>('.umenu__use')!.click();
+    const before = perf.values[ALL[0]].rtFirstTouch;
+    const typing = [...document.body.querySelectorAll<HTMLButtonElement>('.presets > .preset')].find((b) => b.textContent!.includes(t('perf.presetTyping')))!;
+    typing.click();
     await flushPromises();
-    expect(perf.values[ALL[0]].rtFirstTouch).toBe(0.4);
-    expect(isOpen()).toBe(false);
-    expect(document.activeElement).toBe(btn());
+    expect(perf.values[ALL[0]].rtFirstTouch).not.toBe(before);
     history.undo();
-    expect(perf.values[ALL[0]].rtFirstTouch).toBe(1);
+    expect(perf.values[ALL[0]].rtFirstTouch).toBe(before);
     expect(history.canUndo).toBe(false); // exactly one entry
   });
 
-  it('opening focuses the first row; ArrowDown/Up move between the names and the save item', async () => {
+  it.each([0, 3, 6])('%i saved presets: that many rows, each with its meta line and ×', async (n) => {
     const store = useUserPresetsStore();
-    store.add('A', values());
-    store.add('B', values());
+    for (let i = 0; i < n; i++) store.add(`P${i}`, values());
     await setup();
-    await open();
-    await flushPromises();
-    const uses = [...document.body.querySelectorAll<HTMLButtonElement>('.umenu__use')];
-    expect(document.activeElement).toBe(uses[0]);
-    key(uses[0], 'ArrowDown');
-    expect(document.activeElement).toBe(uses[1]);
-    key(uses[1], 'ArrowDown');
-    expect(document.activeElement).toBe(saveItem());
-    key(saveItem(), 'ArrowUp');
-    expect(document.activeElement).toBe(uses[1]);
+    expect(rows()).toHaveLength(n);
+    for (const r of rows()) {
+      expect(r.querySelector('.preset__desc')!.textContent).toBe(t('perf.presetUserMeta', { mode: 'RT', act: '0.40' }));
+      expect(r.querySelector('.preset-x')).not.toBeNull();
+    }
+    expect(document.body.querySelectorAll('.presets > .preset')).toHaveLength(3 + 0); // built-ins only (saved rows are wrapped)
+    expect(saveBtn().textContent!.trim()).toBe(t('perf.presetSaveCurrent'));
+    if (n === 6) {
+      expect(saveBtn().disabled).toBe(true);
+      expect(why()!.textContent).toBe(t('perf.presetFull', { n: 6 }));
+    } else {
+      expect(saveBtn().disabled).toBe(false);
+      expect(why()).toBeNull();
+    }
   });
 
-  it('ArrowDown on the closed button opens it', async () => {
-    await setup();
-    key(btn(), 'ArrowDown');
+  it('applying a saved row is one history entry', async () => {
+    useUserPresetsStore().add('Nhạy', values());
+    const { perf, history } = await setup();
+    document.body.querySelector<HTMLButtonElement>('.preset-row .preset')!.click();
     await flushPromises();
-    expect(isOpen()).toBe(true);
+    expect(perf.values[ALL[0]].rtFirstTouch).toBe(0.4);
+    history.undo();
+    expect(perf.values[ALL[0]].rtFirstTouch).toBe(1);
+    expect(history.canUndo).toBe(false);
   });
 
-  it('delete, then the toast Hoàn tác restores the preset at the same index', async () => {
+  it('× deletes, then the toast Hoàn tác restores the preset at the same index', async () => {
     const store = useUserPresetsStore();
     for (const n of ['A', 'B', 'C']) store.add(n, values());
     await setup();
-    await open();
-    document.body.querySelectorAll<HTMLButtonElement>('.umenu__x')[1].click();
+    document.body.querySelectorAll<HTMLButtonElement>('.preset-x')[1].click();
     await flushPromises();
     expect(names()).toEqual(['A', 'C']);
     expect(stored()).toEqual(['A', 'C']);
@@ -125,57 +122,22 @@ describe('Mẫu riêng menu', () => {
     expect(stored()).toEqual(['A', 'B', 'C']);
   });
 
-  it('Delete on a focused row deletes it and focuses the row that took its place', async () => {
-    const store = useUserPresetsStore();
-    for (const n of ['A', 'B', 'C']) store.add(n, values());
-    await setup();
-    await open();
-    const first = document.body.querySelector<HTMLButtonElement>('.umenu__use')!;
-    first.focus();
-    key(first, 'Delete');
-    await flushPromises();
-    expect(names()).toEqual(['B', 'C']);
-    expect(document.activeElement).toBe(document.body.querySelector('.umenu__use'));
-  });
-
-  it('empty state, with the save item still there', async () => {
-    await setup();
-    expect(btn().textContent).toContain(t('perf.userPresets'));
-    await open();
-    expect(document.body.querySelector('.umenu__empty')!.textContent).toBe(t('perf.userPresetsEmpty'));
-    expect(rows()).toHaveLength(0);
-    expect(saveItem().disabled).toBe(false);
-  });
-
-  it('mixed values: the save item is disabled and the reason is a caption', async () => {
+  it('mixed values: the save button is disabled and the reason is a caption under it', async () => {
     const { perf } = await setup();
+    expect(saveBtn().disabled).toBe(false);
     perf.values = { ...perf.values, [ALL[3]]: { ...perf.values[ALL[3]], normalPress: 2, rtFirstTouch: 2 } };
     await flushPromises();
-    await open();
-    expect(saveItem().disabled).toBe(true);
-    expect(document.body.querySelector('.umenu__why')!.textContent).toBe(t('perf.presetMixed'));
+    expect(saveBtn().disabled).toBe(true);
+    expect(why()!.textContent).toBe(t('perf.presetMixed'));
+    expect(saveBtn().getAttribute('aria-describedby')).toBe(why()!.id);
   });
 
-  it('Esc closes the menu and returns focus to the button', async () => {
-    useUserPresetsStore().add('A', values());
-    await setup();
-    await open();
-    key(document.body.querySelector('.umenu__use')!, 'Escape');
-    await flushPromises();
-    expect(isOpen()).toBe(false);
-    expect(document.activeElement).toBe(btn());
-  });
-
-  it('opening and closing sends nothing to the keyboard', async () => {
+  it('the save button opens the dialog; browsing the card sends nothing to the keyboard', async () => {
     useUserPresetsStore().add('A', values());
     const { exchange } = await setup();
-    await open();
-    key(document.body.querySelector('.umenu__use')!, 'Escape');
+    saveBtn().click();
     await flushPromises();
-    await open();
-    btn().click();
-    await flushPromises();
-    expect(isOpen()).toBe(false);
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
     expect(exchange).not.toHaveBeenCalled();
   });
 });

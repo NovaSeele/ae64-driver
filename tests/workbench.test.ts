@@ -74,18 +74,15 @@ async function pressToastAction() {
   el.querySelector<HTMLButtonElement>('.toast__act')!.click();
   await flushPromises();
 }
-const presetChips = () => [...document.body.querySelectorAll<HTMLButtonElement>('.wb__presets > .chip, .wb__presets .uchip__use')];
-const chipByText = (s: string) => presetChips().find((b) => b.textContent?.trim() === s)!;
-const menuBtn = () => document.body.querySelector<HTMLButtonElement>('.umenu__btn')!;
-const saveItem = () => document.body.querySelector<HTMLButtonElement>('.umenu__save')!;
+// The Mẫu cài đặt card: built-in rows, then the saved ones (each with a ×), then the save button.
+const presetRows = () => [...document.body.querySelectorAll<HTMLButtonElement>('.presets .preset')];
+const chipByText = (s: string) => presetRows().find((b) => b.querySelector('.preset__name')?.textContent === s)!;
+const saveItem = () => document.body.querySelector<HTMLButtonElement>('.presets__save button')!;
 async function openMenu() {
-  if (!saveItem()) menuBtn().click();
   await flushPromises();
 }
-/** A saved preset's name button in the open menu (applies it: the menu closes). */
-const userUse = (name: string) => [...document.body.querySelectorAll<HTMLButtonElement>('.umenu__use')].find((b) => b.querySelector('.umenu__name')?.textContent === name)!;
+const userUse = chipByText;
 async function applyUser(name: string) {
-  await openMenu();
   userUse(name).click();
   await flushPromises();
 }
@@ -120,7 +117,7 @@ afterEach(async () => {
 describe('W1: nothing selected means all keys', () => {
   it('the editors are shown and the scope line names every key of the connected keyboard', async () => {
     const { device } = await setup([]);
-    expect(document.body.querySelector('.dock .act')).not.toBeNull();
+    expect(document.body.querySelector('.grid .act')).not.toBeNull();
     expect(scopeText()).toBe(`${t('perf.scopeAll', { n: device.keys.length })} · ${t('perf.scopeAllHint')}`);
     expect(scopeText()).toContain(t('perf.scopeAll', { n: 64 }));
   });
@@ -171,7 +168,7 @@ describe('W1: nothing selected means all keys', () => {
     // a newer edit by hand with a different label
     useSelectionStore().selectMany(WASD);
     await flushPromises();
-    const setting = document.body.querySelector<HTMLInputElement>(`.pcol--dead input[aria-label="${t('perf.deadTop')}"]`)!;
+    const setting = document.body.querySelector<HTMLInputElement>(`.c-dead input[aria-label="${t('perf.deadTop')}"]`)!;
     setting.value = '0.3';
     setting.dispatchEvent(new Event('input'));
     setting.dispatchEvent(new Event('blur'));
@@ -290,8 +287,8 @@ describe('W1: nothing selected means all keys', () => {
       await flushPromises();
     }
   };
-  const rtField = (label: string) => `.pcol--rt input[aria-label="${label}"]`;
-  const dzField = (label: string) => `.pcol--dead input[aria-label="${label}"]`;
+  const rtField = (label: string) => `.c-rt input[aria-label="${label}"]`;
+  const dzField = (label: string) => `.c-dead input[aria-label="${label}"]`;
 
   it.each([
     ['nf-rt-rtPress', rtField(t('perf.rtPress')), 'rtPress', false],
@@ -667,13 +664,6 @@ describe('W3: presets', () => {
     expect(useUserPresetsStore().presets.map((p) => p.name)).toEqual(['Giữ lại']);
   });
 
-  it('the menu button names the count in words and shows it in its label', async () => {
-    useUserPresetsStore().add('A', userPreset());
-    await setup([]);
-    expect(menuBtn().getAttribute('aria-label')).toBe(t('perf.userPresetsAria', { n: 1 }));
-    expect(menuBtn().textContent).toContain(t('perf.userPresetsCount', { n: 1 }));
-  });
-
   it('mixed values cannot be saved: the item is disabled with the reason as a caption', async () => {
     const { perf } = await setup([]);
     await openMenu();
@@ -691,8 +681,8 @@ describe('W3: presets', () => {
     await setup(WASD);
     await openMenu();
     expect(saveItem().disabled).toBe(true);
-    expect(document.body.querySelector('.umenu__why')!.textContent).toBe(t('perf.presetFull', { n: USER_PRESET_MAX }));
-    expect(document.body.querySelectorAll('.umenu__row')).toHaveLength(USER_PRESET_MAX);
+    expect(document.body.querySelector('.presets__save .hint')!.textContent).toBe(t('perf.presetFull', { n: USER_PRESET_MAX }));
+    expect(document.body.querySelectorAll('.preset-row')).toHaveLength(USER_PRESET_MAX);
   });
 
   it('applying a user preset to W A S D changes only those 4 keys, as one history entry', async () => {
@@ -747,10 +737,10 @@ describe('W3: presets', () => {
     useUserPresetsStore().add('Xoá tôi', userPreset());
     const { exchange, setPerf, sync, history } = await setup(WASD);
     await openMenu();
-    document.body.querySelector<HTMLButtonElement>(`.umenu__x[aria-label="${t('perf.presetDelete', { name: 'Xoá tôi' })}"]`)!.click();
+    document.body.querySelector<HTMLButtonElement>(`.preset-x[aria-label="${t('perf.presetDelete', { name: 'Xoá tôi' })}"]`)!.click();
     await flushPromises();
     await sync.flush();
-    expect(document.body.querySelectorAll('.umenu__row')).toHaveLength(0);
+    expect(document.body.querySelectorAll('.preset-row')).toHaveLength(0);
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual([]);
     expect(exchange).not.toHaveBeenCalled();
     expect(setPerf).not.toHaveBeenCalled();
@@ -847,7 +837,7 @@ describe('W2: one-screen structure', () => {
   it('every (i) explanation is a keyboard-reachable button whose text is in the DOM for aria-describedby', async () => {
     await setup([]);
     const tips = [...document.body.querySelectorAll<HTMLButtonElement>('.info__btn')];
-    expect(tips.length).toBeGreaterThanOrEqual(6);
+    expect(tips.length).toBeGreaterThanOrEqual(2); // the toolbar's two; the cards carry their hints as subtitles
     for (const b of tips) {
       expect(b.tabIndex).toBe(0);
       const text = document.body.querySelector(`#${b.getAttribute('aria-describedby')}`)!.textContent!;
@@ -855,26 +845,26 @@ describe('W2: one-screen structure', () => {
     }
   });
 
-  it('DOM (= Tab) order: toolbar, keyboard, scope bar, dock', async () => {
+  it('DOM (= Tab) order: toolbar, keyboard, scope bar, editor cards', async () => {
     await setup([]);
     const q = (s: string) => document.body.querySelector(s)!;
     const before = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(before(q('.wb__bar'), q('.wb__board'))).toBe(true);
     expect(before(q('.wb__board'), q('.sb'))).toBe(true);
-    expect(before(q('.sb'), q('.dock'))).toBe(true);
+    expect(before(q('.sb'), q('.grid'))).toBe(true);
     expect(document.body.querySelector('.page__aside')).toBeNull();
   });
 
-  it('the dock header carries Mode and Rapid Trigger liên tục; Standard keeps the diagram reachable', async () => {
+  it('the Mode card carries Mode and Rapid Trigger liên tục; Standard keeps the diagram reachable', async () => {
     const { perf } = await setup([]);
-    expect(document.body.querySelector('.dock__head .seg')).not.toBeNull();
-    expect(document.body.querySelector('.dock__head [role="switch"]')).not.toBeNull();
+    expect(document.body.querySelector('.c-mode .seg')).not.toBeNull();
+    expect(document.body.querySelector('.c-mode [role="switch"]')).not.toBeNull();
     const values = { ...perf.values };
     for (const k of ALL) values[k] = { ...values[k], mode: 0 };
     perf.values = values;
     await flushPromises();
-    expect(document.body.querySelector('.dock__head [role="switch"]')).toBeNull();
-    expect(document.body.querySelector('.pcol--std .std')).not.toBeNull();
+    expect(document.body.querySelector('.c-mode [role="switch"]')).toBeNull();
+    expect(document.body.querySelector('.pcol .std')).not.toBeNull();
   });
 });
 
