@@ -52,7 +52,9 @@ describe('Advanced page: the picked key\'s entry summarised in the selection bar
     const keys = a.keys.map((id) => useDeviceStore().legend(useDeviceStore().keys[id])).join(' ↔ ');
     expect(text.text()).toMatch(new RegExp(`^SOCD ${keys} · .+ · .+ ms$`));
     expect(text.attributes('title')).toBe(text.text());
-    expect(text.attributes('aria-live')).toBe('polite');
+    expect(text.attributes('aria-live')).toBeUndefined();
+    const live = w.find('.sr-only[aria-live="polite"]');
+    expect(live.text()).toBe(text.text()); // persistent region, present before the summary was
     expect(hint(w).exists()).toBe(false);
     const btn = w.find('.sum button');
     expect(btn.text()).toBe(tr('advanced.edit'));
@@ -72,6 +74,8 @@ describe('Advanced page: the picked key\'s entry summarised in the selection bar
     await flushPromises();
     expect(w.find('.sum').exists()).toBe(false);
     expect(hint(w).text()).toBe(tr('sel.hint'));
+    expect(w.find('.sr-only[aria-live="polite"]').exists()).toBe(true); // the live region stays, empty
+    expect(w.find('.sr-only[aria-live="polite"]').text()).toBe('');
     noWrites();
   });
 

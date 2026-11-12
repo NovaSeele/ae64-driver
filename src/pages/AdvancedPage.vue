@@ -446,11 +446,13 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
   <PageLayout :title="t('page.advanced')" keyboard>
     <template v-if="summary" #hint>
       <span class="sum">
-        <span class="sum__text" aria-live="polite" :title="summary.text">{{ summary.text }}</span>
+        <span class="sum__text" :title="summary.text">{{ summary.text }}</span>
         <Button v-if="!summary.ro" size="sm" variant="ghost" :aria-label="t('advanced.editEntry', { type: shortOf(summary.a), keys: keysOf(summary.a) })" @click="edit(summary.a)">{{ t('advanced.edit') }}</Button>
       </span>
     </template>
     <template #keyboard>
+      <!-- one persistent live region, so the first summary after the hint state is announced too -->
+      <span class="sr-only" aria-live="polite">{{ summary?.text ?? '' }}</span>
       <KeyboardView :keys="device.keys" :legend="device.legend" :sublabel="sublabel" :tone="tone" :loading="adv.loading" selectable />
     </template>
 
