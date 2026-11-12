@@ -463,7 +463,7 @@ interface LedPress { cell: number; age: number }
  * the UI number is mode + 1). Keys: 0 static, 1 horizontal wave, 2 vertical wave, 3 ripple, 4 spiral, 7 breathing,
  * 9 colour wipe, 10 arc wave, 11 sine line, 12 random steady, 13 twinkle, 14 starlight, 15 raindrop, 16 reactive key,
  * 17 reactive key + neighbours, 18 reactive row; 5, 6, 8 and anything above 18 are unknown and get a neutral dim
- * static. Strip: 0 static, 1 chase, 2 breathing, 3 mirrored wave from the top centre, 4 mirrored chase.
+ * static. Strip: 0 static, 1 chase (whole ring lit, colours rotating), 2 breathing, 3 mirrored wave from the top centre, 4 mirrored chase.
  * Reactive modes are dark until a demo key is pressed (presses).
  */
 function makeLedFrame(area: number, mode: number, speed: number, direction: number, rainbow: boolean, now: number, presses: LedPress[] = []) {
@@ -481,14 +481,11 @@ function makeLedFrame(area: number, mode: number, speed: number, direction: numb
       const pos = STRIP_POS.get(idx) ?? 0;
       const m = Math.min(idx, LED_STRIP_COUNT - idx) / (LED_STRIP_COUNT / 2); // 0 at the top centre → 1 at the bottom centre
       switch (mode) {
-        case 1: { // chase: a head runs around the edge with a tail behind it
-          const d = frac(phi - dir * pos);
-          return { hue: pos, lvl: Math.max(0.05, 1 - d / 0.3) };
-        }
+        case 1: { const p = pos - dir * phi; return { hue: p, lvl: rainbow ? 1 : wave(p) }; } // chase: the whole ring lit, the colours rotating around it
         case 2: return { hue: rainbow ? Math.floor(phi) * 0.2 : 0, lvl: breath };
         case 3: { const p = m - dir * phi; return { hue: p, lvl: rainbow ? 1 : wave(p) }; }
         case 4: { const f = frac(3 * m - dir * phi); return { hue: m, lvl: f < 0.3 ? 1 : 0.04 }; }
-        default: return { hue: pos, lvl: 1 };
+        default: return { hue: 3 * pos, lvl: 1 }; // static: the rainbow repeats 3 times around the ring
       }
     };
   }
@@ -509,14 +506,18 @@ function makeLedFrame(area: number, mode: number, speed: number, direction: numb
         const p = 3 * ang - dir * phi;
         return { hue: ang - dir * phi, lvl: rainbow ? 0.25 + 0.75 * (0.5 + 0.5 * Math.cos(2 * Math.PI * p)) : 0.05 + 0.95 * Math.max(0, Math.cos(2 * Math.PI * p)) };
       }
-      case 7: return { hue: x + 0.17 * Math.floor(phi), lvl: breath };
+      case 7: return { hue: 0.17 * Math.floor(phi), lvl: breath }; // one colour for the whole board, the next one on each breath
       case 9: { // colour wipe: the next colour fills from the left over the previous one
         const c = phi / 2;
         const step = Math.floor(c);
         const filled = (dir > 0 ? x : 1 - x) <= Math.min(1, frac(c) * 1.2);
         return { hue: (filled ? step : step - 1) * 0.23, lvl: filled ? 1 : 0.3 };
       }
-      case 10: { const p = x + 0.5 * (2 * (y - 0.5)) ** 2 * 0.4 - dir * phi; return { hue: p, lvl: rainbow ? 1 : wave(p) }; }
+      case 10: { // nested U-shaped bands moving sideways
+        const q = frac(1.5 * x - dir * phi) - 0.5;
+        const p = y + 2.4 * q * q;
+        return { hue: p, lvl: rainbow ? 1 : wave(p) };
+      }
       case 11: { // a thin wavy line across a dark board
         const yc = 0.5 + 0.38 * Math.sin(2 * Math.PI * (x * 1.3 - dir * phi));
         return { hue: x - dir * phi, lvl: Math.max(0, 1 - Math.abs(y - yc) / 0.2) };
@@ -530,10 +531,10 @@ function makeLedFrame(area: number, mode: number, speed: number, direction: numb
         const s = frac(q);
         return { hue: hash01(idx, Math.floor(q) + 1), lvl: s < 0.7 ? Math.sin(Math.PI * s / 0.7) : 0 };
       }
-      case 14: { // a few keys flash briefly
+      case 14: { // about ten keys flash at a time
         const q = phi * 1.2 + hash01(idx);
         const s = frac(q);
-        return { hue: hash01(idx, Math.floor(q) + 1), lvl: s < 0.07 && hash01(idx, Math.floor(q) + 9) < 0.7 ? 1 - s / 0.07 : 0 };
+        return { hue: hash01(idx, Math.floor(q) + 1), lvl: s < 0.2 && hash01(idx, Math.floor(q) + 9) < 0.8 ? 1 - s / 0.2 : 0 };
       }
       case 15: { // one soft blob at a random place that fades
         const c = phi * 0.5;

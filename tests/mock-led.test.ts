@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MockTransport } from '../src/protocol';
+import { MockTransport, STRIP_ORDER } from '../src/protocol';
 import type { LightingBase } from '../src/protocol';
 import { PHYSICAL_KEYS } from '../src/protocol/layout';
 
@@ -86,6 +86,78 @@ describe('mock LED stand-ins', () => {
     // released and faded: dark again
     mock.simulatePress(g.id, 0);
     expect(frame(mock, 0, 36_000).every((px) => lum(px) === 0)).toBe(true);
+  });
+
+  const litKeys = (fr: number[][]) => PHYSICAL_KEYS.map((k) => fr[cellOf(k)]);
+  const T = 6 - 5.2 * 50 / 100; // seconds per cycle at the default speed 50
+
+  it('breathing: one colour across the board, fading in and out, the next hue on each breath (p0)', async () => {
+    fake();
+    const mock = await make();
+    await mock.setLightingBase(base({ mode: 7, paletteIndex: 0 }));
+    const at = (cycle: number) => litKeys(frame(mock, 0, (cycle * T) * 1000));
+    const peak = (cycle: number) => litKeys(frame(mock, 0, (cycle + 0.5) * T * 1000));
+    const a = peak(10);
+    const top = Math.max(...a.map(lum));
+    expect(top).toBeGreaterThan(0);
+    for (const px of a) for (let c = 0; c < 3; c++) expect(Math.abs(px[c] - a[0][c])).toBeLessThanOrEqual(2);
+    expect(lum(at(10)[0])).toBeLessThan(lum(a[0]) * 0.3); // dim at the start of a breath, bright at the middle
+    const b = peak(11);
+    expect(b.map((px) => px.join()).every((s, i) => s !== a[i].join())).toBe(true); // the hue moved
+  });
+
+  it('arc wave (keys 11) differs from the horizontal wave', async () => {
+    fake();
+    const mock = await make();
+    await mock.setLightingBase(base({ mode: 10 }));
+    const arc = litKeys(frame(mock, 0, 20_300));
+    await mock.setLightingBase(base({ mode: 1 }));
+    const horizontal = litKeys(frame(mock, 0, 20_300));
+    expect(arc.filter((px, i) => px.join() !== horizontal[i].join()).length).toBeGreaterThan(20);
+    // a U shape: the colour in one column changes with the row, unlike the horizontal wave
+    const colours = (fr: number[][]) => new Set(PHYSICAL_KEYS.filter((k) => k.col === 6).map((k) => fr[cellOf(k)].join()));
+    expect(colours(frame(mock, 0, 20_300)).size).toBe(1); // mode 1 is still set: one colour per column
+    await mock.setLightingBase(base({ mode: 10 }));
+    expect(colours(frame(mock, 0, 20_300)).size).toBeGreaterThan(1);
+  });
+
+  it('strip chase (strip 2): every LED lit, colours shift over time', async () => {
+    fake();
+    const mock = await make();
+    await mock.setLightingBase(base({ area: 1, mode: 1 }));
+    const f0 = frame(mock, 1, 10_000);
+    const f1 = frame(mock, 1, 10_800);
+    expect(f0.every((px) => lum(px) > 0)).toBe(true);
+    expect(f1.every((px) => lum(px) > 0)).toBe(true);
+    expect(f0.filter((px, i) => px.join() !== f1[i].join()).length).toBeGreaterThan(20);
+  });
+
+  it('static strip (strip 1): the rainbow goes about 3 times around the ring', async () => {
+    fake();
+    const mock = await make();
+    await mock.setLightingBase(base({ area: 1, mode: 0 }));
+    const f = frame(mock, 1, 10_000);
+    const hue = ([b, g, r]: number[]) => {
+      const mx = Math.max(b, g, r), d = mx - Math.min(b, g, r);
+      const h = mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return h / 6;
+    };
+    const hs = STRIP_ORDER.map((led) => hue(f[led]));
+    let wraps = 0;
+    for (let i = 0; i < hs.length; i++) if (Math.abs(hs[(i + 1) % hs.length] - hs[i]) > 0.5) wraps++; // incl. the step back to the start
+    expect(wraps).toBe(3);
+  });
+
+  it('starlight (keys 15): about 10 keys flash per frame, averaged over frames', async () => {
+    fake();
+    const mock = await make();
+    await mock.setLightingBase(base({ mode: 14 }));
+    let total = 0;
+    const N = 40;
+    for (let i = 0; i < N; i++) total += litKeys(frame(mock, 0, 10_000 + i * 370)).filter((px) => lum(px) > 0).length;
+    const avg = total / N;
+    expect(avg).toBeGreaterThan(7);
+    expect(avg).toBeLessThan(14);
   });
 
   it('is deterministic for the same time', async () => {
