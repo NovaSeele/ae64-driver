@@ -37,7 +37,7 @@ async function setup(select: number[]) {
 const both = (perf: ReturnType<typeof usePerformanceStore>, k: number) => [perf.values[k].normalPress, perf.values[k].rtFirstTouch];
 const seg = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>('.seg button')].find((b) => b.textContent?.trim() === label)!;
 const actInput = () => document.body.querySelector<HTMLInputElement>(`.act input[aria-label="${t('perf.actuation')}"]`)!;
-const hasRtCard = () => [...document.body.querySelectorAll('.card, section, div')].some((e) => e.textContent?.trim() === t('perf.rt'));
+const hasRtCard = () => document.body.querySelector('.pcol--rt') !== null;
 async function flush() {
   await flushPromises();
   await useSyncStore().flush();
@@ -124,7 +124,7 @@ describe('one actuation point for Standard and Rapid Trigger', () => {
     const { perf } = await setup([E, Q]);
     for (const p of PRESETS) {
       expect(p.values.normalPress).toBe(p.values.rtFirstTouch);
-      const idx = [...document.body.querySelectorAll<HTMLButtonElement>('.preset')][PRESETS.indexOf(p)];
+      const idx = [...document.body.querySelectorAll<HTMLButtonElement>('.wb__presets .chip')][PRESETS.indexOf(p)];
       idx.click();
       await flush();
       for (const k of [E, Q]) {

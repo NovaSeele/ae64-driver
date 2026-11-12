@@ -138,7 +138,6 @@ const baseEn: Record<keyof typeof base, string> = {
   'perf.presetApplied': 'Applied preset {name} to {n|# key|# keys}.',
   'perf.tryNow': 'Try now',
   'perf.tryNowHint': 'Open Live Travel for the selected key',
-  'perf.selectKeys': 'Select one or more keys on the keyboard to configure travel.',
   'perf.mixed': 'Mixed',
   'perf.loading': 'Loading settings from {n}/64 keys…',
   'perf.loadFailed': 'Failed to load travel settings.',

@@ -8,26 +8,32 @@ export function deriveRtLinked(recs: PerformanceRec[], isRt: (mode: number) => b
 </script>
 
 <script setup lang="ts">
-// Hành trình — reference implementation of the per-key page pattern (docs/ARCHITECTURE.md).
+// Hành trình — reference implementation of the per-key page pattern (docs/ARCHITECTURE.md), laid out as a workbench:
+// toolbar → keyboard → scope bar → one editor dock. With nothing selected the editors work on every key.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { IconAdjustmentsHorizontal, IconAlertTriangle, IconFlask, IconLink, IconLinkOff, IconLock, IconRefresh } from '@tabler/icons-vue';
+import { IconAlertTriangle, IconFlask, IconLink, IconLinkOff, IconLock, IconRefresh, IconX } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
-import EmptyState from '../components/shell/EmptyState.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
+import SelectionBar from '../components/keyboard/SelectionBar.vue';
 import TravelEditor from '../components/performance/TravelEditor.vue';
 import StdCycleCard from '../components/performance/StdCycleCard.vue';
+import InfoTip from '../components/performance/InfoTip.vue';
 import Card from '../components/ui/Card.vue';
 import Button from '../components/ui/Button.vue';
+import Dialog from '../components/ui/Dialog.vue';
 import Segmented from '../components/ui/Segmented.vue';
 import Slider from '../components/ui/Slider.vue';
 import Switch from '../components/ui/Switch.vue';
-import NumberField, { decimalsFor, formatMm } from '../components/ui/NumberField.vue';
-import AnimatedNumber from '../components/ui/AnimatedNumber.vue';
+import NumberField from '../components/ui/NumberField.vue';
 import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
+import { useHistoryStore } from '../stores/history';
+import { useCalibrationStore } from '../stores/calibration';
 import { LIMITS, PRESETS, actuationOf, isKnownMode, rangeMm, usePerformanceStore } from '../stores/performance';
 import type { PerfEdit } from '../stores/performance';
+import { USER_PRESET_MAX, USER_PRESET_NAME_MAX, useUserPresetsStore } from '../stores/userPresets';
+import type { UserPreset } from '../stores/userPresets';
 import { releasePoint, settingsFrom } from '../stores/live';
 import { isRtMode, supportsIntervalRt } from '../protocol';
 import type { Performance, PerfMode, PhysicalKey } from '../protocol';
@@ -41,6 +47,8 @@ type Metric = 'actuation' | 'rt' | 'deadzone';
 const device = useDeviceStore();
 const sel = useSelectionStore();
 const perf = usePerformanceStore();
+const history = useHistoryStore();
+const userPresets = useUserPresetsStore();
 const router = useRouter();
 const toast = useToast();
 
@@ -55,6 +63,9 @@ const METRICS: { id: Metric; label: MessageKey }[] = [
   { id: 'rt', label: 'perf.metricRt' },
   { id: 'deadzone', label: 'perf.metricDeadzone' },
 ];
+const metricTip = computed(() =>
+  metric.value === 'actuation' ? t('perf.rtBadgeHint') : metric.value === 'rt' ? t('perf.rtViewHint') : t('perf.deadzoneViewHint'),
+);
 
 // Display preference only (never sent to the keyboard).
 const SHADING_KEY = 'ae64.perf.depthShading';
@@ -79,9 +90,9 @@ const PRESET_TEXT: Record<(typeof PRESETS)[number]['id'], [MessageKey, MessageKe
   sensitive: ['perf.presetSensitive', 'perf.presetSensitiveDesc'],
 };
 
-// The editor grid never gets shorter while the user stays on the page at the same width (the RT card coming and going
-// must not move the Mode card under the pointer); it only grows. Reset when the grid's own width changes (window
-// resize or folding the sidebar: the column layout differs) and on a profile change.
+// The editor columns never get shorter while the user stays on the page at the same width (the RT column coming and
+// going must not make the dock jump); they only grow. Reset when their own width changes (window resize or folding the
+// sidebar: the layout differs) and on a profile change.
 const gridEl = ref<HTMLElement | null>(null);
 const gridMinH = ref(0);
 let gridWidth: number | null = null; // the width the held height was measured at
@@ -127,17 +138,13 @@ function onWindowResize() {
   resetGridMinH();
 }
 
-// ----- columns: real wrappers (so every column can stretch to the same bottom), chosen by width.
-// 3 columns from 1361px, 2 from 761px, else 1. Without matchMedia (tests) the layout is the widest one.
-const colCount = ref<1 | 2 | 3>(3);
-const mqlWide = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 1361px)') : null;
-const mqlMid = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 761px)') : null;
-function updateColCount() {
-  if (mqlWide && mqlMid) colCount.value = mqlWide.matches ? 3 : mqlMid.matches ? 2 : 1;
+/**
+ * Esc returns to "all keys" (KeyboardView clears the selection and already skips dialogs and text/number fields).
+ * While a calibration runs the key is marked handled before KeyboardView sees it, so the scope stays as it is.
+ */
+function onEscCapture(e: KeyboardEvent) {
+  if (e.key === 'Escape' && (useCalibrationStore().phase !== 'idle' || device.calibrationLocked())) e.preventDefault();
 }
-updateColCount();
-mqlWide?.addEventListener('change', updateColCount);
-mqlMid?.addEventListener('change', updateColCount);
 
 let offProfile: (() => void) | null = null;
 onMounted(() => {
@@ -147,18 +154,16 @@ onMounted(() => {
     void perf.load(true);
   });
   window.addEventListener('resize', onWindowResize);
+  window.addEventListener('keydown', onEscCapture, true);
 });
 onBeforeUnmount(() => {
   offProfile?.();
   window.removeEventListener('resize', onWindowResize);
-  mqlWide?.removeEventListener('change', updateColCount);
-  mqlMid?.removeEventListener('change', updateColCount);
+  window.removeEventListener('keydown', onEscCapture, true);
   gridObserver?.disconnect();
 });
 
 const decimals = computed(() => (device.rtPrecision < 0.01 ? 3 : 2));
-/** Editor value text: 2 decimals unless the value needs the third. */
-const fmtEdit = (v: number) => formatMm(v, decimals.value);
 function fmt(v: number): string {
   const s = v.toFixed(decimals.value).replace(/0+$/, '');
   return s.endsWith('.') ? `${s}0` : s;
@@ -197,15 +202,21 @@ function fill(k: PhysicalKey): number | undefined {
   return p && depthShading.value && metric.value === 'actuation' ? actuationOf(p) / rangeMm(p) : undefined;
 }
 
-// ----- selection summary
-/** Selected keys that are loaded; keys in a firmware mode we do not know are shown but never edited (store.apply skips them). */
-const loadedIds = computed(() => sel.ids.filter((id) => perf.values[id]));
-const hasSel = computed(() => loadedIds.value.length > 0);
+// ----- scope: the selection, or every key of the connected keyboard when nothing is selected
+const scoped = computed(() => sel.count > 0);
+/** Keys in scope that are loaded; keys in a firmware mode we do not know are shown but never edited (store.apply skips them). */
+const loadedIds = computed(() => (scoped.value ? sel.ids : device.keys.map((k) => k.id)).filter((id) => perf.values[id]));
+const hasKeys = computed(() => loadedIds.value.length > 0);
 const ids = computed(() => loadedIds.value.filter((id) => isKnownMode(perf.values[id].mode)));
 const unknownCount = computed(() => loadedIds.value.length - ids.value.length);
 const recs = computed<Performance[]>(() => ids.value.map((id) => perf.values[id]));
+const SCOPE_NAMES = 8;
+const scopeNames = computed(() => {
+  const names = loadedIds.value.map((id) => device.legend(device.keys[id]));
+  return names.length > SCOPE_NAMES ? `${names.slice(0, SCOPE_NAMES).join(' ')} …` : names.join(' ');
+});
 
-// RT link: derived from the selection, re-derived whenever the selection changes; a click overrides it until then.
+// RT link: derived from the scope, re-derived whenever it changes; a click overrides it until then.
 const rtLinkOverride = ref<boolean | null>(null);
 const rtLinked = computed(() => rtLinkOverride.value ?? deriveRtLinked(recs.value, isRtMode));
 watch(() => ids.value.join(','), () => { rtLinkOverride.value = null; });
@@ -225,33 +236,13 @@ const mode = computed<PerfMode | null>(() => {
 const anyRt = computed(() => recs.value.some((p) => isRtMode(p.mode)));
 /** Continuous RT can be turned off on protocol ≥ 1.3.0.0 (factory driver rule), or where a key already is in mode 2. */
 const intervalRt = computed(() => supportsIntervalRt(device.version) || recs.value.some((p) => p.mode === 2));
-/** Continuous RT across the selected RT keys: true (all mode 1), false (all mode 2), null (mixed / none). */
+/** Continuous RT across the RT keys in scope: true (all mode 1), false (all mode 2), null (mixed / none). */
 const continuous = computed<boolean | null>(() => {
   const m = new Set(recs.value.filter((p) => isRtMode(p.mode)).map((p) => p.mode));
   return m.size === 1 ? m.has(1) : null;
 });
-/** The Standard card takes the RT card's slot, only when every selected key is Standard (neither card when mixed). */
-const stdShown = computed(() => recs.value.length > 0 && mode.value === 0);
-type CardId = 'act' | 'mode' | 'rt' | 'std' | 'dead' | 'presets';
-const slotId = computed<'rt' | 'std' | null>(() => (anyRt.value ? 'rt' : stdShown.value ? 'std' : null));
-/** Mode always heads the second column, so it never moves when the RT / Standard card swaps. */
-const cols = computed<CardId[][]>(() => {
-  // Only unknown-mode keys selected: no editors (they would edit 0 keys); the .unknown note stands alone.
-  if (!recs.value.length) return [];
-  const slot = slotId.value ? [slotId.value] : [];
-  const mid: CardId[] = ['mode', ...slot];
-  const all = (c: CardId[][]) => c.filter((x) => x.length);
-  if (colCount.value === 3) return all([['act'], mid, ['dead', 'presets']]);
-  if (colCount.value === 2) return all([['act', 'dead'], [...mid, 'presets']]);
-  return [['act', 'mode', ...slot, 'dead', 'presets']];
-});
-/** One named grower per column (two in the RT column: Mode and RT split the spare height); none in a single column. */
-const growers = computed<Set<CardId>>(() => {
-  if (colCount.value === 1) return new Set();
-  const slot = slotId.value;
-  const mid: CardId[] = slot === 'rt' ? ['mode', 'rt'] : slot === 'std' ? ['std'] : colCount.value === 3 ? ['mode'] : ['presets'];
-  return new Set<CardId>(colCount.value === 3 ? ['act', 'presets', ...mid] : ['dead', ...mid]);
-});
+/** The middle column: Rapid Trigger when any key in scope uses it, else the read-only Standard diagram. */
+const slot = computed<'rt' | 'std'>(() => (anyRt.value ? 'rt' : 'std'));
 const maxTravel = computed(() => (recs.value.length ? Math.min(...recs.value.map(rangeMm)) : 3.31));
 const act = computed(() => summary(actuationOf));
 const stdRelease = computed(() => summary((p) => releasePoint(settingsFrom(p))));
@@ -263,13 +254,42 @@ const deadFields = computed(() => [
   { field: 'pressDeadStroke' as const, label: t('perf.deadTop'), s: deadTop.value },
   { field: 'releaseDeadStroke' as const, label: t('perf.deadBottom'), s: deadBottom.value },
 ]);
+const modeTip = computed(() =>
+  mode.value === null ? t('perf.modeMixed') : mode.value === 1 ? t('perf.modeHintRt') : t('perf.modeHintStandard'),
+);
+
+// ----- all-keys toast: "Đã áp dụng cho N phím · Hoàn tác". Hoàn tác is the history store's own undo (the same as Ctrl+Z).
+let lastLabel: string | null = null; // the history entry the toast offers to undo
+let gestureKeys = 0; // keys changed by the slider drag in progress (all-keys scope), announced when it ends
+function undoLast() {
+  // Another entry on top since (a newer edit): leave it to Ctrl+Z rather than undoing something the toast does not name.
+  if (history.undoLabel === lastLabel) history.undo();
+}
+function announce(text: string, kind: 'success' | 'info' = 'success') {
+  lastLabel = history.undoLabel;
+  if (toast.items.value.some((x) => x.text === text)) return; // repeated steps keep one toast on screen
+  toast.show(text, kind, undefined, { label: t('history.undo'), run: undoLast });
+}
+/** Every edit of the page: perf.apply, then the all-keys toast. Slider gestures announce when they end. */
+function edit(targets: number[], patch: (p: Performance) => Partial<PerfEdit>, what: string, gesture?: string) {
+  const n = perf.apply(targets, patch, what, gesture);
+  if (!n || scoped.value) return;
+  if (gesture) gestureKeys = n;
+  else announce(t('perf.appliedAll', { n }));
+}
+function endGesture() {
+  if (!gestureKeys) return;
+  const n = gestureKeys;
+  gestureKeys = 0;
+  announce(t('perf.appliedAll', { n }));
+}
 
 // ----- edits (every edit goes through perf.apply → history + sync)
 function setMode(m: PerfMode | null) {
   if (m === null) return;
   // Turning RT on keeps a key's Continuous setting if it is already RT; new RT keys start continuous (mode 1).
   // A key whose mode family changes carries the actuation it showed into both fields (one actuation point for Standard and RT).
-  perf.apply(
+  edit(
     ids.value,
     (p) => {
       const mode = m === 0 ? 0 : isRtMode(p.mode) ? p.mode : 1;
@@ -281,12 +301,12 @@ function setMode(m: PerfMode | null) {
   );
 }
 function setContinuous(on: boolean) {
-  perf.apply(ids.value.filter((id) => isRtMode(perf.values[id].mode)), () => ({ mode: on ? 1 : 2 }), t('perf.continuous'));
+  edit(ids.value.filter((id) => isRtMode(perf.values[id].mode)), () => ({ mode: on ? 1 : 2 }), t('perf.continuous'));
 }
 /** Relative step from a mixed field: each key moves one step from its own value (the store clamps). */
 const add = (v: number, d: number) => Number((v + d).toFixed(3));
 function stepActuation(d: number) {
-  perf.apply(
+  edit(
     ids.value,
     (p) => {
       const v = add(actuationOf(p), d);
@@ -296,7 +316,7 @@ function stepActuation(d: number) {
   );
 }
 function stepRt(which: 'rtPress' | 'rtRelease', d: number) {
-  perf.apply(
+  edit(
     ids.value.filter((id) => isRtMode(perf.values[id].mode)),
     (p) => {
       const v = add(p[which], d);
@@ -306,25 +326,96 @@ function stepRt(which: 'rtPress' | 'rtRelease', d: number) {
   );
 }
 function stepDead(which: 'pressDeadStroke' | 'releaseDeadStroke', d: number) {
-  perf.apply(ids.value, (p) => ({ [which]: add(p[which], d) }), t('perf.deadzones'));
+  edit(ids.value, (p) => ({ [which]: add(p[which], d) }), t('perf.deadzones'));
 }
 function setActuation(v: number, gesture = true) {
-  perf.apply(ids.value, () => ({ normalPress: v, rtFirstTouch: v }), t('perf.actuation'), gesture ? 'act' : undefined);
+  edit(ids.value, () => ({ normalPress: v, rtFirstTouch: v }), t('perf.actuation'), gesture ? 'act' : undefined);
 }
 function setRt(which: 'rtPress' | 'rtRelease', v: number, gesture = true) {
   const patch: Partial<PerfEdit> = rtLinked.value ? { rtPress: v, rtRelease: v } : { [which]: v };
-  perf.apply(ids.value.filter((id) => isRtMode(perf.values[id].mode)), () => patch, t('perf.rt'), gesture ? `rt-${which}` : undefined);
+  edit(ids.value.filter((id) => isRtMode(perf.values[id].mode)), () => patch, t('perf.rt'), gesture ? `rt-${which}` : undefined);
 }
 function setDead(which: 'pressDeadStroke' | 'releaseDeadStroke', v: number, gesture = true) {
-  perf.apply(ids.value, () => ({ [which]: v }), t('perf.deadzones'), gesture ? `dz-${which}` : undefined);
+  edit(ids.value, () => ({ [which]: v }), t('perf.deadzones'), gesture ? `dz-${which}` : undefined);
+}
+
+// ----- presets: apply to the current scope (one perf.apply = one history entry)
+function presetApplied(name: string, n: number) {
+  toast.show(t('perf.presetApplied', { name, n: ids.value.length }), 'success', undefined, n ? { label: t('history.undo'), run: undoLast } : undefined);
+  if (n) lastLabel = history.undoLabel;
 }
 function applyPreset(id: (typeof PRESETS)[number]['id']) {
   const preset = PRESETS.find((p) => p.id === id)!;
   const name = t(PRESET_TEXT[id][0]);
   // An RT preset keeps a key's Continuous RT setting (mode 2 stays 2).
-  perf.apply(ids.value, (p) => ({ ...preset.values, mode: preset.values.mode !== 0 && p.mode === 2 ? 2 : preset.values.mode }), name);
-  toast.show(t('perf.presetApplied', { name, n: ids.value.length }), 'success');
+  const n = perf.apply(ids.value, (p) => ({ ...preset.values, mode: preset.values.mode !== 0 && p.mode === 2 ? 2 : preset.values.mode }), name);
+  presetApplied(name, n);
 }
+/** A saved preset: its values are already validated; perf.apply clamps them again to each key's own range and the model's precision. */
+function applyUserPreset(p: UserPreset) {
+  const n = perf.apply(
+    ids.value,
+    (cur) => {
+      const edit: Partial<PerfEdit> = {
+        mode: p.mode === 0 ? 0 : p.continuous ? 1 : supportsIntervalRt(device.version) || cur.mode === 2 ? 2 : 1,
+        normalPress: p.actuation,
+        rtFirstTouch: p.actuation,
+        pressDeadStroke: p.deadTop,
+        releaseDeadStroke: p.deadBottom,
+      };
+      if (p.mode === 1) {
+        edit.rtPress = p.rtPress;
+        edit.rtRelease = p.rtRelease;
+      }
+      return edit;
+    },
+    p.name,
+  );
+  presetApplied(p.name, n);
+}
+const modeLabel = (m: 0 | 1) => (m === 0 ? t('perf.modeStandard') : t('perf.modeRt'));
+const userPresetTitle = (p: UserPreset) => t('perf.presetUserTitle', { mode: modeLabel(p.mode), act: fmt(p.actuation) });
+
+// ----- "Lưu mẫu…": the scope's values, only when they agree
+const saveValues = computed<Omit<UserPreset, 'id' | 'name'> | null>(() => {
+  const m = mode.value;
+  if (!recs.value.length || m === null) return null;
+  const a = act.value.value;
+  const top = deadTop.value.value;
+  const bottom = deadBottom.value.value;
+  if (a === null || top === null || bottom === null) return null;
+  if (m === 1 && (rtPress.value.value === null || rtRelease.value.value === null || continuous.value === null)) return null;
+  return {
+    mode: m === 0 ? 0 : 1,
+    continuous: continuous.value ?? true,
+    actuation: a,
+    rtPress: rtPress.value.value ?? rtPress.value.range[0],
+    rtRelease: rtRelease.value.value ?? rtRelease.value.range[0],
+    deadTop: top,
+    deadBottom: bottom,
+  };
+});
+const saveBlocked = computed<string | null>(() => {
+  if (userPresets.presets.length >= USER_PRESET_MAX) return t('perf.presetFull', { n: USER_PRESET_MAX });
+  if (!recs.value.length) return t('perf.presetNoKeys');
+  return saveValues.value ? null : t('perf.presetMixed');
+});
+const saveOpen = ref(false);
+const saveName = ref('');
+function openSave() {
+  if (saveBlocked.value) return;
+  saveName.value = '';
+  saveOpen.value = true;
+}
+function confirmSave() {
+  const name = saveName.value.trim();
+  if (!name || !saveValues.value) return;
+  // Stored in this browser only: nothing goes to the keyboard.
+  const saved = userPresets.add(name, saveValues.value);
+  saveOpen.value = false;
+  if (saved) toast.show(t('perf.presetSaved', { name: saved.name }), 'success');
+}
+
 function tryNow() {
   const key = sel.focused !== null && sel.selected.has(sel.focused) ? sel.focused : loadedIds.value[0];
   void router.push({ path: '/live', query: { key: String(key) } });
@@ -337,339 +428,395 @@ const modeOptions = computed(() => [
 </script>
 
 <template>
-  <PageLayout :title="t('page.performance')" keyboard>
-    <template #keyboard>
-      <KeyboardView
-        :keys="device.keys"
-        :legend="device.legend"
-        :sublabel="sublabel"
-        :badge="badge"
-        :badge-title="badgeTitle"
-        :badge-icon="badgeIcon"
-        :fill="fill"
-        :loading="perf.loading"
-        :style="{ '--metric': METRIC_TONE[metric] }"
-        selectable
-      />
-    </template>
-
-    <template #keyboard-aside>
-      <span class="micro aside-label">{{ t('perf.metric') }}</span>
-      <div class="chips" role="radiogroup" :aria-label="t('perf.metric')">
-        <button
-          v-for="m in METRICS"
-          :key="m.id"
-          type="button"
-          role="radio"
-          class="chip"
-          :style="{ '--chip': METRIC_TONE[m.id] }"
-          :aria-checked="metric === m.id"
-          @click="metric = m.id"
-        >
-          <span class="chip__dot" :class="{ 'chip__dot--rt': m.id === 'rt' }" aria-hidden="true" />{{ t(m.label) }}
-        </button>
-      </div>
-      <div class="aside-sub">
-        <template v-if="metric === 'actuation'">
-          <p class="aside-hint">{{ t('perf.rtBadgeHint') }}</p>
-          <div class="shading">
-            <Switch v-model="depthShading" :label="t('perf.depthShading')" :title="t('perf.depthShadingHint')" describedby="perf-shading-hint" />
-            <p id="perf-shading-hint" class="shading__hint">{{ t('perf.depthShadingHint') }}</p>
+  <PageLayout :title="t('page.performance')">
+    <div class="wb">
+      <!-- toolbar -->
+      <div class="wb__bar">
+        <div class="wb__group">
+          <div class="chips" role="radiogroup" :aria-label="t('perf.metric')">
+            <button
+              v-for="m in METRICS"
+              :key="m.id"
+              type="button"
+              role="radio"
+              class="chip"
+              :style="{ '--chip': METRIC_TONE[m.id] }"
+              :aria-checked="metric === m.id"
+              @click="metric = m.id"
+            >
+              <span class="chip__dot" :class="{ 'chip__dot--rt': m.id === 'rt' }" aria-hidden="true" />{{ t(m.label) }}
+            </button>
           </div>
-        </template>
-        <p v-else-if="metric === 'rt'" class="aside-hint">{{ t('perf.rtViewHint') }}</p>
-        <p v-else-if="metric === 'deadzone'" class="aside-hint">{{ t('perf.deadzoneViewHint') }}</p>
+          <InfoTip :text="metricTip" />
+        </div>
+        <div class="wb__group">
+          <Switch v-model="depthShading" :label="t('perf.depthShading')" :disabled="metric !== 'actuation'" />
+          <InfoTip :text="t('perf.depthShadingHint')" />
+        </div>
+        <div class="wb__group wb__presets" role="group" :aria-label="t('perf.presetsLabel')">
+          <span class="micro">{{ t('perf.presetsLabel') }}</span>
+          <button v-for="p in PRESETS" :key="p.id" type="button" class="chip chip--plain" :disabled="!ids.length" :title="t(PRESET_TEXT[p.id][1])" @click="applyPreset(p.id)">
+            {{ t(PRESET_TEXT[p.id][0]) }}
+          </button>
+          <span v-for="p in userPresets.presets" :key="p.id" class="uchip">
+            <button type="button" class="chip chip--plain uchip__use" :disabled="!ids.length" :title="userPresetTitle(p)" @click="applyUserPreset(p)">{{ p.name }}</button>
+            <button type="button" class="uchip__x" :aria-label="t('perf.presetDelete', { name: p.name })" :title="t('perf.presetDelete', { name: p.name })" @click="userPresets.remove(p.id)">
+              <IconX :size="12" stroke-width="2" aria-hidden="true" />
+            </button>
+          </span>
+          <button type="button" class="chip chip--plain chip--dash" :disabled="!!saveBlocked" :title="saveBlocked ?? undefined" :aria-describedby="saveBlocked ? 'perf-save-why' : undefined" @click="openSave">
+            {{ t('perf.presetSave') }}
+          </button>
+          <span v-if="saveBlocked" id="perf-save-why" class="sr-only">{{ saveBlocked }}</span>
+        </div>
+        <Button class="wb__try" variant="secondary" size="sm" :icon="IconFlask" :disabled="!hasKeys" :title="t('perf.tryNowHint')" @click="tryNow">
+          {{ t('perf.tryNow') }}
+        </Button>
       </div>
-      <Button class="try" variant="secondary" size="sm" :icon="IconFlask" :disabled="!hasSel" :title="t('perf.tryNowHint')" @click="tryNow">
-        {{ t('perf.tryNow') }}
-      </Button>
-    </template>
 
-    <!-- load error -->
-    <Card v-if="perf.loadError" :title="t('perf.loadFailed')" :subtitle="perf.loadError">
-      <div><Button :icon="IconRefresh" @click="perf.load(true)">{{ t('perf.reload') }}</Button></div>
-    </Card>
+      <!-- keyboard + scope bar -->
+      <div class="wb__board">
+        <KeyboardView
+          :keys="device.keys"
+          :legend="device.legend"
+          :sublabel="sublabel"
+          :badge="badge"
+          :badge-title="badgeTitle"
+          :badge-icon="badgeIcon"
+          :fill="fill"
+          :loading="perf.loading"
+          :style="{ '--metric': METRIC_TONE[metric] }"
+          selectable
+        />
+      </div>
+      <SelectionBar>
+        <template #lead>
+          <span class="scope" aria-live="polite">
+            <strong class="num">{{ scoped ? t('perf.scopeSel', { n: loadedIds.length }) : t('perf.scopeAll', { n: device.keys.length }) }}</strong>
+            <span v-if="scoped && scopeNames" class="scope__names"> ({{ scopeNames }})</span>
+            <span class="scope__hint"> · {{ scoped ? t('perf.scopeSelHint') : t('perf.scopeAllHint') }}</span>
+          </span>
+        </template>
+      </SelectionBar>
 
-    <!-- loading skeleton -->
-    <div v-else-if="perf.loading" class="grid" :style="{ '--cols': colCount }" aria-busy="true">
-      <p class="loading num">{{ t('perf.loading', { n: perf.loadedCount }) }}</p>
-      <div v-for="i in 3" :key="i" class="skel-card">
-        <div class="skeleton" style="width: 40%; height: 14px" />
+      <!-- load error -->
+      <Card v-if="perf.loadError" :title="t('perf.loadFailed')" :subtitle="perf.loadError">
+        <div><Button :icon="IconRefresh" @click="perf.load(true)">{{ t('perf.reload') }}</Button></div>
+      </Card>
+
+      <!-- loading skeleton -->
+      <div v-else-if="perf.loading" class="dock dock--skel" aria-busy="true">
+        <p class="loading num">{{ t('perf.loading', { n: perf.loadedCount }) }}</p>
         <div class="skeleton" style="height: 120px" />
-        <div class="skeleton" style="width: 70%; height: 12px" />
       </div>
-    </div>
 
-    <!-- nothing selected -->
-    <EmptyState v-else-if="!hasSel" :icon="IconAdjustmentsHorizontal" :title="t('page.performance')" :body="t('perf.selectKeys')" />
-
-    <!-- editors -->
-    <div
-      v-else
-      ref="gridEl"
-      class="grid"
-      :class="{ 'grid--note': unknownCount }"
-      :style="{ '--cols': cols.length || 1, minHeight: gridMinH ? gridMinH + 'px' : undefined }"
-    >
-      <div v-if="unknownCount" class="unknown" role="note">
-        <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />
-        <span>{{ t('perf.unknownModes', { n: unknownCount }) }}</span>
-      </div>
-      <div v-for="(col, ci) in cols" :key="ci" class="pcol">
-      <template v-for="id in col" :key="id">
-      <Card v-if="id === 'act'" :class="{ grow: growers.has('act') }" :title="t('perf.actuation')" :subtitle="t('perf.actuationHint')">
-        <div class="act">
-          <TravelEditor
-            :value="act.value"
-            :range="act.range"
-            :min="LIMITS.actuationMin"
-            :max="maxTravel"
-            :step="0.01"
-            :dead-top="deadTop.value"
-            :dead-bottom="deadBottom.value"
-            :label="t('perf.actuation')"
-            @update="setActuation"
-            @commit="setActuation"
-          />
-          <div class="act__readout">
-            <span class="micro">{{ t('perf.travel') }}</span>
-            <div class="big">
-              <AnimatedNumber v-if="act.value !== null" :value="act.value" :decimals="decimalsFor(act.value, decimals)" />
-              <span v-else class="mixed">{{ fmtEdit(act.range[0]) }}–{{ fmtEdit(act.range[1]) }}</span>
-              <span class="unit">mm</span>
+      <!-- editor dock -->
+      <section v-else-if="hasKeys" class="dock" :aria-label="t('perf.dock')">
+        <div v-if="unknownCount" class="unknown" role="note">
+          <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />
+          <span>{{ t('perf.unknownModes', { n: unknownCount }) }}</span>
+        </div>
+        <template v-if="recs.length">
+          <header class="dock__head">
+            <div class="dock__mode">
+              <h3 class="dock__title">{{ t('perf.mode') }}</h3>
+              <Segmented :model-value="mode" :options="modeOptions" :label="t('perf.mode')" size="sm" @update:model-value="setMode" />
+              <InfoTip :text="modeTip" />
             </div>
-            <NumberField
-              :model-value="act.value"
-              :min="LIMITS.actuationMin"
-              :max="maxTravel"
-              :step="0.01"
-              :decimals="decimals"
-              :label="t('perf.actuation')"
-              relative
-              @update:model-value="setActuation($event, false)"
-              @step="stepActuation"
-            />
-            <span class="hint num">{{ t('perf.range', { max: fmt(maxTravel) }) }}</span>
-            <span v-if="decimals === 3" class="hint">{{ t('perf.fineHint') }}</span>
+            <div v-if="anyRt && intervalRt" class="dock__cont">
+              <Switch
+                :model-value="continuous ?? false"
+                :label="continuous === null ? `${t('perf.continuous')} (${t('perf.mixed')})` : t('perf.continuous')"
+                @update:model-value="setContinuous"
+              />
+              <InfoTip :text="continuous === false ? t('perf.continuousOffHint') : t('perf.continuousOnHint')" />
+            </div>
+          </header>
+
+          <div ref="gridEl" class="grid dock__cols" :style="{ minHeight: gridMinH ? gridMinH + 'px' : undefined }">
+            <!-- Actuation -->
+            <div class="pcol pcol--act">
+              <div class="pcol__head">
+                <h3 class="pcol__title">{{ t('perf.actuation') }}</h3>
+                <InfoTip :text="decimals === 3 ? `${t('perf.actuationHint')} ${t('perf.fineHint')}` : t('perf.actuationHint')" placement="top" />
+              </div>
+              <div class="act">
+                <TravelEditor
+                  :value="act.value"
+                  :range="act.range"
+                  :min="LIMITS.actuationMin"
+                  :max="maxTravel"
+                  :step="0.01"
+                  :dead-top="deadTop.value"
+                  :dead-bottom="deadBottom.value"
+                  :label="t('perf.actuation')"
+                  @update="setActuation"
+                  @commit="endGesture"
+                />
+                <div class="act__readout">
+                  <span class="micro">{{ t('perf.travel') }}</span>
+                  <NumberField
+                    :model-value="act.value"
+                    :min="LIMITS.actuationMin"
+                    :max="maxTravel"
+                    :step="0.01"
+                    :decimals="decimals"
+                    :label="t('perf.actuation')"
+                    relative
+                    @update:model-value="setActuation($event, false)"
+                    @step="stepActuation"
+                  />
+                  <span class="hint num">{{ t('perf.range', { max: fmt(maxTravel) }) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Rapid Trigger (or the Standard diagram) -->
+            <div v-if="slot === 'rt'" class="pcol pcol--rt">
+              <div class="pcol__head">
+                <h3 class="pcol__title">{{ t('perf.rt') }}</h3>
+                <button
+                  type="button"
+                  class="link"
+                  :class="{ 'link--on': rtLinked }"
+                  :aria-pressed="rtLinked"
+                  :title="t('perf.rtLinkHint')"
+                  @click="rtLinkOverride = !rtLinked"
+                >
+                  <component :is="rtLinked ? IconLink : IconLinkOff" :size="16" stroke-width="1.5" aria-hidden="true" />
+                  {{ t('perf.rtLinkLabel') }}
+                </button>
+              </div>
+              <div class="field">
+                <div class="field__row">
+                  <span class="field__label">{{ t('perf.rtPress') }}</span>
+                  <NumberField
+                    :model-value="rtPress.value"
+                    :min="LIMITS.rtMin"
+                    :max="LIMITS.rtMax"
+                    :step="0.01"
+                    :decimals="decimals"
+                    :label="t('perf.rtPress')"
+                    relative
+                    @update:model-value="setRt('rtPress', $event, false)"
+                    @step="stepRt('rtPress', $event)"
+                  />
+                </div>
+                <Slider
+                  :model-value="rtPress.value ?? rtPress.range[0]"
+                  :range="rtPress.value === null ? rtPress.range : null"
+                  :min="LIMITS.rtMin"
+                  :max="LIMITS.rtMax"
+                  :step="0.01"
+                  :fine-step="0.001"
+                  :label="t('perf.rtPress')"
+                  style="--sl-tone: var(--m-press)"
+                  @update:model-value="setRt('rtPress', $event)"
+                  @commit="endGesture"
+                />
+              </div>
+              <div class="field">
+                <div class="field__row">
+                  <span class="field__label">{{ t('perf.rtRelease') }}</span>
+                  <NumberField
+                    :model-value="rtRelease.value"
+                    :min="LIMITS.rtMin"
+                    :max="LIMITS.rtMax"
+                    :step="0.01"
+                    :decimals="decimals"
+                    :label="t('perf.rtRelease')"
+                    relative
+                    @update:model-value="setRt('rtRelease', $event, false)"
+                    @step="stepRt('rtRelease', $event)"
+                  />
+                </div>
+                <Slider
+                  :model-value="rtRelease.value ?? rtRelease.range[0]"
+                  :range="rtRelease.value === null ? rtRelease.range : null"
+                  :min="LIMITS.rtMin"
+                  :max="LIMITS.rtMax"
+                  :step="0.01"
+                  :fine-step="0.001"
+                  :label="t('perf.rtRelease')"
+                  style="--sl-tone: var(--m-release)"
+                  @update:model-value="setRt('rtRelease', $event)"
+                  @commit="endGesture"
+                />
+              </div>
+            </div>
+            <div v-else class="pcol pcol--std">
+              <StdCycleCard :actuation="act.range" :release="stdRelease.range" :max-travel="maxTravel" :fmt="fmt" />
+            </div>
+
+            <!-- Deadzone -->
+            <div class="pcol pcol--dead">
+              <div class="pcol__head">
+                <h3 class="pcol__title">{{ t('perf.deadzones') }}</h3>
+                <InfoTip :text="t('perf.deadHint')" placement="top" />
+              </div>
+              <div v-for="dz in deadFields" :key="dz.field" class="field">
+                <div class="field__row">
+                  <span class="field__label">{{ dz.label }}</span>
+                  <NumberField
+                    :model-value="dz.s.value"
+                    :min="0"
+                    :max="LIMITS.deadMax"
+                    :step="0.01"
+                    :decimals="decimals"
+                    :label="dz.label"
+                    relative
+                    @update:model-value="setDead(dz.field, $event, false)"
+                    @step="stepDead(dz.field, $event)"
+                  />
+                </div>
+                <Slider
+                  :model-value="dz.s.value ?? dz.s.range[0]"
+                  :range="dz.s.value === null ? dz.s.range : null"
+                  :min="0"
+                  :max="LIMITS.deadMax"
+                  :step="0.01"
+                  :fine-step="0.001"
+                  :label="dz.label"
+                  :style="{ '--sl-tone': 'var(--m-deadzone)' }"
+                  @update:model-value="setDead(dz.field, $event)"
+                  @commit="endGesture"
+                />
+              </div>
+            </div>
           </div>
-        </div>
-      </Card>
-
-      <Card v-else-if="id === 'mode'" class="c-mode" :class="{ grow: growers.has('mode') }" :title="t('perf.mode')">
-        <Segmented :model-value="mode" :options="modeOptions" :label="t('perf.mode')" @update:model-value="setMode" />
-        <p class="hint">
-          {{ mode === null ? t('perf.modeMixed') : mode === 1 ? t('perf.modeHintRt') : t('perf.modeHintStandard') }}
-        </p>
-        <div v-if="anyRt && intervalRt" class="continuous">
-          <Switch
-            :model-value="continuous ?? false"
-            :label="continuous === null ? `${t('perf.continuous')} (${t('perf.mixed')})` : t('perf.continuous')"
-            @update:model-value="setContinuous"
-          />
-          <p class="hint">{{ continuous === false ? t('perf.continuousOffHint') : t('perf.continuousOnHint') }}</p>
-        </div>
-      </Card>
-
-      <Card v-else-if="id === 'rt'" class="c-rt" :class="{ grow: growers.has('rt') }" :title="t('perf.rt')">
-        <template #actions>
-          <button
-            type="button"
-            class="link"
-            :class="{ 'link--on': rtLinked }"
-            :aria-pressed="rtLinked"
-            :title="t('perf.rtLinkHint')"
-            @click="rtLinkOverride = !rtLinked"
-          >
-            <component :is="rtLinked ? IconLink : IconLinkOff" :size="16" stroke-width="1.5" aria-hidden="true" />
-            {{ t('perf.rtLinkLabel') }}
-          </button>
         </template>
-        <div class="field">
-          <div class="field__row">
-            <span class="field__label">{{ t('perf.rtPress') }}</span>
-            <NumberField
-              :model-value="rtPress.value"
-              :min="LIMITS.rtMin"
-              :max="LIMITS.rtMax"
-              :step="0.01"
-              :decimals="decimals"
-              :label="t('perf.rtPress')"
-              relative
-              @update:model-value="setRt('rtPress', $event, false)"
-              @step="stepRt('rtPress', $event)"
-            />
-          </div>
-          <Slider
-            :model-value="rtPress.value ?? rtPress.range[0]"
-            :range="rtPress.value === null ? rtPress.range : null"
-            :min="LIMITS.rtMin"
-            :max="LIMITS.rtMax"
-            :step="0.01"
-            :fine-step="0.001"
-            :label="t('perf.rtPress')"
-            style="--sl-tone: var(--m-press)"
-            @update:model-value="setRt('rtPress', $event)"
-          />
-        </div>
-        <div class="field">
-          <div class="field__row">
-            <span class="field__label">{{ t('perf.rtRelease') }}</span>
-            <NumberField
-              :model-value="rtRelease.value"
-              :min="LIMITS.rtMin"
-              :max="LIMITS.rtMax"
-              :step="0.01"
-              :decimals="decimals"
-              :label="t('perf.rtRelease')"
-              relative
-              @update:model-value="setRt('rtRelease', $event, false)"
-              @step="stepRt('rtRelease', $event)"
-            />
-          </div>
-          <Slider
-            :model-value="rtRelease.value ?? rtRelease.range[0]"
-            :range="rtRelease.value === null ? rtRelease.range : null"
-            :min="LIMITS.rtMin"
-            :max="LIMITS.rtMax"
-            :step="0.01"
-            :fine-step="0.001"
-            :label="t('perf.rtRelease')"
-            style="--sl-tone: var(--m-release)"
-            @update:model-value="setRt('rtRelease', $event)"
-          />
-        </div>
-      </Card>
-
-      <Card v-else-if="id === 'dead'" class="c-dead" :class="{ grow: growers.has('dead') }" :title="t('perf.deadzones')" :subtitle="t('perf.deadHint')">
-        <div v-for="dz in deadFields" :key="dz.field" class="field">
-          <div class="field__row">
-            <span class="field__label">{{ dz.label }}</span>
-            <NumberField
-              :model-value="dz.s.value"
-              :min="0"
-              :max="LIMITS.deadMax"
-              :step="0.01"
-              :decimals="decimals"
-              :label="dz.label"
-              relative
-              @update:model-value="setDead(dz.field, $event, false)"
-              @step="stepDead(dz.field, $event)"
-            />
-          </div>
-          <Slider
-            :model-value="dz.s.value ?? dz.s.range[0]"
-            :range="dz.s.value === null ? dz.s.range : null"
-            :min="0"
-            :max="LIMITS.deadMax"
-            :step="0.01"
-            :fine-step="0.001"
-            :label="dz.label"
-            :style="{ '--sl-tone': 'var(--m-deadzone)' }"
-            @update:model-value="setDead(dz.field, $event)"
-          />
-        </div>
-      </Card>
-
-      <StdCycleCard
-        v-else-if="id === 'std'"
-        :class="{ grow: growers.has('std') }"
-        :actuation="act.range"
-        :release="stdRelease.range"
-        :max-travel="maxTravel"
-        :fmt="fmt"
-      />
-
-      <Card v-else :class="{ grow: growers.has('presets') }" :title="t('perf.presets')">
-        <div class="presets">
-          <button v-for="p in PRESETS" :key="p.id" type="button" class="preset" @click="applyPreset(p.id)">
-            <span class="preset__name">{{ t(PRESET_TEXT[p.id][0]) }}</span>
-            <span class="preset__desc num">{{ t(PRESET_TEXT[p.id][1]) }}</span>
-          </button>
-        </div>
-      </Card>
-      </template>
-      </div>
+      </section>
     </div>
+
+    <Dialog v-model:open="saveOpen" :title="t('perf.presetSaveTitle')" :width="400">
+      <form class="save" @submit.prevent="confirmSave">
+        <label class="save__label">
+          {{ t('perf.presetName') }}
+          <input v-model="saveName" class="save__input" :maxlength="USER_PRESET_NAME_MAX" autocomplete="off" spellcheck="false">
+        </label>
+        <p class="hint">{{ t('perf.presetNote') }}</p>
+      </form>
+      <template #footer>
+        <Button variant="ghost" @click="saveOpen = false">{{ t('perf.presetCancel') }}</Button>
+        <Button variant="primary" :disabled="!saveName.trim()" @click="confirmSave">{{ t('perf.presetSaveBtn') }}</Button>
+      </template>
+    </Dialog>
   </PageLayout>
 </template>
 
 <style scoped>
-.aside-sub { display: contents; }
-.aside-hint {
-  margin: 2px 0 0;
-  max-width: 160px;
-  font-size: var(--fs-caption);
-  line-height: 1.4;
-  color: var(--fg-3);
-}
-.aside-label { padding: 0 2px; }
-.chips { display: flex; flex-direction: column; gap: 4px; }
+.wb { display: flex; flex-direction: column; gap: var(--s-2); }
+.wb__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
+@media (min-width: 1100px) { .wb__bar { flex-wrap: nowrap; } }
+.wb__group { display: flex; align-items: center; gap: var(--s-1); min-width: 0; }
+.wb__presets { flex-wrap: wrap; margin-left: auto; gap: 4px; }
+.wb__try { flex: none; }
+.chips { display: flex; gap: 4px; }
 .chip {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 30px;
-  padding: 0 12px;
+  gap: 6px;
+  height: 28px;
+  padding: 0 9px;
   border-radius: var(--r-control);
   border: 1px solid var(--line-1);
   background: var(--bg-2);
   color: var(--fg-2);
   font-size: var(--fs-label);
   font-weight: 500;
-  text-align: left;
   white-space: nowrap;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
-.chip:hover { color: var(--fg-1); border-color: var(--line-3); }
+.chip:hover:not(:disabled) { color: var(--fg-1); border-color: var(--line-3); }
+.chip:disabled { opacity: 0.45; cursor: not-allowed; }
 .chip__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--chip); flex: none; }
 .chip__dot--rt { background: linear-gradient(90deg, var(--m-press) 50%, var(--m-release) 50%); }
-.shading { display: flex; flex-direction: column; gap: 4px; max-width: 160px; margin-top: var(--s-2); }
-.shading__hint { margin: 0; font-size: var(--fs-caption); line-height: 1.4; color: var(--fg-3); }
+.chip[aria-checked='true'] { background: var(--sel-bg); border-color: var(--acc-line); color: var(--fg-1); }
+.chip--plain { height: 28px; padding: 0 8px; background: var(--bg-3); }
+.chip--plain:hover:not(:disabled) { background: var(--bg-4); border-color: var(--acc-line); }
+.chip--dash { border-style: dashed; background: transparent; }
+/* A saved preset: the chip and its × share one outline. */
+.uchip { display: inline-flex; align-items: center; }
+.uchip__use { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: 0; }
+.uchip__x {
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  width: 24px;
+  padding: 0;
+  border: 1px solid var(--line-1);
+  border-radius: 0 var(--r-control) var(--r-control) 0;
+  background: var(--bg-3);
+  color: var(--fg-3);
+}
+.uchip__x:hover { color: var(--danger); background: var(--bg-4); }
 /* The RT tag on a keycap (actuation view). */
 .kb :deep(.cap__badge) { font-size: var(--fs-caption); font-weight: 600; opacity: 1; }
-.chip[aria-checked='true'] { background: var(--sel-bg); border-color: var(--acc-line); color: var(--fg-1); }
-.try { margin-top: var(--s-2); }
 
-@media (max-width: 1360px) {
-  .chips { flex-direction: row; }
-  .aside-label, .chips, .try { align-self: center; }
-  .try { margin-top: 0; }
-  /* Hint and switch share one fixed-height line below the chips, so the board never moves between views. */
-  .aside-sub { order: 1; flex: 0 0 100%; display: flex; justify-content: flex-end; align-items: center; gap: var(--s-4); min-height: 28px; }
-  .aside-hint { max-width: none; margin: 0; text-align: right; }
-  .shading { flex-direction: row; align-items: center; margin: 0; max-width: none; }
-  .shading__hint { display: none; }
+/* The board takes the same widths as every page's keyboard (T3 sizes). */
+.wb__board { width: 100%; max-width: 900px; margin: 0 auto; }
+.scope { flex: 1; min-width: 0; font-size: var(--fs-label); color: var(--acc); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scope strong { font-weight: 600; }
+.scope__names { color: var(--fg-2); }
+.scope__hint { color: var(--fg-3); }
+@media (min-width: 1600px) {
+  .wb__board { max-width: 1100px; }
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
-  gap: var(--s-4);
-}
-/* A note above the columns takes its own row; the columns' row takes all the spare height (the min-height hold). */
-.grid--note { grid-template-rows: auto 1fr; }
-.pcol { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; }
-/* The grower of a column takes its spare height (Mode and RT split it); each puts it in a named region, never a blank tail. */
-.pcol > .grow { flex: 1 1 auto; }
-
-.loading { grid-column: 1 / -1; margin: 0; color: var(--fg-3); }
-.skel-card {
+/* ----- editor dock: one card, header row, three columns (2 + 1 under 1100px of content width) */
+.dock {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
-  gap: var(--s-3);
-  padding: var(--s-5);
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-5);
   background: var(--bg-2);
   border: 1px solid var(--line-1);
   border-radius: var(--r-card);
+  min-width: 0;
 }
+.dock__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-3) var(--s-5); }
+.dock__mode, .dock__cont { display: flex; align-items: center; gap: var(--s-2); }
+.dock__title, .pcol__title { font-size: var(--fs-card); font-weight: 600; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-4) 0;
+}
+.pcol {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: 0 var(--s-5);
+  border-left: 1px solid var(--line-1);
+}
+.pcol:first-child { padding-left: 0; border-left: 0; }
+.pcol:last-child { padding-right: 0; }
+.pcol__head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); min-height: 28px; }
+.pcol__head .info { margin-right: auto; margin-left: var(--s-1); }
+.pcol__head .link { margin-left: var(--s-2); }
+@container (max-width: 859px) {
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pcol:nth-child(2) { padding-right: 0; }
+  .pcol:nth-child(3) {
+    grid-column: 1 / -1;
+    padding: var(--s-4) 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--line-1);
+  }
+}
+/* The Standard diagram is a card of its own: inside the dock it drops its frame. */
+.pcol--std :deep(.std) { padding: 0; border: 0; background: transparent; flex: 1 1 auto; }
+.pcol--std :deep(.std__plot) { min-height: 56px; }
 
-/* In the Actuation grower the editor and readout are centred in the spare height. */
-.act { display: flex; flex: 1 1 auto; gap: var(--s-6); align-items: center; flex-wrap: wrap; }
-.act__readout { display: flex; flex-direction: column; gap: var(--s-2); min-width: 150px; }
-.big { display: flex; align-items: baseline; gap: 6px; font-size: 40px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.05; }
-.big .unit { font-size: var(--fs-card); font-weight: 500; color: var(--fg-3); letter-spacing: 0; }
-.big .mixed { font-size: var(--fs-hero); color: var(--fg-2); }
-.act__readout :deep(.nf) { width: 150px; }
+.dock--skel { gap: var(--s-3); }
+.loading { margin: 0; color: var(--fg-3); }
+
+.act { display: flex; flex: 1 1 auto; gap: var(--s-4); align-items: flex-start; }
+.act__readout { display: flex; flex-direction: column; gap: var(--s-1); min-width: 0; }
+.act__readout :deep(.nf) { width: 138px; }
 
 .link {
   display: inline-flex;
@@ -682,50 +829,35 @@ const modeOptions = computed(() => [
   background: transparent;
   color: var(--fg-2);
   font-size: var(--fs-label);
+  white-space: nowrap;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
 .link:hover:not(:disabled) { background: var(--bg-3); color: var(--fg-1); }
 .link:disabled { opacity: 0.35; cursor: not-allowed; }
 .link--on { color: var(--acc); background: var(--acc-soft); border-color: var(--acc-line); }
 .unknown {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: var(--s-2);
   padding: var(--s-3) var(--s-4);
   border: 1px solid var(--line-2);
   border-radius: var(--r-control);
-  background: var(--bg-2);
+  background: var(--bg-1);
   color: var(--fg-2);
   font-size: var(--fs-label);
 }
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
-/* Pinned to the bottom of the Mode card: the spare height opens above it, between the hint and the switch. */
-.continuous { display: grid; gap: var(--s-2); margin-top: auto; padding-top: var(--s-4); border-top: 1px solid var(--line-1); }
-/* In a grower the fields share the spare height, each centred in its share. */
-.field { display: flex; flex: 1 1 auto; flex-direction: column; justify-content: center; gap: var(--s-2); }
+.field { display: flex; flex-direction: column; justify-content: center; gap: 6px; }
 .field__row { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); }
 .field__label { color: var(--fg-2); }
 .field__row :deep(.nf) { width: 132px; }
-
-.presets { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--s-2); }
-.preset {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  flex: 1 1 auto;
-  gap: 2px;
-  padding: 10px 12px;
-  border-radius: var(--r-control);
-  border: 1px solid var(--line-1);
-  background: var(--bg-3);
-  text-align: left;
-  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+/* A column under 280px: the label sits above its field instead of wrapping beside it. */
+@container (max-width: 279px) {
+  .field__row { flex-direction: column; align-items: stretch; gap: var(--s-1); }
+  .field__row :deep(.nf) { width: 100%; }
 }
-.preset:hover { background: var(--bg-4); border-color: var(--acc-line); }
-.preset:active { transform: translateY(1px); }
-.preset__name { font-weight: 600; }
-.preset__desc { font-size: var(--fs-label); color: var(--fg-3); }
-.preset:hover .preset__desc { color: var(--fg-2); }
+
+.save { display: grid; gap: var(--s-3); }
+.save__label { display: grid; gap: var(--s-2); color: var(--fg-2); }
+.save__input { height: 34px; padding: 0 10px; border: 1px solid var(--line-2); border-radius: var(--r-control); background: var(--bg-1); color: var(--fg-1); }
 </style>

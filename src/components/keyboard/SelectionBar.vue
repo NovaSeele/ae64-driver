@@ -8,9 +8,11 @@ const sel = useSelectionStore();
 
 <template>
   <div class="sb">
-    <span class="sb__count" :class="{ 'sb__count--on': sel.count > 0 }" aria-live="polite">
-      <span class="num">{{ sel.count ? t('sel.count', { n: sel.count }) : t('sel.none') }}</span>
-    </span>
+    <slot name="lead">
+      <span class="sb__count" :class="{ 'sb__count--on': sel.count > 0 }" aria-live="polite">
+        <span class="num">{{ sel.count ? t('sel.count', { n: sel.count }) : t('sel.none') }}</span>
+      </span>
+    </slot>
     <span class="sb__hint">{{ t('sel.hint') }}</span>
     <div class="sb__actions">
       <Button size="sm" variant="ghost" @click="sel.wasd()">{{ t('sel.wasd') }}</Button>

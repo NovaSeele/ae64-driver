@@ -14,6 +14,7 @@ const ICONS = { info: IconInfoCircle, success: IconCircleCheck, warn: IconAlertT
       <div v-for="it in items" :key="it.id" class="toast" :class="`toast--${it.kind}`" :role="it.kind === 'error' ? 'alert' : 'status'">
         <component :is="ICONS[it.kind]" class="toast__icon" :size="18" stroke-width="1.5" aria-hidden="true" />
         <span class="toast__text">{{ it.text }}</span>
+        <button v-if="it.action" type="button" class="toast__act" @click="it.action.run(); dismiss(it.id)">{{ it.action.label }}</button>
         <button type="button" class="toast__x" :aria-label="t('ui.close')" @click="dismiss(it.id)">
           <IconX :size="14" stroke-width="1.5" />
         </button>
@@ -51,6 +52,18 @@ const ICONS = { info: IconInfoCircle, success: IconCircleCheck, warn: IconAlertT
 .toast--warn .toast__icon { color: var(--warn); }
 .toast--error .toast__icon { color: var(--danger); }
 .toast__text { font-size: var(--fs-body); color: var(--fg-1); }
+.toast__act {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--acc);
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+.toast__act:hover { background: var(--acc-soft); }
 .toast__x {
   display: grid;
   place-items: center;

@@ -141,7 +141,6 @@ export const base = {
   'perf.presetApplied': 'Đã áp dụng mẫu {name} cho {n} phím.',
   'perf.tryNow': 'Thử ngay',
   'perf.tryNowHint': 'Mở Đo hành trình cho phím đang chọn',
-  'perf.selectKeys': 'Chọn một hoặc nhiều phím trên bàn phím để chỉnh hành trình.',
   'perf.mixed': 'Nhiều',
   'perf.loading': 'Đang đọc cài đặt từ {n}/64 phím…',
   'perf.loadFailed': 'Không đọc được cài đặt hành trình.',

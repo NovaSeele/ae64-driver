@@ -246,9 +246,10 @@ export const usePerformanceStore = defineStore('performance', () => {
   /**
    * Apply an edit to keys. `patch` receives each key's current record and returns the fields to change.
    * Pushes one history entry (coalesced by `coalesce` for continuous gestures) and enqueues sync jobs.
+   * Returns how many keys changed (0: nothing was written and no history entry was pushed).
    */
-  function apply(ids: number[], patch: (p: Performance) => Partial<PerfEdit>, what: string, coalesce?: string): void {
-    if (loadedProfile.value !== device.activeProfile) return;
+  function apply(ids: number[], patch: (p: Performance) => Partial<PerfEdit>, what: string, coalesce?: string): number {
+    if (loadedProfile.value !== device.activeProfile) return 0;
     const before: Record<number, PerfEdit> = {};
     const after: Record<number, PerfEdit> = {};
     for (const id of ids) {
@@ -261,7 +262,7 @@ export const usePerformanceStore = defineStore('performance', () => {
       after[id] = a;
     }
     const n = Object.keys(after).length;
-    if (!n) return;
+    if (!n) return 0;
     commit(after);
     history.push({
       label: tr('perf.editLabel', { what, n }),
@@ -269,6 +270,7 @@ export const usePerformanceStore = defineStore('performance', () => {
       redo: () => commit(after),
       coalesce: coalesce ? `${coalesce}:${ids.join(',')}` : undefined,
     });
+    return n;
   }
 
   /** The switch each loaded key reports (undefined = not in the catalog; the UI shows the raw axisV2Id). */
