@@ -58,7 +58,9 @@ describe('switch change resets calibration', () => {
     expect(w!.find('.swc__recal').exists()).toBe(false);
 
     // Calibrated again (as the calibration tab does), then the store re-reads.
-    await mock.setPerformance(W, { ...(await mock.getPerformance(W)), calibrate: 1 });
+    // The board sets the flag itself when a calibration ends; a performance write may not (the guard refuses calibrate 0 → 1).
+    const m = mock as unknown as { profiles: { perf: Map<string, number[]> }[]; active: number };
+    m.profiles[m.active].perf.get(`${W.row}:${W.col}`)![16] = 1;
     await perf.load(true);
     await flushPromises();
     expect(perf.recalKeys).toEqual([]);

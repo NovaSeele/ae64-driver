@@ -163,7 +163,7 @@ export function isWriteCommand(payload: readonly number[]): boolean {
 }
 
 /** Sensor fields that are never changed by this app (the switch triple is checked separately). */
-const PRESERVED: readonly (keyof Performance)[] = ['axis', 'calibrate'];
+const PRESERVED: readonly (keyof Performance)[] = ['axis'];
 
 /** The three fields that together identify the switch under a key. */
 const TRIPLE: readonly (keyof Performance)[] = ['axisV2Id', 'axisRangeMax', 'axisCoefficient'];
@@ -174,8 +174,9 @@ const MAX_TRAVEL_MM = 4.0;
 
 /**
  * Checks a performance write against the records read from the same key during this connection
- * (`seen`, newest last). `axis` and `calibrate` must equal a value the device reported for them: the firmware
- * itself may change them (calibration, advanced-key assignment), and restoring an earlier value is allowed.
+ * (`seen`, newest last). `axis` must equal a value the device reported for it: the firmware itself may change it
+ * (advanced-key assignment), and restoring an earlier value is allowed. `calibrate` must equal the LATEST record
+ * read from the key: the firmware resets it to 0 when the switch triple changes, so an older 1 is stale.
  * The switch triple (axisV2Id, axisRangeMax, axisCoefficient) is checked as one unit: it must equal the triple
  * of a record the device reported, or one exact entry of the catalog of the connected board (`boardIdHex`).
  * When the triple changes, every distance must fit the new range, changed or not.
@@ -192,6 +193,9 @@ export function checkPerformanceWrite(
   const current = seen[seen.length - 1];
   for (const f of PRESERVED) {
     if (!seen.some((s) => s[f] === next[f])) return `sensor field ${f} would change (${current[f]} → ${next[f]})`;
+  }
+  if (next.calibrate !== current.calibrate) {
+    return `sensor field calibrate would change (${current.calibrate} → ${next.calibrate}): must equal the latest read`;
   }
   const tripleChanged = !sameTriple(next, current);
   if (tripleChanged && !seen.some((s) => sameTriple(s, next)) && !isCatalogTriple(switchCatalogFor(opts.boardIdHex), next)) {
