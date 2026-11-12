@@ -91,6 +91,26 @@ describe('Advanced page: key-first entry', () => {
     expect(w.find('.item').classes()).toContain('item--hl');
   });
 
+  it('a picked key\'s entry is scrolled into the visible part of the list box, not just the box', async () => {
+    const { w, sel, id } = await page(1);
+    // The box runs past the bottom of the page's scroller (1366×768): box 561–1009, scroller 0–768, entry 946–1009.
+    const main = document.createElement('div');
+    main.className = 'main__scroll';
+    document.body.append(main);
+    main.append(w.element);
+    const rect = (top: number, bottom: number) => () => ({ top, bottom, left: 0, right: 100, width: 100, height: bottom - top, x: 0, y: top, toJSON() {} }) as DOMRect;
+    const box = w.find('.cfg').element as HTMLElement;
+    let scroll = 0;
+    Object.defineProperty(box, 'scrollTop', { get: () => scroll, set: (v: number) => { scroll = v; }, configurable: true });
+    main.getBoundingClientRect = rect(0, 768);
+    box.getBoundingClientRect = rect(561, 1009);
+    (w.find('.item').element as HTMLElement).getBoundingClientRect = rect(946, 1009);
+    sel.selectMany([id('A')]);
+    await flushPromises();
+    expect(1009 - scroll).toBeLessThanOrEqual(768); // the entry's bottom is on screen
+    expect(946 - scroll).toBeGreaterThanOrEqual(561); // and its top did not leave the box
+  });
+
   it('the panel stays outside the scrolling list box', async () => {
     const { w, sel, id } = await page(0);
     sel.selectMany([id('W')]);

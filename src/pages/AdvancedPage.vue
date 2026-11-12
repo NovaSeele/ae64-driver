@@ -188,8 +188,12 @@ watch(() => [sel.ids.length === 1 ? adv.byKey.get(sel.ids[0]) : undefined, !!dra
     if (!item || !box) return;
     const i = item.getBoundingClientRect();
     const b = box.getBoundingClientRect();
-    if (i.top < b.top) box.scrollTop -= b.top - i.top;
-    else if (i.bottom > b.bottom) box.scrollTop += i.bottom - b.bottom;
+    // The box can run past the bottom of the page's scroller (which stays put): aim for the part that is on screen.
+    const main = item.closest<HTMLElement>('.main__scroll')?.getBoundingClientRect();
+    const top = main ? Math.max(b.top, main.top) : b.top;
+    const bottom = main ? Math.min(b.bottom, main.bottom) : b.bottom;
+    if (i.top < top) box.scrollTop -= top - i.top;
+    else if (i.bottom > bottom) box.scrollTop += Math.min(i.bottom - bottom, i.top - top);
   });
 }, { flush: 'post' });
 
