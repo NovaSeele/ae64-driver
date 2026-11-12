@@ -159,6 +159,7 @@ function apply() {
           </div>
           <p v-if="clampLines.act" class="swp__warn"><IconAlertTriangle :size="15" aria-hidden="true" />{{ t('sw.clampAct', { n: clampLines.act, max: limit }) }}</p>
           <p v-if="clampLines.other" class="swp__warn"><IconAlertTriangle :size="15" aria-hidden="true" />{{ t('sw.clampOther', { n: clampLines.other, max: limit }) }}</p>
+          <p class="swp__warn"><IconAlertTriangle :size="15" aria-hidden="true" />{{ t('sw.clearsCal', { n: plan.keys.length }) }}</p>
         </template>
         <p class="swp__info"><IconInfoCircle :size="15" aria-hidden="true" />{{ t('sw.profileOnly', { profile: device.activeProfileName }) }}</p>
       </div>

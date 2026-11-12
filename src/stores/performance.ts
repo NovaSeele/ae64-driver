@@ -97,14 +97,15 @@ export const usePerformanceStore = defineStore('performance', () => {
   let switchSeq = 0;
   /** Keys whose read-back triple differed from what was written (the firmware normalised it). Cleared by the next applySwitch. */
   const switchNotices = ref<{ id: number; wanted: SwitchTriple; got: SwitchTriple }[]>([]);
-  /** Keys whose switch triple was written (apply, undo, redo) and that read back uncalibrated: they should be calibrated again. A read showing them calibrated removes them. Sorted. */
-  const recalKeys = ref<number[]>([]);
-  function noteCalibrate(id: number, calibrate: number, switchWrite: boolean): void {
-    const has = recalKeys.value.includes(id);
-    if (calibrate !== 0) {
-      if (has) recalKeys.value = recalKeys.value.filter((k) => k !== id);
-    } else if (switchWrite && !has) {
-      recalKeys.value = [...recalKeys.value, id].sort((a, b) => a - b);
+  /** Keys whose latest record read from the board (`fresh`) has calibrate 0. Kept in step with every fresh.set. Sorted. */
+  const uncalibrated = ref<number[]>([]);
+  function noteFresh(id: number, read: Performance): void {
+    fresh.set(id, read);
+    const has = uncalibrated.value.includes(id);
+    if (read.calibrate !== 0) {
+      if (has) uncalibrated.value = uncalibrated.value.filter((k) => k !== id);
+    } else if (!has) {
+      uncalibrated.value = [...uncalibrated.value, id].sort((a, b) => a - b);
     }
   }
   /** Catalog for the connected board, or null (selector read-only). */
@@ -115,7 +116,7 @@ export const usePerformanceStore = defineStore('performance', () => {
     fresh.clear();
     switchKeys.clear();
     switchNotices.value = [];
-    recalKeys.value = [];
+    uncalibrated.value = [];
     loadedProfile.value = null;
     loadPromise = null; // a load of the old keyboard may still be running: a new load() must start fresh
     loading.value = false;
@@ -147,8 +148,7 @@ export const usePerformanceStore = defineStore('performance', () => {
             const p = await t.getPerformance(key);
             if (gen !== device.connection) return;
             next[key.id] = p;
-            fresh.set(key.id, p);
-            noteCalibrate(key.id, p.calibrate, false);
+            noteFresh(key.id, p);
             loadedCount.value++;
           }
         });
@@ -212,8 +212,7 @@ export const usePerformanceStore = defineStore('performance', () => {
       },
       verify: async (t: Ae64Transport) => {
         const read = await t.getPerformance(key);
-        fresh.set(id, read);
-        noteCalibrate(id, read.calibrate, mark !== undefined);
+        noteFresh(id, read);
         const ok = written !== null && sameEdit(pickEdit(read), written);
         if (!ok) return false;
         const latest = switchKeys.get(id) === mark; // false: a newer switch change is queued for this key
@@ -360,5 +359,5 @@ export const usePerformanceStore = defineStore('performance', () => {
     });
   }
 
-  return { values, loading, loadedCount, loadError, loadedProfile, recalKeys, load, apply, catalog, switchOf, planSwitch, applySwitch, switchNotices };
+  return { values, loading, loadedCount, loadError, loadedProfile, uncalibrated, load, apply, catalog, switchOf, planSwitch, applySwitch, switchNotices };
 });

@@ -3,12 +3,14 @@ import { createPinia, setActivePinia } from 'pinia';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { MockTransport, PHYSICAL_KEYS } from '../src/protocol';
+import type { PhysicalKey } from '../src/protocol';
 import { findSwitch } from '../src/protocol/switches';
 import SwitchCard from '../src/components/performance/SwitchCard.vue';
 import { useDeviceStore } from '../src/stores/device';
 import { useSyncStore } from '../src/stores/sync';
 import { useHistoryStore } from '../src/stores/history';
 import { usePerformanceStore } from '../src/stores/performance';
+import { locale } from '../src/i18n/locale';
 
 const W = PHYSICAL_KEYS.find((k) => k.name === 'W')!;
 const A = PHYSICAL_KEYS.find((k) => k.name === 'A')!;
@@ -21,11 +23,17 @@ function card(ids: number[]) {
   return w;
 }
 
+/** The board sets the flag itself when a calibration ends; poke the mock's record byte 16 like the firmware does. */
+function setFlag(mock: MockTransport, key: PhysicalKey, v: number) {
+  const m = mock as unknown as { profiles: { perf: Map<string, number[]> }[]; active: number };
+  m.profiles[m.active].perf.get(`${key.row}:${key.col}`)![16] = v;
+}
+
 describe('switch change resets calibration', () => {
-  beforeEach(() => setActivePinia(createPinia()));
+  beforeEach(() => { setActivePinia(createPinia()); locale.value = 'vi'; });
   afterEach(() => { w?.unmount(); w = null; document.body.innerHTML = ''; });
 
-  it('tracks the key from the board read-back, over undo and until it is calibrated again', async () => {
+  it('shows the board state: after apply, over undo, until calibrated again', async () => {
     const device = useDeviceStore();
     await device.connectDemo();
     const mock = device.transport as MockTransport;
@@ -34,6 +42,7 @@ describe('switch change resets calibration', () => {
     const apollo = findSwitch(perf.catalog, 4208)!;
     const setPerf = vi.spyOn(mock, 'setPerformance');
     const wrapper = card([W.id]);
+    expect(perf.uncalibrated).toEqual([]);
     expect(wrapper.find('.swc__recal').exists()).toBe(false);
 
     perf.applySwitch([W.id], apollo);
@@ -42,29 +51,39 @@ describe('switch change resets calibration', () => {
     expect(setPerf.mock.calls[0][1].calibrate).toBe(1); // copied from the last fresh read, as before
     expect((await mock.getPerformance(W)).calibrate).toBe(0);
     expect(perf.values[W.id].calibrate).toBe(0);
-    expect(perf.recalKeys).toEqual([W.id]);
+    expect(perf.uncalibrated).toEqual([W.id]);
     expect(wrapper.find('.swc__recal').exists()).toBe(true);
+    expect(wrapper.find('.swc__recal').attributes('role')).toBe('status');
+    expect(wrapper.find('.swc__recal').text()).toContain('1 phím chưa được hiệu chuẩn.');
+    expect(wrapper.find('.swc__recal').text()).toContain('Hiệu chuẩn ngay');
+    expect(wrapper.find('.swc__recal-x').exists()).toBe(false); // no Hide
 
     useHistoryStore().undo();
     await useSyncStore().flush();
     await flushPromises();
     expect(setPerf.mock.calls[1][1].calibrate).toBe(0); // newest fresh read
-    expect(perf.recalKeys).toEqual([W.id]);
+    expect(perf.uncalibrated).toEqual([W.id]);
+    expect(wrapper.find('.swc__recal').exists()).toBe(true);
     wrapper.unmount();
     expect(card([W.id]).find('.swc__recal').exists()).toBe(true);
 
-    // Hide lasts until a new key joins recalKeys.
-    await w!.find('.swc__recal-x').trigger('click');
-    expect(w!.find('.swc__recal').exists()).toBe(false);
-
-    // Calibrated again (as the calibration tab does), then the store re-reads.
-    // The board sets the flag itself when a calibration ends; a performance write may not (the guard refuses calibrate 0 → 1).
-    const m = mock as unknown as { profiles: { perf: Map<string, number[]> }[]; active: number };
-    m.profiles[m.active].perf.get(`${W.row}:${W.col}`)![16] = 1;
+    // Calibrated again, then the store re-reads (the calibration store's reload does this).
+    setFlag(mock, W, 1);
     await perf.load(true);
     await flushPromises();
-    expect(perf.recalKeys).toEqual([]);
+    expect(perf.uncalibrated).toEqual([]);
     expect(w!.find('.swc__recal').exists()).toBe(false);
+  });
+
+  it('a key uncalibrated at load is included, board-wide', async () => {
+    const device = useDeviceStore();
+    await device.connectDemo();
+    setFlag(device.transport as MockTransport, A, 0);
+    const perf = usePerformanceStore();
+    await perf.load();
+    expect(perf.uncalibrated).toEqual([A.id]);
+    // The selection holds another key: the status is still shown.
+    expect(card([W.id]).find('.swc__recal').text()).toContain('1 phím chưa được hiệu chuẩn.');
   });
 
   it('a non-switch edit does not add a key', async () => {
@@ -74,6 +93,37 @@ describe('switch change resets calibration', () => {
     await perf.load();
     perf.apply([A.id], () => ({ normalPress: 1.5 }), 'x');
     await useSyncStore().flush();
-    expect(perf.recalKeys).toEqual([]);
+    expect(perf.uncalibrated).toEqual([]);
+  });
+
+  describe('picker summary', () => {
+    const body = () => document.body;
+    const opt = (name: string) => [...body().querySelectorAll<HTMLElement>('.sw-opt')].find((o) => o.querySelector('.sw-opt__name')?.textContent === name)!;
+    const warns = () => [...body().querySelectorAll('.swp__warn')].map((p) => p.textContent);
+
+    async function open(ids: number[]) {
+      const device = useDeviceStore();
+      await device.connectDemo();
+      await usePerformanceStore().load();
+      card(ids);
+      (w!.find('.swc__foot button').element as HTMLElement).click();
+      await flushPromises();
+    }
+
+    it('names the keys whose triple changes', async () => {
+      await open([W.id, A.id]);
+      [...body().querySelectorAll<HTMLElement>('[role=tab]')].find((x) => x.textContent?.includes('Gateron'))!.click();
+      await flushPromises();
+      opt('Apollo').click();
+      await flushPromises();
+      expect(warns()).toContain('Đổi switch sẽ xoá hiệu chuẩn của 2 phím. Cần hiệu chuẩn lại sau đó; hoàn tác không khôi phục được hiệu chuẩn.');
+    });
+
+    it('does not show it when no triple changes', async () => {
+      await open([W.id]);
+      opt('UR Ice HE-Ex').click(); // the switch already in use
+      await flushPromises();
+      expect(warns()).toEqual([]);
+    });
   });
 });

@@ -32,6 +32,8 @@ const props = defineProps<{
   status?: (key: PhysicalKey) => string | undefined;
   /** CSS colour (e.g. 'var(--k-dks)') for a key's values; sets --metric on the keycap. */
   tone?: (key: PhysicalKey) => string | undefined;
+  /** Marks a key with a dashed warn outline; its label is appended to the accessible name and the title. */
+  flag?: (key: PhysicalKey) => { label: string } | undefined;
   state?: (key: PhysicalKey) => 'pressed' | undefined;
   selectable?: boolean;
   /** Shows skeleton value lines while page data loads. */
@@ -209,7 +211,8 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
         :data-key="k.id"
         :tabindex="k.id === tabStop ? 0 : -1"
         :aria-pressed="selectable ? isSelected(k.id) : undefined"
-        :aria-label="`${legend ? legend(k) : k.name}${subText(k) ? ` · ${subText(k)}` : ''}${badge?.(k) || badgeIcon?.(k) ? ` · ${badgeTitle?.(k) ?? badge?.(k)}` : ''}${status?.(k) ? ` · ${status(k)}` : ''}`"
+        :aria-label="`${legend ? legend(k) : k.name}${subText(k) ? ` · ${subText(k)}` : ''}${badge?.(k) || badgeIcon?.(k) ? ` · ${badgeTitle?.(k) ?? badge?.(k)}` : ''}${status?.(k) ? ` · ${status(k)}` : ''}${flag?.(k) ? ` · ${flag(k)!.label}` : ''}`"
+        :title="flag?.(k) ? `${legend ? legend(k) : k.name} · ${flag(k)!.label}` : undefined"
         :style="{ left: `${k.x * unit}px`, top: `${k.y * unit}px`, width: `${k.w * unit}px`, height: `${unit}px` }"
         @keydown="onKeyDown($event, k)"
         @focus="focusId = k.id"
@@ -228,6 +231,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
           :selected="selectable && isSelected(k.id)"
           :flashing="flashStore.isFlashing(k.id)"
           :loading="loading"
+          :flagged="!!flag?.(k)"
         ><template v-if="$slots.cap" #default><slot name="cap" :key="k" /></template></Keycap>
       </button>
       <div

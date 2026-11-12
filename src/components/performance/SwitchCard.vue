@@ -2,7 +2,7 @@
 // Switch card of the Switch page: the switch fitted in the selected keys. Picking happens in SwitchPicker.
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { IconAlertTriangle, IconInfoCircle, IconReplace, IconTarget, IconX } from '@tabler/icons-vue';
+import { IconAlertTriangle, IconInfoCircle, IconReplace } from '@tabler/icons-vue';
 import Card from '../ui/Card.vue';
 import Button from '../ui/Button.vue';
 import { formatMm } from '../ui/NumberField.vue';
@@ -21,10 +21,6 @@ const device = useDeviceStore();
 const router = useRouter();
 
 const open = ref(false);
-/** Keys of the selection that should be recalibrated, from the board's own read-back. "Hide" hides the hint until another key joins. */
-const recalIds = computed(() => props.ids.filter((id) => perf.recalKeys.includes(id)));
-const hidden = ref<Set<number>>(new Set());
-const recal = computed(() => recalIds.value.some((id) => !hidden.value.has(id)));
 
 const groups = computed(() => {
   const order = (id: number) => { const i = perf.catalog?.findIndex((e) => e.id === id) ?? -1; return i < 0 ? Infinity : i; };
@@ -74,13 +70,12 @@ const rowName = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknownRow'
       <p v-if="perf.switchNotices.length" class="swc__note swc__note--warn" role="status">
         <IconAlertTriangle :size="14" aria-hidden="true" />{{ t('sw.normalised', { n: normalisedN }) }}
       </p>
-      <div v-if="recal" class="swc__recal" role="status">
-        <IconTarget :size="16" aria-hidden="true" />
+      <div v-if="perf.uncalibrated.length" class="swc__recal" role="status">
+        <IconAlertTriangle :size="16" aria-hidden="true" />
         <span class="swc__recal-text">
-          {{ t('sw.recal') }}
+          {{ t('sw.uncalStatus', { n: perf.uncalibrated.length }) }}
           <button type="button" class="swc__recal-go" @click="router.replace({ path: '/switch', query: { tab: 'calibration' } })">{{ t('sw.recalGo') }}</button>
         </span>
-        <button type="button" class="swc__recal-x" :aria-label="t('sw.recalHide')" @click="hidden = new Set(recalIds)"><IconX :size="14" aria-hidden="true" /></button>
       </div>
     </div>
     <div class="swc__foot">
@@ -116,13 +111,11 @@ const rowName = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknownRow'
   display: flex; align-items: flex-start; gap: var(--s-2);
   padding: var(--s-3);
   border-radius: var(--r-control);
-  border: 1px solid color-mix(in srgb, var(--info) 40%, transparent);
-  background: color-mix(in srgb, var(--info) var(--soft-pct), var(--bg-2));
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) var(--soft-pct), var(--bg-2));
   color: var(--fg-1); font-size: var(--fs-label); line-height: 1.45;
 }
-.swc__recal > svg { flex: none; color: var(--info); margin-top: 1px; }
+.swc__recal > svg { flex: none; color: var(--warn); margin-top: 1px; }
 .swc__recal-text { flex: 1; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .swc__recal-go { border: 0; padding: 0; background: none; color: var(--fg-1); font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.swc__recal-x { border: 0; background: none; padding: 2px; color: var(--fg-3); border-radius: 4px; cursor: pointer; line-height: 0; }
-.swc__recal-x:hover { color: var(--fg-1); background: var(--bg-3); }
 </style>

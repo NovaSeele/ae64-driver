@@ -109,6 +109,7 @@ function nameOfKey(k: PhysicalKey): string | undefined {
   const e = perf.switchOf(k.id);
   return e ? switchName(e) : t('sw.unknown');
 }
+const uncalFlag = (k: PhysicalKey) => (perf.uncalibrated.includes(k.id) ? { label: t('kb.uncalibrated') } : undefined);
 </script>
 
 <template>
@@ -119,7 +120,7 @@ function nameOfKey(k: PhysicalKey): string | undefined {
       </div>
     </template>
     <template v-if="tab === 'switch'" #keyboard>
-      <KeyboardView :keys="device.keys" :legend="device.legend" :color="ledOf" :led-height="3" :status="nameOfKey" :loading="perf.loading" selectable>
+      <KeyboardView :keys="device.keys" :legend="device.legend" :color="ledOf" :led-height="3" :status="nameOfKey" :flag="uncalFlag" :loading="perf.loading" selectable>
         <template #cap="{ key }"><SwitchSwatch :color="perf.switchOf(key.id)?.color ?? ''" :id="perf.switchOf(key.id)?.id" size="sm" /></template>
       </KeyboardView>
     </template>

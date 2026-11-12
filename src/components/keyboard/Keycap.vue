@@ -30,13 +30,15 @@ defineProps<{
   /** Briefly outlined in the danger colour (a write for this key was dropped). */
   flashing?: boolean;
   loading?: boolean;
+  /** Dashed warn inset outline (e.g. a key that is not calibrated); drawn together with the selection outline. */
+  flagged?: boolean;
 }>();
 </script>
 
 <template>
   <span
     class="cap"
-    :class="{ 'cap--sel': selected, 'cap--pressed': state === 'pressed', 'cap--flash': flashing }"
+    :class="{ 'cap--sel': selected, 'cap--pressed': state === 'pressed', 'cap--flash': flashing, 'cap--flag': flagged }"
     :style="tone ? { '--metric': tone } : undefined"
   >
     <span class="cap__face" :style="ledHeight ? { paddingBottom: `${ledHeight + 5}px` } : undefined">
@@ -96,6 +98,7 @@ defineProps<{
   border-color: transparent;
   box-shadow: 0 0 0 1.5px var(--acc), inset 0 1px 0 var(--cap-hi);
 }
+.cap--flag .cap__face { outline: 1.5px dashed var(--warn); outline-offset: -4px; }
 .cap--flash .cap__face { border-color: var(--danger); box-shadow: 0 0 0 2px var(--danger); animation: cap-flash 0.5s ease-in-out 2; }
 @keyframes cap-flash { 50% { box-shadow: 0 0 0 4px var(--danger); } }
 @media (prefers-reduced-motion: reduce) { .cap--flash .cap__face { animation: none; } }

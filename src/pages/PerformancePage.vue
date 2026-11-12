@@ -208,6 +208,7 @@ function badgeIcon(k: PhysicalKey) {
   const p = perf.values[k.id];
   return p && !isKnownMode(p.mode) ? IconLock : undefined;
 }
+const uncalFlag = (k: PhysicalKey) => (perf.uncalibrated.includes(k.id) ? { label: t('kb.uncalibrated') } : undefined);
 function badgeTitle(k: PhysicalKey): string | undefined {
   const p = perf.values[k.id];
   if (!p) return undefined;
@@ -530,6 +531,7 @@ const modeOptions = computed(() => [
           :badge-title="badgeTitle"
           :badge-icon="badgeIcon"
           :fill="fill"
+          :flag="uncalFlag"
           :loading="perf.loading"
           :style="{ '--metric': METRIC_TONE[metric] }"
           selectable
