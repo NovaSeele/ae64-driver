@@ -5,6 +5,8 @@ import Sidebar from './components/shell/Sidebar.vue';
 import TopBar from './components/shell/TopBar.vue';
 import ConnectScreen from './components/shell/ConnectScreen.vue';
 import ToastHost from './components/ui/Toast.vue';
+import { useRoute } from 'vue-router';
+import { createSafePad, toastSafeTarget } from './components/ui/toast';
 import { useDeviceStore } from './stores/device';
 import { useHistoryStore } from './stores/history';
 import { useSettingsStore } from './stores/settings';
@@ -24,6 +26,14 @@ const NARROW_QUERY = '(max-width: 1249px)';
 let narrowMql: MediaQueryList | null = null;
 const onNarrow = (e: MediaQueryListEvent) => { if (e.matches) collapsed.value = true; };
 
+// Toast spacer at the bottom of the page scroller: kept while on screen when a toast closes, so the page never jumps.
+const scroller = ref<HTMLElement | null>(null);
+const safePad = ref(0);
+const pad = createSafePad(() => scroller.value, (px) => { safePad.value = px; });
+watch(toastSafeTarget, (v) => pad.setTarget(v));
+const route = useRoute();
+watch(() => route.path, () => pad.reset());
+
 let removeShortcuts: (() => void) | null = null;
 onMounted(() => {
   removeShortcuts = history.installShortcuts();
@@ -36,6 +46,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   removeShortcuts?.();
+  pad.stop();
   narrowMql?.removeEventListener('change', onNarrow);
 });
 </script>
@@ -46,7 +57,7 @@ onBeforeUnmount(() => {
     <main class="main">
       <template v-if="device.connected || usbRestarting">
         <TopBar />
-        <div class="main__scroll">
+        <div ref="scroller" class="main__scroll" :style="{ paddingBottom: `${safePad}px` }">
           <RouterView v-slot="{ Component, route }">
             <Transition name="page" mode="out-in">
               <component :is="Component" :key="route.path" />
@@ -84,7 +95,6 @@ onBeforeUnmount(() => {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding-bottom: var(--toast-safe, 0px);
 }
 .main__wait {
   position: absolute;
