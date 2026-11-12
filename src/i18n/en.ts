@@ -74,7 +74,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'sync.verifyFailed': 'Verification mismatch: {labels}',
   'sync.failed': 'Not saved: {labels}',
   'sync.failedMore': 'Not saved: {labels} and {n} more',
-  'sync.failedSame': 'Not saved: {n} items ({group}): {reasons}',
+  'sync.failedSame': '{n} items not saved ({group}): {reasons}',
   'sync.reasonsMore': '+{k} other errors',
   'sync.verifyMismatch': 'read-back mismatch',
   'sync.otherProfile': 'belongs to another profile, discarded',
