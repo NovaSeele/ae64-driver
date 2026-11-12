@@ -153,6 +153,21 @@ describe('preset-delete toast', () => {
     expect(names()).toEqual(['A', 'C', 'D']);
   });
 
+  it('after one Hoàn tác, a new save still closes a later delete toast (PT9)', async () => {
+    const store = useUserPresetsStore();
+    for (const n of ['A', 'B', 'C']) store.add(n, values());
+    await setup();
+    await del(0); // A
+    presetToasts()[0].action!.run();
+    await flushPromises();
+    expect(names()).toEqual(['A', 'B', 'C']);
+    await del(1); // B
+    expect(presetToasts()).toHaveLength(1);
+    store.add('D', values());
+    await flushPromises();
+    expect(presetToasts()).toHaveLength(0);
+  });
+
   it('Hoàn tác twice restores once', async () => {
     const store = useUserPresetsStore();
     for (const n of ['A', 'B', 'C']) store.add(n, values());
