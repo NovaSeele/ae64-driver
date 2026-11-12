@@ -54,6 +54,7 @@ export const performanceVi = {
   'perf.dock': 'Chỉnh hành trình',
   'perf.presetsLabel': 'Mẫu',
   'perf.presetSave': 'Lưu mẫu…',
+  'perf.presetSaveLabel': 'Lưu mẫu…',
   'perf.presetSaveTitle': 'Lưu mẫu cài đặt',
   'perf.presetName': 'Tên mẫu',
   'perf.presetNote': 'Lưu trên máy này, không ghi vào phím',

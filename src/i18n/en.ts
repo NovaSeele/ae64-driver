@@ -104,7 +104,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'perf.stdCycleHint': 'Standard uses one point: on when pressed past {a} mm, off when the key rises back above {r} mm.',
   'perf.stdCycleRt': 'Rapid Trigger turns the key off as soon as it starts to rise, so repeat presses are faster. Change it in the Mode card.',
   'perf.rtTagTitle': 'Rapid Trigger · press {press} mm · release {release} mm',
-  'perf.depthShading': 'Actuation depth shading',
+  'perf.depthShading': 'Depth shading',
   'perf.depthShadingHint': 'Shades each key from the top down to its actuation point: the longer the shading, the deeper you press.',
   'perf.metricActuation': 'Actuation',
   'perf.metricRt': 'Rapid Trigger',

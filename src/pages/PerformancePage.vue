@@ -259,20 +259,20 @@ const modeTip = computed(() =>
 );
 
 // ----- all-keys toast: "Đã áp dụng cho N phím · Hoàn tác". Hoàn tác is the history store's own undo (the same as Ctrl+Z).
-let lastLabel: string | null = null; // the history entry the toast offers to undo
+let lastId: number | null = null; // the history entry the toast offers to undo
 let gestureKeys = 0; // keys changed by the slider drag in progress (all-keys scope), announced when it ends
 function undoLast() {
   // Another entry on top since (a newer edit): leave it to Ctrl+Z rather than undoing something the toast does not name.
-  if (history.undoLabel === lastLabel) history.undo();
+  if (history.undoId === lastId) history.undo();
 }
 function announce(text: string, kind: 'success' | 'info' = 'success') {
-  lastLabel = history.undoLabel;
+  lastId = history.undoId;
   if (toast.items.value.some((x) => x.text === text)) return; // repeated steps keep one toast on screen
   toast.show(text, kind, undefined, { label: t('history.undo'), run: undoLast });
 }
 /** Every edit of the page: perf.apply, then the all-keys toast. Slider gestures announce when they end. */
-function edit(targets: number[], patch: (p: Performance) => Partial<PerfEdit>, what: string, gesture?: string) {
-  const n = perf.apply(targets, patch, what, gesture);
+function edit(targets: number[], patch: (p: Performance) => Partial<PerfEdit>, what: string, coalesce?: string, gesture = false) {
+  const n = perf.apply(targets, patch, what, coalesce);
   if (!n || scoped.value) return;
   if (gesture) gestureKeys = n;
   else announce(t('perf.appliedAll', { n }));
@@ -313,6 +313,7 @@ function stepActuation(d: number) {
       return { normalPress: v, rtFirstTouch: v };
     },
     t('perf.actuation'),
+    'step-act',
   );
 }
 function stepRt(which: 'rtPress' | 'rtRelease', d: number) {
@@ -323,26 +324,27 @@ function stepRt(which: 'rtPress' | 'rtRelease', d: number) {
       return rtLinked.value ? { rtPress: v, rtRelease: v } : { [which]: v };
     },
     t('perf.rt'),
+    `step-rt-${which}`,
   );
 }
 function stepDead(which: 'pressDeadStroke' | 'releaseDeadStroke', d: number) {
-  edit(ids.value, (p) => ({ [which]: add(p[which], d) }), t('perf.deadzones'));
+  edit(ids.value, (p) => ({ [which]: add(p[which], d) }), t('perf.deadzones'), `step-dz-${which}`);
 }
 function setActuation(v: number, gesture = true) {
-  edit(ids.value, () => ({ normalPress: v, rtFirstTouch: v }), t('perf.actuation'), gesture ? 'act' : undefined);
+  edit(ids.value, () => ({ normalPress: v, rtFirstTouch: v }), t('perf.actuation'), gesture ? 'act' : 'nf-act', gesture);
 }
 function setRt(which: 'rtPress' | 'rtRelease', v: number, gesture = true) {
   const patch: Partial<PerfEdit> = rtLinked.value ? { rtPress: v, rtRelease: v } : { [which]: v };
-  edit(ids.value.filter((id) => isRtMode(perf.values[id].mode)), () => patch, t('perf.rt'), gesture ? `rt-${which}` : undefined);
+  edit(ids.value.filter((id) => isRtMode(perf.values[id].mode)), () => patch, t('perf.rt'), gesture ? `rt-${which}` : `nf-rt-${which}`, gesture);
 }
 function setDead(which: 'pressDeadStroke' | 'releaseDeadStroke', v: number, gesture = true) {
-  edit(ids.value, () => ({ [which]: v }), t('perf.deadzones'), gesture ? `dz-${which}` : undefined);
+  edit(ids.value, () => ({ [which]: v }), t('perf.deadzones'), gesture ? `dz-${which}` : `nf-dz-${which}`, gesture);
 }
 
 // ----- presets: apply to the current scope (one perf.apply = one history entry)
 function presetApplied(name: string, n: number) {
   toast.show(t('perf.presetApplied', { name, n: ids.value.length }), 'success', undefined, n ? { label: t('history.undo'), run: undoLast } : undefined);
-  if (n) lastLabel = history.undoLabel;
+  if (n) lastId = history.undoId;
 }
 function applyPreset(id: (typeof PRESETS)[number]['id']) {
   const preset = PRESETS.find((p) => p.id === id)!;
@@ -464,7 +466,7 @@ const modeOptions = computed(() => [
               <IconX :size="12" stroke-width="2" aria-hidden="true" />
             </button>
           </span>
-          <button type="button" class="chip chip--plain chip--dash" :disabled="!!saveBlocked" :title="saveBlocked ?? undefined" :aria-describedby="saveBlocked ? 'perf-save-why' : undefined" @click="openSave">
+          <button type="button" class="chip chip--plain chip--dash" :aria-label="t('perf.presetSaveLabel')" :disabled="!!saveBlocked" :title="saveBlocked ?? undefined" :aria-describedby="saveBlocked ? 'perf-save-why' : undefined" @click="openSave">
             {{ t('perf.presetSave') }}
           </button>
           <span v-if="saveBlocked" id="perf-save-why" class="sr-only">{{ saveBlocked }}</span>

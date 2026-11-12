@@ -15,9 +15,10 @@ export interface HistoryEntry {
 const MAX_ENTRIES = 200;
 const COALESCE_MS = 800;
 
-interface Stored extends HistoryEntry { at: number }
+interface Stored extends HistoryEntry { at: number; id: number }
 
 export const useHistoryStore = defineStore('history', () => {
+  let nextId = 1;
   const undoStack = shallowRef<Stored[]>([]);
   const redoStack = shallowRef<Stored[]>([]);
   /**
@@ -29,6 +30,8 @@ export const useHistoryStore = defineStore('history', () => {
   const canUndo = computed(() => !suspended.value && undoStack.value.length > 0);
   const canRedo = computed(() => !suspended.value && redoStack.value.length > 0);
   const undoLabel = computed(() => undoStack.value.at(-1)?.label ?? null);
+  /** Identity of the top entry (kept through coalescing, undo and redo): lets a toast undo only the entry it named. */
+  const undoId = computed(() => undoStack.value.at(-1)?.id ?? null);
   const redoLabel = computed(() => redoStack.value.at(-1)?.label ?? null);
 
   function push(entry: HistoryEntry): void {
@@ -40,7 +43,7 @@ export const useHistoryStore = defineStore('history', () => {
       undoStack.value = [...undoStack.value.slice(0, -1), { ...top, redo: entry.redo, at: now }];
       return;
     }
-    undoStack.value = [...undoStack.value, { ...entry, at: now }].slice(-MAX_ENTRIES);
+    undoStack.value = [...undoStack.value, { ...entry, at: now, id: nextId++ }].slice(-MAX_ENTRIES);
   }
 
   /** No undo/redo while calibrating: it would write performance records to a keyboard in calibration mode. */
@@ -99,5 +102,5 @@ export const useHistoryStore = defineStore('history', () => {
     return () => target.removeEventListener('keydown', onKey);
   }
 
-  return { canUndo, canRedo, undoLabel, redoLabel, suspended, push, undo, redo, clear, suspend, installShortcuts };
+  return { canUndo, canRedo, undoLabel, undoId, redoLabel, suspended, push, undo, redo, clear, suspend, installShortcuts };
 });

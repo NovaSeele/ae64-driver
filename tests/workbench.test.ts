@@ -1,6 +1,8 @@
 // WORKBENCH-1 step 1 (Hành trình): global-first scope, the editor dock, presets including the user's own.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
+import { createApp } from 'vue';
+import type { App } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -16,6 +18,7 @@ import { pickEdit, rangeMm, usePerformanceStore } from '../src/stores/performanc
 import { USER_PRESET_MAX, sanitizePreset, useUserPresetsStore } from '../src/stores/userPresets';
 import type { UserPreset } from '../src/stores/userPresets';
 import { useToast } from '../src/components/ui/toast';
+import ToastHost from '../src/components/ui/Toast.vue';
 import { t } from '../src/i18n/vi';
 
 const id = (n: string) => PHYSICAL_KEYS.find((k) => k.name === n)!.id;
@@ -59,6 +62,18 @@ async function typeActuation(v: string) {
   await flushPromises();
 }
 const toasts = () => useToast().items.value;
+let host: { app: App; el: HTMLElement } | null = null;
+/** Press the visible Hoàn tác button of the toast host (the real click path: run, then close). */
+async function pressToastAction() {
+  const el = document.createElement('div');
+  document.body.appendChild(el);
+  const app = createApp(ToastHost);
+  app.mount(el);
+  host = { app, el };
+  await flushPromises();
+  el.querySelector<HTMLButtonElement>('.toast__act')!.click();
+  await flushPromises();
+}
 const presetChips = () => [...document.body.querySelectorAll<HTMLButtonElement>('.wb__presets > .chip, .wb__presets .uchip__use')];
 const chipByText = (s: string) => presetChips().find((b) => b.textContent?.trim() === s)!;
 const scopeText = () => document.body.querySelector('.scope')!.textContent!.replace(/\s+/g, ' ').trim();
@@ -71,15 +86,22 @@ beforeEach(() => {
   setActivePinia(createPinia());
   useToast().items.value = [];
 });
-afterEach(() => {
+afterEach(async () => {
+  // A pending autosave job of this case must not fire into the next case's keyboard (sync resolves the device at fire time).
+  await useSyncStore().flush();
+  await flushPromises();
   off?.();
   off = null;
   w?.unmount();
   w = null;
+  host?.app.unmount();
+  host = null;
   document.body.innerHTML = '';
   localStorage.clear();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.useRealTimers();
+  useToast().items.value = [];
 });
 
 describe('W1: nothing selected means all keys', () => {
@@ -146,6 +168,95 @@ describe('W1: nothing selected means all keys', () => {
     expect(perf.values[W_ID()].pressDeadStroke).toBe(0.3); // untouched: Ctrl+Z is the way to undo that one
     expect(perf.values[W_ID()].rtFirstTouch).toBe(1.7);
     expect(history.canUndo).toBe(true);
+  });
+
+  it('the toast Hoàn tác right after an all-keys edit restores all keys and closes the toast', async () => {
+    const { perf, history } = await setup([]);
+    const before = snapshot(perf);
+    await typeActuation('1.7');
+    const toast = toasts().find((x) => x.text === t('perf.appliedAll', { n: 64 }))!;
+    await pressToastAction();
+    expect(snapshot(perf)).toEqual(before);
+    expect(history.canUndo).toBe(false);
+    expect(toasts().some((x) => x.id === toast.id)).toBe(false);
+  });
+
+  it('P2: two all-keys edits, Ctrl+Z, then the toast Hoàn tác does nothing', async () => {
+    const { perf, history } = await setup([]);
+    off = history.installShortcuts();
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    await typeActuation('1.7');
+    now += 1000; // outside COALESCE_MS: a second entry
+    await typeActuation('1.8');
+    const toast = toasts().find((x) => x.text === t('perf.appliedAll', { n: 64 }))!;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
+    expect(perf.values[id('W')].rtFirstTouch).toBe(1.7);
+    toast.action!.run();
+    expect(perf.values[id('W')].rtFirstTouch).toBe(1.7);
+    expect(history.canUndo).toBe(true);
+  });
+
+  it('P3: an all-keys edit, then the same label from a 64-key selection: the old toast does not undo the selected-keys edit', async () => {
+    const { perf } = await setup([]);
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    await typeActuation('1.7');
+    const toast = toasts().find((x) => x.text === t('perf.appliedAll', { n: 64 }))!;
+    now += 1000; // outside COALESCE_MS, so the second edit is its own entry
+    useSelectionStore().selectMany(ALL);
+    await flushPromises();
+    await typeActuation('1.2');
+    toast.action!.run();
+    expect(perf.values[id('W')].rtFirstTouch).toBe(1.2);
+  });
+
+  it('history ids: kept by coalescing, undo and redo; a new entry gets a new one', async () => {
+    const history = useHistoryStore();
+    const noop = () => {};
+    history.push({ label: 'a', undo: noop, redo: noop, coalesce: 'x' });
+    const first = history.undoId;
+    history.push({ label: 'a', undo: noop, redo: noop, coalesce: 'x' });
+    expect(history.undoId).toBe(first);
+    history.push({ label: 'b', undo: noop, redo: noop });
+    const second = history.undoId;
+    expect(second).not.toBe(first);
+    history.undo();
+    expect(history.undoId).toBe(first);
+    history.redo();
+    expect(history.undoId).toBe(second);
+  });
+
+  it('6 × ArrowUp in the Actuation number field (all keys) is one history entry; one undo restores all 64 keys', async () => {
+    const { perf, history } = await setup([]);
+    const before = snapshot(perf);
+    for (let i = 0; i < 6; i++) {
+      actField().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+      await flushPromises();
+    }
+    expect(perf.values[id('W')].rtFirstTouch).toBeGreaterThan(1);
+    expect(toasts().filter((x) => x.text === t('perf.appliedAll', { n: 64 }))).toHaveLength(1); // announced at once, not a slider drag
+    history.undo();
+    expect(snapshot(perf)).toEqual(before);
+    expect(history.canUndo).toBe(false);
+  });
+
+  it('the same on a mixed value (the relative step path): one entry, and each key moves from its own value', async () => {
+    const { perf, history } = await setup([]);
+    const values = { ...perf.values };
+    values[id('W')] = { ...values[id('W')], normalPress: 0.5, rtFirstTouch: 0.5 };
+    perf.values = values;
+    await flushPromises();
+    const before = snapshot(perf);
+    for (let i = 0; i < 4; i++) {
+      actField().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+      await flushPromises();
+    }
+    expect(perf.values[id('W')].rtFirstTouch).toBeGreaterThan(0.5);
+    expect(perf.values[id('W')].rtFirstTouch).toBeLessThan(perf.values[id('A')].rtFirstTouch);
+    history.undo();
+    expect(snapshot(perf)).toEqual(before);
+    expect(history.canUndo).toBe(false);
   });
 
   it('with W A S D selected only those 4 keys change', async () => {
@@ -399,6 +510,32 @@ describe('W3: presets', () => {
     chipByText('Std').click();
     await flushPromises();
     for (const k of WASD) expect(perf.values[k]).toMatchObject({ mode: 0, normalPress: 0.4, rtFirstTouch: 0.4, rtPress: 0.3, rtRelease: 0.3 });
+  });
+
+  it('a non-continuous RT preset gives mode 1 below protocol 1.3.0.0 and mode 2 from it', async () => {
+    useUserPresetsStore().add('Int', userPreset({ continuous: false }));
+    const { perf, device } = await setup(WASD);
+    device.version = { main: 1, sub: 2, hardware: 0, software: 0 };
+    chipByText('Int').click();
+    await flushPromises();
+    for (const k of WASD) expect(perf.values[k].mode).toBe(1);
+    device.version = { main: 1, sub: 3, hardware: 0, software: 0 };
+    chipByText('Int').click();
+    await flushPromises();
+    for (const k of WASD) expect(perf.values[k].mode).toBe(2);
+  });
+
+  it('a preset toast Hoàn tác undoes the preset and the toast closes', async () => {
+    const { perf, history } = await setup(WASD);
+    const before = snapshot(perf);
+    chipByText(t('perf.presetTyping')).click();
+    await flushPromises();
+    const toast = toasts().find((x) => x.action)!;
+    expect(toast).toBeDefined();
+    await pressToastAction();
+    expect(snapshot(perf)).toEqual(before);
+    expect(history.canUndo).toBe(false);
+    expect(toasts().some((x) => x.id === toast.id)).toBe(false);
   });
 
   it('delete removes the chip and the stored entry and sends nothing to the keyboard', async () => {
