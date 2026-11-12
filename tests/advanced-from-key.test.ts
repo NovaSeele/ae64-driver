@@ -91,24 +91,90 @@ describe('Advanced page: key-first entry', () => {
     expect(w.find('.item').classes()).toContain('item--hl');
   });
 
-  it('a picked key\'s entry is scrolled into the visible part of the list box, not just the box', async () => {
-    const { w, sel, id } = await page(1);
-    // The box runs past the bottom of the page's scroller (1366×768): box 561–1009, scroller 0–768, entry 946–1009.
+  /** A page inside a `.main__scroll` (0–768) whose list box scrolls like a real one: the scroll clamps to the real maximum. */
+  async function scrolled(box: { top: number; bottom: number; rows: number; rowH: number }) {
+    const ctx = await page(1);
     const main = document.createElement('div');
     main.className = 'main__scroll';
     document.body.append(main);
-    main.append(w.element);
-    const rect = (top: number, bottom: number) => () => ({ top, bottom, left: 0, right: 100, width: 100, height: bottom - top, x: 0, y: top, toJSON() {} }) as DOMRect;
-    const box = w.find('.cfg').element as HTMLElement;
+    main.append(ctx.w.element);
+    const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 100, width: 100, height: bottom - top, x: 0, y: top, toJSON() {} }) as DOMRect;
+    const el = ctx.w.find('.cfg').element as HTMLElement;
+    const max = box.rows * box.rowH - (box.bottom - box.top);
     let scroll = 0;
-    Object.defineProperty(box, 'scrollTop', { get: () => scroll, set: (v: number) => { scroll = v; }, configurable: true });
-    main.getBoundingClientRect = rect(0, 768);
-    box.getBoundingClientRect = rect(561, 1009);
-    (w.find('.item').element as HTMLElement).getBoundingClientRect = rect(946, 1009);
-    sel.selectMany([id('A')]);
+    Object.defineProperty(el, 'scrollHeight', { get: () => box.rows * box.rowH, configurable: true });
+    Object.defineProperty(el, 'clientHeight', { get: () => box.bottom - box.top, configurable: true });
+    Object.defineProperty(el, 'scrollTop', { get: () => scroll, set: (v: number) => { scroll = Math.max(0, Math.min(v, el.scrollHeight - el.clientHeight)); }, configurable: true });
+    main.getBoundingClientRect = () => rect(0, 768);
+    el.getBoundingClientRect = () => rect(box.top, box.bottom);
+    const items = ctx.w.findAll('.item');
+    // The list's rows end at the content's end (box.rows rows), and move with the box's scroll.
+    const first = box.top + (box.rows - items.length) * box.rowH;
+    items.forEach((it, i) => {
+      (it.element as HTMLElement).getBoundingClientRect = () => rect(first + i * box.rowH - scroll, first + (i + 1) * box.rowH - scroll);
+    });
+    return { ...ctx, main, scroll: () => scroll, max, lastBottom: () => first + items.length * box.rowH - scroll, last: ctx.adv.assignments[ctx.adv.assignments.length - 1] };
+  }
+
+  it('the LAST entry of a capped card is scrolled fully on screen, and the page does not scroll', async () => {
+    // Card capped at 272 (1366×768): the box ends above the fold, 561–720.
+    const { sel, main, scroll, lastBottom, last } = await scrolled({ top: 561, bottom: 720, rows: 12, rowH: 70 });
+    sel.selectMany([last.keys[0]]);
     await flushPromises();
-    expect(1009 - scroll).toBeLessThanOrEqual(768); // the entry's bottom is on screen
-    expect(946 - scroll).toBeGreaterThanOrEqual(561); // and its top did not leave the box
+    expect(scroll()).toBeGreaterThan(0);
+    expect(lastBottom()).toBeLessThanOrEqual(720); // inside the box, so on screen (< 768)
+    expect(main.scrollTop).toBe(0);
+  });
+
+  it('a box that still runs past the fold: the scroll clips as far as it can', async () => {
+    // Box 561–1009 on a 0–768 scroller: the last entry cannot be reached by the box alone; it ends up at the maximum scroll.
+    const { sel, scroll, max, last } = await scrolled({ top: 561, bottom: 1009, rows: 12, rowH: 70 });
+    sel.selectMany([last.keys[0]]);
+    await flushPromises();
+    expect(scroll()).toBe(max);
+  });
+
+  it('two columns: the card gets an inline max-height from the scroller height and its own top; one column has none', async () => {
+    const cbs: Array<() => void> = [];
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(cb: (e: unknown[]) => void) { cbs.push(() => cb([{ contentRect: { width: 900 } }])); }
+      observe() {}
+      disconnect() {}
+    });
+    vi.stubGlobal('innerWidth', 1366);
+    const main = document.createElement('div');
+    main.className = 'main__scroll';
+    document.body.append(main);
+    Object.defineProperty(main, 'clientHeight', { get: () => 768, configurable: true });
+    const real = HTMLElement.prototype.getBoundingClientRect;
+    const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 100, width: 100, height: bottom - top, x: 0, y: top, toJSON() {} }) as DOMRect;
+    let cardTop = 480;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === main) return rect(0, 768);
+      if (this.classList.contains('card') && this.previousElementSibling !== null) return rect(cardTop, cardTop + 520);
+      return real.call(this);
+    });
+    setActivePinia(createPinia());
+    clearTuningSnapshots();
+    const device = useDeviceStore();
+    await device.connectDemo();
+    await device.switchProfile(1);
+    await useAdvancedStore().load();
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
+    w = mount(AdvancedPage, { global: { plugins: [router] }, attachTo: main });
+    await flushPromises();
+    const card = w.findAll('.cols > .card')[1].element as HTMLElement; // the configured card, right column
+    expect(card.style.maxHeight).toBe('272px');
+    // The page scrolled by 100: the card's top on screen moved, its top in content coordinates did not.
+    main.scrollTop = 100;
+    cardTop = 380;
+    cbs.forEach((cb) => cb());
+    expect(card.style.maxHeight).toBe('272px');
+    // A narrower window (one column): the inline cap goes away.
+    vi.stubGlobal('innerWidth', 900);
+    cbs.forEach((cb) => cb());
+    expect(card.style.maxHeight).toBe('');
+    main.remove();
   });
 
   it('the panel stays outside the scrolling list box', async () => {

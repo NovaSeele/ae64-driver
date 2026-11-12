@@ -18,6 +18,7 @@ import Dialog from '../components/ui/Dialog.vue';
 import DksEditor from '../components/advanced/DksEditor.vue';
 import MptEditor from '../components/advanced/MptEditor.vue';
 import PairEditor from '../components/advanced/PairEditor.vue';
+import { cardCap } from './advancedCap';
 import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
 import { useHistoryStore } from '../stores/history';
@@ -206,6 +207,30 @@ watch(() => [sel.ids.length === 1 ? adv.byKey.get(sel.ids[0]) : undefined, !!dra
     else if (i.bottom > bottom) box.scrollTop += Math.min(i.bottom - bottom, i.top - top);
   });
 }, { flush: 'post' });
+
+// Two columns: cap the configured card so it ends above the fold of the page scroller (the page never scrolls on a pick).
+const cfgCard = ref<{ $el: HTMLElement } | null>(null);
+let capObserver: ResizeObserver | null = null;
+function applyCap() {
+  const card = cfgCard.value?.$el;
+  if (!card) return;
+  const main = card.closest<HTMLElement>('.main__scroll');
+  if (!main || window.innerWidth <= 1000) { card.style.maxHeight = ''; return; }
+  const top = card.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;
+  card.style.maxHeight = `${cardCap(main.clientHeight, top)}px`;
+}
+watch(() => cfgCard.value?.$el, (card) => {
+  capObserver?.disconnect();
+  capObserver = null;
+  if (!card) return;
+  applyCap();
+  capObserver = new ResizeObserver(applyCap);
+  const main = card.closest('.main__scroll');
+  if (main) capObserver.observe(main);
+  const kb = card.closest('.page')?.querySelector('.page__kb');
+  if (kb) capObserver.observe(kb);
+}, { flush: 'post' });
+onBeforeUnmount(() => capObserver?.disconnect());
 
 // ----- editor
 let internal = false;
@@ -493,7 +518,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
         <p class="types__note"><IconLock :size="12" stroke-width="2" aria-hidden="true" />{{ t('advanced.unsupportedNote') }}</p>
       </Card>
 
-      <Card :title="t('advanced.configured')" :subtitle="adv.assignments.length ? t('advanced.configuredCount', { n: adv.assignments.length }) : undefined">
+      <Card ref="cfgCard" :title="t('advanced.configured')" :subtitle="adv.assignments.length ? t('advanced.configuredCount', { n: adv.assignments.length }) : undefined">
         <div v-if="addFor !== null" class="addkey">
           <p class="addkey__text">{{ t('advanced.addForKey', { key: keyName(addFor) }) }}</p>
           <div class="addkey__btns">
