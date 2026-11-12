@@ -66,6 +66,13 @@ describe('sync failure message', () => {
     expect(sync.lastErrorDetail).toContain('Hành trình K0: Đọc lại không khớp.');
   });
 
+  it('a reason that starts with an acronym keeps its case (HID, USB)', async () => {
+    const sync = useSyncStore();
+    for (let i = 0; i < 4; i++) sync.enqueue(job(i, 'HID write failed.'));
+    await sync.flush().catch(() => undefined);
+    expect(sync.lastError).toBe(t('sync.failedSame', { n: 4, group: 'Hành trình', reasons: 'HID write failed' }));
+  });
+
   it('labels without a shared prefix use the count form', async () => {
     const sync = useSyncStore();
     for (const l of ['A', 'B', 'C', 'D', 'E']) {

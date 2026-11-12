@@ -79,6 +79,22 @@ describe('Advanced page: the picked key\'s entry summarised in the selection bar
     noWrites();
   });
 
+  it('editing a one-key entry (DKS): no summary and no Sửa in the bar while the editor is open', async () => {
+    const { w, adv, device, sel, noWrites } = await page();
+    const free = device.keys.find((k) => !adv.byKey.has(k.id))!;
+    adv.records = { ...adv.records, [free.id]: { mode: 1, row: free.row, col: free.col, type: 'DKS', keycodes: [0x04, 0x2c, 0, 0], travels: [0xff, 0x01, 0, 0], deadzones: [1.2, 2.8] } };
+    const a = adv.byKey.get(free.id)!;
+    expect(a.type).toBe('DKS');
+    sel.selectMany([free.id]);
+    await flushPromises();
+    await w.find('.sum button').trigger('click');
+    await flushPromises();
+    expect(sel.ids).toEqual([a.keys[0]]); // still the one key
+    expect(w.find('.sum').exists()).toBe(false);
+    expect(w.find('.sr-only[aria-live="polite"]').text()).toBe('');
+    noWrites();
+  });
+
   it('a key without an entry: the hint and the add panel', async () => {
     const { w, adv, device, sel, noWrites } = await page();
     const free = device.keys.find((k) => !adv.byKey.has(k.id))!;

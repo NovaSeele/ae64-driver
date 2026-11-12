@@ -57,6 +57,15 @@ describe('dropped sync jobs', () => {
     expect(useToast().items.value[0].text).toBe(`${t('sync.failed', { labels: 'Hành trình 1: nope; Hành trình 2: nope' })}. ${t('sync.restored')}`);
   });
 
+  it('a reason ending in "." does not give ".." in the short form', async () => {
+    const sync = useSyncStore();
+    sync.enqueue({ key: 'a', label: 'A', write: async () => { throw new PermanentSyncError('Device busy.'); }, onDrop: () => undefined });
+    await sync.flush().catch(() => undefined);
+    const text = useToast().items.value[0].text;
+    expect(text).not.toContain('..');
+    expect(text).toBe(`${t('sync.failed', { labels: 'A: Device busy' })}. ${t('sync.restored')}`);
+  });
+
   it('does not toast for a failure that will be retried', async () => {
     const sync = useSyncStore();
     sync.enqueue({ key: 'a', label: 'A', write: async () => { throw new Error('usb'); } });

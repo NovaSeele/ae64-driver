@@ -75,9 +75,11 @@ function commonPrefix(labels: string[]): string {
   return words[0].slice(0, i).join(' ');
 }
 
-/** Reason as shown after a colon: no trailing ".", first letter lowercase. */
+/** Reason as shown after a colon: no trailing ".", first letter lowercase unless it starts an acronym (HID, USB). */
 function inlineReason(reason: string): string {
   const r = reason.replace(/\.+$/, '');
+  const second = r.charAt(1);
+  if (second && second !== second.toLocaleLowerCase()) return r;
   return r.charAt(0).toLocaleLowerCase() + r.slice(1);
 }
 

@@ -139,6 +139,23 @@ describe('Switch page tabs', () => {
     for (const s of writes) expect(s).not.toHaveBeenCalled();
   });
 
+  it('"Hiệu chuẩn ngay" in the uncalibrated status opens the Calibration tab and sends nothing', async () => {
+    const { router, device } = await mountAt('/switch?tab=switch');
+    const mock = device.transport as MockTransport;
+    const writes = [vi.spyOn(mock, 'setPerformance'), vi.spyOn(mock, 'commit')];
+    const k = device.keys[0];
+    const m = mock as unknown as { profiles: { perf: Map<string, number[]> }[]; active: number };
+    m.profiles[m.active].perf.get(`${k.row}:${k.col}`)![16] = 0; // the board reports the key uncalibrated
+    await usePerformanceStore().load(true);
+    await flushPromises();
+    expect(usePerformanceStore().uncalibrated).toEqual([k.id]);
+    await w!.find('.swp__recal-go').trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.query.tab).toBe('calibration');
+    expect(selected()).toEqual(['calibration']);
+    for (const s of writes) expect(s).not.toHaveBeenCalled();
+  });
+
   it('/calibration redirects to the Calibration tab', async () => {
     const { router } = await mountAt('/calibration');
     expect(router.currentRoute.value.path).toBe('/switch');
