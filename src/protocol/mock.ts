@@ -322,6 +322,8 @@ export class MockTransport extends BaseTransport {
             const next = req.slice(4, 27);
             // Like the firmware: a changed switch triple (record bytes 17..22) resets the key's calibration, whatever was written.
             if (old.slice(17, 23).some((v, i) => v !== next[17 + i])) next[16] = 0;
+            // Like the firmware: the release point (record bytes 3..4) is stored equal to the press point (1..2), whatever was written.
+            next[3] = next[1]; next[4] = next[2];
             prof.perf.set(posKey(a, b), next);
           }
           return set(req);

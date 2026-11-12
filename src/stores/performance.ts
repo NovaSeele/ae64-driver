@@ -28,7 +28,7 @@ export const LIMITS = {
 export const DEFAULT_RANGE_MM = 3.31;
 
 /**
- * Presets (mm). normalRelease is left untouched, like the factory driver.
+ * Presets (mm). normalRelease is not part of a preset: the firmware ties it to normalPress on every write.
  * normalPress and rtFirstTouch are equal in every preset: one actuation point for Standard and Rapid Trigger.
  * - Gõ phím: Standard 2.0 mm — deep enough to avoid accidental presses while typing.
  * - Gaming: Rapid Trigger, first actuation 1.0 mm, 0.3/0.3 sensitivity — responsive but forgiving.
@@ -177,11 +177,12 @@ export const usePerformanceStore = defineStore('performance', () => {
   function clamp(p: Performance, e: PerfEdit): PerfEdit {
     const max = rangeMm(p);
     const c = (v: number, lo: number, hi: number) => round(Math.min(hi, Math.max(lo, v)));
+    const normalPress = c(e.normalPress, LIMITS.actuationMin, max);
     return {
       // Keep the mode as is (0, 1 or 2); anything else stays unchanged and the write guard refuses it.
       mode: e.mode,
-      normalPress: c(e.normalPress, LIMITS.actuationMin, max),
-      normalRelease: e.normalRelease,
+      normalPress,
+      normalRelease: normalPress, // the firmware ties it to normalPress
       rtFirstTouch: c(e.rtFirstTouch, LIMITS.actuationMin, max),
       rtPress: c(e.rtPress, LIMITS.rtMin, LIMITS.rtMax),
       rtRelease: c(e.rtRelease, LIMITS.rtMin, LIMITS.rtMax),
@@ -205,6 +206,7 @@ export const usePerformanceStore = defineStore('performance', () => {
         const current = values.value[id];
         const base = fresh.get(id) ?? current;
         written = pickEdit(current);
+        written.normalRelease = written.normalPress; // the firmware sets release = press on every write
         // Preserve axis / calibration metadata from the last fresh read; only a switch change writes its own triple.
         mark = switchKeys.get(id);
         writtenTriple = tripleOf(mark !== undefined ? current : base);
@@ -213,9 +215,20 @@ export const usePerformanceStore = defineStore('performance', () => {
       verify: async (t: Ae64Transport) => {
         const read = await t.getPerformance(key);
         noteFresh(id, read);
-        const ok = written !== null && sameEdit(pickEdit(read), written);
+        const readEdit = pickEdit(read);
+        let ok = written !== null && sameEdit(readEdit, written);
+        // Defence in depth: only normalRelease differs and the board tied it to its normalPress (firmware rule).
+        let tied = false;
+        if (!ok && written !== null && Math.abs(read.normalRelease - read.normalPress) <= 0.0005
+          && sameEdit({ ...readEdit, normalRelease: written.normalRelease }, written)) {
+          ok = true;
+          tied = true;
+        }
         if (!ok) return false;
         const latest = switchKeys.get(id) === mark; // false: a newer switch change is queued for this key
+        if (tied && latest && loadedProfile.value === profile && values.value[id]) {
+          values.value = { ...values.value, [id]: { ...values.value[id], normalRelease: read.normalRelease } };
+        }
         if (latest) switchKeys.delete(id);
         deleteTuningSnapshot(profile, id); // the hand edit is the truth now: an old snapshot must not overwrite it
         const got = tripleOf(read);
@@ -252,6 +265,7 @@ export const usePerformanceStore = defineStore('performance', () => {
       const id = Number(idStr);
       if (!next[id]) continue; // not loaded (a reload is running): nothing to write it from
       next[id] = { ...next[id], ...edit, ...triples?.[id] };
+      next[id].normalRelease = next[id].normalPress; // the firmware sets release = press on every write
       if (triples?.[id]) switchKeys.set(id, ++switchSeq);
       changed.push(id);
     }

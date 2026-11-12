@@ -31,7 +31,7 @@ describe('switch selector store', () => {
     const apollo = findSwitch(perf.catalog, 4208)!;
 
     // Give W values above 3.13 mm; A stays below.
-    perf.apply([W.id], () => ({ normalPress: 3.3, normalRelease: 3.25, mode: 0 }), 'long');
+    perf.apply([W.id], () => ({ normalPress: 3.3, mode: 0 }), 'long');
     await useSyncStore().flush();
     const wBefore = await mock.getPerformance(W);
     const aBefore = await mock.getPerformance(A);
@@ -42,7 +42,7 @@ describe('switch selector store', () => {
     expect(plan.keys).toEqual([W.id, A.id]);
     expect(plan.limitMm).toBe(3.13);
     expect(plan.clamped.map((c) => `${c.id}:${c.field}:${c.from}->${c.to}`)).toEqual([
-      `${W.id}:normalPress:3.3->3.13`, `${W.id}:normalRelease:3.25->3.13`,
+      `${W.id}:normalPress:3.3->3.13`, `${W.id}:normalRelease:3.3->3.13`,
     ]);
     expect(setPerf).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();

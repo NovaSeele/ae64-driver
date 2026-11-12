@@ -40,7 +40,7 @@ async function setup(select: number[] = [], opts: { realKeyboard?: boolean; mode
   const perf = usePerformanceStore();
   await perf.load();
   const values = { ...perf.values };
-  for (const k of ALL) values[k] = { ...values[k], mode: 1, normalPress: 1, rtFirstTouch: 1, rtPress: 0.3, rtRelease: 0.3, pressDeadStroke: 0.1, releaseDeadStroke: 0.1 };
+  for (const k of ALL) values[k] = { ...values[k], mode: 1, normalPress: 1, normalRelease: 1, rtFirstTouch: 1, rtPress: 0.3, rtRelease: 0.3, pressDeadStroke: 0.1, releaseDeadStroke: 0.1 };
   perf.values = values;
   useSelectionStore().selectMany(select);
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
@@ -346,7 +346,7 @@ describe('W1: nothing selected means all keys', () => {
   it('the same on a mixed value (the relative step path): one entry, and each key moves from its own value', async () => {
     const { perf, history } = await setup([]);
     const values = { ...perf.values };
-    values[id('W')] = { ...values[id('W')], normalPress: 0.5, rtFirstTouch: 0.5 };
+    values[id('W')] = { ...values[id('W')], normalPress: 0.5, normalRelease: 0.5, rtFirstTouch: 0.5 };
     perf.values = values;
     await flushPromises();
     const before = snapshot(perf);
