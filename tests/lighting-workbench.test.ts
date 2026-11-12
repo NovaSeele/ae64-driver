@@ -71,8 +71,8 @@ describe('Đèn workbench: effects', () => {
   it('shows number buttons labelled "Hiệu ứng N": Max 19, strip 5; the active one is marked', async () => {
     const { lighting } = await mountPage('max');
     expect(effects()).toHaveLength(19);
-    expect(effects()[0].attributes('aria-label')).toBe('Hiệu ứng 1');
-    expect(effects()[18].attributes('aria-label')).toBe('Hiệu ứng 19');
+    expect(effects()[0].attributes('aria-label')).toBe('Hiệu ứng 1 · Tĩnh');
+    expect(effects()[18].attributes('aria-label')).toBe('Hiệu ứng 19 · Phản hồi khi gõ');
     expect(effects()[18].text()).toBe('19');
     const active = effects().filter((b) => b.attributes('aria-pressed') === 'true');
     expect(active).toHaveLength(1);

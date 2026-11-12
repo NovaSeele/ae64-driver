@@ -23,6 +23,8 @@ import { inkFor } from '../colorInk';
 import { LED_MATRIX_COLS, LED_STRIP_COUNT, STRIP_ORDER, STRIP_SIDES } from '../protocol';
 import type { PhysicalKey } from '../protocol';
 import { stripRing } from '../protocol/ledLayout';
+import { effectHint, effectName } from '../data/ledEffects';
+import { locale } from '../i18n/locale';
 import { t } from '../i18n/vi';
 
 const device = useDeviceStore();
@@ -254,6 +256,17 @@ const directionOptions = computed(() => [
   { value: 0, label: `→ ${t('lighting.directionForward')}` },
   { value: 1, label: `← ${t('lighting.directionBackward')}` },
 ]);
+
+/** UI effect number and, when the board's name for it is sure, " · name" (display only). */
+const effectLabel = (n: number) => {
+  const name = effectName(device.info?.boardIdHex, area.value, n, locale.value);
+  return name ? `${n} · ${name}` : String(n);
+};
+const effectBtnLabel = (n: number) => t('lighting.effectN', { n: effectLabel(n) });
+const effectBtnTitle = (n: number) => {
+  const hint = effectHint(device.info?.boardIdHex, area.value, n, locale.value);
+  return hint ? `${effectBtnLabel(n)} — ${hint}` : effectBtnLabel(n);
+};
 
 function onEffect(index: number) {
   lighting.applyBase(area.value, { mode: index }, baseLabel());
@@ -507,7 +520,8 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
           <div class="col col--fx">
             <div class="col__head">
               <h3 class="col__title">{{ t('lighting.effectsShort') }}</h3>
-              <InfoTip :text="t('lighting.effectsDesc')" placement="top" />
+              <InfoTip class="col__tip" :text="t('lighting.effectsDesc')" placement="top" />
+              <span class="col__readout" data-testid="effect-readout" :title="effectBtnLabel(base.mode + 1)">{{ effectLabel(base.mode + 1) }}</span>
             </div>
             <fieldset class="col__body" :disabled="tuneLocked">
               <div class="effect-grid">
@@ -517,8 +531,8 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
                   type="button"
                   class="effect-btn num"
                   :class="{ 'effect-btn--active': base.mode === index - 1 }"
-                  :aria-label="t('lighting.effectN', { n: index })"
-                  :title="t('lighting.effectN', { n: index })"
+                  :aria-label="effectBtnLabel(index)"
+                  :title="effectBtnTitle(index)"
                   :aria-pressed="base.mode === index - 1"
                   @click="onEffect(index - 1)"
                 >
@@ -883,7 +897,18 @@ const liveState = computed<'error' | 'live' | 'paused'>(() => {
 .col:first-child { padding-left: 0; border-left: 0; }
 .col:last-child { padding-right: 0; }
 .col__head { display: flex; align-items: center; gap: var(--s-1); min-height: 24px; }
-.col__title { margin: 0; font-size: var(--fs-card); font-weight: 600; white-space: nowrap; }
+.col__title { margin: 0; font-size: var(--fs-card); font-weight: 600; white-space: nowrap; flex: none; }
+.col__head .col__tip { flex: none; }
+.col__readout {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  font-size: var(--fs-caption);
+  color: var(--fg-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 @container (max-width: 919px) {
   .dock__cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .col:nth-child(2) { padding-right: 0; }

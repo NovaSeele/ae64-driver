@@ -48,27 +48,28 @@ describe('demo LED stand-in patterns', () => {
   // Only Date is mocked: the mock transport's own latency timers keep running.
   const fake = () => vi.useFakeTimers({ toFake: ['Date'] });
 
-  it('modes 1–7 change over 0.5 s, mode 0 does not; reactive modes change with ghost presses', async () => {
+  it('moving modes change over 0.5 s; static and the unknown modes do not', async () => {
     fake();
     const mock = await make();
-    for (let mode = 0; mode <= 7; mode++) {
-      const [a, b] = await frames(mock, base({ mode }), [10_000, 10_500]);
-      expect(differs(a, b), `mode ${mode}`).toBe(mode !== 0);
+    for (const mode of [0, 1, 2, 3, 4, 7, 9, 10, 11, 12, 13, 15]) {
+      const seq = await frames(mock, base({ mode }), [10_000, 10_500, 11_000, 11_500, 12_000, 12_500]);
+      expect(seq.some((f, i) => i > 0 && differs(f, seq[i - 1])), `mode ${mode}`).toBe(mode !== 0);
     }
-    for (const mode of [6, 7]) {
-      const seq = await frames(mock, base({ mode }), GHOST_TIMES);
-      expect(seq.some((f, i) => i > 0 && differs(f, seq[i - 1])), `mode ${mode}`).toBe(true);
-      expect(seq.some((f) => f.some((v) => v > 0)), `mode ${mode} lit`).toBe(true);
+    for (const mode of [5, 6, 8]) {
+      const [a, b] = await frames(mock, base({ mode }), [10_000, 10_500]);
+      expect(differs(a, b), `mode ${mode}`).toBe(false);
     }
   });
 
-  it('modes 0–19 give 20 pairwise different sequences over 2 s (rainbow source)', async () => {
+  it('the known modes give pairwise different sequences over 2 s (rainbow source); the unknown ones share one', async () => {
     fake();
     const mock = await make();
     const seqs: string[] = [];
-    for (let mode = 0; mode < 20; mode++) seqs.push(JSON.stringify(await frames(mock, base({ mode, brightness: 100 }), SEQ_TIMES)));
-    const dup = seqs.map((q, i) => seqs.findIndex((o) => o === q) === i ? -1 : [seqs.indexOf(q), i]).filter((v) => v !== -1);
-    expect(dup).toEqual([]);
+    const known = [0, 1, 2, 3, 4, 7, 9, 10, 11, 12, 13, 14, 15];
+    for (const mode of known) seqs.push(JSON.stringify(await frames(mock, base({ mode, brightness: 100 }), SEQ_TIMES)));
+    expect(new Set(seqs).size).toBe(known.length);
+    const neutral = await Promise.all([5, 6, 8, 19].map(async (mode) => JSON.stringify(await frames(mock, base({ mode, brightness: 100 }), SEQ_TIMES))));
+    expect(new Set(neutral).size).toBe(1);
   });
 
   it('brightness 0 and open 0 give all zeros', async () => {
@@ -121,7 +122,7 @@ describe('demo LED stand-in patterns', () => {
     for (let idx = 1; idx <= 7; idx++) {
       const want = [palette[idx].b, palette[idx].g, palette[idx].r];
       const top = Math.max(...want);
-      for (const mode of [0, 1, 2, 3, 4, 5, 6, 7, 15, 19]) {
+      for (const mode of [0, 1, 2, 3, 4, 5, 7, 11, 15, 19]) {
         const seq = await frames(mock, base({ mode, paletteIndex: idx, brightness: 100 }), GHOST_TIMES);
         for (const f of seq) {
           for (let i = 0; i < f.length; i += 3) {
@@ -149,22 +150,19 @@ describe('demo LED stand-in patterns', () => {
           expect(f.slice(40 * 3, 40 * 3 + 3)).toEqual([77, 9, 250]);
         }
       }
-      const [a, b] = await frames(mock, base({ mode: 19 }), [1000, 1500]);
+      const [a, b] = await frames(mock, base({ mode: 1 }), [1000, 1500]);
       expect(differs(a, b)).toBe(true);
     }
   });
 
-  it('the strip: reactive mode lights the whole strip on a ghost press', async () => {
+  it('the strip: each of its 5 modes is lit, and the static one does not move', async () => {
     fake();
     const mock = await make();
-    const times = Array.from({ length: 30 }, (_, i) => 500 + i * 100);
-    const seq = await frames(mock, base({ area: 1, mode: 4, brightness: 100, paletteIndex: 1 }), times);
-    const lit = seq.filter((f) => f.some((v) => v > 0));
-    expect(lit.length).toBeGreaterThan(0);
-    for (const f of lit) {
-      const px = new Set<string>();
-      for (let i = 0; i < f.length; i += 3) px.add(f.slice(i, i + 3).join());
-      expect(px.size).toBe(1);
+    const times = Array.from({ length: 10 }, (_, i) => 500 + i * 100);
+    for (let mode = 0; mode < 5; mode++) {
+      const seq = await frames(mock, base({ area: 1, mode, brightness: 100, paletteIndex: 1 }), times);
+      expect(seq.some((f) => f.some((v) => v > 0)), `mode ${mode}`).toBe(true);
+      expect(seq.some((f, i) => i > 0 && differs(f, seq[i - 1])), `mode ${mode}`).toBe(mode !== 0);
     }
   });
 });
