@@ -424,19 +424,54 @@ function applyUserPreset(p: UserPreset) {
 const modeLabel = (m: 0 | 1) => (m === 0 ? t('perf.modeStandard') : t('perf.modeRt'));
 const userPresetTitle = (p: UserPreset) => t('perf.presetUserTitle', { mode: modeLabel(p.mode), act: fmt(p.actuation) });
 const userPresetMeta = (p: UserPreset) => t('perf.presetUserMeta', { mode: p.mode === 0 ? t('perf.modeStandard') : 'RT', act: formatMm(p.actuation, decimals.value) });
-/** Deleting is immediate; the toast puts the preset back at its index. Presets are not in the history store, so this undo is local. */
+/** The preset-delete toast: at most one. Deletes made while it is open merge into it; its Hoàn tác restores all of them. */
+interface PresetToast { toastId: number; deleted: { p: UserPreset; index: number }[] }
+let presetToast: PresetToast | null = null;
+let ownPresetChange = false; // the toast's own deletes and restore are not "another change" to the saved list
+function dismissPresetToast() {
+  if (presetToast) toast.dismiss(presetToast.toastId);
+  presetToast = null;
+}
+// Any other change of the saved list (a new save) makes the pending restore stale: close the toast and drop it.
+const stopPresetWatch = watch(() => userPresets.presets, () => {
+  if (!ownPresetChange) dismissPresetToast();
+}, { flush: 'sync' });
+onBeforeUnmount(stopPresetWatch);
+/** Deleting is immediate; the toast puts the presets back at their indexes. Presets are not in the history store, so this undo is local. */
 function removeUserPreset(p: UserPreset) {
   const index = userPresets.presets.findIndex((x) => x.id === p.id);
   if (index < 0) return;
+  ownPresetChange = true;
   userPresets.remove(p.id);
-  toast.show(t('perf.presetDeleted', { name: p.name }), 'info', undefined, { label: t('history.undo'), run: () => restoreUserPreset(p, index) });
+  ownPresetChange = false;
+  const open = presetToast && toast.items.value.some((x) => x.id === presetToast!.toastId) ? presetToast : null;
+  if (open) toast.dismiss(open.toastId); // merged: the new toast below replaces it and restarts the timer
+  const state: PresetToast = { toastId: 0, deleted: [...(open?.deleted ?? []), { p, index }] };
+  const n = state.deleted.length;
+  const list = state.deleted.map((d) => d.p.name).join(', ');
+  const text = n === 1 ? t('perf.presetDeleted', { name: p.name }) : t('perf.presetsDeleted', { n, names: list });
+  const ariaLabel = n === 1 ? t('perf.presetUndoOne', { name: p.name }) : t('perf.presetUndoMany', { n });
+  state.toastId = toast.show(text, 'info', undefined, { label: t('history.undo'), ariaLabel, run: () => restoreUserPresets(state) }, n === 1 ? undefined : list);
+  presetToast = state;
 }
-function restoreUserPreset(p: UserPreset, index: number) {
-  if (userPresets.presets.length >= USER_PRESET_MAX || userPresets.presets.some((x) => x.id === p.id)) return;
-  // The store only appends: take the presets after the index off and add them back behind the restored one.
-  const tail = userPresets.presets.slice(index);
-  for (const x of tail) userPresets.remove(x.id);
-  for (const { id: _id, name, ...values } of [p, ...tail]) userPresets.add(name, values);
+/** Runs at most once (the state is consumed), and only while the list is still as the deletes left it. */
+function restoreUserPresets(state: PresetToast) {
+  if (presetToast !== state) return;
+  presetToast = null;
+  toast.dismiss(state.toastId);
+  if (userPresets.presets.length + state.deleted.length > USER_PRESET_MAX) return;
+  ownPresetChange = true;
+  try {
+    // Newest delete first, so each index is the one it had when its turn came. The store only appends (new ids): take the
+    // presets after the index off and add them back behind the restored one.
+    for (const { p, index } of [...state.deleted].reverse()) {
+      const tail = userPresets.presets.slice(index);
+      for (const x of tail) userPresets.remove(x.id);
+      for (const { id: _id, name, ...values } of [p, ...tail]) userPresets.add(name, values);
+    }
+  } finally {
+    ownPresetChange = false;
+  }
 }
 
 // ----- "Lưu mẫu…": the scope's values, only when they agree

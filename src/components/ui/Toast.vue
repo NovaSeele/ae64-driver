@@ -13,8 +13,8 @@ const ICONS = { info: IconInfoCircle, success: IconCircleCheck, warn: IconAlertT
     <TransitionGroup name="toast">
       <div v-for="it in items" :key="it.id" class="toast" :class="`toast--${it.kind}`" :role="it.kind === 'error' ? 'alert' : 'status'">
         <component :is="ICONS[it.kind]" class="toast__icon" :size="18" stroke-width="1.5" aria-hidden="true" />
-        <span class="toast__text">{{ it.text }}</span>
-        <button v-if="it.action" type="button" class="toast__act" @click="it.action.run(); dismiss(it.id)">{{ it.action.label }}</button>
+        <span class="toast__text" :class="{ 'toast__text--clip': it.title }" :title="it.title">{{ it.text }}</span>
+        <button v-if="it.action" type="button" class="toast__act" :aria-label="it.action.ariaLabel" @click="it.action.run(); dismiss(it.id)">{{ it.action.label }}</button>
         <button type="button" class="toast__x" :aria-label="t('ui.close')" @click="dismiss(it.id)">
           <IconX :size="14" stroke-width="1.5" />
         </button>
@@ -52,6 +52,7 @@ const ICONS = { info: IconInfoCircle, success: IconCircleCheck, warn: IconAlertT
 .toast--warn .toast__icon { color: var(--warn); }
 .toast--error .toast__icon { color: var(--danger); }
 .toast__text { font-size: var(--fs-body); color: var(--fg-1); }
+.toast__text--clip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .toast__act {
   flex: none;
   height: 24px;
