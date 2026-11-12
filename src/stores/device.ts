@@ -5,7 +5,8 @@ import {
   ALLOWED_BOARDS, FIRMWARE_ROWS, NoDeviceSelectedError, PHYSICAL_KEYS, VENDOR_ID, connectHid, createMockTransport, keycodeLabel, keysFromLayoutStyles,
   isAe64, modelName as modelLabel, modelOf, reconnectGrantedHid, rememberDevice, webHidAvailable,
 } from '../protocol';
-import type { Ae64Model, Ae64Transport, DeviceInfo, FeatureBitmap, PacketLogEntry, PhysicalKey, ProtocolVersion } from '../protocol';
+import type { DemoSeed } from '../protocol/mock';
+import type { Ae64Transport, DeviceInfo, FeatureBitmap, PacketLogEntry, PhysicalKey, ProtocolVersion } from '../protocol';
 import { t as tr } from '../i18n/vi';
 import { useToast } from '../components/ui/toast';
 import { useCalibrationStore } from './calibration';
@@ -26,16 +27,17 @@ function isTravelPoll(bytes: Uint8Array): boolean {
 
 const DEMO_MODEL_KEY = 'ae64.demoModel';
 
-/** The model of the last demo session (a UI pref); anything unreadable is 'max'. */
-function readDemoModel(): Ae64Model {
+/** The keyboard of the last demo session (a UI pref); anything unreadable is 'max'. */
+function readDemoModel(): DemoSeed {
   try {
-    return localStorage.getItem(DEMO_MODEL_KEY) === 'pro' ? 'pro' : 'max';
+    const v = localStorage.getItem(DEMO_MODEL_KEY);
+    return v === 'pro' || v === 'pro-xinput' ? v : 'max';
   } catch {
     return 'max';
   }
 }
 
-function writeDemoModel(m: Ae64Model): void {
+function writeDemoModel(m: DemoSeed): void {
   try {
     localStorage.setItem(DEMO_MODEL_KEY, m);
   } catch {
@@ -56,6 +58,8 @@ export const useDeviceStore = defineStore('device', () => {
   const features = ref<FeatureBitmap | null>(null);
   const boardAllowed = ref(false);
   const demo = ref(false);
+  /** The keyboard the demo emulates ('pro-xinput': a Pro with the experimental gamepad firmware); null when not a demo. */
+  const demoSeed = ref<DemoSeed | null>(null);
   const keys = shallowRef<PhysicalKey[]>(PHYSICAL_KEYS.map((k) => ({ ...k })));
   const profileCount = ref(0);
   const activeProfile = ref(0);
@@ -225,6 +229,7 @@ export const useDeviceStore = defineStore('device', () => {
     features.value = null;
     boardAllowed.value = false;
     demo.value = false;
+    demoSeed.value = null;
     layer0.value = [];
     profileNames.value = [];
     exclusiveCount.value = 0;
@@ -246,6 +251,7 @@ export const useDeviceStore = defineStore('device', () => {
     connection.value++;
     transport.value = t;
     demo.value = isDemo;
+    if (!isDemo) demoSeed.value = null;
     clearPackets();
     detach = [t.onDisconnect(handleDisconnect), t.onPacketRaw(handlePacket)];
     latencyTimer = setInterval(() => {
@@ -338,10 +344,11 @@ export const useDeviceStore = defineStore('device', () => {
     await init(t, false).catch(() => undefined);
   }
 
-  /** Without a seed: the model of the last demo session. */
-  async function connectDemo(seed?: Ae64Model): Promise<void> {
+  /** Without a seed: the keyboard of the last demo session. */
+  async function connectDemo(seed?: DemoSeed): Promise<void> {
     const model = seed ?? readDemoModel();
     await init(createMockTransport({ seed: model }), true);
+    demoSeed.value = model;
     writeDemoModel(model);
   }
 
@@ -409,9 +416,9 @@ export const useDeviceStore = defineStore('device', () => {
   }
 
   /** The demo keyboard becomes the other model: the same gates as changeKeyboard, then a fresh init resets every per-connection store. */
-  async function switchDemoModel(m: Ae64Model): Promise<void> {
-    if (!demo.value || !transport.value || m === model.value || !(await readyToLeave())) return;
-    await init(createMockTransport({ seed: m }), true).then(() => writeDemoModel(m), () => undefined);
+  async function switchDemoModel(m: DemoSeed): Promise<void> {
+    if (!demo.value || !transport.value || m === (demoSeed.value ?? model.value) || !(await readyToLeave())) return;
+    await init(createMockTransport({ seed: m }), true).then(() => { demoSeed.value = m; writeDemoModel(m); }, () => undefined);
   }
 
   async function switchProfile(i: number): Promise<void> {
@@ -440,7 +447,7 @@ export const useDeviceStore = defineStore('device', () => {
   }
 
   return {
-    transport, status, error, info, version, features, boardAllowed, demo, keys, profileCount, activeProfile,
+    transport, status, error, info, version, features, boardAllowed, demo, demoSeed, keys, profileCount, activeProfile,
     profileNames, rtPrecision, layer0, latencyMs, connection, packetSeq, statsTick, exclusiveActive, connected, hidAvailable, model, modelName, packetEntries, activeProfileName,
     legend, withTransport, calibrationLocked, watchPackets, onProfileChanged, refreshLayer0, connect, connectDemo,
     tryAutoReconnect, disconnect, changeKeyboard, switchDemoModel, switchProfile, renameProfile,

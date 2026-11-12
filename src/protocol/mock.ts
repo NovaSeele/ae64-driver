@@ -1,10 +1,15 @@
 // Demo transport: a byte-level emulator of an AE64 (Max or Pro) seeded from contracts/device-snapshot.md.
 // seed 'pro' answers as an AE64 Pro (board 0030000a, firmware 0.1.0.0, 20 area-0 lighting modes, the user's profile names and White Wukong switches); everything else is the Max's.
+// seed 'pro-xinput' is that Pro running the experimental XInput gamepad firmware (AGP1, see mockGamepad.ts); the others answer
+// family 0x10 like stock firmware (`10 FF`).
 // Requests go through the same codecs as WebHID; this class only answers 64-byte frames.
 // Writes persist in memory for the session; commits are acknowledged and otherwise no-ops.
 
 import type { Bytes, Performance, PhysicalKey } from './types';
-import { BaseTransport } from './client';
+import { BaseTransport, TransportTimeoutError } from './client';
+import { MockGamepadFirmware } from './mockGamepad';
+import { GP_CONTROLS, GP_FAMILY, decodeConfig, defaultBinding, emptyConfig, encodeConfig, evaluate, keyPosOf, toStandardGamepad } from './gamepad';
+import type { GamepadConfig, StandardGamepadState } from './gamepad';
 import { encodeLayoutStyleEntry, encodePerformance, le16, mmToUm, read16 } from './codec';
 import { STRIP_ORDER } from './ledLayout';
 import { LED_MATRIX_COLS, PRODUCT_ID_MAX, PRODUCT_ID_PRO, LED_RECORDS_PER_PACKET, LED_STRIP_COUNT, MACRO_ACTIONS_PER_PAGE, RATIO_UNITS } from './constants';
@@ -111,6 +116,30 @@ function makeProfile(name: string, perfFor: (k: PhysicalKey) => Partial<Performa
 
 const isWasd = (k: PhysicalKey) => ['W', 'A', 'S', 'D'].includes(k.name);
 
+/** Which keyboard the demo emulates. */
+export type DemoSeed = 'max' | 'pro' | 'pro-xinput';
+
+/** The demo's gamepad configuration: WASD left stick, Q / E triggers, Space A, Shift B, R X, F Y (geometry fits `travelUm`). */
+function demoGamepadBlock(travelUm: number): Uint8Array {
+  const cfg: GamepadConfig = emptyConfig();
+  const keyOf = (name: string) => PHYSICAL_KEYS.find((k) => k.name === name)!.id;
+  const assign: Record<string, string> = { LT: 'Q', RT: 'E', 'LX-': 'A', 'LX+': 'D', 'LY-': 'S', 'LY+': 'W', A: 'Space', B: 'Shift', X: 'R', Y: 'F' };
+  GP_CONTROLS.forEach((c, i) => {
+    if (!assign[c.id]) return;
+    cfg.bindings[i] = { ...defaultBinding(travelUm), key: keyOf(assign[c.id]) };
+  });
+  return encodeConfig(cfg);
+}
+
+/** A gamepad as `navigator.getGamepads()` lists it. */
+export interface VirtualGamepad extends StandardGamepadState {
+  id: string;
+  index: number;
+  connected: boolean;
+  mapping: 'standard';
+  timestamp: number;
+}
+
 export class MockTransport extends BaseTransport {
   readonly kind = 'mock' as const;
   readonly productName: string;
@@ -130,10 +159,15 @@ export class MockTransport extends BaseTransport {
   private readonly macroMeta: number[][] = Array.from({ length: 16 }, () => [0, 0, 0, 1, 0, 0]);
   private readonly macroActions: number[][] = Array.from({ length: 16 }, () => []);
   private readonly live = new Map<number, LiveKey>();
+  /** The XInput gamepad firmware (seed 'pro-xinput' only). */
+  readonly gamepadFirmware: MockGamepadFirmware | null = null;
+  /** Test hook: the reply to the next AGP1 command this returns true for is lost (the command still runs), as a timeout. */
+  dropGamepadReply: ((cmd: number) => boolean) | null = null;
+  private gamepadHandler: ((req: Uint8Array) => Uint8Array | null) | null = null;
 
-  constructor(opts: { latencyMs?: number; seed?: 'max' | 'pro' } = {}) {
+  constructor(opts: { latencyMs?: number; seed?: DemoSeed } = {}) {
     super();
-    const pro = opts.seed === 'pro';
+    const pro = opts.seed === 'pro' || opts.seed === 'pro-xinput';
     this.productName = pro ? 'AE64 Pro (demo)' : 'AE64-MAX (demo)';
     this.productId = pro ? PRODUCT_ID_PRO : PRODUCT_ID_MAX;
     this.snapshot = pro ? { ...SNAPSHOT, ...PRO_SNAPSHOT } : SNAPSHOT;
@@ -164,6 +198,49 @@ export class MockTransport extends BaseTransport {
       act(true, 30, 0x19), act(false, 10, 0x19), act(false, 10, 0xe0),
     ].flat();
     this.macroMeta[0] = [1, 6, 0, 1, 0, 0];
+    if (opts.seed === 'pro-xinput') {
+      const maxTravelUm = (key: number): number => {
+        const pos = keyPosOf(key);
+        const rec = pos && this.profiles[this.active].perf.get(posKey(pos.row, pos.col));
+        return rec ? this.decodePerfRecord(rec).axisRangeMax : 0;
+      };
+      this.gamepadFirmware = new MockGamepadFirmware({ block: demoGamepadBlock(maxTravelUm(0)), maxTravelUm });
+    }
+  }
+
+  /**
+   * Test hook: every family-0x10 frame (64 bytes) goes to `fn` instead of the built-in gamepad firmware; a null result is
+   * answered like stock firmware (`10 FF`). Pass null to go back to the built-in one. Lets a test put another firmware
+   * model (e.g. the real firmware compiled to wasm) behind this demo keyboard.
+   */
+  useGamepadHandler(fn: ((req: Uint8Array) => Uint8Array | null) | null): void {
+    this.gamepadHandler = fn;
+  }
+
+  /**
+   * Demo helper: the controller the gamepad firmware shows to the computer, computed from the simulated key travel
+   * (simulatePress), or null when there is none (no gamepad firmware, mode off, or the Xbox device hidden).
+   */
+  virtualGamepad(): VirtualGamepad | null {
+    const fw = this.gamepadFirmware;
+    if (!fw || !this.open) return null;
+    let cfg: GamepadConfig;
+    try {
+      cfg = decodeConfig(fw.active);
+    } catch {
+      return null;
+    }
+    if (cfg.mode === 'off' || (cfg.transport === 'xinput' && !fw.usb.enabled)) return null;
+    const out = evaluate(
+      cfg,
+      (key) => Math.round(mmToUm(this.live.get(key)?.travel ?? 0)),
+      (key) => this.live.get(key)?.pressed ?? false,
+      fw.maxTravelUm,
+    );
+    return {
+      id: cfg.transport === 'xinput' ? 'AE64 Pro XInput (demo)' : 'AE64 Pro HID gamepad (demo)',
+      index: 0, connected: true, mapping: 'standard', timestamp: performance.now(), ...toStandardGamepad(out),
+    };
   }
 
   get connected(): boolean {
@@ -225,6 +302,10 @@ export class MockTransport extends BaseTransport {
 
   protected exchange(frame: Uint8Array): Promise<Bytes> {
     const reply = this.handle(Array.from(frame));
+    if (frame[0] === GP_FAMILY && this.dropGamepadReply?.(frame[1])) {
+      this.dropGamepadReply = null;
+      return Promise.reject(new TransportTimeoutError(Array.from(frame.slice(0, 2))));
+    }
     return new Promise((resolve) => setTimeout(() => resolve(reply), this.latencyMs));
   }
 
@@ -238,6 +319,13 @@ export class MockTransport extends BaseTransport {
     if (snap) return set(snap);
 
     switch (f) {
+      case GP_FAMILY: {
+        const r = this.gamepadHandler
+          ? this.gamepadHandler(Uint8Array.from({ length: 64 }, (_, i) => req[i] ?? 0))
+          : this.gamepadFirmware?.handle(req);
+        // Stock firmware: family 16 is known, the subcommand is not (bytes 2.. cleared).
+        return set(r ? Array.from(r) : [GP_FAMILY, 0xff]);
+      }
       case 0x02:
         switch (op) {
           case 0x03:
@@ -561,6 +649,6 @@ function makeLedFrame(area: number, mode: number, speed: number, direction: numb
   };
 }
 
-export function createMockTransport(opts?: { seed?: 'max' | 'pro' }): MockTransport {
+export function createMockTransport(opts?: { seed?: DemoSeed }): MockTransport {
   return new MockTransport({ seed: opts?.seed });
 }

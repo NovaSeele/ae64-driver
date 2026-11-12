@@ -7,6 +7,10 @@
 import type { Performance } from './types';
 import { decodeCombo, isKnownKeycode } from './keycodes';
 import { isCatalogTriple, switchCatalogFor } from './switches';
+import {
+  GP_BOARD_HEX, GP_BOARD_ID, GP_CAP, GP_CMD, GP_CONFIG_BYTES, GP_MAGIC, GP_MAX_DATA, GP_READ_CHUNK, GP_VERSION, crc32, decodeConfig,
+  requiredTransportBit, u16, u32,
+} from './gamepad';
 
 export class UnsafeCommandError extends Error {
   constructor(readonly payload: readonly number[], readonly reason: string) {
@@ -69,6 +73,21 @@ function advancedKeycodes(p: readonly number[]): string | null {
   if (p[4] === 6 || p[4] === 7) return keycodesAt(p, [7, 9]); // SOCD / Rappy Snappy
   return null;
 }
+
+/**
+ * Header and length checks of an AGP1 request (family 10, experimental AE64 Pro gamepad firmware): protocol 1, magic "AGP1",
+ * status 0, a data length that is the payload's own length (≤ 54), then the command's own check on (payload, length).
+ * The conditions that depend on the connection (board, INFO, staging) are in checkGamepadFrame.
+ */
+const agp1 = (check: (p: readonly number[], n: number) => string | null) => (p: readonly number[]): string | null => {
+  if (p[2] !== GP_VERSION) return `AGP1 protocol ${p[2]} not allowed`;
+  if (!GP_MAGIC.every((b, i) => p[4 + i] === b)) return 'AGP1 magic missing';
+  if (p[8] !== 0) return 'AGP1 request status must be 0';
+  const n = p[9] ?? -1;
+  if (n < 0 || n > GP_MAX_DATA || p.length !== 10 + n) return `AGP1 data length ${p[9]} does not match the payload`;
+  return check(p, n);
+};
+const agpLength = (want: number) => (_: readonly number[], n: number): string | null => (n === want ? null : `AGP1 data length ${n}, expected ${want}`);
 
 interface Rule {
   /** Matched against the first bytes of the payload. */
@@ -142,6 +161,31 @@ const RULES: readonly Rule[] = [
   },
   { prefix: [0x07, 0x03], write: false, check: (p) => range(p[2], 0, 15, 'macro id') ?? range(p[3], 0, 63, 'macro page') },
   { prefix: [0x07, 0x04], write: true, check: (p) => range(p[2], 0, 15, 'macro id') ?? range(p[3], 0, 63, 'macro page') },
+  // 10 gamepad (AGP1). Only to board 0030000A, and everything but INFO only after INFO confirmed the firmware: checkGamepadFrame.
+  { prefix: [0x10, GP_CMD.INFO], write: false, check: agp1(agpLength(0)) },
+  {
+    prefix: [0x10, GP_CMD.READ], write: false,
+    check: agp1((p, n) => agpLength(7)(p, n) ?? range(p[16], 1, GP_READ_CHUNK, 'READ count')
+      ?? (u16(p, 14) + p[16] <= GP_CONFIG_BYTES ? null : `READ ${u16(p, 14)}+${p[16]} beyond the ${GP_CONFIG_BYTES}-byte block`)),
+  },
+  { prefix: [0x10, GP_CMD.USB_STATUS], write: false, check: agp1(agpLength(0)) },
+  {
+    prefix: [0x10, GP_CMD.BEGIN], write: true,
+    check: agp1((p, n) => agpLength(18)(p, n) ?? (u16(p, 18) === GP_CONFIG_BYTES ? null : `BEGIN length ${u16(p, 18)}, expected ${GP_CONFIG_BYTES}`)
+      ?? (p.slice(20, 28).some((b) => b !== 0) ? null : 'BEGIN token must not be zero')),
+  },
+  {
+    prefix: [0x10, GP_CMD.WRITE], write: true,
+    check: agp1((p, n) => (n >= 11 ? null : `WRITE data length ${n} below 11`)
+      ?? (u16(p, 18) + n - 10 <= GP_CONFIG_BYTES ? null : `WRITE ${u16(p, 18)}+${n - 10} beyond the ${GP_CONFIG_BYTES}-byte block`)),
+  },
+  { prefix: [0x10, GP_CMD.COMMIT], write: true, check: agp1(agpLength(16)) },
+  { prefix: [0x10, GP_CMD.ABORT], write: true, check: agp1(agpLength(8)) },
+  {
+    prefix: [0x10, GP_CMD.USB_SET], write: true,
+    check: agp1((p, n) => agpLength(10)(p, n) ?? (u32(p, 10) === GP_BOARD_ID ? null : 'USB_SET board must be 0030000A')
+      ?? oneOf(p[14], [0, 1], 'USB_SET enabled') ?? (p[15] === 0 ? null : 'USB_SET reserved byte must be 0')),
+  },
 ];
 
 function ruleFor(p: readonly number[]): Rule | undefined {
@@ -160,6 +204,58 @@ export function checkFrame(payload: readonly number[], opts: { readOnly?: boolea
 
 export function isWriteCommand(payload: readonly number[]): boolean {
   return ruleFor(payload)?.write ?? false;
+}
+
+/** An upload this connection started with BEGIN: what WRITE and COMMIT must match, and the bytes acknowledged so far. */
+export interface GamepadStaging {
+  token: readonly number[];
+  crc: number;
+  revision: number;
+  /** The 208-byte block as written so far, and which of its bytes were acknowledged. */
+  block: Uint8Array;
+  received: Uint8Array;
+}
+
+/** What a family-10 frame is checked against: kept by the transport for its connection. */
+export interface GamepadGuard {
+  /** Board read by `01 02` on this connection (lowercase), undefined before. */
+  boardIdHex?: string;
+  /** Capability bits of the INFO that confirmed the gamepad firmware on this connection; null until then. */
+  caps: number | null;
+  staging: GamepadStaging | null;
+}
+
+/**
+ * The conditions of a family-10 frame that depend on the connection. Returns a reason to refuse, or null.
+ * - Only to board 0030000A (AE64 Pro): an AE64 Max, or a keyboard whose board was not read, never gets family 10.
+ * - INFO is the only command before INFO confirmed the gamepad firmware (stock firmware only ever gets INFO).
+ * - USB_STATUS / USB_SET need the USB switch capability.
+ * - WRITE and COMMIT need this connection's BEGIN and its token. COMMIT also needs its CRC and revision, every byte of the block
+ *   written, the bytes to match the CRC, a valid AGC1 block, and an output (HID / XInput) the INFO advertised unless the mode is off.
+ */
+export function checkGamepadFrame(p: readonly number[], g: GamepadGuard): string | null {
+  if (p[0] !== 0x10) return null;
+  if (g.boardIdHex?.toLowerCase() !== GP_BOARD_HEX) return `family 10 (gamepad) is only sent to an AE64 Pro, board 0030000A (board ${g.boardIdHex ?? 'not read'})`;
+  const cmd = p[1];
+  if (cmd === GP_CMD.INFO) return null;
+  if (g.caps === null) return 'gamepad command before INFO confirmed the gamepad firmware';
+  if (cmd === GP_CMD.USB_STATUS || cmd === GP_CMD.USB_SET) return g.caps & GP_CAP.USB_SWITCH ? null : 'the gamepad firmware has no Xbox USB switch';
+  if (cmd !== GP_CMD.WRITE && cmd !== GP_CMD.COMMIT) return null;
+  const st = g.staging;
+  if (!st) return `${cmd === GP_CMD.WRITE ? 'WRITE' : 'COMMIT'} without a BEGIN on this connection`;
+  if (!st.token.every((b, i) => p[10 + i] === b)) return 'token differs from the BEGIN';
+  if (cmd === GP_CMD.WRITE) return null;
+  if (u32(p, 18) !== st.crc || u32(p, 22) !== st.revision) return 'COMMIT CRC or revision differs from the BEGIN';
+  if (st.received.some((b) => b === 0)) return 'COMMIT before every byte of the block was written';
+  if (crc32(st.block) !== st.crc) return 'the written block does not match the BEGIN CRC';
+  let bit: number | null;
+  try {
+    bit = requiredTransportBit(decodeConfig(st.block));
+  } catch {
+    return 'the written block is not a valid AGC1 configuration';
+  }
+  if (bit !== null && !(g.caps & bit)) return 'the firmware does not offer the output (HID / XInput) of this configuration';
+  return null;
 }
 
 /** Sensor fields that are never changed by this app (the switch triple is checked separately). */

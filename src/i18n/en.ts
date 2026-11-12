@@ -8,6 +8,7 @@ import { calibrationEn } from './en/calibration';
 import { performanceEn } from './en/performance';
 import { advancedEn } from './en/advanced';
 import { macroEn } from './en/macro';
+import { gamepadEn } from './en/gamepad';
 
 const baseEn: Record<keyof typeof base, string> = {
   'app.name': 'AE64 Control',
@@ -244,4 +245,5 @@ export const en = {
   ...liveEn,
   ...calibrationEn,
   ...performanceEn,
+  ...gamepadEn,
 } as const;

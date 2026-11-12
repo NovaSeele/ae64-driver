@@ -1,6 +1,8 @@
 // Pinned contract (contracts/protocol.ts), copied verbatim. Do not rename or change signatures.
 // Distances in this API are MILLIMETRES (number); the codec converts to/from µm on the wire.
 
+import type { GamepadInfo, GamepadUsbState } from './gamepad';
+
 export type Bytes = Uint8Array;
 
 export interface KeyPos { row: number; col: number } // firmware row 1–5, sparse firmware column
@@ -146,6 +148,18 @@ export interface Ae64Transport {
   setMacroMeta(m: MacroMeta): Promise<void>;
   readMacroActions(id: number, count: number): Promise<MacroAction[]>;
   writeMacroActions(id: number, actions: MacroAction[]): Promise<void>;
+
+  // 10 gamepad (AGP1, experimental AE64 Pro XInput firmware; never sent to an AE64 Max, see safety.ts checkGamepadFrame)
+  /** INFO; null for stock firmware (`10 FF`) or firmware this app does not know. */
+  gamepadInfo(): Promise<GamepadInfo | null>;
+  gamepadRead(revision: number, offset: number, count: number): Promise<number[]>;
+  gamepadBegin(revision: number, crc: number, token: readonly number[]): Promise<void>;
+  gamepadWrite(token: readonly number[], offset: number, chunk: readonly number[]): Promise<void>;
+  /** The new revision, or null when the reply does not confirm the commit. */
+  gamepadCommit(token: readonly number[], crc: number, revision: number): Promise<{ revision: number; persistent: boolean } | null>;
+  gamepadAbort(token: readonly number[]): Promise<void>;
+  gamepadUsbStatus(): Promise<GamepadUsbState>;
+  gamepadUsbSet(enabled: boolean, revision: number): Promise<GamepadUsbState>;
 }
 
 /** src/protocol/index.ts exports (besides types above): */
@@ -155,7 +169,7 @@ export interface ProtocolModule {
   PHYSICAL_KEYS: readonly PhysicalKey[];                   // fallback 64-key table
   connectHid(): Promise<Ae64Transport>;                    // requestDevice + open; throws readable errors
   reconnectGrantedHid(): Promise<Ae64Transport | null>;    // navigator.hid.getDevices() for auto-reconnect
-  createMockTransport(opts?: { seed?: 'max' | 'pro' }): Ae64Transport; // demo, seeded from device-snapshot.md
+  createMockTransport(opts?: { seed?: 'max' | 'pro' | 'pro-xinput' }): Ae64Transport; // demo, seeded from device-snapshot.md
   keycodeLabel(code: number): { label: string; group: string; long?: string };
   KEYCODE_GROUPS: readonly { id: string; label: string; codes: { code: number; label: string; long?: string }[] }[];
 }

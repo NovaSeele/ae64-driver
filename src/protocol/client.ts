@@ -12,7 +12,10 @@ import {
   LED_RECORDS_PER_PACKET, LED_STRIP_COUNT, REPORT_LENGTH, REQUEST_TIMEOUT_MS,
 } from './constants';
 import * as c from './codec';
-import { checkFrame, checkPerformanceWrite, isWriteCommand, UnsafeCommandError } from './safety';
+import { checkFrame, checkGamepadFrame, checkPerformanceWrite, isWriteCommand, UnsafeCommandError } from './safety';
+import type { GamepadStaging } from './safety';
+import * as gp from './gamepad';
+import type { GamepadInfo, GamepadUsbState } from './gamepad';
 import { t } from '../i18n/vi';
 
 type RawPacketListener = (dir: 'out' | 'in', bytes: Uint8Array, note?: string) => void;
@@ -65,6 +68,8 @@ const ECHOED: readonly { prefix: readonly [number, number]; at: readonly number[
 
 /** True when `reply` answers `request`: same family/command and, for the reads above, the same echoed parameters. */
 export function replyMatches(request: ArrayLike<number>, reply: ArrayLike<number>): boolean {
+  // AGP1: the stock firmware's `10 FF`, or the same command, sequence and magic.
+  if (request[0] === gp.GP_FAMILY) return gp.agp1ReplyMatches(request, reply);
   if (reply[0] !== request[0] || reply[1] !== request[1]) return false;
   const rule = ECHOED.find((r) => r.prefix[0] === request[0] && r.prefix[1] === request[1]);
   return !rule || rule.at.every((i) => reply[i] === request[i]);
@@ -124,6 +129,10 @@ export abstract class BaseTransport implements Ae64Transport {
   protected request(payload: number[], timeoutMs = REQUEST_TIMEOUT_MS): Promise<Bytes> {
     const run = async (): Promise<Bytes> => {
       if (!this.connected) throw new Error(t('error.notConnected'));
+      if (payload[0] === gp.GP_FAMILY) {
+        const why = checkGamepadFrame(payload, { boardIdHex: this.boardIdHex, caps: this.gamepad?.caps ?? null, staging: this.gamepadStaging });
+        if (why) throw new UnsafeCommandError(payload, why);
+      }
       if (!this.boardAllowed && isWriteCommand(payload)) throw new WriteNotAllowedError();
       if (this.calibrationLock && isWriteCommand(payload) && !isCalibrationControl(payload)) {
         throw new UnsafeCommandError(payload, 'the keyboard is calibrating; only "stop calibration" may be sent');
@@ -432,5 +441,85 @@ export abstract class BaseTransport implements Ae64Transport {
 
   async writeMacroActions(id: number, actions: MacroAction[]): Promise<void> {
     for (const page of c.encodeMacroPages(id, actions)) await this.write(page);
+  }
+
+  // ------------------------------------------------------------------ 10 gamepad (AGP1, experimental AE64 Pro XInput firmware)
+  // Every frame passes checkGamepadFrame (safety.ts) in request(): AE64 Pro only, INFO first, WRITE/COMMIT only for this
+  // connection's BEGIN, COMMIT only for a complete, valid block whose output the firmware offers.
+
+  /** INFO that confirmed the gamepad firmware on this connection; null before, or for stock / unknown firmware. */
+  private gamepad: GamepadInfo | null = null;
+  /** The upload this connection started with BEGIN, until COMMIT or ABORT was sent. */
+  private gamepadStaging: GamepadStaging | null = null;
+  private gamepadSeq = 0;
+
+  /** One AGP1 request; the data of an OK reply. Throws GamepadUnsupportedError for `10 FF`, GamepadStatusError for a refusal. */
+  private async agp1(cmd: number, data: number[] = []): Promise<number[]> {
+    this.gamepadSeq = (this.gamepadSeq + 1) & 0xff;
+    const payload = gp.encodeFrame(cmd, this.gamepadSeq, data);
+    const reply = gp.decodeReply(payload, await this.request(payload));
+    if (reply.stock) throw new gp.GamepadUnsupportedError();
+    if (reply.status !== gp.GP_STATUS.OK) throw new gp.GamepadStatusError(reply.status, cmd);
+    return reply.data;
+  }
+
+  /** INFO. Null when the keyboard runs stock firmware (`10 FF`) or firmware this app does not know. Clears any upload. */
+  async gamepadInfo(): Promise<GamepadInfo | null> {
+    this.gamepad = null;
+    this.gamepadStaging = null;
+    let data: number[];
+    try {
+      data = await this.agp1(gp.GP_CMD.INFO);
+    } catch (err) {
+      if (err instanceof gp.GamepadUnsupportedError) return null;
+      throw err;
+    }
+    this.gamepad = gp.decodeInfo(data);
+    return this.gamepad;
+  }
+
+  async gamepadRead(revision: number, offset: number, count: number): Promise<number[]> {
+    return gp.decodeReadReply(await this.agp1(gp.GP_CMD.READ, gp.readData(revision, offset, count)), revision, offset, count);
+  }
+
+  async gamepadBegin(revision: number, crc: number, token: readonly number[]): Promise<void> {
+    this.gamepadStaging = null;
+    await this.agp1(gp.GP_CMD.BEGIN, gp.beginData(revision, crc, token));
+    const block = new Uint8Array(gp.GP_CONFIG_BYTES);
+    this.gamepadStaging = { token: [...token], crc: crc >>> 0, revision: revision >>> 0, block, received: new Uint8Array(gp.GP_CONFIG_BYTES) };
+  }
+
+  async gamepadWrite(token: readonly number[], offset: number, chunk: readonly number[]): Promise<void> {
+    await this.agp1(gp.GP_CMD.WRITE, gp.writeData(token, offset, chunk));
+    const st = this.gamepadStaging;
+    if (!st) return;
+    st.block.set(chunk, offset);
+    st.received.fill(1, offset, offset + chunk.length);
+  }
+
+  /** COMMIT: the new revision, or null when the reply does not confirm it (revision + 1, 5 bytes). Ends the upload either way. */
+  async gamepadCommit(token: readonly number[], crc: number, revision: number): Promise<{ revision: number; persistent: boolean } | null> {
+    try {
+      return gp.decodeCommitReply(await this.agp1(gp.GP_CMD.COMMIT, gp.commitData(token, crc, revision)), revision);
+    } finally {
+      this.gamepadStaging = null;
+    }
+  }
+
+  async gamepadAbort(token: readonly number[]): Promise<void> {
+    try {
+      await this.agp1(gp.GP_CMD.ABORT, gp.abortData(token));
+    } finally {
+      this.gamepadStaging = null;
+    }
+  }
+
+  async gamepadUsbStatus(): Promise<GamepadUsbState> {
+    return gp.decodeUsbState(await this.agp1(gp.GP_CMD.USB_STATUS));
+  }
+
+  /** USB_SET: the state the keyboard answered (a queued change is not verified until it reconnects). */
+  async gamepadUsbSet(enabled: boolean, revision: number): Promise<GamepadUsbState> {
+    return gp.decodeUsbState(await this.agp1(gp.GP_CMD.USB_SET, gp.usbSetData(enabled, revision)));
   }
 }
