@@ -26,7 +26,7 @@ export const performanceVi = {
   'swp.selEmpty': 'Chưa chọn phím. Chọn trên bàn phím, hoặc bấm một switch trong danh sách.',
   'sw.unsupported': 'Bo mạch {board} chưa có danh sách switch, nên chỉ xem được. Bộ chọn switch hỗ trợ AE64 Max (0030000D) và AE64 Pro (0030000A).',
   'sw.recalGo': 'Hiệu chuẩn ngay',
-  'sw.uncalStatus': '{n} phím chưa được hiệu chuẩn. Hành trình của các phím này đo chưa đúng cho tới khi hiệu chuẩn lại.',
+  'sw.uncalStatus': '{n} phím chưa được hiệu chuẩn: {keys}. Hành trình đo chưa đúng cho tới khi hiệu chuẩn lại.',
   'sw.clearsCal': 'Đổi switch sẽ xoá hiệu chuẩn của {n} phím. Cần hiệu chuẩn lại sau đó; hoàn tác không khôi phục được hiệu chuẩn.',
   'kb.uncalibrated': 'chưa hiệu chuẩn',
   'sw.normalised': '{n} phím: bàn phím lưu giá trị switch khác với giá trị vừa gửi. Đang hiện giá trị bàn phím báo về.',

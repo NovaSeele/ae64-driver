@@ -1,7 +1,6 @@
 <script setup lang="ts">
 // Switch card of the Switch page: the switch fitted in the selected keys. Picking happens in SwitchPicker.
 import { computed, ref } from 'vue';
-import { useRouter } from 'vue-router';
 import { IconAlertTriangle, IconInfoCircle, IconReplace } from '@tabler/icons-vue';
 import Card from '../ui/Card.vue';
 import Button from '../ui/Button.vue';
@@ -18,7 +17,6 @@ import { t } from '../../i18n/vi';
 const props = defineProps<{ ids: number[] }>();
 const perf = usePerformanceStore();
 const device = useDeviceStore();
-const router = useRouter();
 
 const open = ref(false);
 
@@ -70,13 +68,6 @@ const rowName = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknownRow'
       <p v-if="perf.switchNotices.length" class="swc__note swc__note--warn" role="status">
         <IconAlertTriangle :size="14" aria-hidden="true" />{{ t('sw.normalised', { n: normalisedN }) }}
       </p>
-      <div v-if="perf.uncalibrated.length" class="swc__recal" role="status">
-        <IconAlertTriangle :size="16" aria-hidden="true" />
-        <span class="swc__recal-text">
-          {{ t('sw.uncalStatus', { n: perf.uncalibrated.length }) }}
-          <button type="button" class="swc__recal-go" @click="router.replace({ path: '/switch', query: { tab: 'calibration' } })">{{ t('sw.recalGo') }}</button>
-        </span>
-      </div>
     </div>
     <div class="swc__foot">
       <Button variant="secondary" size="sm" :icon="IconReplace" :disabled="!perf.catalog || !ids.length" :title="perf.catalog ? undefined : unsupportedText" @click="open = true">{{ t('sw.change') }}</Button>
@@ -107,15 +98,4 @@ const rowName = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknownRow'
 .swc__note svg { flex: none; margin-top: 1px; }
 .swc__note--warn { color: var(--fg-1); }
 .swc__note--warn svg { color: var(--warn); }
-.swc__recal {
-  display: flex; align-items: flex-start; gap: var(--s-2);
-  padding: var(--s-3);
-  border-radius: var(--r-control);
-  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
-  background: color-mix(in srgb, var(--warn) var(--soft-pct), var(--bg-2));
-  color: var(--fg-1); font-size: var(--fs-label); line-height: 1.45;
-}
-.swc__recal > svg { flex: none; color: var(--warn); margin-top: 1px; }
-.swc__recal-text { flex: 1; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
-.swc__recal-go { border: 0; padding: 0; background: none; color: var(--fg-1); font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 </style>

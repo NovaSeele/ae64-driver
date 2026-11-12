@@ -11,7 +11,7 @@ import CalibrationView from '../components/calibration/CalibrationView.vue';
 import Card from '../components/ui/Card.vue';
 import FeatureSwitch from '../components/switch/FeatureSwitch.vue';
 import IconSwitch from '../components/ui/IconSwitch.vue';
-import { IconTarget } from '@tabler/icons-vue';
+import { IconAlertTriangle, IconTarget } from '@tabler/icons-vue';
 import { formatMm } from '../components/ui/NumberField.vue';
 import SwitchCard from '../components/performance/SwitchCard.vue';
 import SwitchSwatch from '../components/performance/SwitchSwatch.vue';
@@ -110,6 +110,13 @@ function nameOfKey(k: PhysicalKey): string | undefined {
   return e ? switchName(e) : t('sw.unknown');
 }
 const uncalFlag = (k: PhysicalKey) => (perf.uncalibrated.includes(k.id) ? { label: t('kb.uncalibrated') } : undefined);
+// Legends of the uncalibrated keys in board order: the first 8, then " +m" for the rest.
+const UNCAL_SHOWN = 8;
+const uncalKeys = computed(() => {
+  const legends = device.keys.filter((k) => perf.uncalibrated.includes(k.id)).map((k) => device.legend(k));
+  const rest = legends.length - UNCAL_SHOWN;
+  return legends.slice(0, UNCAL_SHOWN).join(', ') + (rest > 0 ? ` +${rest}` : '');
+});
 </script>
 
 <template>
@@ -140,6 +147,13 @@ const uncalFlag = (k: PhysicalKey) => (perf.uncalibrated.includes(k.id) ? { labe
               </button>
             </li>
           </ul>
+          <div v-if="perf.uncalibrated.length" class="swp__recal" role="status">
+            <IconAlertTriangle :size="16" aria-hidden="true" />
+            <span class="swp__recal-text">
+              {{ t('sw.uncalStatus', { n: perf.uncalibrated.length, keys: uncalKeys }) }}
+              <button type="button" class="swp__recal-go" @click="pickTab('calibration')">{{ t('sw.recalGo') }}</button>
+            </span>
+          </div>
           <p class="swp__hint">{{ t('swp.mapHint') }}</p>
         </Card>
         <SwitchCard :ids="ids" />
@@ -171,5 +185,16 @@ const uncalFlag = (k: PhysicalKey) => (perf.uncalibrated.includes(k.id) ? { labe
 .swp__name { font-weight: 600; color: var(--fg-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .swp__meta { font-size: var(--fs-label); color: var(--fg-3); }
 .swp__count { flex: none; font-size: var(--fs-label); color: var(--fg-2); }
+.swp__recal {
+  display: flex; align-items: flex-start; gap: var(--s-2); margin-top: var(--s-3);
+  padding: var(--s-3);
+  border-radius: var(--r-control);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) var(--soft-pct), var(--bg-2));
+  color: var(--fg-1); font-size: var(--fs-label); line-height: 1.45;
+}
+.swp__recal > svg { flex: none; color: var(--warn); margin-top: 1px; }
+.swp__recal-text { flex: 1; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.swp__recal-go { border: 0; padding: 0; background: none; color: var(--fg-1); font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .swp__hint { margin: var(--s-3) 0 0; font-size: var(--fs-label); color: var(--fg-3); }
 </style>

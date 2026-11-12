@@ -6,6 +6,7 @@ import { MockTransport, PHYSICAL_KEYS } from '../src/protocol';
 import type { PhysicalKey } from '../src/protocol';
 import { findSwitch } from '../src/protocol/switches';
 import SwitchCard from '../src/components/performance/SwitchCard.vue';
+import SwitchPage from '../src/pages/SwitchPage.vue';
 import { useDeviceStore } from '../src/stores/device';
 import { useSyncStore } from '../src/stores/sync';
 import { useHistoryStore } from '../src/stores/history';
@@ -23,6 +24,14 @@ function card(ids: number[]) {
   return w;
 }
 
+/** The status lives in the board-wide "Switch trên bàn phím" card of the page, not in the selected-keys card. */
+function page() {
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }, { path: '/switch', component: SwitchPage }] });
+  w = mount(SwitchPage, { global: { plugins: [router] }, attachTo: document.body });
+  return w;
+}
+const status = () => w!.find('.swp__recal');
+
 /** The board sets the flag itself when a calibration ends; poke the mock's record byte 16 like the firmware does. */
 function setFlag(mock: MockTransport, key: PhysicalKey, v: number) {
   const m = mock as unknown as { profiles: { perf: Map<string, number[]> }[]; active: number };
@@ -30,8 +39,16 @@ function setFlag(mock: MockTransport, key: PhysicalKey, v: number) {
 }
 
 describe('switch change resets calibration', () => {
-  beforeEach(() => { setActivePinia(createPinia()); locale.value = 'vi'; });
-  afterEach(() => { w?.unmount(); w = null; document.body.innerHTML = ''; });
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    locale.value = 'vi';
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private cb: (e: unknown[]) => void) {}
+      observe() { this.cb([{ contentRect: { width: 900 } }]); }
+      disconnect() {}
+    });
+  });
+  afterEach(() => { w?.unmount(); w = null; document.body.innerHTML = ''; vi.unstubAllGlobals(); });
 
   it('shows the board state: after apply, over undo, until calibrated again', async () => {
     const device = useDeviceStore();
@@ -41,9 +58,10 @@ describe('switch change resets calibration', () => {
     await perf.load();
     const apollo = findSwitch(perf.catalog, 4208)!;
     const setPerf = vi.spyOn(mock, 'setPerformance');
-    const wrapper = card([W.id]);
+    const wrapper = page();
+    await flushPromises();
     expect(perf.uncalibrated).toEqual([]);
-    expect(wrapper.find('.swc__recal').exists()).toBe(false);
+    expect(status().exists()).toBe(false);
 
     perf.applySwitch([W.id], apollo);
     await useSyncStore().flush();
@@ -52,27 +70,31 @@ describe('switch change resets calibration', () => {
     expect((await mock.getPerformance(W)).calibrate).toBe(0);
     expect(perf.values[W.id].calibrate).toBe(0);
     expect(perf.uncalibrated).toEqual([W.id]);
-    expect(wrapper.find('.swc__recal').exists()).toBe(true);
-    expect(wrapper.find('.swc__recal').attributes('role')).toBe('status');
-    expect(wrapper.find('.swc__recal').text()).toContain('1 phím chưa được hiệu chuẩn.');
-    expect(wrapper.find('.swc__recal').text()).toContain('Hiệu chuẩn ngay');
-    expect(wrapper.find('.swc__recal-x').exists()).toBe(false); // no Hide
+    expect(status().exists()).toBe(true);
+    expect(status().attributes('role')).toBe('status');
+    expect(status().text()).toContain('1 phím chưa được hiệu chuẩn: W. Hành trình đo chưa đúng cho tới khi hiệu chuẩn lại.');
+    expect(status().text()).toContain('Hiệu chuẩn ngay');
+    expect(status().find('.swp__recal-x').exists()).toBe(false); // no Hide
+    expect(status().element.closest('.card')?.textContent).toContain('Switch trên bàn phím');
+    expect(wrapper.find('.swc__recal').exists()).toBe(false); // not in the selected-keys card
 
     useHistoryStore().undo();
     await useSyncStore().flush();
     await flushPromises();
     expect(setPerf.mock.calls[1][1].calibrate).toBe(0); // newest fresh read
     expect(perf.uncalibrated).toEqual([W.id]);
-    expect(wrapper.find('.swc__recal').exists()).toBe(true);
+    expect(status().exists()).toBe(true);
     wrapper.unmount();
-    expect(card([W.id]).find('.swc__recal').exists()).toBe(true);
+    page();
+    await flushPromises();
+    expect(status().exists()).toBe(true);
 
     // Calibrated again, then the store re-reads (the calibration store's reload does this).
     setFlag(mock, W, 1);
     await perf.load(true);
     await flushPromises();
     expect(perf.uncalibrated).toEqual([]);
-    expect(w!.find('.swc__recal').exists()).toBe(false);
+    expect(status().exists()).toBe(false);
   });
 
   it('a key uncalibrated at load is included, board-wide', async () => {
@@ -82,8 +104,24 @@ describe('switch change resets calibration', () => {
     const perf = usePerformanceStore();
     await perf.load();
     expect(perf.uncalibrated).toEqual([A.id]);
-    // The selection holds another key: the status is still shown.
-    expect(card([W.id]).find('.swc__recal').text()).toContain('1 phím chưa được hiệu chuẩn.');
+    // The selection holds another key: the status is still shown, and names the uncalibrated one.
+    page();
+    await flushPromises();
+    expect(status().text()).toContain('1 phím chưa được hiệu chuẩn: A.');
+  });
+
+  it('names the first 8 uncalibrated keys in board order, then +m', async () => {
+    const device = useDeviceStore();
+    await device.connectDemo();
+    const keys = device.keys.slice(0, 10);
+    keys.forEach((k) => setFlag(device.transport as MockTransport, k, 0));
+    const perf = usePerformanceStore();
+    await perf.load(true);
+    page();
+    await flushPromises();
+    expect(perf.uncalibrated).toHaveLength(10);
+    const first8 = keys.slice(0, 8).map((k) => device.legend(k)).join(', ');
+    expect(status().text()).toContain(`10 phím chưa được hiệu chuẩn: ${first8} +2. Hành trình`);
   });
 
   it('a non-switch edit does not add a key', async () => {

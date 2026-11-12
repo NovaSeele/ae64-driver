@@ -28,7 +28,7 @@ export const performanceEn: Record<keyof typeof performanceVi, string> = {
   'swp.selEmpty': 'No keys selected. Pick keys on the board, or click a switch in the list.',
   'sw.unsupported': 'Board {board} has no switch list, so this is read-only. The switch selector supports the AE64 Max (0030000D) and the AE64 Pro (0030000A).',
   'sw.recalGo': 'Calibrate now',
-  'sw.uncalStatus': '{n|# key is|# keys are} not calibrated. Their travel reads wrong until you recalibrate.',
+  'sw.uncalStatus': '{n|# key is|# keys are} not calibrated: {keys}. Travel reads wrong until you recalibrate.',
   'sw.clearsCal': 'Changing the switch clears the calibration of {n|this key|these # keys}. Recalibrate afterwards; undo does not bring it back.',
   'kb.uncalibrated': 'not calibrated',
   'sw.normalised': '{n|# key|# keys}: the keyboard stored a different switch value than the one sent. Showing what the keyboard reports.',
