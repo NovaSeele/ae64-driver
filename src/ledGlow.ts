@@ -45,10 +45,15 @@ export function ledGlow(color: string | undefined): LedGlow | undefined {
   if (!color) return undefined;
   const rgb = parseLedColor(color);
   if (!rgb) return undefined;
-  const m = Math.max(...rgb);
+  return ledGlowRgb(rgb[0], rgb[1], rgb[2]);
+}
+
+/** ledGlow of 0..255 channels, without a colour string to build and parse (the live preview paints up to 100 frames a second). */
+export function ledGlowRgb(r: number, g: number, b: number): LedGlow | undefined {
+  const m = Math.max(r, g, b);
   if (!(m >= LED_OFF_BELOW)) return undefined;
   const k = 255 / m;
-  return { led: `#${rgb.map((v) => hex2(v * k)).join('')}`, level: Math.round((m / 255) * 1000) / 1000 };
+  return { led: `#${hex2(r * k)}${hex2(g * k)}${hex2(b * k)}`, level: Math.round((m / 255) * 1000) / 1000 };
 }
 
 /** One edge-strip LED for the band: its position 0..1 along its side (as `stripRing()` gives it) and its glow. */

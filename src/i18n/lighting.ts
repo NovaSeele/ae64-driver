@@ -15,7 +15,7 @@ export const lightingVi = {
 
   // Live preview
   'lighting.livePreview': 'Xem trực tiếp',
-  'lighting.livePreviewHint': 'Đọc liên tục từ bàn phím (~10 Hz)',
+  'lighting.livePreviewHint': 'Đọc liên tục từ bàn phím (tới ~60 Hz)',
   'lighting.liveStatus': 'Trực tiếp',
   'lighting.simStatus': 'Mô phỏng',
   'lighting.pausedStatus': 'Tạm dừng',

@@ -211,8 +211,8 @@ const capStyle = computed(() => {
     color-mix(in srgb, var(--led) var(--led-bottom), var(--cap-bottom)));
   border-color: var(--led-edge);
   box-shadow: var(--led-inner), var(--led-halo);
-  /* No transition: live preview repaints at 10 Hz, so a 100 ms fade on 64 keys never settles and becomes a running
-     animation (27 frames over 33 ms in 6 s at 4x CPU). Colours step with the data, like the firmware. */
+  /* No transition: live preview repaints up to ~60 times a second, so a 100 ms fade on 64 keys never settles and becomes
+     a running animation (27 frames over 33 ms in 6 s at 4x CPU, at 10 Hz). Colours step with the data, like the firmware. */
   transition: none;
 }
 .cap.cap--glow:hover .cap__face {
@@ -228,7 +228,13 @@ const capStyle = computed(() => {
 }
 /* A dropped write still flashes in the danger colour over the glow. */
 .cap.cap--flash.cap--glow .cap__face { border-color: var(--danger); box-shadow: 0 0 0 2px var(--danger); }
-.cap.cap--glow .cap__badge { color: var(--fg-1); }
+.cap.cap--glow .cap__badge,
+.cap .cap__face--live .cap__badge { color: var(--fg-1); }
+/* Live preview (LED60): liveLedPainter.ts lights a face with class cap__face--live and writes its background,
+   border-color and box-shadow inline, from the rules above with the LED's colour and level filled in (hover, selected,
+   focused and flashing included). Not through variables: a variable on the face is inherited by everything inside it,
+   so each live frame restyled every legend and badge too (~3.5 ms a frame instead of ~1.7, measured on LED60). */
+.cap .cap__face.cap__face--live { transition: none; }
 .cap__extra :deep(.swatch) { width: 20px; height: 20px; }
 .cap__sub--skeleton { width: 60%; height: 9px; }
 

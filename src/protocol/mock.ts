@@ -147,6 +147,10 @@ export class MockTransport extends BaseTransport {
   private readonly snapshot: Record<string, number[]>;
   private open = true;
   private readonly latencyMs: number;
+  /** LED framebuffer reads (05 03) answer on a MessageChannel task instead of a timer (demo in the browser, see exchange). */
+  private fastLedReplies: boolean;
+  private replyPort: MessagePort | null = null;
+  private readonly replyQueue: (() => void)[] = [];
   private readonly profiles: MockProfile[];
   private active = 0;
   private systemMode = 0;
@@ -165,13 +169,14 @@ export class MockTransport extends BaseTransport {
   dropGamepadReply: ((cmd: number) => boolean) | null = null;
   private gamepadHandler: ((req: Uint8Array) => Uint8Array | null) | null = null;
 
-  constructor(opts: { latencyMs?: number; seed?: DemoSeed } = {}) {
+  constructor(opts: { latencyMs?: number; seed?: DemoSeed; fastLedReplies?: boolean } = {}) {
     super();
     const pro = opts.seed === 'pro' || opts.seed === 'pro-xinput';
     this.productName = pro ? 'AE64 Pro (demo)' : 'AE64-MAX (demo)';
     this.productId = pro ? PRODUCT_ID_PRO : PRODUCT_ID_MAX;
     this.snapshot = pro ? { ...SNAPSHOT, ...PRO_SNAPSHOT } : SNAPSHOT;
     this.latencyMs = opts.latencyMs ?? 2;
+    this.fastLedReplies = !!opts.fastLedReplies && typeof MessageChannel !== 'undefined';
     const sw = pro ? PRO_SWITCH : {};
     const profileName = (i: number, name: string) => (pro ? PRO_PROFILE_NAMES[i] : name);
     this.profiles = [
@@ -250,6 +255,9 @@ export class MockTransport extends BaseTransport {
 
   async close(): Promise<void> {
     this.open = false;
+    for (const answer of this.replyQueue.splice(0)) answer();
+    this.replyPort?.close();
+    this.replyPort = null;
   }
 
   private travelTicker: ((now: number) => void) | null = null;
@@ -307,7 +315,26 @@ export class MockTransport extends BaseTransport {
       this.dropGamepadReply = null;
       return Promise.reject(new TransportTimeoutError(Array.from(frame.slice(0, 2))));
     }
+    if (this.fastLedReplies && frame[0] === 0x05 && frame[1] === 0x03) return this.replySoon(reply);
     return new Promise((resolve) => setTimeout(() => resolve(reply), this.latencyMs));
+  }
+
+  /**
+   * The reply on the next task, without a timer. A read loop awaits one reply after another: as timers those nest, and the
+   * browser clamps a nested timer to 4 ms from the 5th level, so 10 LED packets took ~40 ms and the demo could not show
+   * more than ~25 frames a second. A MessageChannel task is not clamped (the real keyboard answers in ~1.15 ms).
+   */
+  private replySoon(reply: Uint8Array): Promise<Bytes> {
+    if (!this.replyPort) {
+      const ch = new MessageChannel();
+      ch.port1.onmessage = () => this.replyQueue.shift()?.();
+      (ch.port1 as unknown as { unref?: () => void }).unref?.(); // Node (tests): does not keep the process alive
+      this.replyPort = ch.port2;
+    }
+    return new Promise((resolve) => {
+      this.replyQueue.push(() => resolve(reply));
+      this.replyPort!.postMessage(0);
+    });
   }
 
   private handle(req: number[]): Uint8Array {
@@ -651,5 +678,6 @@ function makeLedFrame(area: number, mode: number, speed: number, direction: numb
 }
 
 export function createMockTransport(opts?: { seed?: DemoSeed }): MockTransport {
-  return new MockTransport({ seed: opts?.seed });
+  // Fast LED replies in the browser only: the unit tests drive this demo with fake timers.
+  return new MockTransport({ seed: opts?.seed, fastLedReplies: import.meta.env.MODE !== 'test' });
 }

@@ -17,7 +17,7 @@ export const lightingEn: Record<keyof typeof lightingVi, string> = {
 
   // Live preview
   'lighting.livePreview': 'Live preview',
-  'lighting.livePreviewHint': 'Continuous read from keyboard (~10 Hz)',
+  'lighting.livePreviewHint': 'Continuous read from keyboard (up to ~60 Hz)',
   'lighting.liveStatus': 'Live',
   'lighting.simStatus': 'Simulated',
   'lighting.pausedStatus': 'Paused',

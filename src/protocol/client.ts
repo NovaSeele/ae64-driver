@@ -372,8 +372,18 @@ export abstract class BaseTransport implements Ae64Transport {
     await this.write(c.encodePalette(area, colors));
   }
 
-  async readLedMatrix(area: number): Promise<LedRecord[]> {
+  async readLedMatrix(area: number, pages?: readonly number[]): Promise<LedRecord[]> {
     const n = ledCount(area);
+    if (pages) {
+      // Only these packets (the live preview reads the ones that hold LEDs): the full length, holes where not read.
+      const out: LedRecord[] = new Array(n);
+      for (const p of pages) {
+        if (!(p >= 0 && p * LED_RECORDS_PER_PACKET < n)) continue;
+        const recs = c.decodeColors(await this.request([FAMILY.LIGHTING, 0x03, area, p]));
+        for (let i = 0; i < recs.length && p * LED_RECORDS_PER_PACKET + i < n; i++) out[p * LED_RECORDS_PER_PACKET + i] = recs[i];
+      }
+      return out;
+    }
     const out: LedRecord[] = [];
     for (let p = 0; p * LED_RECORDS_PER_PACKET < n; p++) {
       out.push(...c.decodeColors(await this.request([FAMILY.LIGHTING, 0x03, area, p])));

@@ -577,7 +577,8 @@ describe('the keycap legend of each page (§3.4)', () => {
 
   it('GLOW_BADGE_TONE is the colour of the glowing keycap badge', () => {
     const css = readFileSync(resolve('src/components/keyboard/Keycap.vue'), 'utf8').split('<style')[1];
-    expect(css).toMatch(new RegExp(`\\.cap\\.cap--glow \\.cap__badge \\{ color: ${GLOW_BADGE_TONE.replace(/[()]/g, '\\$&')}; \\}`));
+    // the settings glow and the live glow (LED60) share the rule
+    expect(css).toMatch(new RegExp(`\\.cap\\.cap--glow \\.cap__badge,\\s*\\.cap \\.cap__face--live \\.cap__badge \\{ color: ${GLOW_BADGE_TONE.replace(/[()]/g, '\\$&')}; \\}`));
   });
 
   it('no page passes #hint any more: the detail slot replaced it', () => {

@@ -307,6 +307,12 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
   box-shadow: 0 0 0 1px var(--bg-1), 0 0 0 3px var(--acc), var(--led-inner);
   outline-offset: 5px;
 }
+/* A live-lit face (LED60): the same outline; its box-shadow is written inline from the two rules above. */
+.kb__key:focus-visible :deep(.cap .cap__face.cap__face--live) {
+  outline: 2px dashed var(--fg-1);
+  outline-offset: 3px;
+}
+.kb__key:focus-visible :deep(.cap.cap--sel .cap__face.cap__face--live) { outline-offset: 5px; }
 .kb__key:active :deep(.cap) { transform: translateY(1px); }
 .kb__box {
   position: absolute;

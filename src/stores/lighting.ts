@@ -1,9 +1,9 @@
 // Store for Lighting (area 0: keyboard keys, area 1: perimeter LED strip).
 // Follows the per-key page pattern: load -> edit through history + sync -> verify by read-back.
 import { defineStore } from 'pinia';
-import { computed, ref, shallowRef, watch } from 'vue';
+import { computed, markRaw, ref, shallowRef, watch } from 'vue';
 import {
-  LED_MATRIX_COLS, LED_MATRIX_ROWS, LED_STRIP_COUNT, PALETTE_SIZE, SAVE_GROUP,
+  LED_MATRIX_COLS, LED_MATRIX_ROWS, LED_RECORDS_PER_PACKET, LED_STRIP_COUNT, PALETTE_SIZE, SAVE_GROUP,
 } from '../protocol';
 import type {
   Ae64Transport, LedRecord, LightingBase, PaletteEntry, PhysicalKey,
@@ -14,6 +14,19 @@ import { useHistoryStore } from './history';
 import { useSyncStore } from './sync';
 
 export const LED_MATRIX_TOTAL = LED_MATRIX_ROWS * LED_MATRIX_COLS; // 126
+
+/**
+ * The latest live frame read from the keyboard: r, g, b per LED, 3 bytes each. Not reactive (the Lighting page paints it
+ * outside Vue's render, LED60): the store overwrites it in place when a whole frame has been read.
+ */
+export interface LiveLedFrame {
+  /** whole frames read so far (a counter for tests and measuring; changes with every frame) */
+  seq: number;
+  /** area 0 by matrix cell (row * 21 + col): only the packets that hold a key's LED are read, the rest stays 0 */
+  keys: Uint8Array;
+  /** area 1 (the edge strip) by LED index */
+  strip: Uint8Array;
+}
 
 export interface RgbColor {
   r: number;
@@ -95,16 +108,18 @@ export const useLightingStore = defineStore('lighting', () => {
 
   // Live preview poller state
   const livePreview = ref(true);
-  const liveColors = shallowRef<Record<number, string>>({});
-  const liveStripColors = shallowRef<string[]>([]);
+  const liveFrame: LiveLedFrame = markRaw({
+    seq: 0, keys: new Uint8Array(LED_MATRIX_TOTAL * 3), strip: new Uint8Array(LED_STRIP_COUNT * 3),
+  });
+  /** liveFrame holds a frame of this run of live preview (false again when it stops, is turned off or fails). */
+  const liveHasFrame = ref(false);
   const polling = ref(false);
   /** The last live frame could not be read (cleared by the next good frame). */
   const liveError = ref(false);
+  watch(livePreview, (on) => { if (!on) liveHasFrame.value = false; });
+  watch(() => device.connection, () => { liveHasFrame.value = false; });
 
   let loadPromise: Promise<void> | null = null;
-  let pollTimer: ReturnType<typeof setTimeout> | null = null;
-  let pollCycle = 0;
-  let pollInFlight = false;
 
   // Key custom color statuses
   const keyCustomColors = computed<Record<number, { custom: boolean; colorHex: string }>>(() => {
@@ -533,69 +548,145 @@ export const useLightingStore = defineStore('lighting', () => {
     clearStripColors(all, label);
   }
 
-  // ------------------------------------------------------------------ Live preview poller (~10 Hz)
+  // ------------------------------------------------------------------ Live preview (up to ~70 frames a second)
+  // LED60: the next frame is read once the one before it is done, at most ~70 a second (a frame starts >= 14 ms after the
+  // one before) and never more than one per display frame. Faster gave nothing to see and cost the page its frame budget:
+  // painting a frame restyles every keycap, and at the bus's ~85 Hz on a 100 Hz screen the main thread spent ~410 ms a
+  // second (measured on LED60, headless Chromium, demo Max). Each frame reads only the area-0 packets that hold a key's
+  // LED (Max: 7 of 9) and the 3 strip packets, one `05 03` request at a time through the transport's FIFO queue, so a
+  // write waits for one packet at most. Nothing is read while the tab is hidden, the device is busy, a write is waiting
+  // or running, or live preview is off; after a failed read the next try waits 500 ms.
+  const FRAME_MS = 14;
   const HIDDEN_POLL_MS = 500;
+  const ERROR_RETRY_MS = 500;
+  const PAUSED_POLL_MS = 50;
+  const STRIP_PAGES = Array.from({ length: Math.ceil(LED_STRIP_COUNT / LED_RECORDS_PER_PACKET) }, (_, p) => p);
+  /** The area-0 packets with a key's LED, from the keys of the connected model (cell row * 21 + col, 15 per packet). */
+  const livePages = computed(() => [...new Set(device.keys.map((k) => Math.floor((k.row * LED_MATRIX_COLS + k.col) / LED_RECORDS_PER_PACKET)))]
+    .sort((a, b) => a - b));
+  const scratchKeys = new Uint8Array(LED_MATRIX_TOTAL * 3);
+  const scratchStrip = new Uint8Array(LED_STRIP_COUNT * 3);
 
-  async function tickLivePreview() {
+  const hasRaf = typeof requestAnimationFrame === 'function' && typeof cancelAnimationFrame === 'function';
+  const raf = (cb: () => void): unknown => (hasRaf ? requestAnimationFrame(cb) : setTimeout(cb, 16));
+  const cancelRaf = (id: unknown) => (hasRaf ? cancelAnimationFrame(id as number) : clearTimeout(id as ReturnType<typeof setTimeout>));
+  let pollTimer: ReturnType<typeof setTimeout> | null = null;
+  let rafId: unknown = null;
+  /** display frames seen while reading (the frame clock) */
+  let rafCount = 0;
+  /** the frame just read started within the current display frame: the next one starts on the next display frame */
+  let waitingForRaf = false;
+  let reading = false;
+  /** performance.now() before which the next frame does not start */
+  let nextFrameAt = 0;
+  const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+  const tabHidden = () => typeof document !== 'undefined' && document.hidden;
+  function canRead(): boolean {
+    return polling.value && !tabHidden() && device.connected && livePreview.value && !device.exclusiveActive &&
+      sync.state !== 'writing' && sync.state !== 'pending';
+  }
+
+  function onRaf(): void {
+    rafId = null;
+    rafCount++;
     if (!polling.value) return;
-    // No frames while the tab is hidden: nobody sees them and they keep the HID bus busy.
-    const hidden = typeof document !== 'undefined' && document.hidden;
-    const canPoll = !hidden &&
-      device.connected &&
-      livePreview.value &&
-      !device.exclusiveActive &&
-      sync.state !== 'writing' &&
-      sync.state !== 'pending' &&
-      !pollInFlight;
-
-    if (canPoll) {
-      pollInFlight = true;
-      try {
-        await device.withTransport(async (t) => {
-          // Read area 0 every tick
-          const m0 = await t.readLedMatrix(0);
-          const nextKeys: Record<number, string> = {};
-          for (const k of device.keys) {
-            // Space key uses center LED cell
-            const idx = k.row * LED_MATRIX_COLS + k.col;
-            const rec = m0[idx];
-            if (rec) nextKeys[k.id] = rgbToHex(rec);
-          }
-          liveColors.value = nextKeys;
-
-          // Read area 1 (strip) every other tick
-          if (pollCycle % 2 === 0) {
-            const m1 = await t.readLedMatrix(1);
-            liveStripColors.value = m1.slice(0, LED_STRIP_COUNT).map(rgbToHex);
-          }
-          pollCycle++;
-        }, { exclusive: false });
-        liveError.value = false;
-      } catch {
-        liveError.value = true;
-      } finally {
-        pollInFlight = false;
-      }
+    if (waitingForRaf) {
+      waitingForRaf = false;
+      tickLivePreview();
+    } else if (reading) {
+      rafId = raf(onRaf);
     }
+  }
+  function ensureRaf(): void {
+    if (rafId === null) rafId = raf(onRaf);
+  }
+  function later(ms: number): void {
+    pollTimer = setTimeout(() => { pollTimer = null; tickLivePreview(); }, ms);
+  }
 
-    if (polling.value) {
-      pollTimer = setTimeout(tickLivePreview, hidden ? HIDDEN_POLL_MS : 100);
+  function tickLivePreview(): void {
+    if (!polling.value || reading || pollTimer || waitingForRaf) return;
+    if (tabHidden()) return later(HIDDEN_POLL_MS); // nobody sees the frames and they keep the HID bus busy
+    if (!canRead()) return later(PAUSED_POLL_MS);
+    const wait = nextFrameAt - now();
+    if (wait > 1) return later(wait);
+    void readLiveFrame();
+  }
+
+  function copyRecords(dst: Uint8Array, recs: LedRecord[], page: number, count: number): void {
+    for (let i = page * LED_RECORDS_PER_PACKET; i < Math.min(count, (page + 1) * LED_RECORDS_PER_PACKET); i++) {
+      const r = recs[i];
+      if (!r) continue;
+      dst[i * 3] = r.r;
+      dst[i * 3 + 1] = r.g;
+      dst[i * 3 + 2] = r.b;
+    }
+  }
+
+  async function readLiveFrame(): Promise<void> {
+    reading = true;
+    const startedAt = rafCount;
+    nextFrameAt = now() + FRAME_MS;
+    ensureRaf();
+    let whole = false;
+    let failed = false;
+    try {
+      // One request per packet, checked in between: a write that became pending stops the frame at the packet in flight.
+      whole = await device.withTransport(async (t) => {
+        for (const p of livePages.value) {
+          if (!canRead()) return false;
+          copyRecords(scratchKeys, await t.readLedMatrix(0, [p]), p, LED_MATRIX_TOTAL);
+        }
+        for (const p of STRIP_PAGES) {
+          if (!canRead()) return false;
+          copyRecords(scratchStrip, await t.readLedMatrix(1, [p]), p, LED_STRIP_COUNT);
+        }
+        return true;
+      }, { exclusive: false });
+    } catch {
+      failed = true;
+    } finally {
+      reading = false;
+    }
+    if (!polling.value) return;
+    if (failed) {
+      liveError.value = true;
+      liveHasFrame.value = false;
+      return later(ERROR_RETRY_MS);
+    }
+    if (!whole) return tickLivePreview(); // stopped half way: wait as the reason says
+    liveFrame.keys.set(scratchKeys);
+    liveFrame.strip.set(scratchStrip);
+    liveFrame.seq++;
+    if (liveError.value) liveError.value = false;
+    if (!liveHasFrame.value) liveHasFrame.value = true;
+    if (rafCount > startedAt) {
+      // a display frame has passed since this one started: the next starts on its own task, 14 ms after this one did
+      later(Math.max(0, nextFrameAt - now()));
+    } else {
+      waitingForRaf = true;
+      ensureRaf();
     }
   }
 
   function startLivePolling() {
     if (polling.value) return;
     polling.value = true;
-    pollCycle = 0;
-    pollInFlight = false;
     tickLivePreview();
   }
 
   function stopLivePolling() {
     polling.value = false;
+    liveHasFrame.value = false;
+    waitingForRaf = false;
     if (pollTimer) {
       clearTimeout(pollTimer);
       pollTimer = null;
+    }
+    if (rafId !== null) {
+      cancelRaf(rafId);
+      rafId = null;
     }
   }
 
@@ -619,8 +710,9 @@ export const useLightingStore = defineStore('lighting', () => {
     stripCustomColors,
 
     livePreview,
-    liveColors,
-    liveStripColors,
+    liveFrame,
+    liveHasFrame,
+    livePages,
     polling,
     liveError,
 

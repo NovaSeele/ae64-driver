@@ -9,6 +9,7 @@ import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import SelectionBar from '../components/keyboard/SelectionBar.vue';
 import type { LegendItem } from '../components/keyboard/SelectionBar.vue';
 import { GLOW_BADGE_TONE } from '../components/keyboard/Keycap.vue';
+import { LiveLedPainter } from '../components/keyboard/liveLedPainter';
 import Button from '../components/ui/Button.vue';
 import Dialog from '../components/ui/Dialog.vue';
 import InfoTip from '../components/ui/InfoTip.vue';
@@ -114,7 +115,65 @@ onBeforeUnmount(() => {
   offProfile?.();
   lighting.stopLivePolling();
   window.removeEventListener('keydown', onWindowKey);
+  document.removeEventListener('visibilitychange', onVisibility);
+  stopPainting();
 });
+
+// ------------------------------------------------------------------ Live colours (LED60)
+// While live preview shows keyboard frames, the keys, ring dots and bands are painted outside Vue (liveLedPainter.ts): one
+// rAF loop paints the newest frame (frames in between are skipped, never queued), only what changed. Vue then draws the
+// keys unlit and no settings band; everything hand-written is taken off when live preview stops showing frames (off, a
+// read error, the tab hidden, leaving the page, another profile loading), and the colours from the settings show again.
+const tabVisible = ref(typeof document === 'undefined' || !document.hidden);
+function onVisibility() { tabVisible.value = !document.hidden; }
+document.addEventListener('visibilitychange', onVisibility);
+const livePaint = computed(() => ready.value && lighting.livePreview && !lighting.liveError && lighting.liveHasFrame && tabVisible.value);
+const boardEl = ref<HTMLElement | null>(null);
+let painter: LiveLedPainter | null = null;
+let paintRaf: number | null = null;
+let paintedSeq = -1;
+function paintFrame(): void {
+  const frame = lighting.liveFrame;
+  if (!painter || (frame.seq === paintedSeq && !painter.dirty)) return;
+  paintedSeq = frame.seq;
+  painter.paint(frame, device.keys);
+}
+function paintLoop(): void {
+  paintRaf = requestAnimationFrame(paintLoop);
+  paintFrame();
+}
+// A lit key's look depends on its state (hover, keyboard focus, selected, flashing), so a state change repaints the keys
+// on the next display frame even when the keyboard sent nothing new. Selection and flash are Vue's classes on `.cap`.
+const invalidatePaint = () => painter?.invalidate();
+const STATE_EVENTS = ['pointerover', 'pointerout', 'focusin', 'focusout'] as const;
+let capObserver: MutationObserver | null = null;
+function startPainting(): void {
+  const el = boardEl.value;
+  if (!el) return;
+  painter ??= new LiveLedPainter(el);
+  paintedSeq = -1;
+  paintFrame(); // at once: Vue has just drawn the keys unlit
+  if (paintRaf === null) paintRaf = requestAnimationFrame(paintLoop);
+  for (const ev of STATE_EVENTS) el.addEventListener(ev, invalidatePaint);
+  if (!capObserver && typeof MutationObserver !== 'undefined') {
+    capObserver = new MutationObserver((records) => {
+      if (records.some((r) => (r.target as Element).classList?.contains('cap'))) invalidatePaint();
+    });
+    capObserver.observe(el, { subtree: true, attributes: true, attributeFilter: ['class'] });
+  }
+}
+function stopPainting(): void {
+  if (paintRaf !== null) cancelAnimationFrame(paintRaf);
+  paintRaf = null;
+  const el = boardEl.value;
+  if (el) for (const ev of STATE_EVENTS) el.removeEventListener(ev, invalidatePaint);
+  capObserver?.disconnect();
+  capObserver = null;
+  painter?.clear();
+  paintedSeq = -1;
+}
+watch(livePaint, (on) => (on ? startPainting() : stopPainting()), { flush: 'post' });
+onMounted(() => { if (livePaint.value) startPainting(); });
 
 // ------------------------------------------------------------------ Preview colours
 /** Static stand-in for the firmware's rainbow: hue by position (0..1). */
@@ -123,10 +182,7 @@ function rainbowAt(pos: number): string {
 }
 
 function keyColor(key: PhysicalKey): string | undefined {
-  if (!ready.value) return undefined;
-  if (lighting.livePreview && lighting.liveColors[key.id]) {
-    return lighting.liveColors[key.id];
-  }
+  if (!ready.value || livePaint.value) return undefined; // live: painted outside Vue
   const custom = lighting.keyCustomColors[key.id];
   if (custom?.custom) {
     return custom.colorHex;
@@ -150,9 +206,6 @@ function keyBadge(key: PhysicalKey): string | undefined {
 
 function stripColor(index: number): string {
   if (!ready.value) return 'var(--bg-3)';
-  if (lighting.livePreview && lighting.liveStripColors[index]) {
-    return lighting.liveStripColors[index];
-  }
   const custom = lighting.stripCustomColors[index];
   if (custom?.custom) return custom.colorHex;
   const b = lighting.area1Base;
@@ -188,7 +241,8 @@ const ringLeds = computed(() => stripRing().map(({ index, side, t: pos }) => {
 }));
 
 /** One blurred band per side through that side's LED colours; a side with no lit LED has none (DESIGN A §3.3). */
-const ringBands = computed(() => (['top', 'right', 'bottom', 'left'] as RingSide[]).flatMap((side) => {
+const RING_SIDES: RingSide[] = ['top', 'right', 'bottom', 'left'];
+const ringBands = computed(() => RING_SIDES.flatMap((side) => {
   const bg = bandGradient(side, ringLeds.value.filter((l) => l.side === side).map((l) => ({ pos: l.pos, glow: l.glow })));
   return bg ? [{ side, bg }] : [];
 }));
@@ -478,7 +532,7 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
       <p v-if="readOnly" class="lighting-notice" role="status">{{ t('lighting.readOnly') }}</p>
 
       <!-- keyboard (keys are only selectable on the keys tab) with the edge strip as a ring on its frame -->
-      <div class="wb__board">
+      <div ref="boardEl" class="wb__board">
         <KeyboardView
           :keys="device.keys"
           :legend="device.legend"
@@ -491,12 +545,18 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
         <div
           ref="ringEl"
           class="ring ring--band"
-          :class="{ 'ring--on': activeTab === 'strip' && ready }"
+          :class="{ 'ring--on': activeTab === 'strip' && ready, 'ring--live': livePaint }"
           role="group"
           :aria-label="t('lighting.ringLabel')"
           :aria-hidden="activeTab === 'strip' ? undefined : true"
         >
-          <span v-for="band in ringBands" :key="band.side" class="ring__band" :class="`ring__band--${band.side}`" :style="{ '--band': band.bg }" aria-hidden="true" />
+          <template v-if="livePaint">
+            <!-- live: one band per side, its --band written by the painter (no style binding here) -->
+            <span v-for="side in RING_SIDES" :key="`live-${side}`" class="ring__band ring__band--live" :class="`ring__band--${side}`" aria-hidden="true" />
+          </template>
+          <template v-else>
+            <span v-for="band in ringBands" :key="band.side" class="ring__band" :class="`ring__band--${band.side}`" :style="{ '--band': band.bg }" aria-hidden="true" />
+          </template>
           <button
             v-for="led in ringLeds"
             :key="led.index"
@@ -884,6 +944,9 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
 @media (prefers-reduced-motion: reduce) {
   .led__dot, .led__glow { transition: none; }
 }
+/* Live: the colour steps with each frame (up to every display frame), a fade would never settle. */
+.ring--live .led__dot { transition: box-shadow var(--t-fast) var(--ease); }
+.ring--live .led__glow { transition: none; }
 
 /* Continuous band: one blurred strip per side under the LED buttons, centred on the frame line. The dots shrink once the
    band carries the colour; they stay to click and to show where each of the 38 LEDs is. */

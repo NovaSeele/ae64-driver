@@ -132,7 +132,7 @@ export interface Ae64Transport {
   setLightingBase(base: LightingBase): Promise<void>;
   getPalette(area: number): Promise<PaletteEntry[]>;                  // 8 entries
   setPalette(area: number, colors: PaletteEntry[]): Promise<void>;
-  readLedMatrix(area: number): Promise<LedRecord[]>;                  // area0 6×21=126, area1 38
+  readLedMatrix(area: number, pages?: readonly number[]): Promise<LedRecord[]>; // area0 6×21=126, area1 38; with pages: only those packets, holes elsewhere
   writeLedMatrix(area: number, leds: LedRecord[]): Promise<void>;
 
   // 06 advanced

@@ -322,22 +322,24 @@ describe('lighting store', () => {
   });
 
   describe('live preview polling', () => {
-    it('polls readLedMatrix and updates liveColors and liveStripColors', async () => {
+    it('polls readLedMatrix and fills the live frame for the keys and the 38 strip LEDs', async () => {
       const { lighting } = await setup();
 
       lighting.startLivePolling();
-      expect(lighting.polling).toBe(true);
-
-      // Wait a short time for poller ticks to run
-      await new Promise((r) => setTimeout(r, 250));
-
-      // Live colors should be populated for 64 keys
-      expect(Object.keys(lighting.liveColors).length).toBe(64);
-      // Strip colors should be populated for 38 LEDs
-      expect(lighting.liveStripColors.length).toBe(38);
-
-      lighting.stopLivePolling();
+      try {
+        expect(lighting.polling).toBe(true);
+        await vi.waitFor(() => expect(lighting.liveHasFrame).toBe(true), { timeout: 5000 });
+        expect(lighting.liveFrame.seq).toBeGreaterThan(0);
+        // the demo lights every key and strip LED: some channel of each is non-zero
+        const lit = (buf: Uint8Array, i: number) => buf[i * 3] + buf[i * 3 + 1] + buf[i * 3 + 2] > 0;
+        const keys = useDeviceStore().keys;
+        expect(keys.filter((k) => lit(lighting.liveFrame.keys, k.row * 21 + k.col))).toHaveLength(keys.length);
+        expect(Array.from({ length: 38 }, (_, i) => i).filter((i) => lit(lighting.liveFrame.strip, i))).toHaveLength(38);
+      } finally {
+        lighting.stopLivePolling();
+      }
       expect(lighting.polling).toBe(false);
+      expect(lighting.liveHasFrame).toBe(false);
     });
   });
 });

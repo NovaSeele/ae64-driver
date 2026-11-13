@@ -9,6 +9,8 @@ import type { VueWrapper } from '@vue/test-utils';
 import Keycap from '../src/components/keyboard/Keycap.vue';
 import KeyboardView from '../src/components/keyboard/KeyboardView.vue';
 import { bandGradient, bandStopColor, ledGlow, parseLedColor } from '../src/ledGlow';
+import type { LedGlow } from '../src/ledGlow';
+import { faceStyle } from '../src/components/keyboard/liveLedPainter';
 import { contrast, luminance } from '../src/colorInk';
 import { MockTransport, PHYSICAL_KEYS, STRIP_SIDES } from '../src/protocol';
 import { stripRing } from '../src/protocol/ledLayout';
@@ -69,13 +71,47 @@ describe('Keycap glow CSS', () => {
   });
 
   it('the badge on a glowing key is --fg-1', () => {
-    expect(rule('.cap.cap--glow .cap__badge')).toMatch(/color:\s*var\(--fg-1\)/);
+    expect(rule('.cap.cap--glow .cap__badge, .cap .cap__face--live .cap__badge')).toMatch(/color:\s*var\(--fg-1\)/);
   });
 
-  it('a glowing face has no transition (10 Hz live colours would keep 64 fades running)', () => {
+  it('a glowing face has no transition (live colours up to ~60 Hz would keep 64 fades running)', () => {
     expect(rule('.cap.cap--glow .cap__face')).toMatch(/transition:\s*none/);
-    for (const r of rules.filter((x) => x.sel.includes('cap--glow'))) {
+    expect(rule('.cap .cap__face.cap__face--live')).toMatch(/transition:\s*none/);
+    for (const r of rules.filter((x) => x.sel.includes('cap--glow') || x.sel.includes('cap__face--live'))) {
       expect(r.body, r.sel).not.toMatch(/transition[^;]*(background|box-shadow|all)/);
+    }
+  });
+
+  it('the live painter writes these rules: faceStyle() = .cap--glow and KeyboardView focus with the LED filled in (LED60)', () => {
+    const kvSrc = readFileSync(resolve('src/components/keyboard/KeyboardView.vue'), 'utf8');
+    const kvCss = kvSrc.slice(kvSrc.indexOf('<style')).replace(/\/\*[\s\S]*?\*\//g, '');
+    const kv = [...kvCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim().replace(/\s+/g, ' '), body: m[2] }));
+    const kvRule = (sel: string) => kv.filter((r) => r.sel === sel).map((r) => r.body).join(';');
+    const decls = (body: string): Record<string, string> => Object.fromEntries(body.split(';').map((d) => d.trim()).filter(Boolean)
+      .map((d) => [d.slice(0, d.indexOf(':')).trim(), d.slice(d.indexOf(':') + 1).trim()]));
+    const vars = decls(rule('.cap.cap--glow'));
+    expect(Object.keys(vars)).toEqual(['--lv', '--led-top', '--led-bottom', '--led-edge', '--led-inner', '--led-halo']);
+    const fill = (v: string | undefined, glow: LedGlow) => {
+      let s = v ?? '';
+      for (let n = 0; n < 3; n++) s = s.replace(/var\((--led-(?:top|bottom|edge|inner|halo))\)/g, (_, name: string) => vars[name]);
+      return s.replace(/var\(--lv\)/g, String(glow.level)).replace(/var\(--led\)/g, glow.led).replace(/\s+/g, ' ').replace(/\( /g, '(');
+    };
+    const face = decls(rule('.cap.cap--glow .cap__face'));
+    const hover = decls(rule('.cap.cap--glow:hover .cap__face'));
+    const selected = decls(rule('.cap.cap--sel.cap--glow .cap__face'));
+    const flash = decls(rule('.cap.cap--flash.cap--glow .cap__face'));
+    const focus = decls(kvRule('.kb__key:focus-visible :deep(.cap.cap--glow .cap__face)'));
+    const focusSel = decls(kvRule('.kb__key:focus-visible :deep(.cap.cap--sel.cap--glow .cap__face)'));
+    for (const d of [face, hover, selected, flash, focus, focusSel]) expect(Object.keys(d).length).toBeGreaterThan(0);
+    for (const glow of [{ led: '#ff0000', level: 0.251 }, { led: '#ffffff', level: 1 }, { led: '#00ff80', level: 0.5 }]) {
+      for (let bits = 0; bits < 16; bits++) {
+        const st = { hover: !!(bits & 1), selected: !!(bits & 2), focus: !!(bits & 4), flash: !!(bits & 8) };
+        // the cascade: face < hover < selected < flash (same specificity, later wins) < KeyboardView focus < focus + selected
+        const layers = [face, st.hover && hover, st.selected && selected, st.flash && flash, st.focus && focus, st.focus && st.selected && focusSel]
+          .filter((l): l is Record<string, string> => !!l);
+        const pick = (prop: string) => fill(layers.reduce<string | undefined>((v, l) => l[prop] ?? v, undefined), glow);
+        expect(faceStyle(glow, st), JSON.stringify(st)).toEqual({ background: pick('background'), borderColor: pick('border-color'), boxShadow: pick('box-shadow') });
+      }
     }
   });
 
@@ -116,15 +152,18 @@ describe('KeyboardView glow', () => {
     const src = readFileSync(resolve('src/components/keyboard/KeyboardView.vue'), 'utf8');
     const css = src.slice(src.indexOf('<style')).replace(/\/\*[\s\S]*?\*\//g, '');
     const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim(), body: m[2] })).filter((r) => /outline/.test(r.body));
-    expect(rules).toHaveLength(2);
+    expect(rules).toHaveLength(4); // glow and its live twin (LED60), each with the selected offset
     const dashed = rules.filter((r) => /dashed/.test(r.body));
-    expect(dashed).toHaveLength(1);
+    expect(dashed).toHaveLength(2);
     expect(dashed[0].sel).toContain('.cap--glow');
-    expect(dashed[0].body).toMatch(/outline:\s*2px dashed var\(--fg-1\)/);
-    expect(dashed[0].body).toMatch(/outline-offset:\s*3px/);
-    const sel = rules.find((r) => r.sel.includes('.cap--sel.cap--glow'));
-    expect(sel?.body).toMatch(/outline-offset:\s*5px/);
-    for (const r of rules) expect(r.sel).toContain('.cap--glow'); // no outline for the bar style's focus
+    expect(dashed[1].sel).toContain('.cap__face--live');
+    for (const d of dashed) {
+      expect(d.body).toMatch(/outline:\s*2px dashed var\(--fg-1\)/);
+      expect(d.body).toMatch(/outline-offset:\s*3px/);
+    }
+    expect(rules.find((r) => r.sel.includes('.cap--sel.cap--glow'))?.body).toMatch(/outline-offset:\s*5px/);
+    expect(rules.find((r) => r.sel.includes('.cap--sel .cap__face.cap__face--live'))?.body).toMatch(/outline-offset:\s*5px/);
+    for (const r of rules) expect(r.sel).toMatch(/\.cap--glow|\.cap__face--live/); // no outline for the bar style's focus
   });
 });
 
@@ -319,6 +358,20 @@ describe('Lighting page: glow keys and edge band', () => {
     await flushPromises();
     return { lighting };
   }
+  /** A live frame as the store publishes it (LED60: painted outside Vue on the next display frame). */
+  async function live(lighting: ReturnType<typeof useLightingStore>, keyHex: string | null, strip: string[]) {
+    const rgb = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+    const f = lighting.liveFrame;
+    if (keyHex) for (const k of useDeviceStore().keys) f.keys.set(rgb(keyHex), (k.row * 21 + k.col) * 3);
+    strip.forEach((h, i) => f.strip.set(rgb(h), i * 3));
+    f.seq++;
+    lighting.livePreview = true;
+    lighting.liveError = false;
+    lighting.liveHasFrame = true;
+    await flushPromises();
+    await new Promise((r) => requestAnimationFrame(r));
+    await new Promise((r) => requestAnimationFrame(r));
+  }
   beforeEach(() => setLocale('vi'));
   afterEach(async () => {
     page?.unmount();
@@ -329,38 +382,37 @@ describe('Lighting page: glow keys and edge band', () => {
     vi.unstubAllGlobals();
   });
 
-  const bands = () => page!.findAll('.ring__band');
+  const bands = () => page!.findAll('.ring__band').filter((b) => (b.element as HTMLElement).style.getPropertyValue('--band') !== 'none');
   const sideOf = (index: number) => stripRing().find((l) => l.index === index)!.side;
 
   for (const model of ['max', 'pro'] as const) {
     it(`${model}: keys glow with no LED bar; the ring has a band per lit side`, async () => {
       const { lighting } = await mountPage(model);
-      lighting.livePreview = true;
-      lighting.liveColors = Object.fromEntries(PHYSICAL_KEYS.map((k) => [k.id, '#400000']));
-      lighting.liveStripColors = Array.from({ length: 38 }, () => '#00ff00');
-      await flushPromises();
+      await live(lighting, '#400000', Array.from({ length: 38 }, () => '#00ff00'));
       expect(page!.findAll('.cap__led')).toHaveLength(0);
-      const caps = page!.findAll('.cap--glow');
-      expect(caps.length).toBeGreaterThanOrEqual(60);
-      expect((caps[0].element as HTMLElement).style.getPropertyValue('--led')).toBe('#ff0000');
-      expect((caps[0].element as HTMLElement).style.getPropertyValue('--led-level')).toBe('0.251');
+      const faces = page!.findAll('.cap__face--live');
+      expect(faces.length).toBeGreaterThanOrEqual(60);
+      const want = faceStyle({ led: '#ff0000', level: 0.251 }, { hover: false, selected: false, focus: false, flash: false });
+      const st = (faces[0].element as HTMLElement).style;
+      expect(st.getPropertyValue('background')).toBe(want.background);
+      const d = document.createElement('div'); // jsdom rewrites box-shadow values on the way in
+      d.style.setProperty('box-shadow', want.boxShadow);
+      expect(st.getPropertyValue('box-shadow')).toBe(d.style.getPropertyValue('box-shadow'));
       expect(page!.find('.ring').classes()).toContain('ring--band');
-      expect(bands().map((b) => b.classes().find((c) => c.startsWith('ring__band--')))).toEqual(['ring__band--top', 'ring__band--right', 'ring__band--bottom', 'ring__band--left']);
-      for (const b of bands()) expect(b.attributes('aria-hidden')).toBe('true');
+      expect(bands().map((b) => b.classes().find((c) => /^ring__band--(top|right|bottom|left)$/.test(c)))).toEqual(['ring__band--top', 'ring__band--right', 'ring__band--bottom', 'ring__band--left']);
+      for (const b of page!.findAll('.ring__band')) expect(b.attributes('aria-hidden')).toBe('true');
     });
   }
 
-  it('an off side is not rendered; off LEDs are transparent stops; the band follows the ring order', async () => {
+  it('an off side has no band; off LEDs are transparent stops; the band follows the ring order', async () => {
     const { lighting } = await mountPage('max');
-    lighting.livePreview = true;
     const strip = Array.from({ length: 38 }, () => '#000000');
     const top = [...STRIP_SIDES.top];
     strip[top[0]] = '#ff0000'; // leftmost LED of the top edge (27)
     strip[top[top.length - 1]] = '#0000ff'; // rightmost (1)
     for (const i of STRIP_SIDES.left) strip[i] = '#00ff00';
-    lighting.liveStripColors = strip;
-    await flushPromises();
-    const sides = bands().map((b) => b.classes().find((c) => c.startsWith('ring__band--')));
+    await live(lighting, null, strip);
+    const sides = bands().map((b) => b.classes().find((c) => /^ring__band--(top|right|bottom|left)$/.test(c)));
     expect(sides).toEqual(['ring__band--top', 'ring__band--left']); // right and bottom are dark
     const topBg = (bands()[0].element as HTMLElement).style.getPropertyValue('--band');
     expect(topBg.startsWith('linear-gradient(90deg, ')).toBe(true);
@@ -371,13 +423,11 @@ describe('Lighting page: glow keys and edge band', () => {
 
   it('dots: lit ones carry the normalised colour at ≥ 35 %, off ones keep the frame colour', async () => {
     const { lighting } = await mountPage('max');
-    lighting.livePreview = true;
     const strip = Array.from({ length: 38 }, () => '#000000');
     strip[2] = '#100000'; // level 0.063 → the dot is drawn at 35 %
     strip[3] = '#ff8000';
-    lighting.liveStripColors = strip;
-    await flushPromises();
-    const color = (n: number) => (page!.find(`.led[data-led="${n}"]`).element as HTMLElement).style.getPropertyValue('--led-color');
+    await live(lighting, null, strip);
+    const color = (n: number) => (page!.find(`.led[data-led="${n}"] .led__dot`).element as HTMLElement).style.getPropertyValue('--led-color');
     expect(color(2)).toBe('color-mix(in srgb, #ff0000 35%, transparent)');
     expect(color(3)).toBe('color-mix(in srgb, #ff8000 100%, transparent)');
     expect(color(4)).not.toContain('color-mix');
@@ -386,17 +436,18 @@ describe('Lighting page: glow keys and edge band', () => {
   for (const how of ['the new profile is not loaded yet', 'the lighting is being read'] as const) {
     it(`while ${how}, the old colours do not glow: no band, no lit dot, no glowing key`, async () => {
       const { lighting } = await mountPage('max');
-      lighting.livePreview = true;
-      lighting.liveColors = Object.fromEntries(PHYSICAL_KEYS.map((k) => [k.id, '#ff0000']));
-      lighting.liveStripColors = Array.from({ length: 38 }, () => '#00ff00');
-      await flushPromises();
+      await live(lighting, '#ff0000', Array.from({ length: 38 }, () => '#00ff00'));
       expect(bands()).toHaveLength(4);
       if (how === 'the new profile is not loaded yet') lighting.loadedProfile = null; // as after switching profile
       else lighting.loading = true;
       await flushPromises();
       expect(bands()).toHaveLength(0);
       expect(page!.findAll('.cap--glow')).toHaveLength(0);
-      for (const l of page!.findAll('.led')) expect((l.element as HTMLElement).style.getPropertyValue('--led-color')).toBe('var(--bg-3)'); // not the old green
+      expect(page!.findAll('.cap__face--live')).toHaveLength(0);
+      for (const l of page!.findAll('.led')) {
+        expect((l.element as HTMLElement).style.getPropertyValue('--led-color')).toBe('var(--bg-3)'); // not the old green
+        expect((l.find('.led__dot').element as HTMLElement).style.getPropertyValue('--led-color')).toBe('');
+      }
     });
   }
 });
