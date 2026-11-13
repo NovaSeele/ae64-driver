@@ -118,6 +118,24 @@ describe('ProfileSelect', () => {
 });
 
 describe('ProfileSelect double-click on another profile', () => {
+  it('unmounting inside the window removes the swallow: a click right after reaches the page', async () => {
+    const { spy, w } = await setup();
+    await w.get('.ps__trigger').trigger('click');
+    await w.findAll('[role="option"]')[2].trigger('click');
+    expect(spy).toHaveBeenCalledWith(2);
+    w.unmount();
+    wrapper = null;
+    const link = document.createElement('a');
+    const onLink = vi.fn((e: Event) => e.preventDefault());
+    link.addEventListener('click', onLink);
+    document.body.appendChild(link);
+    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    link.dispatchEvent(down);
+    link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(down.defaultPrevented).toBe(false);
+    expect(onLink).toHaveBeenCalledTimes(1);
+  });
+
   it('ignores the second click that lands under the closed popover', async () => {
     const { spy, w } = await setup();
     const link = document.createElement('a');

@@ -141,7 +141,10 @@ watch(open, (on) => {
   }
 });
 watch(() => route.fullPath, () => close());
-onBeforeUnmount(removeListeners);
+onBeforeUnmount(() => {
+  removeListeners();
+  endSwallow?.(); // the document-wide listeners of a pick go with the component
+});
 
 function pick(i: number, now = false) {
   if (i === device.activeProfile && now) {
@@ -166,7 +169,9 @@ const SWALLOWED = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 
  *  click even when those come later; everything stops after SWALLOW_CAP_MS. */
 const SWALLOW_MS = 500; // Windows' default double-click time
 const SWALLOW_CAP_MS = 1000;
+let endSwallow: (() => void) | null = null;
 function swallowClicks() {
+  endSwallow?.();
   const until = performance.now() + SWALLOW_MS;
   let held = false; // a swallowed press whose release/click has not come yet
   const stop = (e: Event) => {
@@ -181,7 +186,13 @@ function swallowClicks() {
     else if (e.type === 'click') held = false;
   };
   for (const type of SWALLOWED) document.addEventListener(type, stop, true);
-  window.setTimeout(() => { for (const type of SWALLOWED) document.removeEventListener(type, stop, true); }, SWALLOW_CAP_MS);
+  const timer = window.setTimeout(() => end(), SWALLOW_CAP_MS);
+  const end = () => {
+    window.clearTimeout(timer);
+    for (const type of SWALLOWED) document.removeEventListener(type, stop, true);
+    if (endSwallow === end) endSwallow = null;
+  };
+  endSwallow = end;
 }
 
 function onRowDblclick(i: number) {
