@@ -231,9 +231,11 @@ describe('Switch page tabs', () => {
     await mountAt('/switch?tab=calibration');
     const cal = useCalibrationStore();
     const start = vi.spyOn(cal, 'start').mockResolvedValue(undefined as never);
+    await vi.waitFor(() => expect(cal.loaded).toBe(true)); // Start is off until the keys' status was read (DESIGN D §4)
+    await flushPromises();
     const progress = w!.find('.progress');
     expect(w!.findAll('.grid > .card')[0].find('.actions').exists()).toBe(false);
-    const btn = progress.find('.session .actions button');
+    const btn = progress.find('.ses__top .actions button');
     expect(btn.exists()).toBe(true);
     expect(btn.text()).toContain('Bắt đầu');
     await btn.trigger('click');
@@ -249,7 +251,7 @@ describe('Switch page tabs', () => {
     await mountAt('/switch?tab=calibration');
     useDeviceStore().boardAllowed = false;
     await flushPromises();
-    const btn = w!.find('.progress .session .actions button');
+    const btn = w!.find('.progress .ses__top .actions button');
     expect(btn.text()).toContain('Bắt đầu');
     expect(btn.attributes('disabled')).toBeDefined();
   });

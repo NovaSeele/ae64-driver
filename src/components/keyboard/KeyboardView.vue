@@ -25,6 +25,8 @@ const props = defineProps<{
   badgeTitle?: (key: PhysicalKey) => string | undefined;
   /** Tabler icon shown as the badge instead of its text. */
   badgeIcon?: (key: PhysicalKey) => Component | undefined;
+  /** Extra class on a key's badge (e.g. 'cap__badge--shallow' for calibration's "too shallow"). */
+  badgeClass?: (key: PhysicalKey) => string | undefined;
   fill?: (key: PhysicalKey) => number | undefined;
   /** A 1.5px line across the key face at this depth (0..1), e.g. the deepest reading; undefined = none. */
   mark?: (key: PhysicalKey) => number | undefined;
@@ -43,6 +45,11 @@ const props = defineProps<{
   /** Marks a key with a dashed warn outline; its label is appended to the accessible name and the title. */
   flag?: (key: PhysicalKey) => { label: string } | undefined;
   state?: (key: PhysicalKey) => 'pressed' | undefined;
+  /** Draws a key as selected (accent ring) on a board that does not select (calibration marks a key from its chip); no
+   *  aria-pressed and no selection store. */
+  marked?: (key: PhysicalKey) => boolean;
+  /** id of the sentence that explains the values on the keys (aria-describedby of the board). */
+  describedby?: string;
   selectable?: boolean;
   /** Shows skeleton value lines while page data loads. */
   loading?: boolean;
@@ -221,6 +228,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
     :class="{ 'kb--selectable': selectable }"
     role="group"
     :aria-label="t('keyboard.label', { model: device.modelName ?? 'AE64' })"
+    :aria-describedby="describedby"
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
     @pointerup="onPointerUp"
@@ -248,6 +256,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
           :badge="badge?.(k)"
           :badge-title="badgeTitle?.(k)"
           :badge-icon="badgeIcon?.(k)"
+          :badge-class="badgeClass?.(k)"
           :fill="fill?.(k)"
           :mark="mark?.(k)"
           :color="color?.(k)"
@@ -256,7 +265,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
           :glow="styleOf(k) === 'glow' ? glow?.(k) : undefined"
           :tone="tone?.(k)"
           :state="state?.(k)"
-          :selected="selectable && isSelected(k.id)"
+          :selected="(selectable && isSelected(k.id)) || !!marked?.(k)"
           :flashing="flashStore.isFlashing(k.id)"
           :loading="loading"
           :flagged="!!flag?.(k)"

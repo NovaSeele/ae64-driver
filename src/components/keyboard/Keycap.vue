@@ -21,6 +21,8 @@ const props = defineProps<{
   badgeTitle?: string;
   /** Tabler icon shown instead of the badge text (e.g. a lock for a read-only key). */
   badgeIcon?: Component;
+  /** Extra class on the badge, e.g. 'cap__badge--shallow' (calibration: the key did not go deep enough). */
+  badgeClass?: string;
   /** 0..1 vertical fill (e.g. travel or actuation depth). */
   fill?: number;
   /** 0..1: a 1.5px line across the face at this depth (e.g. the deepest reading); undefined = none. */
@@ -75,10 +77,10 @@ const capStyle = computed(() => {
       <span class="cap__legend">{{ legend }}</span>
       <span v-if="loading" class="cap__sub cap__sub--skeleton skeleton" />
       <span v-else-if="sublabel !== undefined || badge || badgeIcon" class="cap__foot">
-        <span v-if="badgeIcon" class="cap__badge cap__badge--icon" :title="badgeTitle" :aria-label="badgeTitle">
+        <span v-if="badgeIcon" class="cap__badge cap__badge--icon" :class="badgeClass" :title="badgeTitle" :aria-label="badgeTitle">
           <component :is="badgeIcon" :size="11" :stroke-width="1.8" aria-hidden="true" />
         </span>
-        <span v-else-if="badge" class="cap__badge num" :title="badgeTitle" :aria-label="badgeTitle">{{ badge }}</span>
+        <span v-else-if="badge" class="cap__badge num" :class="badgeClass" :title="badgeTitle" :aria-label="badgeTitle">{{ badge }}</span>
         <span v-if="typeof sublabel === 'string'" class="cap__sub num">{{ sublabel }}</span>
         <span v-else-if="sublabel" class="cap__sub cap__sub--lines num">
           <span v-for="(line, i) in sublabel" :key="i" class="cap__line" :style="line.tone ? { '--sub-tone': line.tone } : undefined">{{ line.text }}</span>
@@ -248,6 +250,11 @@ const capStyle = computed(() => {
 .cap.cap--flash.cap--glow .cap__face { border-color: var(--danger); box-shadow: 0 0 0 2px var(--danger); }
 .cap.cap--glow .cap__badge,
 .cap .cap__face--live .cap__badge { color: var(--fg-1); }
+/* Calibration (DESIGN D §3.3, §6): on a glowing face the value reads in --fg-1 (--fg-2 is 3.41-4.93:1 on a lit face,
+   --fg-1 >= 5.19:1 in all 11 themes); the "too shallow" icon is warn pushed toward the text colour (>= 4.08:1 on a red
+   or blue glow, --warn alone 2.99:1 on indigo-light). */
+.cap.cap--glow .cap__sub, .cap.cap--glow .cap__line { color: var(--sub-tone, var(--fg-1)); }
+.cap.cap--glow .cap__badge--shallow { color: color-mix(in srgb, var(--warn) 60%, var(--fg-1)); }
 /* Live preview (LED60): the rules above with the colour on its own composited layer, so a new colour never re-rasters
    a blur, a gradient or a legend. Writing the face's background and shadows each frame made the GPU re-raster 64 faces
    a frame (~1000 ms/s on the review's machine; a 100 Hz screen fell to 50 fps).
