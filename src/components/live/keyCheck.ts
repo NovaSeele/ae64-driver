@@ -109,6 +109,18 @@ export function summarizeCheck(data: LiveData, keys: PhysicalKey[], values: Reco
   return view;
 }
 
+/**
+ * Where the page scroller goes for ?check=1 (DESIGN C §3.7), in page coordinates so it is the same from any starting
+ * scroll: the least scroll that shows the whole health check card (16px clear of the bottom), but never so far that the
+ * keyboard's top goes under the title bar (8px clear). Rects are viewport rects measured at `scrollTop`.
+ */
+export function checkScrollTarget(m: { scrollTop: number; viewTop: number; viewHeight: number; titleBottom: number; cardBottom: number; boardTop: number }): number {
+  const inPage = (y: number) => y - m.viewTop + m.scrollTop;
+  const showCard = inPage(m.cardBottom) - (m.viewHeight - 16);
+  const keepBoard = inPage(m.boardTop) - (m.titleBottom - m.viewTop + 8);
+  return Math.max(0, Math.min(showCard, keepBoard));
+}
+
 /** How often the page hands the screen reader at most one sentence (DESIGN C §7). */
 export const ANNOUNCE_MS = 1500;
 

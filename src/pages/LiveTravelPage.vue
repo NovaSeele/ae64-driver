@@ -14,7 +14,7 @@ import SwitchSim from '../components/live/SwitchSim.vue';
 import TravelGraph from '../components/live/TravelGraph.vue';
 import HealthCheck from '../components/live/HealthCheck.vue';
 import PeakTable from '../components/live/PeakTable.vue';
-import { ANNOUNCE_MS, CheckAnnouncer, emptyCheckView, summarizeCheck } from '../components/live/keyCheck';
+import { ANNOUNCE_MS, CheckAnnouncer, checkScrollTarget, emptyCheckView, summarizeCheck } from '../components/live/keyCheck';
 import type { CheckKind, CheckView } from '../components/live/keyCheck';
 import { useKeyLock } from '../composables/useKeyLock';
 import { attachDemoPress } from '../components/live/demoPress';
@@ -321,7 +321,9 @@ function enterCheck() {
   const settle = () => {
     if (unmounted) return;
     const hc = hcRef.value?.$el as HTMLElement | undefined;
-    const at = hc ? Math.round(hc.getBoundingClientRect().bottom) : NaN;
+    const scroller = pageEl?.closest<HTMLElement>('.main__scroll');
+    // where the card ends in the page (not on screen): scroll anchoring may move the view while the page settles
+    const at = hc ? Math.round(hc.getBoundingClientRect().bottom + (scroller?.scrollTop ?? 0)) : NaN;
     still = at === last ? still + 1 : 0;
     last = at;
     if (still < 2 && ++tries < 30) {
@@ -342,10 +344,17 @@ function scrollToCheck() {
   const top = document.querySelector<HTMLElement>('.top');
   if (hc && scroller && board) {
     const view = scroller.getBoundingClientRect();
-    const titleBottom = top ? top.getBoundingClientRect().bottom : view.top;
-    const delta = Math.max(0, Math.min(hc.getBoundingClientRect().bottom - (view.bottom - 16), board.getBoundingClientRect().top - (titleBottom + 8)));
+    const target = checkScrollTarget({
+      scrollTop: scroller.scrollTop,
+      viewTop: view.top,
+      viewHeight: view.height,
+      titleBottom: top ? top.getBoundingClientRect().bottom : view.top,
+      cardBottom: hc.getBoundingClientRect().bottom,
+      boardTop: board.getBoundingClientRect().top,
+    });
     const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (delta > 0) scroller.scrollBy({ top: delta, behavior: reduce ? 'auto' : 'smooth' });
+    // up or down: the page may open scrolled (a link from a page that was scrolled)
+    if (Math.abs(target - scroller.scrollTop) >= 1) scroller.scrollTo({ top: target, behavior: reduce ? 'auto' : 'smooth' });
   }
   hcRef.value?.focusTitle();
 }

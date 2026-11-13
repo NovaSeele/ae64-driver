@@ -38,14 +38,14 @@ async function frame(): Promise<void> {
   await flushPromises();
 }
 
-async function open(path = '/') {
+async function open(path = '/', attachTo: HTMLElement = document.body) {
   device = useDeviceStore();
   if (!device.connected) await device.connectDemo(); // a second connect would be a new keyboard (and reset the check)
   await usePerformanceStore().load();
   live = useLiveStore();
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
   await router.push(path);
-  w = mount(LiveTravelPage, { global: { plugins: [router] }, attachTo: document.body });
+  w = mount(LiveTravelPage, { global: { plugins: [router] }, attachTo });
   await flushPromises();
   return router;
 }
@@ -251,6 +251,42 @@ describe('key check on the live page', () => {
     expect(settles).toBeGreaterThanOrEqual(3); // it measured until the card stood still two frames running...
     expect(settles).toBeLessThan(10); // ...and stopped there, not at the ~30-frame cap
     expect(document.activeElement).toBe(w!.find('.hc__title').element);
+  });
+
+  it('?check=1 scrolls to the same place from any starting scroll, up or down, never past the keyboard top (C-ENTRY-1, §3.7)', async () => {
+    // page geometry (px from the top of the page scroller's content): keyboard top 80, title bar flush with the scroller
+    // top (56 on screen), view 712 tall. Target = min(card bottom − (712 − 16), 80 − 8) = min(card − 696, 72), at least 0.
+    const VIEW_TOP = 56, VIEW_H = 712, BOARD = 80;
+    const cases: [start: number, card: number, want: number][] = [
+      [0, 830, 72], // the keyboard top limits it
+      [700, 830, 72], // the same from a page opened scrolled: up to 72
+      [0, 760, 64], // the card limits it
+      [700, 760, 64],
+      [700, 600, 0], // the card is in view from the top: back to 0
+    ];
+    for (const [start, card, want] of cases) {
+      document.body.innerHTML = '';
+      const top = document.createElement('header');
+      top.className = 'top';
+      top.getBoundingClientRect = () => ({ top: 0, bottom: VIEW_TOP, height: VIEW_TOP } as DOMRect);
+      const sc = document.createElement('div');
+      sc.className = 'main__scroll';
+      document.body.append(top, sc);
+      sc.scrollTop = start;
+      sc.getBoundingClientRect = () => ({ top: VIEW_TOP, bottom: VIEW_TOP + VIEW_H, height: VIEW_H } as DOMRect);
+      const to: number[] = [];
+      sc.scrollTo = ((o: ScrollToOptions) => { to.push(o.top!); }) as typeof sc.scrollTo;
+      frames = [];
+      await open('/?check=1', sc);
+      const onScreen = (y: number) => ({ top: y - sc.scrollTop + VIEW_TOP, bottom: y - sc.scrollTop + VIEW_TOP } as DOMRect);
+      (w!.find('.hc').element as HTMLElement).getBoundingClientRect = () => onScreen(card);
+      (w!.find('.board').element as HTMLElement).getBoundingClientRect = () => onScreen(BOARD);
+      await nextTick();
+      for (let at = 0; at < frames.length && at < 200; at++) if (frames[at].name === 'settle') frames[at](0);
+      expect(to, `start ${start}, card ${card}`).toEqual(want === start ? [] : [want]);
+      w!.unmount();
+      w = null;
+    }
   });
 
   it('makes no HID request of its own: open, press, Start over, both switches', async () => {
