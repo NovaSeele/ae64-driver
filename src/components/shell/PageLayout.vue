@@ -11,6 +11,8 @@ import { t } from '../../i18n/vi';
 
 const props = defineProps<{
   title: string;
+  /** document.title before " · AE64 Control" when it differs from the heading (Performance: "{tab} · Hiệu năng"). */
+  docTitle?: string;
   keyboard?: boolean;
   /** Selection bar: the keycap legend, the how-to-select line and the page's (i) sentence (SelectionBar props). */
   shows?: LegendItem[];
@@ -21,7 +23,7 @@ const props = defineProps<{
 const device = useDeviceStore();
 
 watchEffect(() => {
-  document.title = `${props.title} · ${t('app.name')}`;
+  document.title = `${props.docTitle ?? props.title} · ${t('app.name')}`;
 });
 </script>
 

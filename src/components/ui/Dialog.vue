@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // Modal dialog: teleported, Esc / backdrop closes, focus moves in and returns to the opener.
-import { nextTick, ref, useId, watch } from 'vue';
+import { nextTick, onDeactivated, ref, useId, watch } from 'vue';
 import { IconX } from '@tabler/icons-vue';
 import IconButton from './IconButton.vue';
 import { t } from '../../i18n/vi';
 
 const open = defineModel<boolean>('open', { required: true });
+// A page or tab kept alive and hidden (KeepAlive) closes what it had open: no overlay of a hidden tab (DESIGN E §3.6).
+onDeactivated(() => { open.value = false; });
 withDefaults(defineProps<{ title: string; width?: number }>(), { width: 460 });
 
 const panel = ref<HTMLElement | null>(null);

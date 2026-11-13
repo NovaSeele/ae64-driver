@@ -2,7 +2,7 @@
 // Scalable keyboard on a case panel. Selection is wired to the selection store:
 // click = replace, Ctrl/⌘-click = toggle, Shift-click = range, drag = box select (Ctrl/Shift adds),
 // click on the case clears, Esc clears. Arrow keys move focus between keys, Space/Enter selects.
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue';
 import type { Component } from 'vue';
 import Keycap from './Keycap.vue';
 import type { SubLine } from './Keycap.vue';
@@ -194,19 +194,31 @@ function revealBoard(id: number) {
   const k = keyEl.getBoundingClientRect();
   const s = scroller.getBoundingClientRect();
   if (k.top >= s.top && k.bottom <= s.bottom) return;
-  (root.value!.closest('.wb__board') ?? root.value!).scrollIntoView({ block: 'nearest', behavior: 'instant' });
+  // the frame: a Performance tab's (E) or Lighting's
+  (root.value!.closest('.tk__board, .wb__board') ?? root.value!).scrollIntoView({ block: 'nearest', behavior: 'instant' });
 }
 
+// The window listeners follow the keyboard's life and, inside a kept-alive tab, its activation (DESIGN E §3.6): a hidden
+// tab's keyboard does not take arrow keys or Ctrl+A. Adding the same listener twice is a no-op.
+function listen(): void {
+  window.addEventListener('keydown', onWindowKey);
+  window.addEventListener('blur', cancelDrag);
+}
+function unlisten(): void {
+  window.removeEventListener('keydown', onWindowKey);
+  window.removeEventListener('blur', cancelDrag);
+  cancelDrag();
+}
 onMounted(() => {
   ro = new ResizeObserver(([entry]) => { width.value = entry.contentRect.width; });
   ro.observe(root.value!);
-  window.addEventListener('keydown', onWindowKey);
-  window.addEventListener('blur', cancelDrag);
+  listen();
 });
+onActivated(listen);
+onDeactivated(unlisten);
 onBeforeUnmount(() => {
   ro?.disconnect();
-  window.removeEventListener('keydown', onWindowKey);
-  window.removeEventListener('blur', cancelDrag);
+  unlisten();
 });
 
 const styleOf = (k: PhysicalKey) => (typeof props.ledStyle === 'function' ? props.ledStyle(k) : props.ledStyle);

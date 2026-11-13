@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // A small non-modal panel anchored to a button: opens below it, flips above when there is no room, Esc closes and returns
 // focus to the anchor, a press outside closes, Tab stays inside. Teleported so a scrolling or contained parent cannot clip it.
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { nextTick, onBeforeUnmount, onDeactivated, ref, watch } from 'vue';
 
 const open = defineModel<boolean>('open', { required: true });
+// A page or tab kept alive and hidden (KeepAlive) closes what it had open: no overlay of a hidden tab (DESIGN E §3.6).
+onDeactivated(() => { open.value = false; });
 const props = withDefaults(defineProps<{ anchor: HTMLElement | null; title: string; width?: number }>(), { width: 312 });
 
 const panel = ref<HTMLElement | null>(null);

@@ -12,6 +12,7 @@ import {
   IconPlayerPlay, IconRefresh, IconX,
 } from '@tabler/icons-vue';
 import KeyboardView from '../keyboard/KeyboardView.vue';
+import TabKeyboard from '../keyboard/TabKeyboard.vue';
 import { attachDemoPress } from '../live/demoPress';
 import { checkScrollTarget } from '../live/keyCheck';
 import Card from '../ui/Card.vue';
@@ -206,13 +207,15 @@ const runningEl = ref<HTMLElement | null>(null);
 const actionsEl = ref<HTMLElement | null>(null);
 const resultEl = ref<HTMLElement | null>(null);
 const sessionEl = ref<{ $el: HTMLElement } | null>(null);
-const boardEl = ref<HTMLElement | null>(null);
+const tkEl = ref<{ $el: HTMLElement } | null>(null);
+/** The keyboard frame (TabKeyboard's .tk__board, which keeps the class `board`). */
+const boardEl = (): HTMLElement | null => tkEl.value?.$el.querySelector<HTMLElement>('.board') ?? null;
 const focusStart = () => actionsEl.value?.querySelector<HTMLElement>('button')?.focus();
 
 /** Scroll the page so the whole session card shows, never past the keyboard's top (the rule of part C's ?check=1). */
 function revealSession(): void {
   const card = sessionEl.value?.$el;
-  const board = boardEl.value;
+  const board = boardEl();
   const scroller = board?.closest<HTMLElement>('.main__scroll');
   if (!card || !board || !scroller) return;
   const view = scroller.getBoundingClientRect();
@@ -346,8 +349,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="kbrow">
-    <div ref="boardEl" class="board" :class="{ 'board--live': running }">
+  <TabKeyboard ref="tkEl" class="kbrow" :selection-bar="false" :board-class="{ board: true, 'board--live': running }">
       <KeyboardView
         :keys="device.keys"
         :legend="device.legend"
@@ -362,8 +364,7 @@ onBeforeUnmount(() => {
         :marked="marked"
         :describedby="keycapId"
       />
-    </div>
-    <aside class="aside">
+    <template #below><aside class="aside">
       <p :id="keycapId" class="kblegend">
         <span class="kl__item"><span class="kl__k">{{ t('sel.shows') }}:</span>{{ t('calibration.keycapColor') }}
           <span v-for="(c, s) in STATUS_COLOR" :key="c" class="lg"><i class="lg__sw" :style="{ '--led': c }" />{{ t(STATUS_TEXT[s]) }}</span></span>
@@ -375,8 +376,8 @@ onBeforeUnmount(() => {
       </p>
       <Switch v-model="showAdc" class="aside__adc" :label="t('calibration.showAdc')" :title="t('calibration.showAdcHint')" :describedby="adcHintId" />
       <span :id="adcHintId" class="sr-only">{{ t('calibration.showAdcHint') }}</span>
-    </aside>
-  </section>
+    </aside></template>
+  </TabKeyboard>
 
   <Card ref="sessionEl" class="progress">
     <div class="ses__top">
@@ -498,14 +499,14 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* The keycap legend is a row under the keyboard at every width, so the keyboard sits where the Switch tab's does. */
-.kbrow { display: flex; flex-direction: column; gap: var(--s-3); margin-bottom: var(--s-4); }
-.board { width: 100%; min-width: 0; max-width: 940px; margin: 0 auto; border-radius: var(--r-panel); transition: box-shadow var(--t-slow) var(--ease); }
-.board--live { box-shadow: 0 0 0 1px var(--acc-line); }
+/* The keycap legend is a row under the keyboard at every width (TabKeyboard's `below`), so the keyboard sits where the
+   other tabs' does. The frame's width is TabKeyboard's; it keeps the class `board` (revealSession, the live ring). */
+.kbrow { margin-bottom: var(--s-4); }
+.kbrow :deep(.board) { border-radius: var(--r-panel); transition: box-shadow var(--t-slow) var(--ease); }
+.kbrow :deep(.board--live) { box-shadow: 0 0 0 1px var(--acc-line); }
 /* review D-PERF-1: the fill follows a ~15 Hz poll (66 ms), so its transform transition (--t-med) kept up to 64 fills animating
    all session long and put the keys' % in composited layers over them. It jumps to each reading instead. */
-.board :deep(.cap__fill) { transition: none; }
-@media (min-width: 1600px) { .board { max-width: 1100px; } }
+.kbrow :deep(.board .cap__fill) { transition: none; }
 
 /* D5. Row under the keyboard: keycap legend left (one item per meaning, items wrap whole), "Show raw ADC" right. */
 .aside { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: var(--s-4); min-height: 36px; } /* = the Switch tab's selection bar */
