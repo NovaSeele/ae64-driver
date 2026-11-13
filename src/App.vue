@@ -37,6 +37,14 @@ const pad = createSafePad(() => scroller.value, (px) => { safePad.value = px; })
 watch(toastSafeTarget, (v) => pad.setTarget(v));
 const route = useRoute();
 watch(() => route.path, () => pad.reset());
+/**
+ * A new page (path) starts at the top: the scroller is reset once the old page has left and before the new one is
+ * inserted, so the old page is not pulled up while it fades and a page that scrolls itself on mount (a deep link, the
+ * live page's ?check=1) still does. A query change (a tab, ?key=) keeps the scroll: the page is the same component.
+ */
+function pageToTop(): void {
+  if (scroller.value) scroller.value.scrollTop = 0;
+}
 
 let removeShortcuts: (() => void) | null = null;
 onMounted(() => {
@@ -63,7 +71,7 @@ onBeforeUnmount(() => {
         <TopBar />
         <div ref="scroller" class="main__scroll" :style="{ paddingBottom: `${safePad}px`, scrollPaddingBottom: `${toastSafeTarget}px` }">
           <RouterView v-slot="{ Component, route }">
-            <Transition name="page" mode="out-in">
+            <Transition name="page" mode="out-in" @before-enter="pageToTop">
               <component :is="Component" :key="route.path" />
             </Transition>
           </RouterView>
