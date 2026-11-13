@@ -292,6 +292,26 @@ describe('key check — full travel (C2)', () => {
     expect(iss(v2, s.id)).not.toBe(iss(v1, s.id));
   });
 
+  it('a full key that becomes stuck gets a new row: only its kind changed (C-TEST-2 #42)', () => {
+    const d = key('D');
+    route(d, 3.31, 0); // full travel
+    status(d, 1, 1);
+    status(d, 0, 50); // released by the firmware, the key stays at 0.42
+    route(d, 0.42, 100);
+    const v1 = view();
+    const r1 = v1.rows.find((r) => r.id === d.id)!;
+    expect(r1.kind).toBe('ok');
+    route(d, 0.42, 100 + REST_OFF_MS + 100); // past 0.8 s: stuck; the peak, ratio and bar are the same
+    const v2 = summarizeCheck(live.data, device.keys, usePerformanceStore().values, (k) => k.name, v1);
+    const r2 = v2.rows.find((r) => r.id === d.id)!;
+    expect([r2.mm, r2.ratio, r2.bar]).toEqual([r1.mm, r1.ratio, r1.bar]);
+    expect(r2.kind).toBe('stuck');
+    expect(r2).not.toBe(r1);
+    route(d, 0, 2000); // back to 0: full again
+    const v3 = summarizeCheck(live.data, device.keys, usePerformanceStore().values, (k) => k.name, v2);
+    expect(v3.rows.find((r) => r.id === d.id)!.kind).toBe('ok');
+  });
+
   it('a deeper reading past a shorter switch travel still updates its row (the bar stays full, the mm does not)', () => {
     const d = key('D');
     const short = { [d.id]: { axisRangeMax: 3000 } as Performance }; // a 3.0 mm switch: 3.10 and 3.25 both fill the bar

@@ -1,11 +1,17 @@
 // The peak table renders only the rows in and near its visible part (C-PERF-1): spacer rows keep the scroll height,
 // the Tab stop row is always in the page, arrow keys bring the next row in and focus it, and the real positions are
-// given to screen readers (aria-rowcount / aria-rowindex).
+// given to screen readers (aria-rowcount / aria-rowindex). Rows and chips that are kept (v-memo, the chip cache) still
+// follow the pin and the language (C-TEST-2).
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { toRaw } from 'vue';
 import { flushPromises, mount } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
 import PeakTable from '../src/components/live/PeakTable.vue';
-import type { CheckRow } from '../src/components/live/keyCheck';
+import HealthCheck from '../src/components/live/HealthCheck.vue';
+import type { CheckIssue, CheckRow } from '../src/components/live/keyCheck';
+import { locale, setLocale } from '../src/i18n/locale';
+
+const startLocale = locale.value;
 
 let w: VueWrapper | null = null;
 afterEach(() => {
@@ -89,5 +95,58 @@ describe('peak table: only the visible rows are in the page (C-PERF-1)', () => {
     await table(rows(5));
     expect(ids()).toEqual([0, 1, 2, 3, 4]);
     expect(w!.findAll('.pt__pad')).toHaveLength(0);
+  });
+});
+
+describe('peak table: rows that did not change still follow the pin and the language (C-TEST-2)', () => {
+  afterEach(() => setLocale(startLocale));
+
+  it('moving the pin from one key to another with the same rows: only the new row is marked (#46)', async () => {
+    const list = rows(5);
+    await table(list);
+    await w!.setProps({ pinnedId: 1 });
+    const pinned = () => w!.findAll('.pt__row').filter((r) => r.classes('pt__row--pin')).map((r) => r.find('.pt__key').attributes('data-rid'));
+    const current = () => w!.findAll('.pt__row').filter((r) => r.attributes('aria-current') === 'true').map((r) => r.find('.pt__key').attributes('data-rid'));
+    expect(pinned()).toEqual(['1']);
+    await w!.setProps({ rows: list, pinnedId: 3 });
+    expect(pinned()).toEqual(['3']);
+    expect(current()).toEqual(['3']);
+  });
+
+  it('switching to English with the same rows: the hidden kind and the pin label change (#47)', async () => {
+    setLocale('vi');
+    const list = rows(3);
+    await table(list);
+    const first = () => w!.find('.pt__row .pt__key');
+    expect(first().find('.pt__sr').text()).toBe(', đủ');
+    expect(first().attributes('aria-label')).toBe('Ghim K0');
+    setLocale('en');
+    await w!.setProps({ rows: list });
+    await flushPromises();
+    expect(first().find('.pt__sr').text()).toBe(', full');
+    expect(first().attributes('aria-label')).toBe('Pin K0');
+  });
+});
+
+describe('health check: chips follow the language with the same issues (C-TEST-2 #49)', () => {
+  afterEach(() => setLocale(startLocale));
+
+  it('the chip text and its label change, the issues are the same array', async () => {
+    setLocale('vi');
+    const issues: CheckIssue[] = [{ id: 7, name: 'A', kind: 'short', mm: 2.6, range: 3.31 }];
+    w = mount(HealthCheck, {
+      props: { pressed: 1, full: 0, short: 1, stuck: 0, total: 64, issues, estimated: false, partialKey: null, pinnedId: null },
+      attachTo: document.body,
+    });
+    await flushPromises();
+    const chip = () => w!.find('.hc__chip');
+    expect(chip().text()).toBe('A đạt 2.60 / 3.31 mm');
+    expect(chip().attributes('aria-label')).toBe('A đạt 2.60 trên 3.31 mm, chưa đủ hành trình. Ghim phím này.');
+    setLocale('en');
+    await w!.setProps({ issues });
+    await flushPromises();
+    expect(toRaw(w!.props('issues'))).toBe(issues); // the same issue objects: only the language changed
+    expect(chip().text()).toBe('A reached 2.60 / 3.31 mm');
+    expect(chip().attributes('aria-label')).toBe('A reached 2.60 of 3.31 mm, short travel. Pin this key.');
   });
 });
