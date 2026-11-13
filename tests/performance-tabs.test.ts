@@ -574,4 +574,25 @@ describe('Performance tabs: sidebar, titles, the tab row', () => {
     }
     expect(w!.find('#ptab-panel').attributes('aria-labelledby')).toBe('ptab-travel');
   });
+
+  it('15. Key test puts "Theo dõi phím" and its switches in the scope line (named by the visible label); the hint and key lock stay under the keyboard', async () => {
+    await at('/performance?tab=test');
+    const tools = w!.find('.ph__tools');
+    const group = tools.find('.ktools [role="radiogroup"]');
+    expect(group.exists()).toBe(true);
+    expect(group.attributes('aria-label')).toBeUndefined();
+    expect(document.getElementById(group.attributes('aria-labelledby')!)!.textContent).toBe(t('live.follow'));
+    expect(w!.find('#ptab-panel .ktools').exists()).toBe(false);
+    expect(w!.find('#ptab-panel .ktrow .hint').text()).toBe(t('live.followAutoHint'));
+    expect(w!.find('#ptab-panel .ktrow .klock').exists()).toBe(true);
+    // Ghim: "Tất cả phím" joins the tools, the hint under the keyboard follows
+    expect(tools.text()).not.toContain(t('live.allKeys'));
+    await group.findAll('[role="radio"]')[1].trigger('click');
+    await settle();
+    expect(tools.text()).toContain(t('live.allKeys'));
+    expect(w!.find('#ptab-panel .ktrow .hint').text()).toBe(t('live.followPinnedHint'));
+    // another tab: the tools leave the scope line
+    await click('travel');
+    expect(tools.find('.ktools').exists()).toBe(false);
+  });
 });

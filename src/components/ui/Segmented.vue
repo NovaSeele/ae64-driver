@@ -5,6 +5,8 @@ const props = withDefaults(defineProps<{
   /** An option's `disabled`: shown but never selected, skipped by the arrow keys (its `title` says why). */
   options: { value: T; label: string; title?: string; ariaLabel?: string; disabled?: boolean }[];
   label: string;
+  /** The id of a visible label: the group is named by it (aria-labelledby) instead of `label`. */
+  labelledby?: string;
   size?: 'sm' | 'md';
   manual?: boolean;
   disabled?: boolean;
@@ -37,7 +39,7 @@ function onKey(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="seg" :class="[`seg--${size}`, { 'seg--disabled': disabled }]" role="radiogroup" :aria-label="label" :aria-disabled="disabled || undefined" @keydown="onKey">
+  <div class="seg" :class="[`seg--${size}`, { 'seg--disabled': disabled }]" role="radiogroup" :aria-label="labelledby ? undefined : label" :aria-labelledby="labelledby" :aria-disabled="disabled || undefined" @keydown="onKey">
     <button
       v-for="(o, i) in options"
       :key="String(o.value)"

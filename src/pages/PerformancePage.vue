@@ -155,3 +155,9 @@ onBeforeRouteLeave((to) => draftGuard(to));
 .ph__tools { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-2) var(--s-3); margin-left: auto; }
 .ph__tools:empty { display: none; }
 </style>
+
+<style>
+/* The page scroller keeps its scrollbar's room on this page: a short tab (Switch at 1920×1080) would otherwise lose the
+   scrollbar and move the keyboard frame by half its width (E3: ≤ 1 px across the five tabs). Other pages are unchanged. */
+.main__scroll:has(#ptab-panel) { scrollbar-gutter: stable; }
+</style>

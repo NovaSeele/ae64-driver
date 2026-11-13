@@ -2,7 +2,7 @@
 // Kiểm tra phím (the Key test tab of the Performance page, DESIGN E §3.6; was Đo hành trình, DESIGN §7): press a real
 // key and watch the switch move against the trigger points from the key's settings. Polling lives in stores/live.ts; this
 // tab renders from one rAF loop. Not kept alive: leaving the tab unmounts it and stops the polling, as leaving the page did.
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch } from 'vue';
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch } from 'vue';
 import type { Component } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
@@ -11,6 +11,7 @@ import {
 } from '@tabler/icons-vue';
 import KeyboardView from '../keyboard/KeyboardView.vue';
 import TabKeyboard from '../keyboard/TabKeyboard.vue';
+import { PTAB_TOOLS } from '../performance/tabTools';
 import SwitchSim from './SwitchSim.vue';
 import TravelGraph from './TravelGraph.vue';
 import HealthCheck from './HealthCheck.vue';
@@ -307,6 +308,12 @@ const lockText = computed(() => (lockState.value === 'idle' ? t('live.lockIdle')
 const lockTextId = useId();
 const lockHintId = useId();
 const colorHintId = useId();
+const followId = useId();
+// "Theo dõi phím" and its switches are view tools: on the right of the page's scope line, as Travel's chips (DESIGN E §3.5,
+// patch 2026-11-14). Under the keyboard only the hint + key-lock row stays, so ?check=1 still shows the whole check card.
+const toolsEl = inject(PTAB_TOOLS, ref(null));
+/** Mounted (this tab is not kept alive): the tools are in the scope line. */
+const active = ref(false);
 
 // ----- ?check=1: open straight on the key check
 const hcRef = ref<InstanceType<typeof HealthCheck> | null>(null);
@@ -386,6 +393,7 @@ function clearGraph() {
 // ----- lifecycle
 let offProfile: (() => void) | null = null;
 onMounted(() => {
+  active.value = true;
   const q = Number(route.query.key);
   if (route.query.key !== undefined && Number.isInteger(q) && device.keys[q]) sel.select(q);
   syncFocusFromSelection();
@@ -407,6 +415,7 @@ onMounted(() => {
   if (route.query.check === '1') enterCheck();
 });
 onBeforeUnmount(() => {
+  active.value = false;
   pageEl?.removeEventListener('keydown', onControlKey, true);
   live.suspendFollow(false);
   live.stop();
@@ -476,19 +485,8 @@ function onTypeKey(e: KeyboardEvent) {
           <Switch v-model="colorByResult" class="toggle" :label="t('live.colorByResult')" :title="t('live.colorByResultHint')" :describedby="colorHintId" />
           <span :id="colorHintId" class="sr-only">{{ t('live.colorByResultHint') }}</span>
         </div>
-      <aside class="aside">
-        <span class="micro">{{ t('live.follow') }}</span>
-        <Segmented
-          :model-value="live.follow ? 'auto' : 'pin'"
-          :options="followOptions"
-          :label="t('live.follow')"
-          size="sm"
-          @update:model-value="setFollow"
-        />
+      <div class="ktrow">
         <p class="hint">{{ live.follow ? t('live.followAutoHint') : t('live.followPinnedHint') }}</p>
-        <Switch v-if="!live.follow" v-model="live.allKeys" class="toggle" :label="t('live.allKeys')" :title="t('live.allKeysHint')" />
-        <Switch v-if="device.demo" v-model="demoKeys" class="toggle" :label="t('live.demoKeys')" :title="t('live.demoKeysHint')" />
-        <span class="aside__br" aria-hidden="true" />
         <div class="klock" :class="{ 'klock--off': lockState === 'off', 'klock--idle': lockState === 'idle', 'klock--nudge': lockNudge }">
           <span class="klock__ico" aria-hidden="true">
             <IconLock v-if="lockState === 'on'" :size="16" stroke-width="1.5" />
@@ -500,7 +498,22 @@ function onTypeKey(e: KeyboardEvent) {
           <span :id="lockHintId" class="sr-only">{{ t('live.lockHint') }}</span>
           <span class="klock__live" aria-live="polite">{{ lockSay }}</span>
         </div>
-      </aside>
+      </div>
+      <Teleport v-if="active" defer :to="toolsEl" :disabled="!toolsEl">
+        <div class="ktools">
+          <span :id="followId" class="micro">{{ t('live.follow') }}</span>
+          <Segmented
+            :model-value="live.follow ? 'auto' : 'pin'"
+            :options="followOptions"
+            :label="t('live.follow')"
+            :labelledby="followId"
+            size="sm"
+            @update:model-value="setFollow"
+          />
+          <Switch v-if="!live.follow" v-model="live.allKeys" class="toggle" :label="t('live.allKeys')" :title="t('live.allKeysHint')" />
+          <Switch v-if="device.demo" v-model="demoKeys" class="toggle" :label="t('live.demoKeys')" :title="t('live.demoKeysHint')" />
+        </div>
+      </Teleport>
       </template>
     </TabKeyboard>
 
@@ -643,20 +656,19 @@ function onTypeKey(e: KeyboardEvent) {
 </template>
 
 <style scoped>
-/* = PageLayout's gap between its blocks, where this tab used to live */
-.testtab { display: flex; flex-direction: column; gap: var(--s-5); min-width: 0; }
-/* DESIGN E §3.5: the keyboard frame is TabKeyboard's (the class `board` stays: the ?check=1 scroll measures it). Under it,
-   the keycap legend row, then the controls as one row at every width: the row it was up to 1420 px (it was a 188 px column
-   at the keyboard's right from 1421 px, which put the keyboard 104 px left of the other tabs at 1920). */
-.aside { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
-.aside :deep(.seg__opt) { flex: 1; }
-.aside .hint { text-wrap: pretty; }
+/* No gap between the blocks, as on the page this tab was (r108): the hint sits right under the keyboard's rows and the
+   check row keeps its own 16 px margins, so ?check=1 can show the keyboard and the whole check card together. */
+.testtab { display: flex; flex-direction: column; min-width: 0; }
+/* DESIGN E §3.5 (patch 2026-11-14): the keyboard frame is TabKeyboard's (the class `board` stays: the ?check=1 scroll
+   measures it). Under it: the keycap legend row, then one row with the follow hint (left, wraps in its own cell) and the
+   key-lock banner (right). "Theo dõi phím" and its switches are in the scope line (.ktools, teleported like Travel's chips). */
+.ktools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); white-space: nowrap; }
+.ktools :deep(.seg__opt) { flex: 1; }
+.ktrow { display: flex; align-items: center; gap: var(--s-3) var(--s-4); min-height: 32px; }
+.ktrow .hint { flex: 1 1 0; min-width: 0; margin: 0; text-wrap: pretty; }
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
 .toggle { font-size: var(--fs-label); }
-/* second line: the hint (left) and the key-lock banner (right) */
-.aside__br { display: block; flex-basis: 100%; height: 0; order: 8; }
-.aside .hint { flex: 1 1 auto; min-width: 0; order: 9; }
-.klock { order: 10; margin-left: auto; }
+.klock { flex: none; }
 
 /* Keyboard footer: keycap legend (left), "Color by result" (right: it acts on the keycaps) */
 .kbfoot { display: flex; align-items: center; gap: var(--s-4); min-height: 28px; }
@@ -672,7 +684,7 @@ function onTypeKey(e: KeyboardEvent) {
 .kl__ico--short { color: var(--warn); }
 .kl__ico--stuck { color: var(--danger); }
 
-/* Key-lock banner: right side of the controls' second line. */
+/* Key-lock banner: right side of the row under the keyboard legend. */
 .klock {
   display: flex;
   align-items: center;
