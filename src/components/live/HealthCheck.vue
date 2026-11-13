@@ -10,6 +10,7 @@ import { useRovingFocus } from '../../composables/useRovingFocus';
 import type { CheckIssue } from './keyCheck';
 import { DEFAULT_RANGE_MM } from '../../stores/performance';
 import { t } from '../../i18n/vi';
+import { locale } from '../../i18n/locale';
 
 const props = defineProps<{
   pressed: number;
@@ -33,7 +34,19 @@ const attnId = useId();
 const roving = useRovingFocus({ container: chipsEl, ids: () => props.issues.map((i) => i.id), orientation: 'both' });
 
 const mm = (v: number) => v.toFixed(2);
-const chips = computed(() => props.issues.map((i) => {
+type Chip = CheckIssue & { before: string; after: string; label: string };
+/** The chip of an issue object: the page keeps an unchanged issue's object, so its chip is reused and not re-rendered. */
+let chipOf = new WeakMap<CheckIssue, Chip>();
+let chipLocale = locale.value;
+const chips = computed(() => {
+  if (chipLocale !== locale.value) { chipLocale = locale.value; chipOf = new WeakMap(); }
+  return props.issues.map((i) => {
+    let c = chipOf.get(i);
+    if (!c) { c = makeChip(i); chipOf.set(i, c); }
+    return c;
+  });
+});
+function makeChip(i: CheckIssue): Chip {
   const text = i.kind === 'stuck'
     ? t('live.chipStuck', { key: '\u0000', mm: mm(i.mm) })
     : t('live.chipShort', { key: '\u0000', mm: mm(i.mm), range: mm(i.range) });
@@ -42,7 +55,7 @@ const chips = computed(() => props.issues.map((i) => {
     ? t('live.chipStuckLabel', { key: i.name, mm: mm(i.mm) })
     : t('live.chipShortLabel', { key: i.name, mm: mm(i.mm), range: mm(i.range) });
   return { ...i, before, after, label };
-}));
+}
 
 function restart(): void {
   emit('restart');
@@ -71,7 +84,7 @@ defineExpose({ focusTitle, titleEl });
     <div v-if="chips.length" class="hc__attn">
       <span :id="attnId" class="micro">{{ t('live.attention') }}</span>
       <ul ref="chipsEl" class="hc__chips" :aria-labelledby="attnId">
-        <li v-for="c in chips" :key="c.id">
+        <li v-for="c in chips" :key="c.id" v-memo="[c, c.id === pinnedId, roving.tabindex(c.id)]">
           <button
             type="button"
             class="hc__chip"

@@ -12,6 +12,8 @@ export function useRovingFocus(opts: {
   ids: () => number[];
   /** 'both': ←/→ and ↑/↓ move (a wrapping chip list); 'vertical': ↑/↓ only (table rows). */
   orientation: 'both' | 'vertical';
+  /** Called before an arrow key focuses `id` (at `index`): a list that renders only part of its items brings it in. */
+  reveal?: (id: number, index: number) => void;
 }) {
   const current = ref<number | null>(null);
   /** Where the remembered item was, so a removed item hands the stop to its neighbour instead of the first item. */
@@ -55,6 +57,7 @@ export function useRovingFocus(opts: {
     const next = ids[to];
     current.value = next;
     lastIndex = to;
+    opts.reveal?.(next, to);
     void nextTick(() => opts.container.value?.querySelector<HTMLElement>(`[data-rid="${next}"]`)?.focus());
   }
 

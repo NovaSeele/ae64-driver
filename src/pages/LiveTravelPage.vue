@@ -128,15 +128,26 @@ const HEAT_MS = 33;
 function frame(now: number) {
   raf = requestAnimationFrame(frame);
   const d = live.data;
-  if (now - lastCheck >= HEAT_MS && (d.checkVersion !== seenCheck || perf.values !== seenValues || device.keys !== seenKeys)) {
-    lastCheck = now;
+  // The keycap marks and results change in the same frame as the heat (one keyboard render), the two cards at most
+  // every CARD_MS: they are read, not watched, and 64 table rows at 30 Hz cost more than the rest of the page.
+  const due = now - lastHeat >= HEAT_MS;
+  let ticked = false;
+  if (due && (d.checkVersion !== seenCheck || perf.values !== seenValues || device.keys !== seenKeys)) {
+    ticked = true;
     refreshCheck();
+  }
+  if (cardView.value !== checkView.value && now - lastCard >= CARD_MS) {
+    lastCard = now;
+    cardView.value = checkView.value;
   }
   if (now - lastAnnounce >= ANNOUNCE_MS) {
     lastAnnounce = now;
     announce();
   }
-  if (d.version === seen && d.rateHz === lastRate) return;
+  if (d.version === seen && d.rateHz === lastRate) {
+    if (ticked) lastHeat = now;
+    return;
+  }
   seen = d.version;
   lastRate = d.rateHz;
   view.value = {
@@ -144,7 +155,7 @@ function frame(now: number) {
     rate: d.rateHz, firmware: d.firmwarePressed, mismatch: d.mismatch,
     resetAt: d.model?.resetAt ?? null, reactuateAt: d.model?.reactuateAt ?? null, touched: d.touched,
   };
-  if (now - lastHeat >= HEAT_MS) {
+  if (due) {
     lastHeat = now;
     heat.value = { ratio: Array.from(d.ratio), status: Array.from(d.status), travel: Array.from(d.travel) };
   }
@@ -196,21 +207,28 @@ let peakText: (string | undefined)[] = [];
 let seenCheck = -1;
 let seenValues: unknown = null;
 let seenKeys: unknown = null;
-let lastCheck = -Infinity;
+/** What the two cards show: checkView, at most every CARD_MS (Start over and ?check=1 show theirs at once). */
+const cardView = shallowRef<CheckView>(checkView.value);
+const CARD_MS = 100;
+let lastCard = -Infinity;
 let lastAnnounce = 0;
 const sinceReset = ref(false);
 const announcer = new CheckAnnouncer();
 const announcement = ref('');
 
-function refreshCheck() {
+/** `now`: the cards show it at once too (a reset, not a reading). */
+function refreshCheck(now = false) {
   const d = live.data;
   seenCheck = d.checkVersion;
   seenValues = perf.values;
   seenKeys = device.keys;
-  const v = summarizeCheck(d, device.keys, perf.values, device.legend);
-  peakText = [];
-  for (const r of v.rows) peakText[r.id] = t('live.keyPeak', { mm: r.mm.toFixed(2) });
-  checkView.value = v;
+  const v = summarizeCheck(d, device.keys, perf.values, device.legend, checkView.value);
+  if (v !== checkView.value) {
+    peakText = [];
+    for (const r of v.rows) peakText[r.id] = t('live.keyPeak', { mm: r.mm.toFixed(2) });
+    checkView.value = v;
+  }
+  if (now) cardView.value = v;
 }
 
 /** Put the next batched sentence in the live region (emptied first, so the same sentence twice is read twice). */
@@ -225,7 +243,7 @@ function restartCheck() {
   live.resetPeaks();
   sinceReset.value = true;
   announcer.restart();
-  refreshCheck();
+  refreshCheck(true);
 }
 
 function pinKey(id: number) {
@@ -292,7 +310,7 @@ const hcRef = ref<InstanceType<typeof HealthCheck> | null>(null);
  */
 function enterCheck() {
   live.resetPeaks();
-  refreshCheck();
+  refreshCheck(true);
   const { check: _check, ...query } = route.query;
   void router.replace({ query });
   // The keyboard takes its size from a ResizeObserver and the page slides in: wait until the card stops moving (the
@@ -471,13 +489,13 @@ function onTypeKey(e: KeyboardEvent) {
     <div class="checkrow">
       <HealthCheck
         ref="hcRef"
-        :pressed="checkView.pressed"
-        :full="checkView.full"
-        :short="checkView.short"
-        :stuck="checkView.stuck"
+        :pressed="cardView.pressed"
+        :full="cardView.full"
+        :short="cardView.short"
+        :stuck="cardView.stuck"
         :total="device.keys.length"
-        :issues="checkView.issues"
-        :estimated="checkView.estimated"
+        :issues="cardView.issues"
+        :estimated="cardView.estimated"
         :partial-key="partialKey"
         :pinned-id="pinnedId"
         :announcement="announcement"
@@ -485,7 +503,7 @@ function onTypeKey(e: KeyboardEvent) {
         @restart="restartCheck"
         @all-keys="live.allKeys = true"
       />
-      <PeakTable :rows="checkView.rows" :pinned-id="pinnedId" :estimated="checkView.estimated" :since-reset="sinceReset" @pin="pinKey" />
+      <PeakTable :rows="cardView.rows" :pinned-id="pinnedId" :estimated="cardView.estimated" :since-reset="sinceReset" @pin="pinKey" />
     </div>
 
     <div class="grid">

@@ -43,6 +43,25 @@ describe('key check — thresholds', () => {
 });
 
 describe('key check — peaks (C1)', () => {
+  it('a key held still changes nothing: checkVersion moves at most once over 2 s (Float32 storage, C-F32-1)', () => {
+    const w = key('W'), e = key('E');
+    // W held at 3.31 for 2 s, one sample every 10 ms: the first sample is the new deepest reading, the rest are not
+    route(w, 3.31, 0);
+    let v = live.data.checkVersion;
+    for (let now = 10; now <= 2000; now += 10) route(w, 3.31, now);
+    expect(live.data.checkVersion - v).toBeLessThanOrEqual(1);
+    // E stuck at 0.42 (released by the firmware): once counted stuck, staying there moves nothing either
+    route(e, 3.0, 3000);
+    status(e, 1, 3001);
+    status(e, 0, 3002);
+    route(e, 0.42, 3010);
+    route(e, 0.42, 3010 + REST_OFF_MS);
+    expect(live.data.restOffMm[e.id]).toBeCloseTo(0.42, 5);
+    v = live.data.checkVersion;
+    for (let now = 3020 + REST_OFF_MS; now <= 5020 + REST_OFF_MS; now += 10) route(e, 0.42, now);
+    expect(live.data.checkVersion - v).toBeLessThanOrEqual(1);
+  });
+
   it('peakMm follows a press made with mock.simulatePress and does not drop on release', async () => {
     const mock = device.transport as MockTransport;
     const w = key('W');
@@ -248,6 +267,41 @@ describe('key check — full travel (C2)', () => {
     expect(summarizeCheck(live.data, device.keys, all).estimated).toBe(false);
     all[a.id] = S(3200); // A's switch is shorter: 3.10 is 96.9 % of it
     expect(summarizeCheck(live.data, device.keys, all).kinds[a.id]).toBe('ok');
+    // a key whose settings are read but whose travel is 0 (not reported): estimated too, its travel is 3.31
+    all[key('Z').id] = S(0);
+    expect(summarizeCheck(live.data, device.keys, all).estimated).toBe(true);
+  });
+
+  it('keeps what did not change: the same view when nothing changed, the same row and issue objects otherwise (C-PERF-1)', () => {
+    const w = key('W'), a = key('A'), s = key('S');
+    route(w, 3.31, 10);
+    route(a, 2.0, 10);
+    route(s, 1.0, 10);
+    const v1 = view();
+    expect(summarizeCheck(live.data, device.keys, usePerformanceStore().values, (k) => k.name, v1)).toBe(v1);
+    route(s, 1.5, 20); // only S went deeper
+    const v2 = summarizeCheck(live.data, device.keys, usePerformanceStore().values, (k) => k.name, v1);
+    expect(v2).not.toBe(v1);
+    const row = (v: typeof v1, id: number) => v.rows.find((r) => r.id === id);
+    const iss = (v: typeof v1, id: number) => v.issues.find((i) => i.id === id);
+    expect(row(v2, w.id)).toBe(row(v1, w.id));
+    expect(row(v2, a.id)).toBe(row(v1, a.id));
+    expect(row(v2, s.id)).not.toBe(row(v1, s.id));
+    expect(row(v2, s.id)!.mm).toBeCloseTo(1.5, 5);
+    expect(iss(v2, a.id)).toBe(iss(v1, a.id));
+    expect(iss(v2, s.id)).not.toBe(iss(v1, s.id));
+  });
+
+  it('a deeper reading past a shorter switch travel still updates its row (the bar stays full, the mm does not)', () => {
+    const d = key('D');
+    const short = { [d.id]: { axisRangeMax: 3000 } as Performance }; // a 3.0 mm switch: 3.10 and 3.25 both fill the bar
+    route(d, 3.10, 10);
+    const v1 = summarizeCheck(live.data, device.keys, short);
+    route(d, 3.25, 20);
+    const v2 = summarizeCheck(live.data, device.keys, short, (k) => k.name, v1);
+    const r1 = v1.rows.find((r) => r.id === d.id)!, r2 = v2.rows.find((r) => r.id === d.id)!;
+    expect(r2.ratio).toBe(r1.ratio);
+    expect(r2.mm).toBeCloseTo(3.25, 5);
   });
 
   it('orders issues stuck first, then short shallowest first; rows deepest first then by name', () => {

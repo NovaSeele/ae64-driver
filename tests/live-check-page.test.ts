@@ -161,6 +161,63 @@ describe('key check on the live page', () => {
     expect(w!.find('.hc__live').text()).toBe(t('live.restartDone'));
   });
 
+  it('keycap lines follow at the heat rate (33 ms); the two cards at most every 100 ms, never older (C-PERF-1)', async () => {
+    await open();
+    live.stop();
+    const run = frames.find((f) => f.name === 'frame')!;
+    const A = key('A'), S = key('S');
+    const capMark = (k: PhysicalKey) => w!.find(`.kb__key[data-key="${k.id}"] .cap__mark`);
+    const shown = () => w!.findAll('.pt__row').map((r) => r.find('.pt__key span').text());
+    route(A, 2.0, 10);
+    run(5000);
+    await flushPromises();
+    expect(shown()).toEqual(['A']); // the first reading shows at once
+    route(S, 3.0, 20);
+    run(5040); // 40 ms later: the keyboard has it, the cards wait
+    await flushPromises();
+    expect(capMark(S).exists()).toBe(true);
+    expect(shown()).toEqual(['A']);
+    expect(w!.find('.hc__stats dd').text()).toMatch(/^1\//);
+    run(5080);
+    await flushPromises();
+    expect(shown()).toEqual(['A']);
+    run(5100); // 100 ms after the last card update: the cards catch up
+    await flushPromises();
+    expect(shown()).toEqual(['S', 'A']);
+    expect(w!.find('.hc__stats dd').text()).toMatch(/^2\//);
+    // Start over shows at once, without waiting
+    run(5120);
+    await w!.find('.hc .card__actions button').trigger('click');
+    await flushPromises();
+    expect(w!.findAll('.pt__row')).toHaveLength(0);
+  });
+
+  it('in Auto there is no partial note, whatever "All keys" says (§4)', async () => {
+    await open();
+    live.setFollow(true);
+    live.allKeys = false;
+    live.setFocus(key('W').id);
+    await flushPromises();
+    expect(live.follow).toBe(true);
+    expect(w!.find('.hc__note--warn').exists()).toBe(false);
+  });
+
+  it('leaving the page and coming back starts the count over (§3.1)', async () => {
+    await open();
+    live.stop();
+    route(key('W'), 3.31, 10);
+    route(key('A'), 2.0, 10);
+    await frame();
+    expect(w!.find('.hc__stats dd').text()).toMatch(/^2/);
+    w!.unmount();
+    w = null;
+    await open();
+    await frame();
+    expect(live.data.pressedIds.size).toBe(0);
+    expect(w!.find('.hc__stats dd').text()).toMatch(/^0/);
+    expect(w!.findAll('.pt__row')).toHaveLength(0);
+  });
+
   it('pinned with "All keys" off: the partial note, and its button turns All keys on', async () => {
     await open();
     live.allKeys = false;
@@ -299,6 +356,33 @@ describe('key lock on the live page', () => {
     expect(spaceOn(document.body)).toBe(true);
     await flushPromises();
     expect(w!.find('.klock').classes()).not.toContain('klock--nudge');
+    // within 10 s of the last reminder: the banner lights again, the sentence is not read again (the live region is untouched)
+    const live = w!.find('.klock__live').element;
+    let changes = 0;
+    const mo = new MutationObserver((rs) => { changes += rs.length; });
+    mo.observe(live, { childList: true, characterData: true, subtree: true });
+    vi.advanceTimersByTime(5000);
+    expect(spaceOn(btn)).toBe(true);
+    await flushPromises();
+    await nextTick();
+    expect(w!.find('.klock').classes()).toContain('klock--nudge');
+    await flushPromises();
+    expect(changes).toBe(0);
+    mo.disconnect();
     vi.useRealTimers();
+  });
+
+  it('a key blocked on a control focused by mouse (not :focus-visible): blocked, no reminder', async () => {
+    await open();
+    const btn = w!.find('.simcard .card__actions button').element as HTMLElement;
+    const real = Element.prototype.matches;
+    vi.spyOn(Element.prototype, 'matches').mockImplementation(function (this: Element, sel: string) {
+      return sel === ':focus-visible' ? false : real.call(this, sel);
+    });
+    expect(spaceOn(btn)).toBe(true);
+    await flushPromises();
+    await nextTick();
+    expect(w!.find('.klock').classes()).not.toContain('klock--nudge');
+    expect(w!.find('.klock__live').text()).toBe('');
   });
 });

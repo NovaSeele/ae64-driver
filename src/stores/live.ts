@@ -569,9 +569,13 @@ export const useLiveStore = defineStore('live', () => {
   /** Keys that just came back above PRESSED_MM after a press (the page drains it for its announcements). At most 64. */
   const releasedIds = new Set<number>();
 
-  /** Peak, pressed and "not back to 0" bookkeeping for one route sample (mm) of key `id`. */
+  /** Peak, pressed and "not back to 0" bookkeeping for one route sample of key `id`. */
   function trackCheck(id: number, mm: number, ratio: number, now: number): void {
-    if (mm > data.peakMm[id]) {
+    // peakMm and restOffMm are Float32Array: compare with the sample as it would be stored, or 3.31 (double) reads
+    // deeper than the stored 3.3099999 forever and a key held still bumps checkVersion on every sample. The thresholds
+    // below compare the sample itself.
+    const stored = Math.fround(mm);
+    if (stored > data.peakMm[id]) {
       data.peakMm[id] = mm;
       data.peakRatio[id] = ratio;
       data.checkVersion++;
@@ -597,7 +601,7 @@ export const useLiveStore = defineStore('live', () => {
       return;
     }
     if (data.offSince[id] < 0) data.offSince[id] = now;
-    if (now - data.offSince[id] >= REST_OFF_MS && data.restOffMm[id] !== mm) {
+    if (now - data.offSince[id] >= REST_OFF_MS && data.restOffMm[id] !== stored) {
       data.restOffMm[id] = mm;
       data.checkVersion++;
     }

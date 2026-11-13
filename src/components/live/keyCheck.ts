@@ -61,9 +61,22 @@ export function emptyCheckView(total: number): CheckView {
   return { pressed: 0, full: 0, short: 0, stuck: 0, total, issues: [], rows: [], estimated: false, kinds: [], marks: [] };
 }
 
-/** `name`: what the key is called on screen (the keycap legend). */
-export function summarizeCheck(data: LiveData, keys: PhysicalKey[], values: Record<number, Performance | undefined>, name: (k: PhysicalKey) => string = (k) => k.name): CheckView {
+const sameRow = (a: CheckRow, b: CheckRow) => a.id === b.id && a.name === b.name && a.mm === b.mm && a.ratio === b.ratio && a.kind === b.kind && a.bar === b.bar;
+const sameIssue = (a: CheckIssue, b: CheckIssue) => a.id === b.id && a.name === b.name && a.kind === b.kind && a.mm === b.mm && a.range === b.range;
+const sameList = <T>(a: readonly T[], b: readonly T[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * `name`: what the key is called on screen (the keycap legend). `prev`: the last view; rows and issues that did not
+ * change keep their object (the page renders only what changed), and a view equal to `prev` is `prev` itself.
+ */
+export function summarizeCheck(data: LiveData, keys: PhysicalKey[], values: Record<number, Performance | undefined>, name: (k: PhysicalKey) => string = (k) => k.name, prev?: CheckView): CheckView {
   const view = emptyCheckView(keys.length);
+  const oldRow = new Map<number, CheckRow>();
+  const oldIssue = new Map<number, CheckIssue>();
+  for (const r of prev?.rows ?? []) oldRow.set(r.id, r);
+  for (const i of prev?.issues ?? []) oldIssue.set(i.id, i);
+  const row = (r: CheckRow) => { const o = oldRow.get(r.id); return o && sameRow(o, r) ? o : r; };
+  const issue = (i: CheckIssue) => { const o = oldIssue.get(i.id); return o && sameIssue(o, i) ? o : i; };
   for (const k of keys) {
     const p = values[k.id];
     if (!(p && p.axisRangeMax > 0)) view.estimated = true;
@@ -81,12 +94,18 @@ export function summarizeCheck(data: LiveData, keys: PhysicalKey[], values: Reco
     view.kinds[k.id] = kind;
     view.marks[k.id] = ratio;
     const n = name(k);
-    view.rows.push({ id: k.id, name: n, mm, ratio, kind, bar: full ? 'ok' : 'short' });
-    if (stuck) view.issues.push({ id: k.id, name: n, kind: 'stuck', mm: data.restOffMm[k.id], range });
-    else if (!full) view.issues.push({ id: k.id, name: n, kind: 'short', mm, range });
+    view.rows.push(row({ id: k.id, name: n, mm, ratio, kind, bar: full ? 'ok' : 'short' }));
+    if (stuck) view.issues.push(issue({ id: k.id, name: n, kind: 'stuck', mm: data.restOffMm[k.id], range }));
+    else if (!full) view.issues.push(issue({ id: k.id, name: n, kind: 'short', mm, range }));
   }
   view.rows.sort((a, b) => b.mm - a.mm || a.name.localeCompare(b.name));
   view.issues.sort((a, b) => (a.kind === b.kind ? a.mm - b.mm || a.name.localeCompare(b.name) : a.kind === 'stuck' ? -1 : 1));
+  if (prev && prev.total === view.total && prev.pressed === view.pressed && prev.full === view.full && prev.short === view.short
+    && prev.stuck === view.stuck && prev.estimated === view.estimated && sameList(prev.rows, view.rows) && sameList(prev.issues, view.issues)) {
+    return prev; // rows equal ⇒ kinds and marks equal (both come from the same pressed keys)
+  }
+  if (prev && sameList(prev.rows, view.rows)) view.rows = prev.rows;
+  if (prev && sameList(prev.issues, view.issues)) view.issues = prev.issues;
   return view;
 }
 
