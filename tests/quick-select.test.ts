@@ -14,11 +14,9 @@ import { FIT_CLASSES, pickFit } from '../src/components/keyboard/selectionFit';
 import type { FitInput } from '../src/components/keyboard/selectionFit';
 import SelectionBar from '../src/components/keyboard/SelectionBar.vue';
 import { GLOW_BADGE_TONE } from '../src/components/keyboard/Keycap.vue';
-import PerformancePage from '../src/pages/PerformancePage.vue';
-import SwitchPage from '../src/pages/SwitchPage.vue';
+import { mountPerformance } from './mountPerformance';
 import LightingPage from '../src/pages/LightingPage.vue';
 import KeymapPage from '../src/pages/KeymapPage.vue';
-import AdvancedPage from '../src/pages/AdvancedPage.vue';
 import GamepadPage from '../src/pages/GamepadPage.vue';
 import PageLayout from '../src/components/shell/PageLayout.vue';
 import { useAdvancedStore } from '../src/stores/advanced';
@@ -329,7 +327,7 @@ describe('the keycap legend of each page (§3.4)', () => {
     };
     setModes(() => 0);
     perf.uncalibrated = [];
-    w = mount(PerformancePage, { global: { plugins: [router()], stubs: { KeyboardView: true } }, attachTo: document.body });
+    ({ w } = await mountPerformance('travel', {}, { stubs: { KeyboardView: true } }));
     await flushPromises();
     const chip = async (i: number) => { await w!.findAll('.chip')[i].trigger('click'); await flushPromises(); };
     expect(legend()).toBe(`${tr('sel.shows')}: ${tr('perf.showsAct')}`);
@@ -382,7 +380,7 @@ describe('the keycap legend of each page (§3.4)', () => {
     const perf = usePerformanceStore();
     await perf.load();
     perf.uncalibrated = [];
-    w = mount(SwitchPage, { global: { plugins: [router()] }, attachTo: document.body });
+    ({ w } = await mountPerformance('switch'));
     await flushPromises();
     expect(legend()).toBe(`${tr('sel.shows')}: ${tr('swp.shows')}`);
     w.unmount();
@@ -390,7 +388,7 @@ describe('the keycap legend of each page (§3.4)', () => {
     await useSyncStore().flush();
     await perf.load(true);
     perf.uncalibrated = [3];
-    w = mount(SwitchPage, { global: { plugins: [router()] }, attachTo: document.body });
+    ({ w } = await mountPerformance('switch'));
     await flushPromises();
     expect(legend()).toBe(`${tr('sel.shows')}: ${tr('swp.shows')} · ${tr('swp.showsGroupsGlyph')} = ${tr('swp.showsGroups')} · ${tr('sel.flaggedGlyph')} = ${tr('sel.flagged')}`);
     expect(w.find('.sb__bar').attributes('style')).toContain('var(--hue-blue)');
@@ -494,7 +492,7 @@ describe('the keycap legend of each page (§3.4)', () => {
     const device = await demo();
     const adv = useAdvancedStore();
     await adv.load();
-    w = mount(AdvancedPage, { global: { plugins: [router()], stubs: { KeyboardView: true } }, attachTo: document.body });
+    ({ w } = await mountPerformance('advanced', {}, { stubs: { KeyboardView: true } }));
     await flushPromises();
     const [a, b] = [device.keys[20], device.keys[21]];
     const pair = (type: 'SOCD' | 'RS') => {
@@ -582,8 +580,9 @@ describe('the keycap legend of each page (§3.4)', () => {
   });
 
   it('no page passes #hint any more: the detail slot replaced it', () => {
-    for (const p of ['AdvancedPage', 'GamepadPage', 'KeymapPage', 'PerformancePage', 'SwitchPage', 'LightingPage']) {
-      expect(readFileSync(resolve(`src/pages/${p}.vue`), 'utf8')).not.toContain('#hint');
+    // E: Advanced, Switch and Travel are tabs of the Performance page now
+    for (const p of ['components/advanced/AdvancedTab', 'pages/GamepadPage', 'pages/KeymapPage', 'pages/PerformancePage', 'components/performance/TravelTab', 'components/switch/SwitchTab', 'pages/LightingPage']) {
+      expect(readFileSync(resolve(`src/${p}.vue`), 'utf8')).not.toContain('#hint');
     }
   });
 });

@@ -50,7 +50,6 @@ export const advancedVi = {
   'advanced.discardKeep': 'Tiếp tục sửa',
   'advanced.discardDo': 'Bỏ thay đổi',
   'advanced.discarded': 'Đã chuyển profile — bản nháp advanced key chưa lưu đã bị bỏ.',
-  'advanced.leaveConfirm': 'Advanced key đang sửa chưa được lưu. Rời trang và bỏ thay đổi?',
 
   'advanced.pickHost': 'Bấm một phím trên bàn phím để gán {type}.',
   'advanced.pickPairA': 'Bấm phím A trên bàn phím. Chọn xong sẽ tự chuyển sang B.',

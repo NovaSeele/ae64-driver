@@ -52,7 +52,6 @@ export const advancedEn: Record<keyof typeof advancedVi, string> = {
   'advanced.discardKeep': 'Keep editing',
   'advanced.discardDo': 'Discard changes',
   'advanced.discarded': 'Profile changed — the unsaved advanced key draft was discarded.',
-  'advanced.leaveConfirm': 'The advanced key you are editing is not saved. Leave and discard it?',
 
   'advanced.pickHost': 'Click a key on the keyboard to assign {type}.',
   'advanced.pickPairA': 'Click key A on the keyboard. It switches to B automatically.',

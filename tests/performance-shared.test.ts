@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { flushPromises, mount } from '@vue/test-utils';
+import { flushPromises } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
-import { createMemoryHistory, createRouter } from 'vue-router';
 import { MockTransport, PHYSICAL_KEYS } from '../src/protocol';
-import PerformancePage from '../src/pages/PerformancePage.vue';
+import { mountPerformance } from './mountPerformance';
 import { useDeviceStore } from '../src/stores/device';
 import { useSelectionStore } from '../src/stores/selection';
 import { useSyncStore } from '../src/stores/sync';
@@ -29,8 +28,7 @@ async function setup(select: number[]) {
   // Standard keys with an old, different RT field, as a keyboard that was never touched by this app (store only, no write).
   for (const k of [Q, W]) perf.values = { ...perf.values, [k]: { ...perf.values[k], mode: 0, normalPress: 2, rtFirstTouch: 0.5 } };
   useSelectionStore().selectMany(select);
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
-  w = mount(PerformancePage, { global: { plugins: [router], stubs: { KeyboardView: true } }, attachTo: document.body });
+  ({ w } = await mountPerformance('travel', {}, { stubs: { KeyboardView: true } }));
   await flushPromises();
   return { mock, perf, setPerf };
 }

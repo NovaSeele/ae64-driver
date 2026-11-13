@@ -1,7 +1,3 @@
-<script lang="ts">
-export { deriveRtLinked } from '../components/performance/TravelTab.vue';
-</script>
-
 <script setup lang="ts">
 // Hiệu năng (DESIGN E §3.2): one page, five independent tabs (Hành trình · Phím nâng cao · Switch · Hiệu chuẩn · Kiểm tra
 // phím) over one keyboard frame. The tab is ?tab= (normalised by the router's beforeEach) plus one localStorage key;

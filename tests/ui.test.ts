@@ -10,7 +10,7 @@ import Slider from '../src/components/ui/Slider.vue';
 import Tabs from '../src/components/ui/Tabs.vue';
 import ColorPicker from '../src/components/ui/ColorPicker.vue';
 import NumberField, { decimalsFor, formatMm } from '../src/components/ui/NumberField.vue';
-import { deriveRtLinked } from '../src/pages/PerformancePage.vue';
+import { deriveRtLinked } from '../src/components/performance/TravelTab.vue';
 import type { Performance } from '../src/protocol';
 
 describe('KeyPicker', () => {

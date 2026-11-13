@@ -86,7 +86,7 @@ describe('switch selector UI', () => {
     expect(new Set(setPerf.mock.calls.map((c) => `${c[0].row}:${c[0].col}`))).toEqual(new Set(PHYSICAL_KEYS.map((k) => `${k.row}:${k.col}`)));
     expect(perf.switchOf(ALL[0])?.name).toBe('阿波罗轴');
     expect(w!.find('.swc__name').text()).toBe('Apollo');
-    expect(w!.find('.swc__recal').exists()).toBe(false); // the status moved to the board-list card (SwitchPage)
+    expect(w!.find('.swc__recal').exists()).toBe(false); // the status moved to the board-list card (the Switch tab)
   });
 
   it('opening on a key that uses Wukong HE lands on the Everglide tab, option in use and focused', async () => {

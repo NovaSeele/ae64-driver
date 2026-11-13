@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { flushPromises, mount } from '@vue/test-utils';
+import { flushPromises } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
-import { createMemoryHistory, createRouter } from 'vue-router';
-import AdvancedPage from '../src/pages/AdvancedPage.vue';
+import { mountPerformance } from './mountPerformance';
 import type { MockTransport } from '../src/protocol';
 import { useDeviceStore } from '../src/stores/device';
 import { useSelectionStore } from '../src/stores/selection';
@@ -32,8 +31,7 @@ describe('Advanced page: key-first entry', () => {
     await adv.load();
     const sel = useSelectionStore();
     const id = (name: string) => device.keys.find((k) => k.name === name)!.id;
-    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
-    w = mount(AdvancedPage, { global: { plugins: [router] }, attachTo: document.body });
+    ({ w } = await mountPerformance('advanced'));
     await flushPromises();
     return { w, device, adv, sel, id, mock: device.transport as MockTransport };
   }
@@ -160,8 +158,7 @@ describe('Advanced page: key-first entry', () => {
     await device.connectDemo();
     await device.switchProfile(1);
     await useAdvancedStore().load();
-    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
-    w = mount(AdvancedPage, { global: { plugins: [router] }, attachTo: main });
+    ({ w } = await mountPerformance('advanced', {}, { attachTo: main }));
     await flushPromises();
     const card = w.findAll('.cols > .card')[1].element as HTMLElement; // the configured card, right column
     expect(card.style.maxHeight).toBe('272px');

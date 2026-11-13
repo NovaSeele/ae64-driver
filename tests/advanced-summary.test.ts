@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { flushPromises, mount } from '@vue/test-utils';
+import { flushPromises } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
-import { createMemoryHistory, createRouter } from 'vue-router';
-import AdvancedPage from '../src/pages/AdvancedPage.vue';
+import { mountPerformance } from './mountPerformance';
 import type { MockTransport } from '../src/protocol';
 import { useDeviceStore } from '../src/stores/device';
 import { useSelectionStore } from '../src/stores/selection';
@@ -35,8 +34,7 @@ describe('Advanced page: the picked key\'s entry summarised in the selection bar
     const writes = [
       vi.spyOn(mock, 'setDks'), vi.spyOn(mock, 'setSocdPair'), vi.spyOn(mock, 'clearAdvanced'),
     ];
-    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
-    w = mount(AdvancedPage, { global: { plugins: [router] }, attachTo: document.body });
+    ({ w } = await mountPerformance('advanced'));
     await flushPromises();
     const noWrites = () => writes.forEach((s) => expect(s).not.toHaveBeenCalled());
     return { w, device, adv, sel, noWrites };

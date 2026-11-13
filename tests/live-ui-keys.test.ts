@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { flushPromises, mount } from '@vue/test-utils';
-import { createMemoryHistory, createRouter } from 'vue-router';
+import { flushPromises } from '@vue/test-utils';
+import type { mount } from '@vue/test-utils';
 import { PHYSICAL_KEYS } from '../src/protocol';
-import LiveTravelPage from '../src/pages/LiveTravelPage.vue';
+import { mountPerformance } from './mountPerformance';
 import { useDeviceStore } from '../src/stores/device';
 import { usePerformanceStore } from '../src/stores/performance';
 import { useLiveStore } from '../src/stores/live';
@@ -62,8 +62,7 @@ describe('Space/Enter that operates a control is not a test press', () => {
     await usePerformanceStore().load();
     live = useLiveStore();
     undo = vi.spyOn(live, 'undoAutoFollow');
-    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
-    w = mount(LiveTravelPage, { global: { plugins: [router] }, attachTo: document.body });
+    ({ w } = await mountPerformance('test'));
     await flushPromises();
     useDeviceStore().demo = false; // the demo's window keydown capture would swallow the keystroke
     await flushPromises();
@@ -548,8 +547,7 @@ describe('demo: Space on a focused control is not a test press, even tapped repe
     await usePerformanceStore().load();
     vi.useFakeTimers();
     const live = useLiveStore();
-    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
-    const w = mount(LiveTravelPage, { global: { plugins: [router] }, attachTo: document.body });
+    const { w } = await mountPerformance('test');
     await vi.advanceTimersByTimeAsync(200);
     const fire = (target: Element, type: 'keydown' | 'keyup', code: string, k: string) =>
       target.dispatchEvent(new KeyboardEvent(type, { key: k, code, bubbles: true, cancelable: true }));

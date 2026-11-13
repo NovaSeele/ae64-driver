@@ -1,11 +1,10 @@
 // The Mẫu cài đặt card on Hành trình: built-in apply, saved rows (0, 3, 6), delete with undo at the same index, the save button and its reason.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { flushPromises, mount } from '@vue/test-utils';
+import { flushPromises } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
-import { createMemoryHistory, createRouter } from 'vue-router';
 import { MockTransport, PHYSICAL_KEYS } from '../src/protocol';
-import PerformancePage from '../src/pages/PerformancePage.vue';
+import { mountPerformance } from './mountPerformance';
 import { useDeviceStore } from '../src/stores/device';
 import { useSelectionStore } from '../src/stores/selection';
 import { useSyncStore } from '../src/stores/sync';
@@ -34,8 +33,7 @@ async function setup() {
   for (const k of ALL) v[k] = { ...v[k], mode: 1, normalPress: 1, rtFirstTouch: 1, rtPress: 0.3, rtRelease: 0.3, pressDeadStroke: 0.1, releaseDeadStroke: 0.1 };
   perf.values = v;
   useSelectionStore().selectMany([]);
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
-  w = mount(PerformancePage, { global: { plugins: [router], stubs: { KeyboardView: true } }, attachTo: document.body });
+  ({ w } = await mountPerformance('travel', {}, { stubs: { KeyboardView: true } }));
   await flushPromises();
   const exchange = vi.spyOn(device.transport as MockTransport as unknown as { exchange: () => unknown }, 'exchange');
   return { perf, exchange, history: useHistoryStore() };

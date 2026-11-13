@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { flushPromises, mount } from '@vue/test-utils';
+import { flushPromises } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
-import { createMemoryHistory, createRouter } from 'vue-router';
-import AdvancedPage from '../src/pages/AdvancedPage.vue';
+import { mountPerformance } from './mountPerformance';
 import { MockTransport, SAVE_GROUP } from '../src/protocol';
 import type { Performance, PhysicalKey } from '../src/protocol';
 import { useDeviceStore } from '../src/stores/device';
@@ -511,8 +510,7 @@ describe('Advanced list layout', () => {
   afterEach(() => { w?.unmount(); w = null; document.body.innerHTML = ''; vi.unstubAllGlobals(); });
   async function page(profile: number) {
     await setup(profile);
-    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
-    w = mount(AdvancedPage, { global: { plugins: [router] }, attachTo: document.body });
+    ({ w } = await mountPerformance('advanced'));
     await flushPromises();
     return w;
   }

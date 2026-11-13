@@ -28,8 +28,6 @@ export const performanceEn: Record<keyof typeof performanceVi, string> = {
   'swp.tabCalibration': 'Calibration',
   'swp.tabSwitchSub': "See and change each key's switch",
   'swp.tabCalibrationSub': "Measure each key's top and bottom of travel",
-  'swp.calLockedShort': 'Locked while calibrating',
-  'swp.calLocked': 'Calibration is running. Finish or cancel it before changing switches.',
   'swp.mapTitle': 'Switches on this board',
   'swp.mapSub': 'Profile {n} · {name}. Each profile keeps its own switches.',
   'swp.mapHint': 'Click a row to select the keys that use it.',

@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { flushPromises, mount } from '@vue/test-utils';
+import { flushPromises } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
-import { createMemoryHistory, createRouter } from 'vue-router';
 import { PHYSICAL_KEYS } from '../src/protocol';
-import PerformancePage from '../src/pages/PerformancePage.vue';
+import { mountPerformance } from './mountPerformance';
 import { useDeviceStore } from '../src/stores/device';
 import { useSelectionStore } from '../src/stores/selection';
 import { usePerformanceStore } from '../src/stores/performance';
@@ -36,8 +35,7 @@ async function setup() {
   await device.connectDemo();
   await usePerformanceStore().load();
   useSelectionStore().selectMany([E]);
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
-  w = mount(PerformancePage, { global: { plugins: [router], stubs: { KeyboardView: true } }, attachTo: document.body });
+  ({ w } = await mountPerformance('travel', {}, { stubs: { KeyboardView: true } }));
   await flushPromises();
 }
 

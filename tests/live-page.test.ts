@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { flushPromises, mount } from '@vue/test-utils';
-import { createMemoryHistory, createRouter } from 'vue-router';
-import LiveTravelPage from '../src/pages/LiveTravelPage.vue';
+import { flushPromises } from '@vue/test-utils';
+import { mountPerformance } from './mountPerformance';
 import TravelGraph from '../src/components/live/TravelGraph.vue';
 import { useDeviceStore } from '../src/stores/device';
 import { usePerformanceStore } from '../src/stores/performance';
@@ -26,8 +25,7 @@ describe('Live travel page wiring', () => {
     await usePerformanceStore().load();
     const live = useLiveStore();
     const suspend = vi.spyOn(live, 'suspendFollow');
-    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
-    const w = mount(LiveTravelPage, { global: { plugins: [router] }, attachTo: document.body });
+    const { w } = await mountPerformance('test');
     await flushPromises();
 
     const graph = w.findComponent(TravelGraph);
@@ -50,8 +48,7 @@ describe('Live travel page wiring', () => {
     const live = useLiveStore();
     let frame: FrameRequestCallback | null = null;
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { frame = cb; return 1; });
-    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
-    const w = mount(LiveTravelPage, { global: { plugins: [router] }, attachTo: document.body });
+    const { w } = await mountPerformance('test');
     await flushPromises();
     // the page reads live.data once per animation frame: run one frame with the mismatch flag set
     live.data.mismatch = true;

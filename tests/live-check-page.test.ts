@@ -3,10 +3,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
-import { flushPromises, mount } from '@vue/test-utils';
+import { flushPromises } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
-import { createMemoryHistory, createRouter } from 'vue-router';
-import LiveTravelPage from '../src/pages/LiveTravelPage.vue';
+import { mountAt, mountPerformance } from './mountPerformance';
 import { useDeviceStore } from '../src/stores/device';
 import { usePerformanceStore } from '../src/stores/performance';
 import { useLiveStore } from '../src/stores/live';
@@ -38,16 +37,16 @@ async function frame(): Promise<void> {
   await flushPromises();
 }
 
-async function open(path = '/', attachTo: HTMLElement = document.body) {
+/** Open the Key test tab (DESIGN E), with its own query (`check`, `key`); `link`: through the old /live link instead. */
+async function open(query: Record<string, string> = {}, attachTo: HTMLElement = document.body, link = false) {
   device = useDeviceStore();
   if (!device.connected) await device.connectDemo(); // a second connect would be a new keyboard (and reset the check)
   await usePerformanceStore().load();
   live = useLiveStore();
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
-  await router.push(path);
-  w = mount(LiveTravelPage, { global: { plugins: [router] }, attachTo });
+  const m = link ? await mountAt({ path: '/live', query }, { attachTo }) : await mountPerformance('test', query, { attachTo });
+  w = m.w;
   await flushPromises();
-  return router;
+  return m.router;
 }
 
 beforeEach(() => {
@@ -236,10 +235,10 @@ describe('key check on the live page', () => {
     live = useLiveStore();
     route(key('W'), 2, 0); // a reading from before: must be gone
     const reset = vi.spyOn(live, 'resetPeaks');
-    const router = await open(`/?check=1&key=${key('A').id}`);
+    const router = await open({ check: '1', key: String(key('A').id) });
     expect(reset).toHaveBeenCalled();
     expect(live.data.pressedIds.size).toBe(0);
-    expect(router.currentRoute.value.query).toEqual({ key: String(key('A').id) });
+    expect(router.currentRoute.value.query).toEqual({ tab: 'test', key: String(key('A').id) }); // E: the URL names the tab
     // the page waits for the card to stand still (jsdom: always at 0) before it scrolls and focuses: run its frames
     await nextTick();
     let settles = 0;
@@ -277,7 +276,7 @@ describe('key check on the live page', () => {
       const to: number[] = [];
       sc.scrollTo = ((o: ScrollToOptions) => { to.push(o.top!); }) as typeof sc.scrollTo;
       frames = [];
-      await open('/?check=1', sc);
+      await open({ check: '1' }, sc);
       const onScreen = (y: number) => ({ top: y - sc.scrollTop + VIEW_TOP, bottom: y - sc.scrollTop + VIEW_TOP } as DOMRect);
       (w!.find('.hc').element as HTMLElement).getBoundingClientRect = () => onScreen(card);
       (w!.find('.board').element as HTMLElement).getBoundingClientRect = () => onScreen(BOARD);
@@ -302,7 +301,7 @@ describe('key check on the live page', () => {
     const to: number[] = [];
     sc.scrollTo = ((o: ScrollToOptions) => { to.push(o.top!); }) as typeof sc.scrollTo;
     frames = [];
-    await open('/?check=1', sc);
+    await open({ check: '1' }, sc);
     const page = w!.element as HTMLElement;
     // still sliding: 2px left of the 8px, moving by less than a pixel a frame (it would look settled)
     let slide = 2;
@@ -340,7 +339,7 @@ describe('key check on the live page', () => {
     const to: number[] = [];
     sc.scrollTo = ((o: ScrollToOptions) => { to.push(o.top!); }) as typeof sc.scrollTo;
     frames = [];
-    await open('/?check=1', sc);
+    await open({ check: '1' }, sc);
     const page = w!.element as HTMLElement;
     page.classList.add('page-enter-active'); // a transition that never ends (its end event lost)
     const onScreen = (y: number) => ({ top: y + VIEW_TOP, bottom: y + VIEW_TOP } as DOMRect);

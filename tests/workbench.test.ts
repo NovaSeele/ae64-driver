@@ -3,11 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { createApp } from 'vue';
 import type { App } from 'vue';
-import { flushPromises, mount } from '@vue/test-utils';
+import { flushPromises } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
-import { createMemoryHistory, createRouter } from 'vue-router';
 import { MockTransport, PHYSICAL_KEYS } from '../src/protocol';
-import PerformancePage from '../src/pages/PerformancePage.vue';
+import { mountPerformance } from './mountPerformance';
 import TravelEditor from '../src/components/performance/TravelEditor.vue';
 import { useDeviceStore } from '../src/stores/device';
 import { useSelectionStore } from '../src/stores/selection';
@@ -43,11 +42,7 @@ async function setup(select: number[] = [], opts: { realKeyboard?: boolean; mode
   for (const k of ALL) values[k] = { ...values[k], mode: 1, normalPress: 1, normalRelease: 1, rtFirstTouch: 1, rtPress: 0.3, rtRelease: 0.3, pressDeadStroke: 0.1, releaseDeadStroke: 0.1 };
   perf.values = values;
   useSelectionStore().selectMany(select);
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
-  w = mount(PerformancePage, {
-    global: { plugins: [router], stubs: opts.realKeyboard ? {} : { KeyboardView: true } },
-    attachTo: document.body,
-  });
+  ({ w } = await mountPerformance('travel', {}, { stubs: opts.realKeyboard ? {} : { KeyboardView: true } }));
   await flushPromises();
   const setPerf = vi.spyOn(mock, 'setPerformance');
   const exchange = vi.spyOn(mock as unknown as { exchange: () => unknown }, 'exchange');

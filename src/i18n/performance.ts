@@ -27,8 +27,6 @@ export const performanceVi = {
   'swp.tabCalibration': 'Hiệu chuẩn',
   'swp.tabSwitchSub': 'Xem và đổi switch của từng phím',
   'swp.tabCalibrationSub': 'Đo đỉnh và đáy hành trình của từng phím',
-  'swp.calLockedShort': 'Đang khoá trong lúc hiệu chuẩn',
-  'swp.calLocked': 'Đang hiệu chuẩn. Hoàn tất hoặc huỷ trước khi đổi switch.',
   'swp.mapTitle': 'Switch trên bàn phím',
   'swp.mapSub': 'Profile {n} · {name}. Mỗi profile lưu switch riêng.',
   'swp.mapHint': 'Bấm một dòng để chọn các phím dùng switch đó.',

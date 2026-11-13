@@ -2,13 +2,12 @@
 // any other change of the saved list), plus the toast of a preset that changes nothing and the one-undo-toast rule. 0 HID.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { flushPromises, mount } from '@vue/test-utils';
+import { flushPromises } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
 import { createApp, nextTick } from 'vue';
 import type { App } from 'vue';
-import { createMemoryHistory, createRouter } from 'vue-router';
 import { MockTransport, PHYSICAL_KEYS } from '../src/protocol';
-import PerformancePage from '../src/pages/PerformancePage.vue';
+import { mountPerformance } from './mountPerformance';
 import ToastHost from '../src/components/ui/Toast.vue';
 import { useDeviceStore } from '../src/stores/device';
 import { useSelectionStore } from '../src/stores/selection';
@@ -39,8 +38,7 @@ async function setup() {
   for (const k of ALL) v[k] = { ...v[k], mode: 1, normalPress: 1, normalRelease: 1, rtFirstTouch: 1, rtPress: 0.3, rtRelease: 0.3, pressDeadStroke: 0.1, releaseDeadStroke: 0.1 };
   perf.values = v;
   useSelectionStore().selectMany([]);
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
-  w = mount(PerformancePage, { global: { plugins: [router], stubs: { KeyboardView: true } }, attachTo: document.body });
+  ({ w } = await mountPerformance('travel', {}, { stubs: { KeyboardView: true } }));
   await flushPromises();
   const setPerf = vi.spyOn(device.transport as MockTransport, 'setPerformance');
   return { perf, setPerf, history: useHistoryStore() };

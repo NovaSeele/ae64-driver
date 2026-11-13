@@ -5,7 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import { PHYSICAL_KEYS } from '../src/protocol';
 import { findSwitch } from '../src/protocol/switches';
 import SwitchCard from '../src/components/performance/SwitchCard.vue';
-import SwitchPage from '../src/pages/SwitchPage.vue';
+import { mountPerformance } from './mountPerformance';
 import { useToast } from '../src/components/ui/toast';
 import { useDeviceStore } from '../src/stores/device';
 import { usePerformanceStore } from '../src/stores/performance';
@@ -103,7 +103,7 @@ describe('Apply toast says whether recalibration is needed', () => {
     const perf = usePerformanceStore();
     await perf.load();
     perf.uncalibrated = [W.id];
-    w = mount(SwitchPage, { global: { plugins: [router()] }, attachTo: document.body });
+    ({ w } = await mountPerformance('switch'));
     await flushPromises();
     const recal = w.find('.swp__recal').element;
     const list = w.find('.swp__list').element;

@@ -6,7 +6,7 @@ import { MockTransport, PHYSICAL_KEYS } from '../src/protocol';
 import type { PhysicalKey } from '../src/protocol';
 import { findSwitch } from '../src/protocol/switches';
 import SwitchCard from '../src/components/performance/SwitchCard.vue';
-import SwitchPage from '../src/pages/SwitchPage.vue';
+import { mountPerformance } from './mountPerformance';
 import { useDeviceStore } from '../src/stores/device';
 import { useSyncStore } from '../src/stores/sync';
 import { useHistoryStore } from '../src/stores/history';
@@ -25,9 +25,8 @@ function card(ids: number[]) {
 }
 
 /** The status lives in the board-wide "Switch trên bàn phím" card of the page, not in the selected-keys card. */
-function page() {
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }, { path: '/switch', component: SwitchPage }] });
-  w = mount(SwitchPage, { global: { plugins: [router] }, attachTo: document.body });
+async function page() {
+  ({ w } = await mountPerformance('switch'));
   return w;
 }
 const status = () => w!.find('.swp__recal');
@@ -58,7 +57,7 @@ describe('switch change resets calibration', () => {
     await perf.load();
     const apollo = findSwitch(perf.catalog, 4208)!;
     const setPerf = vi.spyOn(mock, 'setPerformance');
-    const wrapper = page();
+    const wrapper = await page();
     await flushPromises();
     expect(perf.uncalibrated).toEqual([]);
     expect(status().exists()).toBe(false);
@@ -85,7 +84,7 @@ describe('switch change resets calibration', () => {
     expect(perf.uncalibrated).toEqual([W.id]);
     expect(status().exists()).toBe(true);
     wrapper.unmount();
-    page();
+    await page();
     await flushPromises();
     expect(status().exists()).toBe(true);
 
@@ -105,7 +104,7 @@ describe('switch change resets calibration', () => {
     await perf.load();
     expect(perf.uncalibrated).toEqual([A.id]);
     // The selection holds another key: the status is still shown, and names the uncalibrated one.
-    page();
+    await page();
     await flushPromises();
     expect(status().text()).toContain('1 phím chưa được hiệu chuẩn: A.');
   });
@@ -117,7 +116,7 @@ describe('switch change resets calibration', () => {
     keys.forEach((k) => setFlag(device.transport as MockTransport, k, 0));
     const perf = usePerformanceStore();
     await perf.load(true);
-    page();
+    await page();
     await flushPromises();
     expect(perf.uncalibrated).toHaveLength(10);
     const first8 = keys.slice(0, 8).map((k) => device.legend(k)).join(', ');
