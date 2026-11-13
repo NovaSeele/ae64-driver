@@ -3,9 +3,11 @@
 // lock, the green line, and the % switched off.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
+import type { Pinia } from 'pinia';
 import { flushPromises, mount } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
-import { nextTick } from 'vue';
+import { defineComponent, nextTick, ref } from 'vue';
+import type { Component } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import type { Router } from 'vue-router';
 import CalibrationView from '../src/components/calibration/CalibrationView.vue';
@@ -13,6 +15,7 @@ import { RECHECK_ROUTE } from '../src/components/calibration/recheck';
 import { useToast } from '../src/components/ui/toast';
 import { MockTransport, PHYSICAL_KEYS } from '../src/protocol';
 import { useDeviceStore } from '../src/stores/device';
+import { usePerformanceStore } from '../src/stores/performance';
 import { useCalibrationStore } from '../src/stores/calibration';
 import { locale } from '../src/i18n/locale';
 import { t } from '../src/i18n/vi';
@@ -26,10 +29,12 @@ const W = key('W'), A = key('A'), S = key('S'), D = key('D');
 const ADC_KEY = 'ae64.calibration.showAdc';
 
 class RO { observe() {} disconnect() {} }
-const until = async (cond: () => boolean, ms = 3000) => {
+// Waits for a state, not timing checks: a generous bound costs nothing when the state comes (the full suite runs this
+// file beside 84 others). `what` says what was awaited when it never comes.
+const until = async (cond: () => boolean, ms = 10_000, what?: () => string) => {
   const end = Date.now() + ms;
   while (!cond()) {
-    if (Date.now() > end) throw new Error('timeout');
+    if (Date.now() > end) throw new Error(`timeout${what ? `: ${what()}` : ''}`);
     await new Promise((r) => setTimeout(r, 5));
   }
 };
@@ -38,12 +43,19 @@ let w: VueWrapper | null = null;
 let router: Router;
 let mock: MockTransport;
 let cal: ReturnType<typeof useCalibrationStore>;
+// Every store and the mounted page use this test's pinia explicitly. Pinia makes a store's pinia the active one on each
+// action call, so an action still running from the previous test (the reload after a save) could otherwise hand this
+// test the previous test's stores, polling the previous emulator (seen: 2 full runs in 9, "too-shallow chip").
+let pinia: Pinia;
 
-async function open() {
-  router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/cal', component: CalibrationView }, { path: '/live', component: { template: '<i />' } }] });
+/** Mount the page at /cal. `shell`: another route component around it (KeepAlive); `scroller`: inside a .main__scroll, as
+ *  in the app; `waitLoaded: false`: return before the first frame was read. */
+async function open(opts: { shell?: Component; scroller?: boolean; waitLoaded?: boolean } = {}) {
+  router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/cal', component: opts.shell ?? CalibrationView }, { path: '/live', component: { template: '<i />' } }] });
   await router.push('/cal');
-  w = mount({ template: '<RouterView />' }, { global: { plugins: [router] }, attachTo: document.body });
-  await until(() => cal.loaded);
+  w = mount({ template: opts.scroller ? '<div class="main__scroll"><RouterView /></div>' : '<RouterView />' }, { global: { plugins: [router, pinia] }, attachTo: document.body });
+  if (opts.waitLoaded === false) return;
+  await until(() => cal.loaded && usePerformanceStore(pinia).loadedProfile !== null); // the page reads both on open
   await flushPromises();
 }
 const keyEl = (id: number) => w!.find(`[data-key="${id}"]`);
@@ -65,7 +77,7 @@ async function begin() {
 async function press(id: number, mm: number) {
   mock.simulatePress(id, mm);
   const um = Math.round(mm * 1000);
-  await until(() => cal.frame.route[id] === um);
+  await until(() => cal.frame.route[id] === um, undefined, () => `key ${id} at ${um} µm: phase ${cal.phase}, error ${cal.error}, route ${cal.frame.route[id]}`);
   await flushPromises();
 }
 async function tap(id: number, mm: number) {
@@ -89,21 +101,22 @@ function commitsSent(spy: ReturnType<typeof vi.spyOn>) {
 }
 
 beforeEach(async () => {
-  setActivePinia(createPinia());
+  pinia = createPinia();
+  setActivePinia(pinia);
   locale.value = 'vi';
   vi.stubGlobal('ResizeObserver', RO);
   localStorage.removeItem(ADC_KEY);
   useToast().items.value = [];
-  const device = useDeviceStore();
+  const device = useDeviceStore(pinia);
   await device.connectDemo();
   mock = device.transport as MockTransport;
-  cal = useCalibrationStore();
+  cal = useCalibrationStore(pinia);
 });
 afterEach(async () => {
   for (const k of [W, A, S, D]) mock.simulatePress(k.id, 0);
   w?.unmount();
   w = null;
-  await until(() => cal.phase === 'idle');
+  await until(() => cal.phase === 'idle' && !usePerformanceStore(pinia).loading); // incl. the reload after a save
   document.body.innerHTML = '';
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -195,7 +208,7 @@ describe('"Check keys now" after a saved session only', () => {
     expect(actionButton(t('calibration.start'))!.classes()).toContain('btn--secondary');
     await btn.trigger('click');
     await flushPromises();
-    expect(router.currentRoute.value.fullPath).toBe(RECHECK_ROUTE);
+    expect(router.currentRoute.value.fullPath).toBe('/live?check=1'); // the literal path, not the constant
   });
 
   it('not after Cancel, a failed Finish, or once a new session starts', async () => {
@@ -269,7 +282,7 @@ describe('"Save calibration?" (instead of window.confirm)', () => {
 
   for (const [name, fail] of [
     ['a failed read', () => { vi.spyOn(mock, 'getAxisData').mockRejectedValueOnce(new Error('poll failed')); }],
-    ['a lost connection', () => { vi.spyOn(useDeviceStore(), 'withTransport').mockRejectedValue(new Error('not connected')); }],
+    ['a lost connection', () => { vi.spyOn(useDeviceStore(pinia), 'withTransport').mockRejectedValue(new Error('not connected')); }],
     ['a failed read whose stop fails too (stopFailed)', () => {
       vi.spyOn(mock, 'getAxisData').mockRejectedValue(new Error('poll failed'));
       vi.spyOn(mock, 'stopCalibration').mockRejectedValue(new Error('usb gone'));
@@ -455,5 +468,217 @@ describe('needs attention', () => {
     expect(keyEl(A.id).attributes('aria-pressed')).toBeUndefined(); // marked, not selected
     await w!.find('.chip--shallow').trigger('click');
     expect(keyEl(A.id).find('.cap').classes()).not.toContain('cap--sel');
+  });
+});
+
+// ---- Review D r107 (D-TEST-1, D-ROUND-1, D-LEGEND-1): the mutants that survived the first round, by their number.
+describe('review D r107', () => {
+  const live = () => w!.find('.progress p[aria-live]').text();
+  const chips = () => w!.findAll('.chip');
+  const shallowSentence = (name: string, mm: string, range = '3.31') => t('calibration.announceShallow', { key: name, mm, range });
+
+  it('D-ROUND-1: % is rounded down: 94.6 % reads "94%", next to its "too shallow" chip', async () => {
+    await travel(D.id, SW_313);
+    await open();
+    await begin();
+    await tap(D.id, 2.961); // 2.961 / 3.130 = 94.6 %
+    expect(sub(D.id).text()).toBe('94%');
+    expect(w!.find('.chip--shallow').text()).toBe(t('calibration.chipShallow', { key: 'D', mm: '2.96', range: '3.13' }));
+  });
+
+  it('D-LEGEND-1: the ⤓ legend item stays for the whole session and after saving, chips or not', async () => {
+    const legend = () => w!.find('.kblegend').text().includes(t('calibration.keycapShallow'));
+    await open();
+    expect(legend()).toBe(false); // no session: nothing on the keys to explain
+    await begin();
+    expect(cal.shallowIds).toEqual([]);
+    expect(legend()).toBe(true);
+    await tap(A.id, 2.0);
+    expect(legend()).toBe(true);
+    await tap(A.id, 3.31);
+    expect(cal.shallowIds).toEqual([]);
+    expect(legend()).toBe(true);
+    await clickFinish();
+    await until(() => cal.phase === 'idle');
+    await flushPromises();
+    expect(w!.find('.result').exists()).toBe(true);
+    expect(legend()).toBe(true);
+  });
+
+  it('#31 Finish asks when every pressed key is new but a key outside the session is still not calibrated', async () => {
+    await travel(D.id, SW_313); // a new switch: D is not calibrated
+    await open();
+    await begin();
+    await tap(W.id, 3.31);
+    expect([cal.newCount, cal.shallowIds.length, cal.uncalibratedCount]).toEqual([1, 0, 1]);
+    await clickFinish();
+    expect(dialogOpen()).toBe(true);
+    expect(document.body.querySelector('.dlg .dlg-body')!.textContent).toBe(t('calibration.finishBody', { list: t('calibration.finishUncal', { n: 1 }) }));
+    bodyButton(t('calibration.keepPressing'))!.click();
+    await flushPromises();
+  });
+
+  it('#34 while running, a key both not calibrated and too shallow keeps its "too shallow" chip', async () => {
+    await travel(D.id, SW_313);
+    await open();
+    await begin();
+    await tap(D.id, 2.0);
+    expect(cal.frame.status[D.id]).toBe(0);
+    expect(w!.findAll('.chip--shallow').map((c) => c.text())).toEqual([t('calibration.chipShallow', { key: 'D', mm: '2.00', range: '3.13' })]);
+  });
+
+  it('#37 leaving the tab (KeepAlive) unmarks the key', async () => {
+    const show = ref(true);
+    const Shell = defineComponent({
+      components: { CalibrationView, Other: { template: '<p>other</p>' } },
+      setup: () => ({ show }),
+      template: '<KeepAlive><CalibrationView v-if="show" /><Other v-else /></KeepAlive>',
+    });
+    await travel(D.id, SW_313);
+    await open({ shell: Shell });
+    await w!.find('.chip--uncal').trigger('click');
+    expect(keyEl(D.id).find('.cap').classes()).toContain('cap--sel');
+    show.value = false;
+    await nextTick();
+    show.value = true;
+    await nextTick();
+    expect(keyEl(D.id).find('.cap').classes()).not.toContain('cap--sel');
+    expect(w!.find('.chip--uncal').attributes('aria-pressed')).toBe('false');
+  });
+
+  it('#36 starting a session unmarks the key marked before it', async () => {
+    await travel(D.id, SW_313); // a new switch: D is not calibrated, so it has a chip before any session
+    await open();
+    await w!.find('.chip--uncal').trigger('click');
+    expect(keyEl(D.id).find('.cap').classes()).toContain('cap--sel');
+    await begin();
+    expect(keyEl(D.id).find('.cap').classes()).not.toContain('cap--sel');
+    w!.findAll('.chip').forEach((c) => expect(c.attributes('aria-pressed')).toBe('false'));
+  });
+
+  it('#38 #39 during a session the chips keep their arrow keys (not swallowed by the key lock); PageDown does not scroll', async () => {
+    await open();
+    await begin();
+    await tap(A.id, 2.0);
+    await tap(S.id, 2.0);
+    const [first, second] = chips().map((c) => c.element as HTMLElement);
+    first.focus();
+    first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', code: 'ArrowRight', bubbles: true, cancelable: true }));
+    await nextTick();
+    expect(document.activeElement).toBe(second);
+    const pgdn = new KeyboardEvent('keydown', { key: 'PageDown', code: 'PageDown', bubbles: true, cancelable: true });
+    second.dispatchEvent(pgdn);
+    expect(pgdn.defaultPrevented).toBe(true);
+  });
+
+  it('#40 the screen reader gets at most one sentence every 2 s', async () => {
+    await open();
+    await begin();
+    await tap(A.id, 2.0);
+    await until(() => live() === shallowSentence('A', '2.00'));
+    const said = Date.now();
+    await tap(S.id, 2.0);
+    expect(cal.shallowIds).toEqual([A.id, S.id]);
+    // S waits for its turn (checked only while the turn can't have come: under load the tap itself can take 2 s)
+    if (Date.now() - said < 1800) expect(live()).toBe(shallowSentence('A', '2.00'));
+    await until(() => live() === shallowSentence('S', '2.00'));
+    expect(Date.now() - said).toBeGreaterThanOrEqual(1900);
+  });
+
+  it('#47 once the last "too shallow" key is pressed deep enough, the screen reader says so', async () => {
+    await open();
+    await begin();
+    await tap(A.id, 2.0);
+    await tap(A.id, 3.31);
+    expect(cal.shallowIds).toEqual([]);
+    await until(() => live() === t('calibration.allDeep'));
+  });
+
+  it('#41 no key glows before the first frame was read (every status would read 0, "not calibrated")', async () => {
+    let go!: () => void;
+    const gate = new Promise<void>((r) => { go = r; });
+    const read = mock.getAxisData.bind(mock);
+    vi.spyOn(mock, 'getAxisData').mockImplementation(async (type, row) => { await gate; return read(type, row); });
+    await open({ waitLoaded: false });
+    await flushPromises();
+    expect(cal.loaded).toBe(false);
+    expect(w!.findAll('.cap--glow')).toHaveLength(0);
+    go();
+    await until(() => cal.loaded);
+    await flushPromises();
+    expect(w!.findAll('.cap--glow').length).toBe(64);
+  });
+
+  it('#42 after saving, the keys the session calibrated stay "just calibrated" although the frame now says 1', async () => {
+    await open();
+    await begin();
+    await tap(W.id, 3.31);
+    await clickFinish();
+    await until(() => cal.phase === 'idle');
+    await flushPromises();
+    expect(cal.frame.status[W.id]).toBe(1);
+    expect(keyEl(W.id).attributes('aria-label')).toContain(`${t('calibration.legendNew')} · ADC`);
+    expect(keyEl(A.id).attributes('aria-label')).toContain(`${t('calibration.legendDone')} · ADC`);
+  });
+
+  it('#44 saving scrolls the whole card into view, by the same rule as Start', async () => {
+    const rect = (top: number, height: number) => ({ top, bottom: top + height, height, left: 0, right: 0, width: 0, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      if (this.classList.contains('main__scroll')) return rect(0, 700);
+      if (this.classList.contains('board')) return rect(300, 336);
+      if (this.classList.contains('progress')) return rect(650, 250); // bottom 900, under the 700 px view
+      return rect(0, 0);
+    });
+    await open({ scroller: true });
+    const to: number[] = [];
+    (w!.find('.main__scroll').element as HTMLElement).scrollTo = ((o: ScrollToOptions) => { to.push(o.top!); }) as HTMLElement['scrollTo'];
+    await begin();
+    expect(to).toEqual([216]); // card bottom + 16 − 700; the keyboard top would allow 292
+    await tap(W.id, 3.31);
+    await clickFinish();
+    await until(() => cal.phase === 'idle');
+    await flushPromises();
+    expect(to).toEqual([216, 216]);
+  });
+
+  it('#45 % is capped at 100 when the peak passes the key\'s travel', async () => {
+    await open();
+    await begin();
+    const perf = usePerformanceStore(pinia);
+    perf.values = { ...perf.values, [W.id]: { ...perf.values[W.id], axisRangeMax: 3000 } };
+    await tap(W.id, 3.31);
+    expect(sub(W.id).text()).toBe('100%');
+  });
+
+  it('#48 Cancel moves focus to Start', async () => {
+    await open();
+    await begin();
+    await actionButton(t('calibration.cancel'))!.trigger('click');
+    await until(() => cal.phase === 'idle');
+    await flushPromises();
+    await nextTick();
+    expect(document.activeElement?.textContent?.trim()).toBe(t('calibration.start'));
+  });
+
+  it('#51 a failed start shows the error as a toast', async () => {
+    vi.spyOn(mock, 'startCalibration').mockRejectedValueOnce(new Error('start refused'));
+    await open();
+    await actionButton(t('calibration.start'))!.trigger('click');
+    await flushPromises();
+    bodyButton(t('calibration.start'))!.click();
+    await until(() => cal.phase === 'idle' && cal.error !== null);
+    await flushPromises();
+    expect(toasts().some((x) => x.includes('start refused'))).toBe(true);
+  });
+
+  it('#52 "Check keys now" goes to the health check: /live?check=1 (the literal path)', () => {
+    expect(RECHECK_ROUTE).toBe('/live?check=1');
+  });
+
+  it('#54 the keyboard is described by the keycap legend (aria-describedby)', async () => {
+    await open();
+    const id = w!.find('.kblegend').attributes('id');
+    expect(id).toBeTruthy();
+    expect(w!.find('.kb').attributes('aria-describedby')).toBe(id);
   });
 });

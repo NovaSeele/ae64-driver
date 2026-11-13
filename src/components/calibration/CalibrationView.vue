@@ -57,14 +57,21 @@ const GLOW: LedGlow[] = STATUS_COLOR.map((led) => ({ led, level: 1 }));
 const STATUS_TEXT = ['calibration.legendNone', 'calibration.legendDone', 'calibration.legendNew'] as const;
 /** The status a key is shown in: newly calibrated stays green after saving, until the next session. */
 const shown = (id: number) => (cal.isNew(id) ? 2 : cal.frame.status[id] ? 1 : 0);
-const pressedSet = computed(() => new Set(cal.pressedIds));
-const shallowSet = computed(() => new Set(cal.shallowIds));
+// The store's lists are new arrays on every polled frame (~10 Hz), even when nothing changed. Kept the same array while
+// the ids are the same, so the chips, the counters and the announcer only run when a key really joins or leaves a list
+// (review D-PERF-1).
+const sameIds = (a: readonly number[] | undefined, b: readonly number[]) => !!a && a.length === b.length && a.every((v, i) => v === b[i]);
+const pressedIds = computed<readonly number[]>((prev) => (sameIds(prev, cal.pressedIds) ? prev! : cal.pressedIds));
+const shallowIds = computed<readonly number[]>((prev) => (sameIds(prev, cal.shallowIds) ? prev! : cal.shallowIds));
+const pressedSet = computed(() => new Set(pressedIds.value));
+const shallowSet = computed(() => new Set(shallowIds.value));
 // Until a real frame is read every status would be 0 ("not calibrated"): neutral, unlit keys instead.
 const glow = (k: PhysicalKey) => (cal.loaded ? GLOW[shown(k.id)] : undefined);
 const statusText = (k: PhysicalKey) => (cal.loaded ? `${t(STATUS_TEXT[shown(k.id)])} · ${t('calibration.keyAdc', { n: cal.frame.adc[k.id] })}` : undefined);
 /** The key's current depth, filled from the top (as before). */
 const fill = (k: PhysicalKey) => (cal.loaded ? Math.min(1, cal.frame.route[k.id] / cal.rangeUm(k.id)) : 0);
-const pct = (id: number) => `${Math.min(100, Math.round((cal.peakRoute[id] / cal.rangeUm(id)) * 100))}%`;
+/** Rounded down (review D-ROUND-1): 94.6 % is "too shallow (under 95 %)" and must not read "95%". */
+const pct = (id: number) => `${Math.min(100, Math.floor((cal.peakRoute[id] / cal.rangeUm(id)) * 100))}%`;
 /** Raw ADC when asked; else the session's deepest %, on keys pressed in it (no "0%" on the rest, nothing before one). */
 function sublabel(k: PhysicalKey): string | undefined {
   if (!cal.loaded) return undefined;
@@ -97,15 +104,22 @@ function splitKey(text: string): [string, string] {
   const at = text.indexOf('\u0000');
   return at < 0 ? [text, ''] : [text.slice(0, at), text.slice(at + 1)];
 }
+/** Needs attention (buildChips below). The same array while every chip is the same: a chip's text holds the peak, and the
+ *  peaks are a new array every frame. */
+const sameChips = (a: Chip[] | undefined, b: Chip[]) => !!a && a.length === b.length && a.every((c, i) => c.id === b[i].id && c.kind === b[i].kind && c.label === b[i].label);
+const chips = computed<Chip[]>((prev) => {
+  const next = buildChips();
+  return sameChips(prev, next) ? prev! : next;
+});
 /** Needs attention, in keyboard order (DESIGN D §3.5): while running the keys too shallow; after a session or before
  *  one also every key still not calibrated (one chip per key, "not calibrated" winning). */
-const chips = computed<Chip[]>(() => {
+function buildChips(): Chip[] {
   const m = mode.value;
   if (m === 'loading' || m === 'loaderr') return [];
   const uncal = cal.loaded ? device.keys.filter((k) => cal.frame.status[k.id] === 0).map((k) => k.id) : [];
   const uncalSet = new Set(uncal);
   const out: Chip[] = [];
-  for (const id of cal.shallowIds) {
+  for (const id of shallowIds.value) {
     if (m !== 'running' && uncalSet.has(id)) continue;
     const name = nameOf(id);
     const p = { mm: mm(cal.peakRoute[id]), range: mm(cal.rangeUm(id)) };
@@ -120,7 +134,7 @@ const chips = computed<Chip[]>(() => {
     }
   }
   return out;
-});
+}
 /** The right column: the list; the green line only when every pressed key was confirmed by the firmware (status 2,
  *  DESIGN D §5: % and ⤓ are readings, not the firmware's word); a neutral line for keys still waiting / kept old. */
 const right = computed<'attn' | 'ok' | 'wait' | 'empty' | null>(() => {
@@ -172,7 +186,7 @@ function say(text: string): void {
   }, wait);
 }
 let hadShallow = false;
-watch(() => cal.shallowIds, (now, before) => {
+watch(shallowIds, (now, before) => {
   if (!running.value) { hadShallow = now.length > 0; return; }
   const old = new Set(before ?? []);
   const added = now.filter((id) => !old.has(id));
@@ -355,7 +369,9 @@ onBeforeUnmount(() => {
           <span v-for="(c, s) in STATUS_COLOR" :key="c" class="lg"><i class="lg__sw" :style="{ '--led': c }" />{{ t(STATUS_TEXT[s]) }}</span></span>
         <span v-if="showAdc" class="kl__item"><span class="kl__num">2760</span> {{ t('calibration.keycapAdc') }}</span>
         <span v-else-if="cal.hasSession && cal.peakTrusted" class="kl__item"><span class="kl__num">86%</span> {{ t('calibration.keycapPct') }}</span>
-        <span v-if="cal.shallowIds.length" class="kl__item"><span class="kl__ico"><IconArrowBarToDown :size="14" stroke-width="1.8" aria-hidden="true" /></span>{{ t('calibration.keycapShallow') }}</span>
+        <!-- for the whole session and after it, not only while a key is too shallow: chips come and go as keys are pressed
+             and the line would wrap and unwrap, moving the card (review D-LEGEND-1) -->
+        <span v-if="cal.hasSession && cal.peakTrusted" class="kl__item"><span class="kl__ico"><IconArrowBarToDown :size="14" stroke-width="1.8" aria-hidden="true" /></span>{{ t('calibration.keycapShallow') }}</span>
       </p>
       <Switch v-model="showAdc" class="aside__adc" :label="t('calibration.showAdc')" :title="t('calibration.showAdcHint')" :describedby="adcHintId" />
       <span :id="adcHintId" class="sr-only">{{ t('calibration.showAdcHint') }}</span>
@@ -404,9 +420,9 @@ onBeforeUnmount(() => {
     <div class="ses__body" :class="{ 'ses__body--two': right !== null }">
       <div class="ses__stats">
         <CalStats
-          :pressed="cal.hasSession ? cal.pressedIds.length : null"
+          :pressed="cal.hasSession ? pressedIds.length : null"
           :fresh="cal.hasSession ? cal.sessionNewCount : null"
-          :shallow="cal.hasSession ? cal.shallowIds.length : null"
+          :shallow="cal.hasSession ? shallowIds.length : null"
           :uncal="cal.loaded ? cal.uncalibratedCount : null"
           :total="device.keys.length"
         />
@@ -486,6 +502,9 @@ onBeforeUnmount(() => {
 .kbrow { display: flex; flex-direction: column; gap: var(--s-3); margin-bottom: var(--s-4); }
 .board { width: 100%; min-width: 0; max-width: 940px; margin: 0 auto; border-radius: var(--r-panel); transition: box-shadow var(--t-slow) var(--ease); }
 .board--live { box-shadow: 0 0 0 1px var(--acc-line); }
+/* review D-PERF-1: the fill follows a ~10 Hz poll, so its transform transition (--t-med) kept up to 64 fills animating
+   all session long and put the keys' % in composited layers over them. It jumps to each reading instead. */
+.board :deep(.cap__fill) { transition: none; }
 @media (min-width: 1600px) { .board { max-width: 1100px; } }
 
 /* D5. Row under the keyboard: keycap legend left (one item per meaning, items wrap whole), "Show raw ADC" right. */
@@ -556,7 +575,7 @@ onBeforeUnmount(() => {
 .bar--new span { background: var(--ok); }
 
 /* D3. "Needs attention" (the same chip look as part C) */
-.attn { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
+.attn { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; contain: content; } /* D-PERF-1: a chip change stays inside */
 .attn__head { display: flex; align-items: baseline; gap: 6px; }
 .attn__n { font-size: var(--fs-caption); color: var(--fg-2); font-variant-numeric: tabular-nums; font-weight: 600; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 2px; list-style: none; max-height: 96px; overflow-y: auto; }
