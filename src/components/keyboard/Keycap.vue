@@ -62,6 +62,9 @@ const capStyle = computed(() => {
     :style="capStyle"
   >
     <span class="cap__face" :style="ledStyle !== 'glow' && ledHeight ? { paddingBottom: `${ledHeight + 5}px` } : undefined">
+      <!-- live preview (LED60, liveLedPainter.ts): the LED's light and the selection ring of a live-lit key, no bindings -->
+      <span v-if="ledStyle === 'glow'" class="cap__lit" aria-hidden="true"><span class="cap__ledc" /></span>
+      <span v-if="ledStyle === 'glow'" class="cap__ring" aria-hidden="true" />
       <span v-if="fill !== undefined" class="cap__fill" :style="{ transform: `scaleY(${Math.min(1, Math.max(0, fill))})` }" />
       <span v-if="bar" class="cap__led" :style="{ background: bar, boxShadow: `0 0 10px ${bar}`, height: ledHeight ? `${ledHeight}px` : undefined }" />
       <span v-if="$slots.default" class="cap__extra" :style="bar && ledHeight ? { bottom: `${ledHeight + 6}px` } : undefined"><slot /></span>
@@ -230,11 +233,36 @@ const capStyle = computed(() => {
 .cap.cap--flash.cap--glow .cap__face { border-color: var(--danger); box-shadow: 0 0 0 2px var(--danger); }
 .cap.cap--glow .cap__badge,
 .cap .cap__face--live .cap__badge { color: var(--fg-1); }
-/* Live preview (LED60): liveLedPainter.ts lights a face with class cap__face--live and writes its background,
-   border-color and box-shadow inline, from the rules above with the LED's colour and level filled in (hover, selected,
-   focused and flashing included). Not through variables: a variable on the face is inherited by everything inside it,
-   so each live frame restyled every legend and badge too (~3.5 ms a frame instead of ~1.7, measured on LED60). */
-.cap .cap__face.cap__face--live { transition: none; }
+/* Live preview (LED60): the rules above with the colour on its own composited layer, so a new colour never re-rasters
+   a blur, a gradient or a legend. Writing the face's background and shadows each frame made the GPU re-raster 64 faces
+   a frame (~1000 ms/s on the review's machine; a 100 Hz screen fell to 50 fps).
+   Every part of the glow is the LED colour over the key, covering (part's share x level): the tint (the background's
+   two color-mix stops), the edge (65 %, 80 % over --line-2 when hovered), the inner glow (30 %) and the halo (50 %). The
+   same colour stacked in any order composites the same, so one layer of the plain LED colour (.cap__ledc) under a mask
+   of all the parts' shapes and covers draws them all: liveLedPainter.ts makes the mask (an SVG, made again only when
+   the key's size, state or level changes) and writes the colour and opacity each frame. The layer sits in the face
+   (z-index -1 in the isolated face): over its background and border, under the legend, reaching out for the halo.
+   The face keeps a static background, border and shadow per state, written inline only when the state changes; the
+   selection ring is .cap__ring, over the halo as in the rules (a box-shadow of the face would go under it). */
+.cap .cap__face.cap__face--live { transition: none; isolation: isolate; overflow: visible; }
+.cap__lit, .cap__ring { display: none; }
+.cap .cap__face--live > .cap__lit {
+  display: block;
+  position: absolute;
+  inset: -19px; /* the face's border box and 18px for the halo (liveLedPainter.ts LIT_MARGIN) */
+  z-index: -1;
+  pointer-events: none;
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%;
+}
+.cap__ledc { position: absolute; inset: 0; will-change: opacity; }
+.cap .cap__face--live > .cap__ring {
+  display: block;
+  position: absolute;
+  inset: -1px;
+  border-radius: var(--r-key);
+  pointer-events: none;
+}
 .cap__extra :deep(.swatch) { width: 20px; height: 20px; }
 .cap__sub--skeleton { width: 60%; height: 9px; }
 

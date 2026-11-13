@@ -9,8 +9,8 @@ import type { VueWrapper } from '@vue/test-utils';
 import Keycap from '../src/components/keyboard/Keycap.vue';
 import KeyboardView from '../src/components/keyboard/KeyboardView.vue';
 import { bandGradient, bandStopColor, ledGlow, parseLedColor } from '../src/ledGlow';
-import type { LedGlow } from '../src/ledGlow';
-import { faceStyle } from '../src/components/keyboard/liveLedPainter';
+import { LIT_MARGIN, faceLook, litMask } from '../src/components/keyboard/liveLedPainter';
+import type { LitGeometry } from '../src/components/keyboard/liveLedPainter';
 import { contrast, luminance } from '../src/colorInk';
 import { MockTransport, PHYSICAL_KEYS, STRIP_SIDES } from '../src/protocol';
 import { stripRing } from '../src/protocol/ledLayout';
@@ -82,19 +82,36 @@ describe('Keycap glow CSS', () => {
     }
   });
 
-  it('the live painter writes these rules: faceStyle() = .cap--glow and KeyboardView focus with the LED filled in (LED60)', () => {
+  it('the live painter draws these rules: faceLook() + litMask() = .cap--glow and KeyboardView focus, the LED split off (LED60)', () => {
     const kvSrc = readFileSync(resolve('src/components/keyboard/KeyboardView.vue'), 'utf8');
     const kvCss = kvSrc.slice(kvSrc.indexOf('<style')).replace(/\/\*[\s\S]*?\*\//g, '');
     const kv = [...kvCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim().replace(/\s+/g, ' '), body: m[2] }));
     const kvRule = (sel: string) => kv.filter((r) => r.sel === sel).map((r) => r.body).join(';');
+    const norm = (v: string) => v.replace(/\s+/g, ' ').replace(/\( /g, '(').replace(/ \)/g, ')').trim();
     const decls = (body: string): Record<string, string> => Object.fromEntries(body.split(';').map((d) => d.trim()).filter(Boolean)
-      .map((d) => [d.slice(0, d.indexOf(':')).trim(), d.slice(d.indexOf(':') + 1).trim()]));
+      .map((d) => [d.slice(0, d.indexOf(':')).trim(), norm(d.slice(d.indexOf(':') + 1))]));
     const vars = decls(rule('.cap.cap--glow'));
     expect(Object.keys(vars)).toEqual(['--lv', '--led-top', '--led-bottom', '--led-edge', '--led-inner', '--led-halo']);
-    const fill = (v: string | undefined, glow: LedGlow) => {
-      let s = v ?? '';
-      for (let n = 0; n < 3; n++) s = s.replace(/var\((--led-(?:top|bottom|edge|inner|halo))\)/g, (_, name: string) => vars[name]);
-      return s.replace(/var\(--lv\)/g, String(glow.level)).replace(/var\(--led\)/g, glow.led).replace(/\s+/g, ' ').replace(/\( /g, '(');
+    // the tint: the theme's stops x the level (litMask() is given --led-tint-top/bottom and the level)
+    expect(vars['--led-top']).toBe('calc(var(--led-tint-top) * var(--lv))');
+    expect(vars['--led-bottom']).toBe('calc(var(--led-tint-bottom) * var(--lv))');
+    const share = (name: string) => Number(/calc\((\d+(?:\.\d+)?)% \* var\(--lv\)\)/.exec(vars[name])![1]) / 100;
+    // the static part of a background: the LED's color-mix taken out of each stop
+    const unLed = (v: string) => v.replace(/color-mix\(in srgb, var\(--led\) var\(--led-(?:top|bottom)\), (var\([^()]*\))\)/g, '$1');
+    const border = (v: string) => {
+      const m = /^color-mix\(in srgb, var\(--led\) calc\((\d+(?:\.\d+)?)% \* var\(--lv\)\), (.+)\)$/.exec(v === 'var(--led-edge)' ? vars['--led-edge'] : v);
+      return m ? { borderColor: m[2], edge: Number(m[1]) / 100, rim: m[2] !== 'transparent' } : { borderColor: v, edge: 0, rim: true };
+    };
+    const topLevel = (v: string) => {
+      const out: string[] = [];
+      let depth = 0, cur = '';
+      for (const ch of v) {
+        if (ch === '(') depth++;
+        if (ch === ')') depth--;
+        if (ch === ',' && !depth) { out.push(cur.trim()); cur = ''; } else cur += ch;
+      }
+      if (cur.trim()) out.push(cur.trim());
+      return out;
     };
     const face = decls(rule('.cap.cap--glow .cap__face'));
     const hover = decls(rule('.cap.cap--glow:hover .cap__face'));
@@ -103,16 +120,49 @@ describe('Keycap glow CSS', () => {
     const focus = decls(kvRule('.kb__key:focus-visible :deep(.cap.cap--glow .cap__face)'));
     const focusSel = decls(kvRule('.kb__key:focus-visible :deep(.cap.cap--sel.cap--glow .cap__face)'));
     for (const d of [face, hover, selected, flash, focus, focusSel]) expect(Object.keys(d).length).toBeGreaterThan(0);
-    for (const glow of [{ led: '#ff0000', level: 0.251 }, { led: '#ffffff', level: 1 }, { led: '#00ff80', level: 0.5 }]) {
-      for (let bits = 0; bits < 16; bits++) {
-        const st = { hover: !!(bits & 1), selected: !!(bits & 2), focus: !!(bits & 4), flash: !!(bits & 8) };
-        // the cascade: face < hover < selected < flash (same specificity, later wins) < KeyboardView focus < focus + selected
-        const layers = [face, st.hover && hover, st.selected && selected, st.flash && flash, st.focus && focus, st.focus && st.selected && focusSel]
-          .filter((l): l is Record<string, string> => !!l);
-        const pick = (prop: string) => fill(layers.reduce<string | undefined>((v, l) => l[prop] ?? v, undefined), glow);
-        expect(faceStyle(glow, st), JSON.stringify(st)).toEqual({ background: pick('background'), borderColor: pick('border-color'), boxShadow: pick('box-shadow') });
+    // the selection ring: what the selected rule adds before the glow (.cap__ring draws it, over the halo as in the rule)
+    const ringShadow = topLevel(selected['box-shadow']).filter((p) => !p.startsWith('var(--led-')).join(', ');
+    expect(ringShadow).toBe('0 0 0 1px var(--bg-1), 0 0 0 3px var(--acc)');
+    const shadow = (v: string) => {
+      let inner = 0, halo = 0;
+      const rest: string[] = [];
+      for (const p of topLevel(v)) {
+        if (p === 'var(--led-inner)') inner = share('--led-inner');
+        else if (p === 'var(--led-halo)') halo = share('--led-halo');
+        else rest.push(p);
       }
+      const ring = rest.join(', ').startsWith(ringShadow);
+      const own = ring ? rest.slice(2) : rest;
+      return { boxShadow: own.length ? own.join(', ') : 'none', ring, inner, halo };
+    };
+    for (let bits = 0; bits < 16; bits++) {
+      const st = { hover: !!(bits & 1), selected: !!(bits & 2), focus: !!(bits & 4), flash: !!(bits & 8) };
+      // the cascade: face < hover < selected < flash (same specificity, later wins) < KeyboardView focus < focus + selected
+      const layers = [face, st.hover && hover, st.selected && selected, st.flash && flash, st.focus && focus, st.focus && st.selected && focusSel]
+        .filter((l): l is Record<string, string> => !!l);
+      const pick = (prop: string) => layers.reduce<string | undefined>((v, l) => l[prop] ?? v, undefined)!;
+      expect(faceLook(st), JSON.stringify(st)).toEqual({ background: unLed(pick('background')), ...border(pick('border-color')), ...shadow(pick('box-shadow')) });
     }
+    // litMask(): each part's alpha is its share x the level, the shadows' geometry is the rules'
+    const geo: LitGeometry = { w: 54, h: 54, x: 18, y: 18, lw: 90, lh: 90, left: -19, top: -19, border: 1, radius: 7, tintTop: 0.22, tintBottom: 0.38 };
+    const svg = (url: string) => decodeURIComponent(/^url\("data:image\/svg\+xml,(.*)"\)$/.exec(url)![1]);
+    const geom = (name: string) => vars[name].replace(/ color-mix\(.*$/, '');
+    const plain = svg(litMask(geo, faceLook({ hover: false, selected: false, focus: false, flash: false }), 0.5));
+    expect(plain).toContain(`box-shadow:${geom('--led-inner')} rgba(0,0,0,${share('--led-inner') * 0.5}),${geom('--led-halo')} rgba(0,0,0,${share('--led-halo') * 0.5})`);
+    expect(plain).toContain(`border:1px solid rgba(0,0,0,${share('--led-edge') * 0.5})`);
+    expect(plain).toContain('background:linear-gradient(180deg,rgba(0,0,0,0.11),rgba(0,0,0,0.19))');
+    expect(plain).toContain('left:18px;top:18px;width:54px;height:54px;border-radius:7px');
+    expect(plain).toContain('width="90" height="90"');
+    expect(plain).not.toContain('background-clip');
+    const hovered = svg(litMask(geo, faceLook({ hover: true, selected: false, focus: false, flash: false }), 1));
+    expect(hovered).toContain('border:1px solid rgba(0,0,0,0.8)');
+    expect(hovered).toContain('background-clip:padding-box'); // an opaque border: the tint stays inside it
+    const flashing = svg(litMask(geo, faceLook({ hover: false, selected: false, focus: false, flash: true }), 1));
+    expect(flashing).toContain('border:1px solid transparent');
+    expect(flashing).toContain('box-shadow:none');
+    // .cap__lit reaches LIT_MARGIN past the face's border box (the face's 1px border, then the halo's room)
+    expect(rule('.cap__face')).toMatch(/border:\s*1px solid/);
+    expect(rule('.cap .cap__face--live > .cap__lit')).toMatch(new RegExp(`inset:\\s*-${LIT_MARGIN + 1}px`));
   });
 
   it('the bar style keeps the foot padding of ledHeight without a colour (an uncoloured key lines up with a coloured one)', () => {
@@ -392,12 +442,12 @@ describe('Lighting page: glow keys and edge band', () => {
       expect(page!.findAll('.cap__led')).toHaveLength(0);
       const faces = page!.findAll('.cap__face--live');
       expect(faces.length).toBeGreaterThanOrEqual(60);
-      const want = faceStyle({ led: '#ff0000', level: 0.251 }, { hover: false, selected: false, focus: false, flash: false });
+      const want = faceLook({ hover: false, selected: false, focus: false, flash: false });
       const st = (faces[0].element as HTMLElement).style;
       expect(st.getPropertyValue('background')).toBe(want.background);
-      const d = document.createElement('div'); // jsdom rewrites box-shadow values on the way in
-      d.style.setProperty('box-shadow', want.boxShadow);
-      expect(st.getPropertyValue('box-shadow')).toBe(d.style.getPropertyValue('box-shadow'));
+      expect(st.getPropertyValue('box-shadow')).toBe('none');
+      // the LED itself is on the face's colour layer
+      expect((faces[0].element.querySelector(':scope > .cap__lit > .cap__ledc') as HTMLElement).style.getPropertyValue('background-color')).toBe('rgb(255, 0, 0)');
       expect(page!.find('.ring').classes()).toContain('ring--band');
       expect(bands().map((b) => b.classes().find((c) => /^ring__band--(top|right|bottom|left)$/.test(c)))).toEqual(['ring__band--top', 'ring__band--right', 'ring__band--bottom', 'ring__band--left']);
       for (const b of page!.findAll('.ring__band')) expect(b.attributes('aria-hidden')).toBe('true');

@@ -30,6 +30,7 @@ import type { PhysicalKey } from '../protocol';
 import { stripRing } from '../protocol/ledLayout';
 import { effectHint, effectName } from '../data/ledEffects';
 import { locale } from '../i18n/locale';
+import { resolvedTheme } from '../theme';
 import { t } from '../i18n/vi';
 
 const device = useDeviceStore();
@@ -173,6 +174,8 @@ function stopPainting(): void {
   paintedSeq = -1;
 }
 watch(livePaint, (on) => (on ? startPainting() : stopPainting()), { flush: 'post' });
+// a lit key's mask holds the theme's tint (the painter notices a moved or resized board itself)
+watch(resolvedTheme, () => painter?.resized(), { flush: 'post' });
 onMounted(() => { if (livePaint.value) startPainting(); });
 
 // ------------------------------------------------------------------ Preview colours
