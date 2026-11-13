@@ -63,6 +63,7 @@ const capStyle = computed(() => {
   >
     <span class="cap__face" :style="ledStyle !== 'glow' && ledHeight ? { paddingBottom: `${ledHeight + 5}px` } : undefined">
       <!-- live preview (LED60, liveLedPainter.ts): the LED's light and the selection ring of a live-lit key, no bindings -->
+      <span v-if="ledStyle === 'glow'" class="cap__tint" aria-hidden="true"><span class="cap__ledc" /></span>
       <span v-if="ledStyle === 'glow'" class="cap__lit" aria-hidden="true"><span class="cap__ledc" /></span>
       <span v-if="ledStyle === 'glow'" class="cap__ring" aria-hidden="true" />
       <span v-if="fill !== undefined" class="cap__fill" :style="{ transform: `scaleY(${Math.min(1, Math.max(0, fill))})` }" />
@@ -238,14 +239,17 @@ const capStyle = computed(() => {
    a frame (~1000 ms/s on the review's machine; a 100 Hz screen fell to 50 fps).
    Every part of the glow is the LED colour over the key, covering (part's share x level): the tint (the background's
    two color-mix stops), the edge (65 %, 80 % over --line-2 when hovered), the inner glow (30 %) and the halo (50 %). The
-   same colour stacked in any order composites the same, so one layer of the plain LED colour (.cap__ledc) under a mask
-   of all the parts' shapes and covers draws them all: liveLedPainter.ts makes the mask (an SVG, made again only when
-   the key's size, state or level changes) and writes the colour and opacity each frame. The layer sits in the face
-   (z-index -1 in the isolated face): over its background and border, under the legend, reaching out for the halo.
+   same colour stacked in any order composites the same, so two layers of the plain LED colour (.cap__ledc), each under
+   a static mask at level 1 with the level as their opacity, draw them all at any level: .cap__tint the tint and
+   .cap__lit the edge, inner glow and halo, which do not overlap (liveLedPainter.ts makes the masks, SVGs, again only
+   when the key's size, state or the theme changes). Each frame writes only the colour and the opacity. The layers sit
+   in the face (z-index -1 in the isolated face): over its background and border, under the legend, reaching out for
+   the halo.
    The face keeps a static background, border and shadow per state, written inline only when the state changes; the
    selection ring is .cap__ring, over the halo as in the rules (a box-shadow of the face would go under it). */
 .cap .cap__face.cap__face--live { transition: none; isolation: isolate; overflow: visible; }
-.cap__lit, .cap__ring { display: none; }
+.cap__lit, .cap__tint, .cap__ring { display: none; }
+.cap .cap__face--live > .cap__tint,
 .cap .cap__face--live > .cap__lit {
   display: block;
   position: absolute;

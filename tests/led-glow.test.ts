@@ -9,7 +9,7 @@ import type { VueWrapper } from '@vue/test-utils';
 import Keycap from '../src/components/keyboard/Keycap.vue';
 import KeyboardView from '../src/components/keyboard/KeyboardView.vue';
 import { bandGradient, bandStopColor, ledGlow, parseLedColor } from '../src/ledGlow';
-import { LIT_MARGIN, faceLook, litMask } from '../src/components/keyboard/liveLedPainter';
+import { LIT_MARGIN, faceLook, litMask, tintMask } from '../src/components/keyboard/liveLedPainter';
 import type { LitGeometry } from '../src/components/keyboard/liveLedPainter';
 import { contrast, luminance } from '../src/colorInk';
 import { MockTransport, PHYSICAL_KEYS, STRIP_SIDES } from '../src/protocol';
@@ -82,7 +82,7 @@ describe('Keycap glow CSS', () => {
     }
   });
 
-  it('the live painter draws these rules: faceLook() + litMask() = .cap--glow and KeyboardView focus, the LED split off (LED60)', () => {
+  it('the live painter draws these rules: faceLook() + tintMask() + litMask() = .cap--glow and KeyboardView focus, the LED split off (LED60)', () => {
     const kvSrc = readFileSync(resolve('src/components/keyboard/KeyboardView.vue'), 'utf8');
     const kvCss = kvSrc.slice(kvSrc.indexOf('<style')).replace(/\/\*[\s\S]*?\*\//g, '');
     const kv = [...kvCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim().replace(/\s+/g, ' '), body: m[2] }));
@@ -92,7 +92,7 @@ describe('Keycap glow CSS', () => {
       .map((d) => [d.slice(0, d.indexOf(':')).trim(), norm(d.slice(d.indexOf(':') + 1))]));
     const vars = decls(rule('.cap.cap--glow'));
     expect(Object.keys(vars)).toEqual(['--lv', '--led-top', '--led-bottom', '--led-edge', '--led-inner', '--led-halo']);
-    // the tint: the theme's stops x the level (litMask() is given --led-tint-top/bottom and the level)
+    // the tint: the theme's stops x the level (tintMask() is given --led-tint-top/bottom, the level is the opacity)
     expect(vars['--led-top']).toBe('calc(var(--led-tint-top) * var(--lv))');
     expect(vars['--led-bottom']).toBe('calc(var(--led-tint-bottom) * var(--lv))');
     const share = (name: string) => Number(/calc\((\d+(?:\.\d+)?)% \* var\(--lv\)\)/.exec(vars[name])![1]) / 100;
@@ -143,26 +143,37 @@ describe('Keycap glow CSS', () => {
       const pick = (prop: string) => layers.reduce<string | undefined>((v, l) => l[prop] ?? v, undefined)!;
       expect(faceLook(st), JSON.stringify(st)).toEqual({ background: unLed(pick('background')), ...border(pick('border-color')), ...shadow(pick('box-shadow')) });
     }
-    // litMask(): each part's alpha is its share x the level, the shadows' geometry is the rules'
+    // the masks are drawn at level 1 (the level is the layers' opacity): litMask() each part at its share, the shadows'
+    // geometry the rules'; tintMask() the theme's stops on the border box alone
     const geo: LitGeometry = { w: 54, h: 54, x: 18, y: 18, lw: 90, lh: 90, left: -19, top: -19, border: 1, radius: 7, tintTop: 0.22, tintBottom: 0.38 };
     const svg = (url: string) => decodeURIComponent(/^url\("data:image\/svg\+xml,(.*)"\)$/.exec(url)![1]);
     const geom = (name: string) => vars[name].replace(/ color-mix\(.*$/, '');
-    const plain = svg(litMask(geo, faceLook({ hover: false, selected: false, focus: false, flash: false }), 0.5));
-    expect(plain).toContain(`box-shadow:${geom('--led-inner')} rgba(0,0,0,${share('--led-inner') * 0.5}),${geom('--led-halo')} rgba(0,0,0,${share('--led-halo') * 0.5})`);
-    expect(plain).toContain(`border:1px solid rgba(0,0,0,${share('--led-edge') * 0.5})`);
-    expect(plain).toContain('background:linear-gradient(180deg,rgba(0,0,0,0.11),rgba(0,0,0,0.19))');
+    const looks = {
+      plain: faceLook({ hover: false, selected: false, focus: false, flash: false }),
+      hover: faceLook({ hover: true, selected: false, focus: false, flash: false }),
+      flash: faceLook({ hover: false, selected: false, focus: false, flash: true }),
+    };
+    const plain = svg(litMask(geo, looks.plain));
+    expect(plain).toContain(`box-shadow:${geom('--led-inner')} rgba(0,0,0,${share('--led-inner')}),${geom('--led-halo')} rgba(0,0,0,${share('--led-halo')})`);
+    expect(plain).toContain(`border:1px solid rgba(0,0,0,${share('--led-edge')})`);
     expect(plain).toContain('left:18px;top:18px;width:54px;height:54px;border-radius:7px');
     expect(plain).toContain('width="90" height="90"');
-    expect(plain).not.toContain('background-clip');
-    const hovered = svg(litMask(geo, faceLook({ hover: true, selected: false, focus: false, flash: false }), 1));
-    expect(hovered).toContain('border:1px solid rgba(0,0,0,0.8)');
-    expect(hovered).toContain('background-clip:padding-box'); // an opaque border: the tint stays inside it
-    const flashing = svg(litMask(geo, faceLook({ hover: false, selected: false, focus: false, flash: true }), 1));
+    expect(plain).not.toContain('background'); // the tint is the other layer
+    expect(svg(litMask(geo, looks.hover))).toContain('border:1px solid rgba(0,0,0,0.8)');
+    const flashing = svg(litMask(geo, looks.flash));
     expect(flashing).toContain('border:1px solid transparent');
     expect(flashing).toContain('box-shadow:none');
-    // .cap__lit reaches LIT_MARGIN past the face's border box (the face's 1px border, then the halo's room)
+    const tint = svg(tintMask(geo, looks.plain));
+    expect(tint).toContain('background:linear-gradient(180deg,rgba(0,0,0,0.22),rgba(0,0,0,0.38))');
+    expect(tint).toContain('left:0px;top:0px;width:54px;height:54px;border-radius:7px');
+    expect(tint).toContain('width="54" height="54"');
+    expect(tint).toContain('border:1px solid transparent'); // the tint repeats into a see-through border, as the background
+    expect(tint).not.toContain('background-clip');
+    expect(tint).not.toContain('box-shadow');
+    expect(svg(tintMask(geo, looks.hover))).toContain('background-clip:padding-box'); // an opaque border: the tint stays inside
+    // the glow layers reach LIT_MARGIN past the face's border box (the face's 1px border, then the halo's room)
     expect(rule('.cap__face')).toMatch(/border:\s*1px solid/);
-    expect(rule('.cap .cap__face--live > .cap__lit')).toMatch(new RegExp(`inset:\\s*-${LIT_MARGIN + 1}px`));
+    expect(rule('.cap .cap__face--live > .cap__tint, .cap .cap__face--live > .cap__lit')).toMatch(new RegExp(`inset:\\s*-${LIT_MARGIN + 1}px`));
   });
 
   it('the bar style keeps the foot padding of ledHeight without a colour (an uncoloured key lines up with a coloured one)', () => {

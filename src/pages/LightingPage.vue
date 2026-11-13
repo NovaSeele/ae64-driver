@@ -174,7 +174,7 @@ function stopPainting(): void {
   paintedSeq = -1;
 }
 watch(livePaint, (on) => (on ? startPainting() : stopPainting()), { flush: 'post' });
-// a lit key's mask holds the theme's tint (the painter notices a moved or resized board itself)
+// a lit key's tint mask holds the theme's stops (the painter notices a moved or resized board itself)
 watch(resolvedTheme, () => painter?.resized(), { flush: 'post' });
 onMounted(() => { if (livePaint.value) startPainting(); });
 

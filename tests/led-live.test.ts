@@ -14,7 +14,7 @@ import { useDeviceStore } from '../src/stores/device';
 import { useLightingStore } from '../src/stores/lighting';
 import { useSelectionStore } from '../src/stores/selection';
 import { useSyncStore } from '../src/stores/sync';
-import { LIT_MARGIN, LIVE_FACE_CLASS, LiveLedPainter, faceLook, litMask, liveDotColor } from '../src/components/keyboard/liveLedPainter';
+import { LIT_MARGIN, LIVE_FACE_CLASS, LiveLedPainter, faceLook, litMask, liveDotColor, tintMask } from '../src/components/keyboard/liveLedPainter';
 import type { FaceState, LitGeometry } from '../src/components/keyboard/liveLedPainter';
 import { useFlashStore } from '../src/stores/flash';
 import { stripRing } from '../src/protocol/ledLayout';
@@ -326,7 +326,7 @@ describe('LED60 writes during live preview (the sync debounce, no explicit flush
 });
 
 describe('LiveLedPainter', () => {
-  const FACE = '<span class="cap__face"><span class="cap__lit"><span class="cap__ledc"></span></span><span class="cap__ring"></span></span>';
+  const FACE = '<span class="cap__face"><span class="cap__tint"><span class="cap__ledc"></span></span><span class="cap__lit"><span class="cap__ledc"></span></span><span class="cap__ring"></span></span>';
   function board(n = 4) {
     const root = document.createElement('div');
     const keys = PHYSICAL_KEYS.slice(0, n);
@@ -420,16 +420,19 @@ describe('LiveLedPainter', () => {
     expect(ledOf(face)).toBe('#ffffff');
   });
 
-  describe('the glow layer (a mask per size, state and level; the colour per frame)', () => {
+  describe('the glow layers (two static masks per size, state and theme; the colour and the level per frame)', () => {
     let faceBox = { left: 10.4, top: 20.6, width: 54, height: 54 };
     let rootBox = { left: 0, top: 0, width: 900, height: 320 };
     let tint = ['22%', '38%'];
     const rect = (b: { left: number; top: number; width: number; height: number }) =>
       ({ ...b, x: b.left, y: b.top, right: b.left + b.width, bottom: b.top + b.height, toJSON: () => b }) as DOMRect;
+    /** every style property the painter sets, on which element */
+    let sets: { el: HTMLElement; prop: string }[] = [];
     beforeEach(() => {
       faceBox = { left: 10.4, top: 20.6, width: 54, height: 54 };
       rootBox = { left: 0, top: 0, width: 900, height: 320 };
       tint = ['22%', '38%'];
+      sets = [];
       vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
         return rect(this.classList.contains('cap__face') ? faceBox : rootBox);
       });
@@ -438,9 +441,20 @@ describe('LiveLedPainter', () => {
         if (!(el as HTMLElement).classList?.contains('cap__face')) return real(el);
         return { borderTopWidth: '1px', borderTopLeftRadius: '7px', getPropertyValue: (n: string) => (n === '--led-tint-top' ? tint[0] : n === '--led-tint-bottom' ? tint[1] : '') } as unknown as CSSStyleDeclaration;
       });
+      // which element a style write lands on: every live element's style, looked up by identity
+      const set = CSSStyleDeclaration.prototype.setProperty;
+      vi.spyOn(CSSStyleDeclaration.prototype, 'setProperty').mockImplementation(function (this: CSSStyleDeclaration, prop: string, value: string | null, prio?: string) {
+        const el = [...document.querySelectorAll<HTMLElement>('*')].find((e) => e.style === this);
+        if (el) sets.push({ el, prop });
+        return set.call(this, prop, value, prio);
+      });
     });
     afterEach(() => vi.restoreAllMocks());
-    const lit = (root: HTMLElement, id: number) => root.querySelector<HTMLElement>(`[data-key="${id}"] .cap__lit`)!;
+    const layer = (root: HTMLElement, id: number, cls: 'cap__lit' | 'cap__tint') => root.querySelector<HTMLElement>(`[data-key="${id}"] .${cls}`)!;
+    const lit = (root: HTMLElement, id: number) => layer(root, id, 'cap__lit');
+    const tintOf = (root: HTMLElement, id: number) => layer(root, id, 'cap__tint');
+    const fills = (root: HTMLElement, id: number) => [lit(root, id), tintOf(root, id)].map((l) => l.querySelector<HTMLElement>(':scope > .cap__ledc')!);
+    const masks = (root: HTMLElement, id: number) => [lit(root, id), tintOf(root, id)].map((l) => l.style.getPropertyValue('mask-image'));
     const set = (f: ReturnType<typeof frame>, keys: { row: number; col: number }[], rgb: number[]) => { for (const k of keys) f.keys.set(rgb, (k.row * LED_MATRIX_COLS + k.col) * 3); };
     /** the geometry the painter must find for faceBox (devicePixelRatio 1: edges at whole pixels) */
     const geoFor = (b = faceBox, t = tint, dpr = 1): LitGeometry => {
@@ -450,8 +464,9 @@ describe('LiveLedPainter', () => {
       return { w: fw, h: fh, x: fl - left, y: ft - top, left: left - b.left - 1, top: top - b.top - 1, lw: Math.ceil((fl + fw + LIT_MARGIN) * dpr) / dpr - left, lh: Math.ceil((ft + fh + LIT_MARGIN) * dpr) / dpr - top, border: 1, radius: 7, tintTop: parseFloat(t[0]) / 100, tintBottom: parseFloat(t[1]) / 100 };
     };
     const plain = faceLook({ hover: false, selected: false, focus: false, flash: false });
+    const both = (g: LitGeometry, look = plain) => [litMask(g, look), tintMask(g, look)];
 
-    it('keys of one size and state share one mask; the layer sits on whole pixels around the face; a new colour at the same level writes only the colour', () => {
+    it('keys of one size and state share the two masks; .cap__lit sits on whole pixels around the face, .cap__tint on the face; a new colour at the same level writes only the colour', () => {
       const { root, keys } = board();
       const painter = new LiveLedPainter(root);
       const f = frame();
@@ -460,38 +475,108 @@ describe('LiveLedPainter', () => {
       const g = geoFor();
       expect(g).toMatchObject({ w: 54, h: 54, x: 18, y: 18, lw: 90, lh: 90 });
       for (const k of keys) {
-        const l = lit(root, k.id);
-        expect(l.style.getPropertyValue('mask-image')).toBe(litMask(g, plain, 1));
+        expect(masks(root, k.id)).toEqual(both(g));
+        const l = lit(root, k.id), t = tintOf(root, k.id);
         expect([l.style.left, l.style.top, l.style.width, l.style.height]).toEqual([`${g.left}px`, `${g.top}px`, '90px', '90px']);
-        expect(fillOf(l.parentElement!).style.getPropertyValue('opacity')).toBe('1');
+        expect([t.style.width, t.style.height]).toEqual(['54px', '54px']);
+        expect(parseFloat(t.style.left)).toBeCloseTo(g.left + g.x, 9);
+        expect(parseFloat(t.style.top)).toBeCloseTo(g.top + g.y, 9);
+        for (const fill of fills(root, k.id)) expect([fill.style.getPropertyValue('background-color'), fill.style.getPropertyValue('opacity')]).toEqual(['rgb(255, 0, 0)', '1']);
       }
-      expect(painter.masksMade).toBe(1);
-      const before = keys.map((k) => lit(root, k.id).getAttribute('style'));
+      expect(painter.masksMade).toBe(2);
+      const layersBefore = keys.map((k) => [lit(root, k.id).getAttribute('style'), tintOf(root, k.id).getAttribute('style')]);
+      sets = [];
       set(f, keys, [0, 0, 255]);
       painter.paint(f, keys);
-      expect(keys.map((k) => lit(root, k.id).getAttribute('style'))).toEqual(before);
-      expect(painter.masksMade).toBe(1);
-      expect(ledOf(lit(root, keys[0].id).parentElement!)).toBe('#0000ff');
+      expect(keys.map((k) => [lit(root, k.id).getAttribute('style'), tintOf(root, k.id).getAttribute('style')])).toEqual(layersBefore);
+      expect(painter.masksMade).toBe(2);
+      // one write a colour layer: its colour (the level did not change, so the opacity is not written again)
+      expect(sets.map((s) => s.prop)).toEqual(keys.flatMap(() => ['background-color', 'background-color']));
+      expect(new Set(sets.map((s) => s.el))).toEqual(new Set(keys.flatMap((k) => fills(root, k.id))));
+      for (const k of keys) expect(ledOf(lit(root, k.id).parentElement!)).toBe('#0000ff');
+      expect(fills(root, keys[0].id)[1].style.getPropertyValue('background-color')).toBe('rgb(0, 0, 255)');
     });
 
-    it('a level a little under the mask\'s keeps the mask (opacity makes up the rest); a higher one or one far under takes a new mask', () => {
+    it('a new level makes no new mask and writes only the two opacities; every key shows it on the very next paint (breathing)', () => {
+      const { root, keys } = board(12);
+      const painter = new LiveLedPainter(root);
+      const f = frame();
+      const g = geoFor();
+      set(f, keys, [255, 0, 0]);
+      painter.paint(f, keys);
+      const made = painter.masksMade;
+      // the whole board breathes: dimmer, brighter, a step up of 1/255, back to full
+      for (const v of [100, 101, 180, 254, 255, 40]) {
+        sets = [];
+        set(f, keys, [v, 0, 0]);
+        painter.paint(f, keys);
+        const lv = String(ledGlowRgb(v, 0, 0)!.level);
+        for (const k of keys) {
+          expect(fills(root, k.id).map((e) => e.style.getPropertyValue('opacity')), `${v}`).toEqual([lv, lv]);
+          expect(masks(root, k.id)).toEqual(both(g));
+        }
+        expect(sets.every((s) => s.prop === 'opacity'), `${v}: ${sets.map((s) => s.prop)}`).toBe(true);
+        expect(sets).toHaveLength(keys.length * 2);
+      }
+      expect(painter.masksMade).toBe(made);
+      // a level change on a key whose state changed too: the state's masks (from the cache) and the level, in one paint
+      for (const k of keys.slice(0, 9)) root.querySelector(`[data-key="${k.id}"] .cap`)!.classList.add('cap--flash');
+      painter.invalidate();
+      set(f, keys, [200, 0, 0]);
+      painter.paint(f, keys);
+      const flashLook = faceLook({ hover: false, selected: false, focus: false, flash: true });
+      for (const k of keys.slice(0, 9)) expect(masks(root, k.id)).toEqual(both(g, flashLook));
+      for (const k of keys) expect(fills(root, k.id)[0].style.getPropertyValue('opacity')).toBe(String(ledGlowRgb(200, 0, 0)!.level));
+      // the flash's two masks are new; flashing on and off again at other levels takes them from the cache, never by level
+      expect(painter.masksMade).toBe(made + 2);
+      for (const [v, on] of [[100, false], [150, true], [60, false]] as const) {
+        for (const k of keys.slice(0, 9)) root.querySelector(`[data-key="${k.id}"] .cap`)!.classList.toggle('cap--flash', on);
+        painter.invalidate();
+        set(f, keys, [v, 0, 0]);
+        painter.paint(f, keys);
+        for (const k of keys.slice(0, 9)) expect(masks(root, k.id)).toEqual(both(g, on ? flashLook : plain));
+      }
+      expect(painter.masksMade).toBe(made + 2);
+    });
+
+    it('the two layers draw the rules\' formula at level 0.2, 0.5 and 1: 1 - (1 - tint x level)(1 - part x level)', () => {
       const { root, keys } = board(1);
       const painter = new LiveLedPainter(root);
       const f = frame();
       const g = geoFor();
-      set(f, keys, [200, 0, 0]);
-      painter.paint(f, keys);
-      const at = (rgb: number[]) => { set(f, keys, rgb); painter.paint(f, keys); return { mask: lit(root, keys[0].id).style.getPropertyValue('mask-image'), opacity: fillOf(lit(root, keys[0].id).parentElement!).style.getPropertyValue('opacity') }; };
-      const lv = (v: number) => ledGlowRgb(v, 0, 0)!.level;
-      expect(at([198, 0, 0])).toEqual({ mask: litMask(g, plain, lv(200)), opacity: String(Math.round((lv(198) / lv(200)) * 10000) / 10000) });
-      // above the mask's level the opacity cannot make up for it (it is at most 1): even one step up takes a new mask
-      expect(at([201, 0, 0])).toEqual({ mask: litMask(g, plain, lv(201)), opacity: '1' });
-      expect(at([210, 0, 0]).mask).toBe(litMask(g, plain, lv(210)));
-      expect(at([210, 0, 0]).opacity).toBe('1');
-      expect(at([100, 0, 0])).toEqual({ mask: litMask(g, plain, lv(100)), opacity: '1' });
+      const alpha = (svg: string, re: RegExp) => Number(re.exec(decodeURIComponent(svg))![1]);
+      const rgba = String.raw`rgba\(0,0,0,([0-9.]+)\)`;
+      // a plain key (the tint repeats under a see-through border) and a flashing one (an opaque border, no shadows)
+      for (const flash of [false, true]) {
+        const look = faceLook({ hover: false, selected: false, focus: false, flash });
+        root.querySelector('.cap')!.classList.toggle('cap--flash', flash);
+        painter.invalidate();
+        for (const v of [51, 128, 255]) {
+          const lv = ledGlowRgb(v, 0, 0)!.level;
+          expect([0.2, 0.502, 1]).toContain(lv);
+          set(f, keys, [v, 0, 0]);
+          painter.paint(f, keys);
+          const [litSvg, tintSvg] = masks(root, keys[0].id);
+          const [litOp, tintOp] = fills(root, keys[0].id).map((e) => Number(e.style.getPropertyValue('opacity')));
+          expect([litOp, tintOp]).toEqual([lv, lv]);
+          // the masks are the parts at level 1
+          const tTop = alpha(tintSvg, new RegExp(`linear-gradient\\(180deg,${rgba},`));
+          const tBottom = alpha(tintSvg, new RegExp(`linear-gradient\\(180deg,rgba\\(0,0,0,[0-9.]+\\),${rgba}\\)`));
+          expect([tTop, tBottom]).toEqual([g.tintTop, g.tintBottom]);
+          const edge = look.edge > 0 ? alpha(litSvg, new RegExp(`border:1px solid ${rgba}`)) : 0;
+          const inner = look.inner > 0 ? alpha(litSvg, new RegExp(`inset 0 -10px 18px -6px ${rgba}`)) : 0;
+          const halo = look.halo > 0 ? alpha(litSvg, new RegExp(`0 0 12px -2px ${rgba}`)) : 0;
+          expect([edge, inner, halo]).toEqual([look.edge, look.inner, look.halo]);
+          // where the parts meet: two layers of one colour composite to the rules' alpha
+          const two = (t: number, x: number) => 1 - (1 - t * tintOp) * (1 - x * litOp);
+          const rules = (t: number, x: number) => 1 - (1 - t * lv) * (1 - x * lv);
+          const tintOnBorder = look.rim ? 0 : tTop; // an opaque border keeps the tint inside it
+          for (const [t, x] of [[tTop, inner], [tBottom, inner], [tintOnBorder, edge], [0, halo]]) expect(two(t, x)).toBeCloseTo(rules(t, x), 12);
+        }
+      }
     });
 
-    it('at a fractional device pixel ratio (125 %) the face\'s edges and the layer are on whole device pixels', () => {
+    it('at a fractional device pixel ratio (125 %) the face\'s edges and both layers are on whole device pixels', () => {
       vi.stubGlobal('devicePixelRatio', 1.25);
       try {
         const { root, keys } = board(1);
@@ -500,46 +585,17 @@ describe('LiveLedPainter', () => {
         set(f, keys, [255, 0, 0]);
         painter.paint(f, keys);
         const g = geoFor(faceBox, tint, 1.25);
-        const l = lit(root, keys[0].id);
-        expect(l.style.getPropertyValue('mask-image')).toBe(litMask(g, plain, 1));
-        // the layer's left edge on the page (face border box + border + left) and its size, in device pixels
-        const onPage = (faceBox.left + 1 + g.left) * 1.25;
-        expect(Math.abs(onPage - Math.round(onPage))).toBeLessThan(1e-9);
-        expect(Math.abs(g.lw * 1.25 - Math.round(g.lw * 1.25))).toBeLessThan(1e-9);
-        expect(l.style.left).toBe(`${g.left}px`);
+        expect(masks(root, keys[0].id)).toEqual(both(g));
+        const whole = (v: number) => expect(Math.abs(v * 1.25 - Math.round(v * 1.25))).toBeLessThan(1e-9);
+        // each layer's left edge on the page (face border box + border + left) and its size, in device pixels
+        whole(faceBox.left + 1 + parseFloat(lit(root, keys[0].id).style.left));
+        whole(faceBox.left + 1 + parseFloat(tintOf(root, keys[0].id).style.left));
+        whole(g.lw);
+        whole(g.w);
+        expect(lit(root, keys[0].id).style.left).toBe(`${g.left}px`);
       } finally {
         vi.unstubAllGlobals();
       }
-    });
-
-    it('new masks for levels: at most 8 a paint, the rest on the next paints; a new state is never held back', () => {
-      const { root, keys } = board(12);
-      const painter = new LiveLedPainter(root);
-      const f = frame();
-      const g = geoFor();
-      set(f, keys, [255, 0, 0]);
-      painter.paint(f, keys);
-      set(f, keys, [100, 0, 0]);
-      painter.paint(f, keys);
-      const lvHalf = ledGlowRgb(100, 0, 0)!.level;
-      const masks = () => keys.map((k) => lit(root, k.id).style.getPropertyValue('mask-image'));
-      expect(masks().filter((m) => m === litMask(g, plain, lvHalf))).toHaveLength(8);
-      // the 4 waiting are drawn right meanwhile: the old mask with the opacity of the new level
-      const waiting = keys.filter((k) => lit(root, k.id).style.getPropertyValue('mask-image') === litMask(g, plain, 1));
-      expect(waiting).toHaveLength(4);
-      for (const k of waiting) expect(fillOf(lit(root, k.id).parentElement!).style.getPropertyValue('opacity')).toBe(String(Math.round(lvHalf * 10000) / 10000));
-      painter.paint(f, keys); // the same frame: the 4 waiting get theirs
-      expect(masks().every((m) => m === litMask(g, plain, lvHalf))).toBe(true);
-      const writes = painter.writes;
-      painter.paint(f, keys);
-      expect(painter.writes).toBe(writes);
-      // a flash on 9 keys at a new level: all 9 get the flash's mask at once
-      set(f, keys, [255, 0, 0]);
-      for (const k of keys.slice(0, 9)) root.querySelector(`[data-key="${k.id}"] .cap`)!.classList.add('cap--flash');
-      painter.invalidate();
-      painter.paint(f, keys);
-      const flashLook = faceLook({ hover: false, selected: false, focus: false, flash: true });
-      expect(keys.slice(0, 9).every((k) => lit(root, k.id).style.getPropertyValue('mask-image') === litMask(g, flashLook, 1))).toBe(true);
     });
 
     it('the board moving, the keys resizing or the theme changing takes new geometry and masks; clear() leaves nothing', () => {
@@ -548,29 +604,56 @@ describe('LiveLedPainter', () => {
       const f = frame();
       set(f, keys, [255, 255, 255]);
       painter.paint(f, keys);
-      expect(lit(root, keys[0].id).style.getPropertyValue('mask-image')).toBe(litMask(geoFor(), plain, 1));
+      expect(masks(root, keys[0].id)).toEqual(both(geoFor()));
       // the board moved half a pixel (a scrollbar, the sidebar): the face's edges snap to other pixels
       rootBox = { ...rootBox, left: 0.5 };
       faceBox = { ...faceBox, left: 10.9 };
       painter.paint(f, keys);
       const moved = geoFor();
       expect(moved.x).not.toBe(geoFor({ ...faceBox, left: 10.4 }).x + 0.5); // not just shifted: snapped again
-      expect(lit(root, keys[0].id).style.getPropertyValue('mask-image')).toBe(litMask(moved, plain, 1));
+      expect(masks(root, keys[0].id)).toEqual(both(moved));
       expect(lit(root, keys[0].id).style.left).toBe(`${moved.left}px`);
-      // a new theme: other tint stops, measured again after resized()
-      tint = ['30%', '45%'];
-      painter.paint(f, keys);
-      expect(lit(root, keys[0].id).style.getPropertyValue('mask-image')).toBe(litMask(moved, plain, 1)); // not noticed by itself
+      expect(parseFloat(tintOf(root, keys[0].id).style.left)).toBeCloseTo(moved.left + moved.x, 9);
+      // the keys grew: new masks for the new size
+      faceBox = { ...faceBox, width: 81 };
       painter.resized();
       painter.paint(f, keys);
-      expect(lit(root, keys[0].id).style.getPropertyValue('mask-image')).toBe(litMask(geoFor(), plain, 1));
+      expect(masks(root, keys[0].id)).toEqual(both(geoFor()));
+      expect(tintOf(root, keys[0].id).style.width).toBe('81px');
+      // a new theme: other tint stops, measured again after resized(); only the tint's mask changes
+      const litBefore = lit(root, keys[0].id).style.getPropertyValue('mask-image');
+      const tintBefore = tintOf(root, keys[0].id).style.getPropertyValue('mask-image');
+      tint = ['30%', '45%'];
+      painter.paint(f, keys);
+      expect(tintOf(root, keys[0].id).style.getPropertyValue('mask-image')).toBe(tintBefore); // not noticed by itself
+      painter.resized();
+      painter.paint(f, keys);
+      expect(masks(root, keys[0].id)).toEqual(both(geoFor()));
       expect(geoFor().tintTop).toBe(0.3);
+      expect(lit(root, keys[0].id).style.getPropertyValue('mask-image')).toBe(litBefore);
+      expect(tintOf(root, keys[0].id).style.getPropertyValue('mask-image')).not.toBe(tintBefore);
       painter.clear();
       expect(root.querySelectorAll(`.${LIVE_FACE_CLASS}`)).toHaveLength(0);
       for (const el of root.querySelectorAll('[style]')) expect(el.getAttribute('style'), el.className).toBe('');
-      // painting again after clear() writes the masks again
+      // painting again after clear() writes the masks, the colour and the level again
       painter.paint(f, keys);
-      expect(lit(root, keys[0].id).style.getPropertyValue('mask-image')).toBe(litMask(geoFor(), plain, 1));
+      expect(masks(root, keys[0].id)).toEqual(both(geoFor()));
+      for (const fill of fills(root, keys[0].id)) expect([fill.style.getPropertyValue('background-color'), fill.style.getPropertyValue('opacity')]).toEqual(['rgb(255, 255, 255)', '1']);
+    });
+
+    it('a key that goes off and on again gets its colour and level again (nothing skipped from before it went off)', () => {
+      const { root, keys } = board(1);
+      const painter = new LiveLedPainter(root);
+      const f = frame();
+      set(f, keys, [0, 128, 0]);
+      painter.paint(f, keys);
+      set(f, keys, [0, 0, 0]);
+      painter.paint(f, keys);
+      for (const fill of fills(root, keys[0].id)) expect(fill.getAttribute('style') ?? '').toBe('');
+      set(f, keys, [0, 128, 0]);
+      painter.paint(f, keys);
+      for (const fill of fills(root, keys[0].id)) expect([fill.style.getPropertyValue('background-color'), fill.style.getPropertyValue('opacity')]).toEqual(['rgb(0, 255, 0)', '0.502']);
+      expect(masks(root, keys[0].id)).toEqual(both(geoFor()));
     });
   });
 });
@@ -700,7 +783,9 @@ describe('LED60 painter on the Lighting page', () => {
     await push(lighting, (id) => (id === target ? [0, 0, 255] : [64, 0, 0]), () => [0, 255, 0]);
     w.records();
     w.stop();
-    expect([...w.targets]).toEqual([fillOf(face(target))]); // only the key's colour layer
+    // only the key's two colour layers (the same level: the colour alone)
+    expect([...w.targets]).toEqual([...face(target).querySelectorAll(':scope > * > .cap__ledc')]);
+    expect([...w.targets]).toHaveLength(2);
     expect(ledOf(face(target))).toBe('#0000ff');
   });
 

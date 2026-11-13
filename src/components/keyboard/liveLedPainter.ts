@@ -2,11 +2,12 @@
 // render for that redrew all 64 keycaps, the 38 ring LEDs and the 4 bands every frame (~470 ms of main thread a second
 // at 60 Hz). This writes the colours straight onto elements and properties Vue never binds, and only where something
 // changed since the last paint:
-// - a key: Keycap's `.cap--glow` look (DESIGN A §3.1) as one composited layer of the plain LED colour (`.cap__ledc` in
-//   the face's `.cap__lit`) under a mask of every part of the glow (litMask()). A frame writes only that colour and an
-//   opacity; the mask is made again only when the key's size, state or level changes. So the GPU composites a new colour
-//   instead of re-rastering blurs, gradients and legends (re-rastering 64 faces a frame kept it busy ~1000 ms/s and
-//   dropped a 100 Hz screen to 50 fps). The face gets class `cap__face--live` and, only when the key's state changes,
+// - a key: Keycap's `.cap--glow` look (DESIGN A §3.1) as two composited layers of the plain LED colour (`.cap__ledc`)
+//   in the face, each under a static mask drawn at level 1: `.cap__tint` the background's tint (tintMask()), `.cap__lit`
+//   the edge, the inner glow and the halo (litMask()). A frame writes only the colour
+//   and the level, as the opacity of both, so the GPU composites a new colour or level instead of re-rastering blurs,
+//   gradients and legends (re-rastering 64 faces a frame kept it busy ~1000 ms/s and dropped a 100 Hz screen to 50 fps),
+//   and no level ever needs a new mask. The face gets class `cap__face--live` and, only when the key's state changes,
 //   its static background, border and shadow inline, and `.cap__ring` the selection ring (faceLook()).
 // - a ring LED: `--led-color` on its `.led__dot` (no bindings).
 // - a band: `--band` on the page's live band of that side (no style binding), rebuilt only when an LED of the side changed.
@@ -24,16 +25,12 @@ export const LIVE_FACE_CLASS = 'cap__face--live';
 const SIDES: RingSide[] = ['top', 'right', 'bottom', 'left'];
 const FACE_PROPS = ['background', 'border-color', 'box-shadow'] as const;
 const LIT_PROPS = ['background-color', 'opacity', 'mask-image', 'left', 'top', 'width', 'height'] as const;
-/** How far .cap__lit reaches past the face's border box for the halo (Keycap's inset: -19px = this + the border). */
+/** How far .cap__lit and .cap__tint reach past the face's border box (for the halo; Keycap's inset: -19px = this + the border). */
 export const LIT_MARGIN = 18;
 /** Keycap's --led-inner: inset 0 -10px 18px -6px */
 const INNER = { y: -10, blur: 18, spread: -6 } as const;
 /** Keycap's --led-halo: 0 0 12px -2px */
 const HALO = { blur: 12, spread: -2 } as const;
-/** A key's mask is made again when its level falls this far under the level it was made for (or rises above it). */
-const LEVEL_SLACK = 4 / 255;
-/** New masks for level changes in one paint, at most (size and state changes are never held back). */
-const LEVEL_MASKS_PER_PAINT = 8;
 const SELECTION_RING = '0 0 0 1px var(--bg-1), 0 0 0 3px var(--acc)';
 const hex2 = (v: number) => v.toString(16).padStart(2, '0');
 const op = (v: number) => String(Math.round(Math.min(1, Math.max(0, v)) * 10000) / 10000);
@@ -88,9 +85,9 @@ export function faceLook(s: FaceState): FaceLook {
 }
 
 /**
- * A face's border box (CSS px, fractions kept), where it sits in its .cap__lit layer (x, y: LIT_MARGIN and the
- * fraction that puts the layer on whole device pixels), the layer's size (lw, lh), the border width, the outer corner
- * radius and the theme's tint stops (0..1).
+ * A face's border box (CSS px, on the pixels the browser snaps it to), where it sits in its glow layers (x, y:
+ * LIT_MARGIN and the fraction that puts the layers on whole device pixels), the layers' size (lw, lh), the border
+ * width, the outer corner radius and the theme's tint stops (0..1).
  */
 export interface LitGeometry {
   w: number;
@@ -110,22 +107,9 @@ export interface LitGeometry {
 
 const num = (v: number) => String(Math.round(v * 10000) / 10000);
 
-/**
- * The mask of a live-lit key's .cap__lit layer: the glow rules themselves in black, each colour's alpha the part's cover
- * at level `level`, on a box at the face's place in the layer. Drawn by the browser from the same CSS as the rules
- * (an SVG image holding that box), so blurs, gradients and rounded edges come out as the face's own do, and the
- * alpha that results is every part stacked as CSS stacks them:
- * - the tint: the background's stops (--led-tint-top/bottom x level), under the border too unless the border is opaque;
- * - the edge: the border at its share;
- * - the inner glow `inset 0 -10px 18px -6px` at 30 % and the halo `0 0 12px -2px` at 50 % (outside the box only).
- */
-export function litMask(g: LitGeometry, look: FaceLook, level: number): string {
-  const a = (cover: number) => `rgba(0,0,0,${num(cover * level)})`;
-  const shadows = [
-    look.inner > 0 ? `inset 0 ${INNER.y}px ${INNER.blur}px ${INNER.spread}px ${a(look.inner)}` : '',
-    look.halo > 0 ? `0 0 ${HALO.blur}px ${HALO.spread}px ${a(look.halo)}` : '',
-  ].filter(Boolean);
-  const style = [
+/** An SVG image of one box at the face's place in a glow layer, styled with `style` (a mask: black, alpha = cover). */
+function boxMask(g: LitGeometry, style: string[]): string {
+  const css = [
     'position:absolute',
     'box-sizing:border-box',
     `left:${num(g.x)}px`,
@@ -133,26 +117,68 @@ export function litMask(g: LitGeometry, look: FaceLook, level: number): string {
     `width:${num(g.w)}px`,
     `height:${num(g.h)}px`,
     `border-radius:${num(g.radius)}px`,
-    `border:${num(g.border)}px solid ${look.edge > 0 ? a(look.edge) : 'transparent'}`,
-    `background:linear-gradient(180deg,${a(g.tintTop)},${a(g.tintBottom)})`,
-    look.rim ? 'background-clip:padding-box' : '',
-    `box-shadow:${shadows.length ? shadows.join(',') : 'none'}`,
-  ].filter(Boolean).join(';');
+    ...style,
+  ].join(';');
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${num(g.lw)}" height="${num(g.lh)}">` +
-    `<foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="${style}"/></foreignObject></svg>`;
+    `<foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="${css}"/></foreignObject></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+const black = (cover: number) => `rgba(0,0,0,${num(cover)})`;
+
+/**
+ * The mask of a live-lit key's .cap__tint layer, which covers just the face's border box (no halo): the background's
+ * tint at level 1, the theme's two stops (--led-tint-top/bottom) over the padding box and repeated into the border as
+ * the background is, or kept inside an opaque border (hover, flash) as the background is under one.
+ */
+export function tintMask(g: LitGeometry, look: FaceLook): string {
+  return boxMask({ ...g, x: 0, y: 0, lw: g.w, lh: g.h }, [
+    `border:${num(g.border)}px solid transparent`,
+    `background:linear-gradient(180deg,${black(g.tintTop)},${black(g.tintBottom)})`,
+    ...(look.rim ? ['background-clip:padding-box'] : []),
+  ]);
+}
+
+/**
+ * The mask of a live-lit key's .cap__lit layer: the edge, the inner glow and the halo of the glow rules in black at
+ * level 1, each colour's alpha the part's share, on a box at the face's place in the layer. Drawn by the browser from
+ * the same CSS as the rules (an SVG image holding that box), so blurs and rounded edges come out as the face's own do.
+ * The three parts do not overlap (the inner glow is inside the padding box, the edge on the border, the halo outside
+ * the border box), so the layer at opacity `level` is each part at its share x the level, as in the rules:
+ * - the edge: the border at its share (65 %, 80 % when hovered; none under the danger border);
+ * - the inner glow `inset 0 -10px 18px -6px` at 30 % and the halo `0 0 12px -2px` at 50 % (outside the box only).
+ * The tint is the other layer (.cap__tint): over the edge and the inner glow it stacks as the background does under
+ * them, 1 - (1 - tint x level)(1 - part x level).
+ */
+export function litMask(g: LitGeometry, look: FaceLook): string {
+  const a = black;
+  const shadows = [
+    look.inner > 0 ? `inset 0 ${INNER.y}px ${INNER.blur}px ${INNER.spread}px ${a(look.inner)}` : '',
+    look.halo > 0 ? `0 0 ${HALO.blur}px ${HALO.spread}px ${a(look.halo)}` : '',
+  ].filter(Boolean);
+  return boxMask(g, [
+    `border:${num(g.border)}px solid ${look.edge > 0 ? a(look.edge) : 'transparent'}`,
+    `box-shadow:${shadows.length ? shadows.join(',') : 'none'}`,
+  ]);
 }
 
 interface KeyEls {
   face: HTMLElement;
+  /** the edge, inner glow and halo layer, and its colour */
   lit: HTMLElement | null;
-  /** the colour layer in .cap__lit */
   fill: HTMLElement | null;
+  /** the tint layer, and its colour */
+  tint: HTMLElement | null;
+  tintFill: HTMLElement | null;
   ring: HTMLElement | null;
   geo?: LitGeometry;
-  /** the mask on .cap__lit: the size and state it was made for, and the level */
+  /** measured again or looked up again since the masks were last checked */
+  stale?: boolean;
+  /** the size and state the masks were made for */
   maskShape?: string;
-  maskLevel?: number;
+  tintShape?: string;
+  /** the colour and opacity on the colour layers (a rainbow changes only the colour, a breathing effect the level) */
+  led?: string;
+  opacity?: string;
 }
 
 export class LiveLedPainter {
@@ -175,8 +201,6 @@ export class LiveLedPainter {
   /** the state bits each lit face's own look was last written for */
   private readonly keyLook = new Map<number, number>();
   private readonly maskUrls = new Map<string, string>();
-  /** lit keys whose mask waits for a new level (LEVEL_MASKS_PER_PAINT): painted again next time */
-  private readonly pending = new Set<number>();
   private readonly dot = new Map<number, HTMLElement>();
   private readonly ledLast = new Map<number, number>();
   private readonly ledGlow = new Map<number, LedGlow | undefined>();
@@ -189,8 +213,8 @@ export class LiveLedPainter {
     this.dirty = true;
   }
 
-  /** The keys may have changed size or place (a paint notices a moved board itself) or the theme its tint: they are
-   *  measured again and get new masks on the next paint. */
+  /** The keys may have changed size or place (a paint notices a moved or resized board itself) or the theme its tint:
+   *  they are measured again and get new masks on the next paint. */
   resized(): void {
     this.sized = false;
     this.dirty = true;
@@ -237,6 +261,7 @@ export class LiveLedPainter {
       tintTop: pct('--led-tint-top'),
       tintBottom: pct('--led-tint-bottom'),
     };
+    k.stale = true;
   }
 
   private maskUrl(key: string, make: () => string): string {
@@ -267,16 +292,16 @@ export class LiveLedPainter {
       if (found.fresh) {
         fresh.add(k.id);
         const face = found.el;
-        const lit = face.querySelector<HTMLElement>(':scope > .cap__lit');
-        const fill = lit?.firstElementChild;
-        this.els.set(k.id, { face, lit, fill: fill instanceof HTMLElement ? fill : null, ring: face.querySelector<HTMLElement>(':scope > .cap__ring') });
+        const layer = (cls: string) => face.querySelector<HTMLElement>(`:scope > .${cls}`);
+        const colour = (el: HTMLElement | null) => el?.querySelector<HTMLElement>(':scope > .cap__ledc') ?? null;
+        const lit = layer('cap__lit'), tint = layer('cap__tint');
+        this.els.set(k.id, { face, lit, fill: colour(lit), tint, tintFill: colour(tint), ring: layer('cap__ring') });
       }
       if (found.fresh || !this.sized) this.measure(this.els.get(k.id)!);
     }
     if (!this.sized) this.keyLast.clear(); // every key again, with masks for the new size
     this.sized = true;
 
-    let levelMasks = 0;
     for (const k of keys) {
       const els = this.els.get(k.id);
       const el = els?.face;
@@ -292,16 +317,16 @@ export class LiveLedPainter {
           (+!!cap?.parentElement?.matches(':focus-visible') << 2) | (+!!cap?.classList.contains('cap--flash') << 3);
         this.keyState.set(k.id, bits);
       }
-      // colour and state in one number: a key is written only when either changed (an unlit key ignores its state),
-      // or while its mask waits for its level
+      // colour and state in one number: a key is written only when either changed (an unlit key ignores its state)
       const packed = ((r << 16) | (g << 8) | b) * 16 + (glow ? bits : 0);
-      if (!isFresh && this.keyLast.get(k.id) === packed && !this.pending.has(k.id)) continue;
+      if (!isFresh && this.keyLast.get(k.id) === packed) continue;
       this.keyLast.set(k.id, packed);
-      this.pending.delete(k.id);
-      if (glow) {
+      // a lit key's look and masks are checked only for a new state, size or element, never for a frame
+      const newState = isFresh || this.keyLook.get(k.id) !== bits;
+      if (glow && (newState || els.stale)) {
         const look = faceLook({ hover: !!(bits & 1), selected: !!(bits & 2), focus: !!(bits & 4), flash: !!(bits & 8) });
-        // the face's own look changes only with the state: the layer carries the colour
-        if (isFresh || this.keyLook.get(k.id) !== bits) {
+        // the face's own look changes only with the state: the layers carry the colour
+        if (newState) {
           this.keyLook.set(k.id, bits);
           if (!el.classList.contains(LIVE_FACE_CLASS)) el.classList.add(LIVE_FACE_CLASS);
           el.style.setProperty('background', look.background);
@@ -312,39 +337,51 @@ export class LiveLedPainter {
             this.touched.add(els.ring);
           }
         }
-        const lv = glow.level;
-        if (els.lit && els.geo) {
-          // a new size or state takes a new mask at once; a new level only within this paint's allowance
+        // the masks: new ones only for a new size, state or theme, never for a level
+        if (els.geo) {
           const geo = els.geo;
-          const shape = `${geo.w}x${geo.h}+${geo.x},${geo.y}/${geo.lw}x${geo.lh}@${geo.left},${geo.top}b${geo.border}r${geo.radius}t${geo.tintTop},${geo.tintBottom}` +
-            `|${+look.rim}|${look.edge}|${look.inner}|${look.halo}`;
-          const reshaped = els.maskShape !== shape;
-          const offLevel = els.maskLevel === undefined || lv > els.maskLevel || lv < els.maskLevel - LEVEL_SLACK;
-          if (reshaped || (offLevel && levelMasks++ < LEVEL_MASKS_PER_PAINT)) {
-            if (reshaped) {
-              // the layer's place in the face (from the padding box): the border box at (x, y) in it
-              els.lit.style.setProperty('left', `${geo.left}px`);
-              els.lit.style.setProperty('top', `${geo.top}px`);
-              els.lit.style.setProperty('width', `${geo.lw}px`);
-              els.lit.style.setProperty('height', `${geo.lh}px`);
-            }
-            els.lit.style.setProperty('mask-image', this.maskUrl(`${shape}@${lv}`, () => litMask(geo, look, lv)));
-            els.maskShape = shape;
-            els.maskLevel = lv;
-            this.touched.add(els.lit);
-          } else if (offLevel) this.pending.add(k.id);
+          const mask = (layer: HTMLElement | null, last: string | undefined, key: string, at: number[], make: () => string) => {
+            const place = `@${at.join(',')}`;
+            if (!layer || last === key + place) return last;
+            // the layer's place and size in the face (from the padding box)
+            layer.style.setProperty('left', `${at[0]}px`);
+            layer.style.setProperty('top', `${at[1]}px`);
+            layer.style.setProperty('width', `${at[2]}px`);
+            layer.style.setProperty('height', `${at[3]}px`);
+            layer.style.setProperty('mask-image', this.maskUrl(key, make));
+            this.touched.add(layer);
+            return key + place;
+          };
+          const face = `${geo.w}x${geo.h}b${geo.border}r${geo.radius}`;
+          // .cap__lit reaches out for the halo, with the border box at (x, y) in it; .cap__tint is the border box
+          els.maskShape = mask(els.lit, els.maskShape, `lit${face}+${geo.x},${geo.y}/${geo.lw}x${geo.lh}|${look.edge}|${look.inner}|${look.halo}`,
+            [geo.left, geo.top, geo.lw, geo.lh], () => litMask(geo, look));
+          els.tintShape = mask(els.tint, els.tintShape, `tint${face}t${geo.tintTop},${geo.tintBottom}|${+look.rim}`,
+            [geo.left + geo.x, geo.top + geo.y, geo.w, geo.h], () => tintMask(geo, look));
         }
-        if (els.fill) {
-          els.fill.style.setProperty('background-color', glow.led);
-          els.fill.style.setProperty('opacity', op(els.maskLevel ? lv / els.maskLevel : 1));
-          this.touched.add(els.fill);
+        els.stale = false;
+      }
+      if (glow) {
+        // the frame's part: the colour and the level on both layers, each only when it changed
+        const lv = op(glow.level);
+        const newLed = isFresh || els.led !== glow.led, newLevel = isFresh || els.opacity !== lv;
+        els.led = glow.led;
+        els.opacity = lv;
+        for (const fill of [els.fill, els.tintFill]) {
+          if (!fill) continue;
+          if (newLed) fill.style.setProperty('background-color', glow.led);
+          if (newLevel) fill.style.setProperty('opacity', lv);
+          this.touched.add(fill);
         }
       } else {
         this.keyLook.delete(k.id);
         if (el.classList.contains(LIVE_FACE_CLASS)) el.classList.remove(LIVE_FACE_CLASS);
         for (const p of FACE_PROPS) el.style.removeProperty(p);
-        els.fill?.style.removeProperty('background-color');
-        els.fill?.style.removeProperty('opacity');
+        els.led = els.opacity = undefined;
+        for (const fill of [els.fill, els.tintFill]) {
+          fill?.style.removeProperty('background-color');
+          fill?.style.removeProperty('opacity');
+        }
       }
       this.touched.add(el);
       this.writes++;
@@ -387,8 +424,7 @@ export class LiveLedPainter {
     this.keyLast.clear();
     this.keyState.clear();
     this.keyLook.clear();
-    this.pending.clear();
-    for (const k of this.els.values()) { k.maskShape = undefined; k.maskLevel = undefined; }
+    for (const k of this.els.values()) k.maskShape = k.tintShape = k.led = k.opacity = undefined;
     this.ledLast.clear();
     this.ledGlow.clear();
     this.dirty = false;
