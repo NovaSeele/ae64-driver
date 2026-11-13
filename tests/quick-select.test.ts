@@ -427,6 +427,10 @@ describe('the keycap legend of each page (§3.4)', () => {
     lighting.area0Matrix = lighting.area0Matrix.map((r) => (r ? { ...r, custom: false } : r));
     await flushPromises();
     expect(legend()).toBe(`${tr('sel.shows')}: ${tr('lighting.showsSaved')}`);
+    // the other two sources' legends are measured too, so switching live / sim / saved keeps the row count
+    const ghosts = w.findAll('.sb__ghost > .sb__shows').map((p) => p.text());
+    expect(ghosts).toHaveLength(3);
+    for (const k of ['lighting.showsSaved', 'lighting.showsSim', 'lighting.showsLive'] as const) expect(ghosts.some((g) => g.includes(tr(k)))).toBe(true);
   });
 
   it('Keymap: the layer shown; ▽ and — only while some key on that layer has them', async () => {
@@ -529,6 +533,32 @@ describe('the keycap legend of each page (§3.4)', () => {
     expect(w.find('.sb__shows').exists()).toBe(false);
     gp.config = config;
     await vi.waitFor(() => expect(w!.find('.sb__shows').exists()).toBe(true), { timeout: 10000 });
+  });
+
+  it('Gamepad: an armed output shows the short line in the bar, the full sentence as its title and in the status', async () => {
+    await demo('pro-xinput');
+    w = mount(GamepadPage, { global: { plugins: [router()], stubs: { KeyboardView: true } }, attachTo: document.body });
+    await flushPromises();
+    const gp = useGamepadStore();
+    // ready for good once the switch travel is read (the performance read starts after the config, and hides the page while it runs)
+    await vi.waitFor(() => expect(gp.travelKnown && w!.find('.sb__shows .sr-only').exists()).toBe(true), { timeout: 10000 });
+    expect(w.find('.gp-armed').exists()).toBe(false);
+    const tile = w.findAll('.gpo button[title]')[3];
+    const out = tile.attributes('title')!;
+    expect(out.length).toBeGreaterThan(0);
+    await tile.trigger('click');
+    await flushPromises();
+    const armed = w.find('.sb__detail .gp-armed');
+    expect(armed.exists()).toBe(true);
+    expect(armed.text()).toBe(tr('gp.armedShort', { out }));
+    expect(armed.attributes('title')).toBe(tr('gp.armed', { out }));
+    expect(tr('gp.armed', { out })).not.toBe(tr('gp.armedShort', { out }));
+    expect(w.find('.sr-only[role="status"]').text()).toBe(tr('gp.armed', { out }));
+    expect(w.find('.sb__shows').classes()).toContain('sb__shows--off'); // the armed line takes the legend's place
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(w.find('.gp-armed').exists()).toBe(false);
+    expect(w.find('.sr-only[role="status"]').text()).toBe('');
   });
 
   it('PageLayout hands the hint, the tip and the other legends to the bar', async () => {
