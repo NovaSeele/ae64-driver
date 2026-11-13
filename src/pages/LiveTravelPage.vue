@@ -318,8 +318,17 @@ function enterCheck() {
   let last = NaN;
   let still = 0;
   let tries = 0;
+  let entering = 0;
   const settle = () => {
     if (unmounted) return;
+    // The page slides in (App's page transition, translateY 8px → 0): its last ~2px move by less than a pixel a frame,
+    // so "the same place two frames running" came true 2px early (C-ENTRY-2). Measure once the slide has ended.
+    if (pageEl?.matches('.page-enter-active, .page-enter-from') && ++entering < 90) {
+      still = 0;
+      last = NaN;
+      settleRaf = requestAnimationFrame(settle);
+      return;
+    }
     const hc = hcRef.value?.$el as HTMLElement | undefined;
     const scroller = pageEl?.closest<HTMLElement>('.main__scroll');
     // where the card ends in the page (not on screen): scroll anchoring may move the view while the page settles

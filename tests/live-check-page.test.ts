@@ -289,6 +289,44 @@ describe('key check on the live page', () => {
     }
   });
 
+  it('?check=1 measures only once the page has slid in: not during the page transition (C-ENTRY-2)', async () => {
+    const VIEW_TOP = 56, VIEW_H = 712;
+    document.body.innerHTML = '';
+    const top = document.createElement('header');
+    top.className = 'top';
+    top.getBoundingClientRect = () => ({ top: 0, bottom: VIEW_TOP, height: VIEW_TOP } as DOMRect);
+    const sc = document.createElement('div');
+    sc.className = 'main__scroll';
+    document.body.append(top, sc);
+    sc.getBoundingClientRect = () => ({ top: VIEW_TOP, bottom: VIEW_TOP + VIEW_H, height: VIEW_H } as DOMRect);
+    const to: number[] = [];
+    sc.scrollTo = ((o: ScrollToOptions) => { to.push(o.top!); }) as typeof sc.scrollTo;
+    frames = [];
+    await open('/?check=1', sc);
+    const page = w!.element as HTMLElement;
+    // still sliding: 2px left of the 8px, moving by less than a pixel a frame (it would look settled)
+    let slide = 2;
+    page.classList.add('page-enter-active');
+    const onScreen = (y: number) => ({ top: y + slide + VIEW_TOP, bottom: y + slide + VIEW_TOP } as DOMRect);
+    (w!.find('.hc').element as HTMLElement).getBoundingClientRect = () => onScreen(830);
+    (w!.find('.board').element as HTMLElement).getBoundingClientRect = () => onScreen(80);
+    await nextTick();
+    const runSettle = (n: number) => {
+      for (let i = 0; i < n; i++) {
+        const at = frames.findIndex((f) => f.name === 'settle');
+        if (at < 0) return;
+        const [f] = frames.splice(at, 1);
+        f(0);
+      }
+    };
+    runSettle(10);
+    expect(to).toEqual([]); // nothing measured while the page slides
+    page.classList.remove('page-enter-active');
+    slide = 0;
+    runSettle(10);
+    expect(to).toEqual([72]); // min(830 − 696, 80 − 8): the same as with no transition at all
+  });
+
   it('makes no HID request of its own: open, press, Start over, both switches', async () => {
     device = useDeviceStore();
     await device.connectDemo();
