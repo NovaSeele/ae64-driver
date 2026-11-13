@@ -57,7 +57,6 @@ export const useKeymapStore = defineStore('keymap', () => {
   const loadedCount = ref(0);
   const loadError = ref<string | null>(null);
   const loadedProfile = ref<number | null>(null);
-  const fnNoticeTriggered = ref(false);
 
   /** Last keycode read from the board per layer:keyId. */
   const fresh = new Map<string, number>();
@@ -66,12 +65,9 @@ export const useKeymapStore = defineStore('keymap', () => {
     values.value = { 0: {}, 1: {}, 2: {}, 3: {} };
     fresh.clear();
     loadedProfile.value = null;
-    fnNoticeTriggered.value = false;
     loadPromise = null; // a load of the old keyboard may still be running: a new load() must start fresh
     loading.value = false;
   }, { flush: 'sync' });
-  // The Fn-rule notice belongs to the profile it was triggered in.
-  device.onProfileChanged(() => { fnNoticeTriggered.value = false; });
   let loadPromise: Promise<void> | null = null;
 
   function token(layer: number, id: number): string {
@@ -266,7 +262,6 @@ export const useKeymapStore = defineStore('keymap', () => {
   function applyKeycode(ids: number[], keycode: number): { fnGuarded: boolean } {
     const { before, after, fnGuarded } = planKeycode(ids, keycode);
     if (!Object.keys(after).length) return { fnGuarded: false };
-    if (fnGuarded) fnNoticeTriggered.value = true;
 
     commit(after);
     history.push({
@@ -337,7 +332,7 @@ export const useKeymapStore = defineStore('keymap', () => {
   }
 
   return {
-    activeLayer, values, loading, loadedCount, loadError, loadedProfile, fnNoticeTriggered,
+    activeLayer, values, loading, loadedCount, loadError, loadedProfile,
     factoryKeys, load, legendFor, sublabelFor, inheritedKeycode, planKeycode, applyKeycode, computeDefaultDiff, applyDefault,
   };
 });

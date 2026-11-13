@@ -103,6 +103,12 @@ function factoryName(k: FactoryKey): string {
   });
 }
 const factoryList = computed(() => keymap.factoryKeys.map(factoryName));
+/** A selected key holds a factory keycode on the layer shown: assigning to it would lose that function. */
+const factorySelected = computed(() => {
+  if (!sel.ids.length) return false;
+  const ids = new Set(sel.ids);
+  return keymap.factoryKeys.some((k) => k.layer === keymap.activeLayer && ids.has(k.id));
+});
 
 function assign(ids: number[], code: number) {
   const { fnGuarded } = keymap.applyKeycode(ids, code);
@@ -213,12 +219,12 @@ function doRestoreDefault() {
       </Card>
 
       <template v-else>
-        <div v-if="isFnSelected || keymap.fnNoticeTriggered" class="km-alert">
+        <div v-if="isFnSelected" class="km-alert">
           <IconInfoCircle :size="16" stroke-width="1.8" class="km-alert__icon" />
           <span class="km-alert__text">{{ t('keymap.fnRuleNote') }}</span>
         </div>
 
-        <div v-if="factoryList.length" class="km-factory" role="note">
+        <div v-if="factoryList.length && (isFnSelected || factorySelected)" class="km-factory" role="note">
           <IconAlertTriangle :size="16" stroke-width="1.8" class="km-factory__icon" />
           <div>
             <strong>{{ t('keymap.factoryListTitle') }}</strong>

@@ -294,17 +294,4 @@ describe('keymap store', () => {
     expect(needsAssignConfirm(changed, plan.factoryLost)).toBe(true);
     expect(needsAssignConfirm(BULK_CONFIRM_KEYS, [])).toBe(false);
   });
-
-  it('resets the Fn-rule notice when the profile changes', async () => {
-    await connectMock();
-    const device = useDeviceStore();
-    const keymap = useKeymapStore();
-    await keymap.load(true);
-    keymap.activeLayer = 0;
-    keymap.applyKeycode([PHYSICAL_KEYS[1].id], 0xf101);
-    expect(keymap.fnNoticeTriggered).toBe(true);
-
-    await device.switchProfile(1);
-    expect(keymap.fnNoticeTriggered).toBe(false);
-  });
 });
