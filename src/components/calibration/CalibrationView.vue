@@ -57,7 +57,7 @@ const GLOW: LedGlow[] = STATUS_COLOR.map((led) => ({ led, level: 1 }));
 const STATUS_TEXT = ['calibration.legendNone', 'calibration.legendDone', 'calibration.legendNew'] as const;
 /** The status a key is shown in: newly calibrated stays green after saving, until the next session. */
 const shown = (id: number) => (cal.isNew(id) ? 2 : cal.frame.status[id] ? 1 : 0);
-// The store's lists are new arrays on every polled frame (~10 Hz), even when nothing changed. Kept the same array while
+// The store's lists are new arrays on every polled frame (66 ms, ~15 Hz), even when nothing changed. Kept the same array while
 // the ids are the same, so the chips, the counters and the announcer only run when a key really joins or leaves a list
 // (review D-PERF-1).
 const sameIds = (a: readonly number[] | undefined, b: readonly number[]) => !!a && a.length === b.length && a.every((v, i) => v === b[i]);
@@ -502,7 +502,7 @@ onBeforeUnmount(() => {
 .kbrow { display: flex; flex-direction: column; gap: var(--s-3); margin-bottom: var(--s-4); }
 .board { width: 100%; min-width: 0; max-width: 940px; margin: 0 auto; border-radius: var(--r-panel); transition: box-shadow var(--t-slow) var(--ease); }
 .board--live { box-shadow: 0 0 0 1px var(--acc-line); }
-/* review D-PERF-1: the fill follows a ~10 Hz poll, so its transform transition (--t-med) kept up to 64 fills animating
+/* review D-PERF-1: the fill follows a ~15 Hz poll (66 ms), so its transform transition (--t-med) kept up to 64 fills animating
    all session long and put the keys' % in composited layers over them. It jumps to each reading instead. */
 .board :deep(.cap__fill) { transition: none; }
 @media (min-width: 1600px) { .board { max-width: 1100px; } }
