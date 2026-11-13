@@ -849,8 +849,9 @@ describe('W2: one-screen structure', () => {
     await setup([]);
     const q = (s: string) => document.body.querySelector(s)!;
     const before = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(before(q('.wb__bar'), q('.wb__board'))).toBe(true);
-    expect(before(q('.wb__board'), q('.sb'))).toBe(true);
+    // E: the board frame is TabKeyboard's (.tk__board); the view tools sit in the page toolbar, still before it
+    expect(before(q('.wb__bar'), q('.tk__board'))).toBe(true);
+    expect(before(q('.tk__board'), q('.sb'))).toBe(true);
     expect(before(q('.sb'), q('.grid'))).toBe(true);
     expect(document.body.querySelector('.page__aside')).toBeNull();
   });
