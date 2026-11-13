@@ -145,7 +145,7 @@ describe('health check: chips follow the language with the same issues (C-TEST-2
     setLocale('en');
     await w!.setProps({ issues });
     await flushPromises();
-    expect(toRaw(w!.props('issues'))).toBe(issues); // the same issue objects: only the language changed
+    expect(toRaw((w!.vm.$props as { issues: CheckIssue[] }).issues)).toBe(issues); // the same issue objects: only the language changed
     expect(chip().text()).toBe('A reached 2.60 / 3.31 mm');
     expect(chip().attributes('aria-label')).toBe('A reached 2.60 of 3.31 mm, short travel. Pin this key.');
   });
