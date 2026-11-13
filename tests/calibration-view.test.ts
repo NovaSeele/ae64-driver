@@ -682,3 +682,24 @@ describe('review D r107', () => {
     expect(w!.find('.kb').attributes('aria-describedby')).toBe(id);
   });
 });
+
+// ---- Review D r108 (D-TEST-2): the chips are kept as the same array only while every chip reads the same.
+describe('review D r108', () => {
+  it('#63 a key pressed deeper but still too shallow: its chip follows the new peak, and the language', async () => {
+    const chip = () => w!.find('.chip--shallow');
+    const p1 = { key: 'A', mm: '1.60', range: '3.31' }, p2 = { key: 'A', mm: '2.40', range: '3.31' };
+    await open();
+    await begin();
+    await tap(A.id, 1.6);
+    expect(chip().text()).toBe(t('calibration.chipShallow', p1));
+    await tap(A.id, 2.4);
+    expect(w!.findAll('.chip--shallow')).toHaveLength(1);
+    expect(chip().text()).toBe(t('calibration.chipShallow', p2));
+    expect(chip().attributes('aria-label')).toContain('2.40');
+    const inVi = chip().text();
+    locale.value = 'en';
+    await nextTick();
+    expect(chip().text()).toBe(t('calibration.chipShallow', p2));
+    expect(chip().text()).not.toBe(inVi);
+  });
+});
