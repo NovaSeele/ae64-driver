@@ -51,7 +51,7 @@ let pinia: Pinia;
 /** Mount the page at /cal. `shell`: another route component around it (KeepAlive); `scroller`: inside a .main__scroll, as
  *  in the app; `waitLoaded: false`: return before the first frame was read. */
 async function open(opts: { shell?: Component; scroller?: boolean; waitLoaded?: boolean } = {}) {
-  router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/cal', component: opts.shell ?? CalibrationView }, { path: '/live', component: { template: '<i />' } }] });
+  router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/cal', component: opts.shell ?? CalibrationView }, { path: '/performance', component: { template: '<i />' } }] });
   await router.push('/cal');
   w = mount({ template: opts.scroller ? '<div class="main__scroll"><RouterView /></div>' : '<RouterView />' }, { global: { plugins: [router, pinia] }, attachTo: document.body });
   if (opts.waitLoaded === false) return;
@@ -208,7 +208,7 @@ describe('"Check keys now" after a saved session only', () => {
     expect(actionButton(t('calibration.start'))!.classes()).toContain('btn--secondary');
     await btn.trigger('click');
     await flushPromises();
-    expect(router.currentRoute.value.fullPath).toBe('/live?check=1'); // the literal path, not the constant
+    expect(router.currentRoute.value.fullPath).toBe('/performance?tab=test&check=1'); // the literal path, not the constant (E: the Key test tab)
   });
 
   it('not after Cancel, a failed Finish, or once a new session starts', async () => {
@@ -671,8 +671,8 @@ describe('review D r107', () => {
     expect(toasts().some((x) => x.includes('start refused'))).toBe(true);
   });
 
-  it('#52 "Check keys now" goes to the health check: /live?check=1 (the literal path)', () => {
-    expect(RECHECK_ROUTE).toBe('/live?check=1');
+  it('#52 "Check keys now" goes to the health check: /performance?tab=test&check=1 (the literal path)', () => {
+    expect(RECHECK_ROUTE).toBe('/performance?tab=test&check=1');
   });
 
   it('#54 the keyboard is described by the keycap legend (aria-describedby)', async () => {

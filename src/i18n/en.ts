@@ -24,6 +24,8 @@ const baseEn: Record<keyof typeof base, string> = {
   'nav.expand': 'Expand sidebar',
   'nav.groupProfile': 'Profile settings',
   'nav.groupDevice': 'Device',
+  'nav.groupKeyboard': 'Keyboard',
+  'nav.groupCustomize': 'Customize',
   'page.keymap': 'Keymap',
   'page.performance': 'Performance',
   'page.advanced': 'Advanced keys',
