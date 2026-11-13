@@ -332,8 +332,75 @@ describe('ActuationModel — Rapid Trigger near the bottom', () => {
     const m = new ActuationModel(S);
     run(m, path([0, 3.0, 2.55]));
     expect(m.actuated).toBe(false);
-    expect(m.reactuateAt).toBeCloseTo(3.31);
+    expect(m.reactuateAt).toBeCloseTo(3.21); // where the bottom dead zone starts, not 3.31 (LIVE-REACT-1)
     expect(run(m, [3.2])).toEqual([]); // 3.2 is above the bottom dead zone and short of 3.35
     expect(run(m, [3.25])).toEqual(['P@3.25']); // inside the bottom dead zone (≥ 3.21) = full travel
+  });
+});
+
+// LIVE-REACT-1: the RT lines on the switch sim and graph must sit at the raw depth where update() really emits the
+// event, also when the target falls inside a dead zone (the user's case: re-actuate drawn at 3.29 inside 3.21–3.31).
+describe('ActuationModel — RT lines are where the events happen (0.01 mm sweep)', () => {
+  const step = (from: number, to: number): number[] => {
+    const a = Math.round(from * 100), b = Math.round(to * 100), d = a < b ? 1 : -1, out: number[] = [];
+    for (let i = a; i !== b + d; i += d) out.push(i / 100);
+    return out;
+  };
+  /** Sweep `seq`; returns the first depth where an event of `kind` is emitted. */
+  const firstEvent = (m: ActuationModel, seq: number[], kind: 'press' | 'release'): number | undefined => {
+    for (const mm of seq) if (m.update(mm) === kind) return mm;
+    return undefined;
+  };
+  /** Press to `peak`, rise to `trough` (released there), and check both lines against the sweep. */
+  function check(s: ActuationSettings, peak: number, release: { line: number }, press?: { trough: number; line: number }): void {
+    const m = new ActuationModel(s);
+    run(m, step(0, peak));
+    expect(m.actuated).toBe(true);
+    const resetAt = m.resetAt!;
+    expect(resetAt).toBeCloseTo(release.line, 6);
+    const at = firstEvent(m, step(peak, 0), 'release');
+    // a release is emitted at the first sample at or above the line (or just above it, for a strict boundary)
+    expect(at).toBeDefined();
+    expect(at!).toBeLessThanOrEqual(resetAt + 1e-6);
+    expect(at!).toBeGreaterThanOrEqual(resetAt - 0.01 - 1e-6);
+    if (!press) return;
+    const m2 = new ActuationModel(s);
+    run(m2, step(0, peak));
+    run(m2, step(peak, press.trough));
+    expect(m2.actuated).toBe(false);
+    const reactuateAt = m2.reactuateAt!;
+    expect(reactuateAt).toBeCloseTo(press.line, 6);
+    const pAt = firstEvent(m2, step(press.trough, s.range), 'press');
+    expect(pAt).toBeDefined();
+    expect(pAt!).toBeGreaterThanOrEqual(reactuateAt - 1e-6);
+    expect(pAt!).toBeLessThanOrEqual(reactuateAt + 0.01 + 1e-6);
+  }
+  const C: ActuationSettings = { ...STD, mode: 1, rtFirstTouch: 0.5, rtPress: 0.3, rtRelease: 0.3, pressDeadStroke: 0, releaseDeadStroke: 0.1, range: 3.31 };
+
+  it('re-actuate target inside the bottom dead zone: the line is where the zone starts (3.21, not 3.29)', () => {
+    // the user's screenshot: released at 3.00, trough + rtPress = 3.30 would be drawn at 3.29+ inside 3.21–3.31
+    check({ ...C, rtPress: 0.29 }, 3.31, { line: 3.01 }, { trough: 3.0, line: 3.21 });
+  });
+
+  it('re-actuate target outside the bottom dead zone: trough + rtPress, as before', () => {
+    check(C, 3.31, { line: 3.01 }, { trough: 2.5, line: 2.8 });
+    check({ ...C, releaseDeadStroke: 0 }, 3.31, { line: 3.01 }, { trough: 3.0, line: 3.3 });
+  });
+
+  it('release target inside the bottom dead zone: the line is where the zone starts', () => {
+    // bottom zone 3.01–3.31 reads as full travel: 3.31 − rtRelease 0.1 = 3.21 is inside it, so the release happens on
+    // leaving the zone (3.01), not at 3.21
+    check({ ...C, rtRelease: 0.1, releaseDeadStroke: 0.3 }, 3.31, { line: 3.01 });
+  });
+
+  it('Continuous RT release target inside the top dead zone: the line is pressDeadStroke', () => {
+    // peak 0.6 − rtRelease 0.5 = 0.1 lies in the top dead zone 0–0.3, which reads 0: the release happens at 0.3
+    check({ ...C, rtRelease: 0.5, pressDeadStroke: 0.3 }, 0.6, { line: 0.3 });
+    // the target above the top dead zone: peak − rtRelease, as before
+    check({ ...C, rtRelease: 0.2, pressDeadStroke: 0.3 }, 1.6, { line: 1.4 });
+  });
+
+  it('without Continuous RT the release line stays at rtFirstTouch when the target is above it', () => {
+    check({ ...C, mode: 2, rtFirstTouch: 1, rtRelease: 0.5 }, 1.2, { line: 1 });
   });
 });

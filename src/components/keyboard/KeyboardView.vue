@@ -26,11 +26,14 @@ const props = defineProps<{
   /** Tabler icon shown as the badge instead of its text. */
   badgeIcon?: (key: PhysicalKey) => Component | undefined;
   fill?: (key: PhysicalKey) => number | undefined;
+  /** A 1.5px line across the key face at this depth (0..1), e.g. the deepest reading; undefined = none. */
+  mark?: (key: PhysicalKey) => number | undefined;
   color?: (key: PhysicalKey) => string | undefined;
   /** LED bar height in px for every key (Keycap default 2). */
   ledHeight?: number;
-  /** 'glow' lights the whole key from `glow` instead of drawing the `color` bar (Lighting only). */
-  ledStyle?: 'bar' | 'glow';
+  /** 'glow' lights the whole key from `glow` instead of drawing the `color` bar (Lighting; the live page's results).
+   *  A function picks it per key (the live page keeps the followed key's bar on keys without a result). */
+  ledStyle?: 'bar' | 'glow' | ((key: PhysicalKey) => 'bar' | 'glow' | undefined);
   /** Glow style: a key's lit LED (`led` is any CSS colour at full brightness, `level` 0..1); undefined = off. */
   glow?: (key: PhysicalKey) => LedGlow | undefined;
   /** Status text appended to a key's accessible name (e.g. when the state is shown only by colour). */
@@ -199,6 +202,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('blur', cancelDrag);
 });
 
+const styleOf = (k: PhysicalKey) => (typeof props.ledStyle === 'function' ? props.ledStyle(k) : props.ledStyle);
+
 /** Plain text of a key's sublabel for its aria-label (lines joined by spaces). */
 function subText(k: PhysicalKey): string {
   const s = props.sublabel?.(k);
@@ -244,10 +249,11 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
           :badge-title="badgeTitle?.(k)"
           :badge-icon="badgeIcon?.(k)"
           :fill="fill?.(k)"
+          :mark="mark?.(k)"
           :color="color?.(k)"
           :led-height="ledHeight"
-          :led-style="ledStyle"
-          :glow="ledStyle === 'glow' ? glow?.(k) : undefined"
+          :led-style="styleOf(k)"
+          :glow="styleOf(k) === 'glow' ? glow?.(k) : undefined"
           :tone="tone?.(k)"
           :state="state?.(k)"
           :selected="selectable && isSelected(k.id)"

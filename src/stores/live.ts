@@ -132,21 +132,35 @@ export class ActuationModel {
     this.trough = e;
   }
 
-  /** RT, actuated: the key releases when it rises above this depth (mm). */
+  /** Raw depth (mm) where the bottom dead zone starts (everything from here reads as full travel); the range without one. */
+  bottomAt(): number { // public for the same reason as transition()
+    const s = this.settings;
+    return s.releaseDeadStroke > 0 ? s.range - s.releaseDeadStroke : s.range;
+  }
+
+  /**
+   * RT, actuated: the key releases when it rises above this raw depth (mm), the depth where update() emits the release
+   * (LIVE-REACT-1). Inside the top dead zone travel reads 0, so with Continuous RT a release target there happens at
+   * pressDeadStroke; a target inside the bottom dead zone happens on leaving it.
+   */
   get resetAt(): number | null {
     const s = this.settings;
     if (!isRtMode(s.mode) || !this.actuated) return null;
-    return Math.max(this.peak - s.rtRelease, s.mode === 1 ? 0 : s.rtFirstTouch);
+    return Math.max(Math.min(this.peak - s.rtRelease, this.bottomAt()), s.mode === 1 ? s.pressDeadStroke : s.rtFirstTouch);
   }
 
-  /** RT, released after a first actuation: the key re-actuates when it goes below this depth (mm). */
+  /**
+   * RT, released after a first actuation: the key re-actuates when it goes below this raw depth (mm), the depth where
+   * update() emits the press (LIVE-REACT-1): the bottom dead zone reads as full travel, so a target inside it happens
+   * as soon as the key enters it, as the firmware does.
+   */
   get reactuateAt(): number | null {
     const s = this.settings;
-    return isRtMode(s.mode) && this.armed && !this.actuated ? this.reactuateThreshold() : null;
+    return isRtMode(s.mode) && this.armed && !this.actuated ? Math.min(this.reactuateThreshold(), this.bottomAt()) : null;
   }
 
   /** trough + rtPress, but never past the bottom: a key lifted near the bottom re-actuates on reaching it
-   *  (the bottom dead zone reads as full travel), as the firmware does. Shared by update() and reactuateAt. */
+   *  (the bottom dead zone reads as full travel), as the firmware does. In effective travel, used by update(). */
   reactuateThreshold(): number {
     return Math.min(this.trough + this.settings.rtPress, this.settings.range);
   }
@@ -226,6 +240,24 @@ const FALLBACK_NAMES = new Map<number, string>([[0x2b, 'Tab'], [0xe1, 'Shift'], 
 /** A UI-pressed mark that saw no travel within this long (ms) is dropped (the keystroke never registered as travel). */
 const UI_MARK_MS = 400;
 
+// Key check ("Kiểm tra sức khoẻ"): computed only from the `04 03` reads the poller already makes.
+/** A key counts as pressed (row in the table, mark on the keycap, counters) once deeper than this (mm). */
+export const PRESSED_MM = 0.3;
+/**
+ * "Not back to 0": a key that went deeper than REST_ARM_MM, then reads released (status 0) while still deeper than
+ * REST_OFF_MM for longer than REST_OFF_MS, is stuck. It clears as soon as travel drops below REST_OFF_MM. Status is read
+ * interleaved with route (the focused row every 4 ticks, other rows in turn), so the test uses the newest status read;
+ * that lag is why the time threshold is 800 ms and not less. A key held partway with Rapid Trigger (released mid-travel)
+ * counts too: it is not at 0.
+ */
+export const REST_ARM_MM = 0.5;
+export const REST_OFF_MM = 0.2;
+export const REST_OFF_MS = 800;
+/** Screen readers hear a stuck key only once it stayed stuck this long (ms), so a short pause of the finger is not read aloud. */
+export const STUCK_ANNOUNCE_MS = 2000;
+/** A key reached full travel when its deepest reading is at least this share of the switch travel. */
+export const FULL_TRAVEL = 0.95;
+
 export interface LiveData {
   /** Latest per-key travel (mm), fill ratio (route / axisRangeMax) and firmware status, by PhysicalKey.id. */
   travel: Float32Array;
@@ -252,6 +284,19 @@ export interface LiveData {
   version: number;
   /** Incremented only when the focused-key buffers are reset (clear(); setFocus() calls clear). Display code uses it to drop held state. */
   epoch: number;
+  /** Deepest travel (mm) and ratio since the check started (resetPeaks), by PhysicalKey.id. */
+  peakMm: Float32Array;
+  peakRatio: Float32Array;
+  /** Travel (mm) a key is stuck at: deeper than REST_OFF_MM for REST_OFF_MS while the firmware says released. 0 = none. */
+  restOffMm: Float32Array;
+  /** When each key's current stuck stretch began (ingest clock), -1 when it is not stuck-candidate. */
+  offSince: Float64Array;
+  /** performance.now() (ingest clock) at the last resetPeaks(). */
+  checkStartedAt: number;
+  /** Keys whose peakMm went above PRESSED_MM since checkStartedAt. */
+  pressedIds: Set<number>;
+  /** Incremented whenever peakMm, restOffMm or pressedIds change (lets the page skip unchanged frames). */
+  checkVersion: number;
 }
 
 function emptyData(): LiveData {
@@ -260,6 +305,8 @@ function emptyData(): LiveData {
     ring: new TravelRing(RING_SIZE), events: [], model: null,
     current: 0, peak: 0, count: 0, lastActuation: null, lastRelease: null,
     firmwarePressed: false, mismatch: false, mismatchSince: null, rateHz: 0, touched: false, version: 0, epoch: 0,
+    peakMm: new Float32Array(64), peakRatio: new Float32Array(64), restOffMm: new Float32Array(64),
+    offSince: new Float64Array(64).fill(-1), checkStartedAt: 0, pressedIds: new Set<number>(), checkVersion: 0,
   });
 }
 
@@ -516,6 +563,76 @@ export const useLiveStore = defineStore('live', () => {
     }
   }
 
+  // Key check state that is not shown: went deeper than REST_ARM_MM since the key was last near 0, and is above PRESSED_MM.
+  const armed = new Uint8Array(64);
+  const down = new Uint8Array(64);
+  /** Keys that just came back above PRESSED_MM after a press (the page drains it for its announcements). At most 64. */
+  const releasedIds = new Set<number>();
+
+  /** Peak, pressed and "not back to 0" bookkeeping for one route sample (mm) of key `id`. */
+  function trackCheck(id: number, mm: number, ratio: number, now: number): void {
+    if (mm > data.peakMm[id]) {
+      data.peakMm[id] = mm;
+      data.peakRatio[id] = ratio;
+      data.checkVersion++;
+    }
+    if (mm > PRESSED_MM) {
+      down[id] = 1;
+      if (!data.pressedIds.has(id)) {
+        data.pressedIds.add(id);
+        data.checkVersion++;
+      }
+    } else if (down[id]) {
+      down[id] = 0;
+      releasedIds.add(id);
+    }
+    if (mm < REST_OFF_MM) {
+      armed[id] = 0;
+      clearStuck(id);
+      return;
+    }
+    if (mm > REST_ARM_MM) armed[id] = 1;
+    if (!armed[id] || data.status[id] !== 0) {
+      clearStuck(id);
+      return;
+    }
+    if (data.offSince[id] < 0) data.offSince[id] = now;
+    if (now - data.offSince[id] >= REST_OFF_MS && data.restOffMm[id] !== mm) {
+      data.restOffMm[id] = mm;
+      data.checkVersion++;
+    }
+  }
+
+  /** The stuck condition broke (back near 0, or the firmware reads the key pressed again). */
+  function clearStuck(id: number): void {
+    data.offSince[id] = -1;
+    if (data.restOffMm[id] > 0) {
+      data.restOffMm[id] = 0;
+      data.checkVersion++;
+    }
+  }
+
+  /** Start the key check over: every key's deepest reading, pressed state and "not back to 0" go back to none. */
+  function resetPeaks(now = performance.now()): void {
+    data.peakMm.fill(0);
+    data.peakRatio.fill(0);
+    data.restOffMm.fill(0);
+    data.offSince.fill(-1);
+    armed.fill(0);
+    down.fill(0);
+    releasedIds.clear();
+    data.pressedIds.clear();
+    data.checkStartedAt = now;
+    data.checkVersion++;
+  }
+
+  /** Keys released since the last call (they went above PRESSED_MM and came back), oldest first; empties the list. */
+  function drainReleased(): number[] {
+    const out = [...releasedIds];
+    releasedIds.clear();
+    return out;
+  }
+
   function ingest(type: AxisDataType, row: number, values: number[], now: number): void {
     const focus = focusId.value;
     let focusedHere = false;
@@ -527,9 +644,13 @@ export const useLiveStore = defineStore('live', () => {
         const v = Math.min(Math.max(values[col], 0), range);
         data.travel[key.id] = v / 1000;
         data.ratio[key.id] = v / range;
+        trackCheck(key.id, v / 1000, v / range, now);
         if (uiPressed.size) trackUiPressed(key.id, v / 1000, now);
         if (v / 1000 < FOLLOW_MIN && data.status[key.id] === 0) lastRest[key.id] = now;
-      } else data.status[key.id] = values[col];
+      } else {
+        data.status[key.id] = values[col];
+        if (values[col] !== 0) clearStuck(key.id);
+      }
       if (key.id === focus) focusedHere = true;
     }
     if (type === 'route' && follow.value && !followSuspended) {
@@ -646,6 +767,7 @@ export const useLiveStore = defineStore('live', () => {
     data.current = 0;
     data.firmwarePressed = false;
     data.model?.reset();
+    resetPeaks();
     clear();
   }
 
@@ -734,5 +856,8 @@ export const useLiveStore = defineStore('live', () => {
     reset();
   }, { flush: 'sync' });
 
-  return { data, focusId, follow, allKeys, running, paused, start, stop, reset, clear: clearByUser, pin, setFocus, setFollow, suspendFollow, ingest, undoAutoFollow, keysForCodes, markUiPressed };
+  return {
+    data, focusId, follow, allKeys, running, paused, start, stop, reset, clear: clearByUser, pin, setFocus, setFollow,
+    suspendFollow, ingest, undoAutoFollow, keysForCodes, markUiPressed, resetPeaks, drainReleased,
+  };
 });

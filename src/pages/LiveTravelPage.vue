@@ -1,13 +1,22 @@
 <script setup lang="ts">
 // Đo hành trình thật (DESIGN §7): press a real key and watch the switch move against the trigger points
 // from the key's settings. Polling lives in stores/live.ts; this page renders from one rAF loop.
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch } from 'vue';
+import type { Component } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { IconAdjustmentsHorizontal, IconAlertTriangle, IconEraser, IconHistory, IconPlayerPause, IconPlayerPlay, IconRefresh, IconTrash } from '@tabler/icons-vue';
+import {
+  IconAdjustmentsHorizontal, IconAlertTriangle, IconArrowBarToDown, IconArrowBarToUp, IconCheck, IconEraser, IconHistory, IconLock, IconLockOpen,
+  IconPlayerPause, IconPlayerPlay, IconRefresh, IconTrash,
+} from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import SwitchSim from '../components/live/SwitchSim.vue';
 import TravelGraph from '../components/live/TravelGraph.vue';
+import HealthCheck from '../components/live/HealthCheck.vue';
+import PeakTable from '../components/live/PeakTable.vue';
+import { ANNOUNCE_MS, CheckAnnouncer, emptyCheckView, summarizeCheck } from '../components/live/keyCheck';
+import type { CheckKind, CheckView } from '../components/live/keyCheck';
+import { useKeyLock } from '../composables/useKeyLock';
 import { attachDemoPress } from '../components/live/demoPress';
 import Card from '../components/ui/Card.vue';
 import Button from '../components/ui/Button.vue';
@@ -20,6 +29,7 @@ import { DEFAULT_RANGE_MM, rangeMm, usePerformanceStore } from '../stores/perfor
 import { settingsFrom, useLiveStore } from '../stores/live';
 import { isRtMode } from '../protocol';
 import type { MockTransport, PhysicalKey } from '../protocol';
+import type { LedGlow } from '../ledGlow';
 import { t } from '../i18n/vi';
 
 const device = useDeviceStore();
@@ -118,6 +128,14 @@ const HEAT_MS = 33;
 function frame(now: number) {
   raf = requestAnimationFrame(frame);
   const d = live.data;
+  if (now - lastCheck >= HEAT_MS && (d.checkVersion !== seenCheck || perf.values !== seenValues || device.keys !== seenKeys)) {
+    lastCheck = now;
+    refreshCheck();
+  }
+  if (now - lastAnnounce >= ANNOUNCE_MS) {
+    lastAnnounce = now;
+    announce();
+  }
   if (d.version === seen && d.rateHz === lastRate) return;
   seen = d.version;
   lastRate = d.rateHz;
@@ -150,6 +168,170 @@ watch(() => device.demo && demoKeys.value && device.transport?.kind === 'mock', 
   detachDemo = on ? attachDemoPress(device.transport as MockTransport) : null;
 }, { immediate: true });
 
+// ----- key check (part C): deepest reading per key, full / short / not back to 0, key lock
+const LOCK_KEY = 'ae64.live.keyLock';
+const COLOR_KEY = 'ae64.live.colorByResult';
+/** A remembered switch: '1' / '0'; anything else (missing, unreadable storage, a stray value) is the default. */
+function readFlag(key: string, fallback: boolean): boolean {
+  try {
+    const v = localStorage.getItem(key);
+    return v === '1' ? true : v === '0' ? false : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function writeFlag(key: string, on: boolean): void {
+  try {
+    localStorage.setItem(key, on ? '1' : '0');
+  } catch { /* storage blocked: the choice lasts for this page only */ }
+}
+const keyLock = ref(readFlag(LOCK_KEY, true));
+const colorByResult = ref(readFlag(COLOR_KEY, false));
+watch(keyLock, (on) => writeFlag(LOCK_KEY, on));
+watch(colorByResult, (on) => writeFlag(COLOR_KEY, on));
+
+const checkView = shallowRef<CheckView>(emptyCheckView(device.keys.length));
+/** By key id: "deepest 3.31 mm" for the keycap's accessible name; rebuilt only with checkView. */
+let peakText: (string | undefined)[] = [];
+let seenCheck = -1;
+let seenValues: unknown = null;
+let seenKeys: unknown = null;
+let lastCheck = -Infinity;
+let lastAnnounce = 0;
+const sinceReset = ref(false);
+const announcer = new CheckAnnouncer();
+const announcement = ref('');
+
+function refreshCheck() {
+  const d = live.data;
+  seenCheck = d.checkVersion;
+  seenValues = perf.values;
+  seenKeys = device.keys;
+  const v = summarizeCheck(d, device.keys, perf.values, device.legend);
+  peakText = [];
+  for (const r of v.rows) peakText[r.id] = t('live.keyPeak', { mm: r.mm.toFixed(2) });
+  checkView.value = v;
+}
+
+/** Put the next batched sentence in the live region (emptied first, so the same sentence twice is read twice). */
+function announce() {
+  const s = announcer.tick(live.data, checkView.value, live.drainReleased(), (id) => device.legend(device.keys[id]), performance.now(), t);
+  if (!s) return;
+  announcement.value = '';
+  void nextTick(() => { announcement.value = s; });
+}
+
+function restartCheck() {
+  live.resetPeaks();
+  sinceReset.value = true;
+  announcer.restart();
+  refreshCheck();
+}
+
+function pinKey(id: number) {
+  sel.select(id);
+}
+
+/** Pinned with "All keys" off: only the pinned key's row is read, so keys elsewhere are not counted. */
+const partialKey = computed(() => (!live.follow && !live.allKeys && focusKey.value ? keyName.value : null));
+const pinnedId = computed(() => (live.follow ? null : live.focusId));
+
+const RESULT: Record<CheckKind, { glow: LedGlow; icon: Component; title: string }> = {
+  ok: { glow: { led: 'var(--ok)', level: 1 }, icon: IconCheck, title: t('live.cFull') },
+  short: { glow: { led: 'var(--warn)', level: 1 }, icon: IconArrowBarToDown, title: t('live.cShort') },
+  stuck: { glow: { led: 'var(--danger)', level: 1 }, icon: IconArrowBarToUp, title: t('live.cStuck') },
+};
+const resultOf = (k: PhysicalKey) => (colorByResult.value ? checkView.value.kinds[k.id] : undefined);
+/** A key with a result glows in its colour (part A glow); the others keep the bar, so the followed key keeps its accent. */
+const capLed = (k: PhysicalKey) => (resultOf(k) ? 'glow' as const : 'bar' as const);
+const capGlow = (k: PhysicalKey) => { const r = resultOf(k); return r && RESULT[r].glow; };
+const capIcon = (k: PhysicalKey) => { const r = resultOf(k); return r && RESULT[r].icon; };
+const capTitle = (k: PhysicalKey) => { const r = resultOf(k); return r && RESULT[r].title; };
+/** The deepest-reading line, only on keys pressed past PRESSED_MM (noise draws no line at the top of every key). */
+const capMark = (k: PhysicalKey) => checkView.value.marks[k.id];
+const capStatus = (k: PhysicalKey) => (checkView.value.kinds[k.id] ? peakText[k.id] : undefined);
+
+// Key lock. It listens on document, so every window capture listener runs first: the demo keyboard (attachDemoPress,
+// attached above) handles its keys before the lock sees them, whichever of the two was switched on first.
+const NUDGE_MS = 1200;
+const NUDGE_SAY_MS = 10_000;
+const lockNudge = ref(false);
+const lockSay = ref('');
+let nudgeTimer: ReturnType<typeof setTimeout> | undefined;
+let lastNudgeSaid = -Infinity;
+/** A key was blocked on a control focused by keyboard: light the banner and, at most every 10 s, say why. */
+function onLockBlocked(e: KeyboardEvent) {
+  const el = e.target;
+  let keyboardFocus = false;
+  try {
+    keyboardFocus = el instanceof Element && el !== document.body && el.matches(':focus-visible');
+  } catch { /* :focus-visible unsupported: no reminder */ }
+  if (!keyboardFocus) return;
+  lockNudge.value = true;
+  clearTimeout(nudgeTimer);
+  nudgeTimer = setTimeout(() => { lockNudge.value = false; }, NUDGE_MS);
+  const now = performance.now();
+  if (now - lastNudgeSaid < NUDGE_SAY_MS) return;
+  lastNudgeSaid = now;
+  lockSay.value = '';
+  void nextTick(() => { lockSay.value = t('live.lockNudge'); });
+}
+useKeyLock({ active: () => keyLock.value && live.running, onBlocked: onLockBlocked });
+const lockState = computed(() => (!live.running ? 'idle' : keyLock.value ? 'on' : 'off'));
+const lockText = computed(() => (lockState.value === 'idle' ? t('live.lockIdle') : lockState.value === 'on' ? t('live.lockOn') : t('live.lockOff')));
+const lockTextId = useId();
+const lockHintId = useId();
+const colorHintId = useId();
+
+// ----- ?check=1: open straight on the key check
+const hcRef = ref<InstanceType<typeof HealthCheck> | null>(null);
+
+/**
+ * Start the check over, scroll the least that shows the whole health check card without scrolling the keyboard's top
+ * under the title bar (8px clear), focus the card title, and drop `check` from the URL so a reload does not reset again.
+ */
+function enterCheck() {
+  live.resetPeaks();
+  refreshCheck();
+  const { check: _check, ...query } = route.query;
+  void router.replace({ query });
+  // The keyboard takes its size from a ResizeObserver and the page slides in: wait until the card stops moving (the
+  // same place two frames running, at most ~0.5 s) before measuring, or the card is measured too high and nothing scrolls.
+  let last = NaN;
+  let still = 0;
+  let tries = 0;
+  const settle = () => {
+    if (unmounted) return;
+    const hc = hcRef.value?.$el as HTMLElement | undefined;
+    const at = hc ? Math.round(hc.getBoundingClientRect().bottom) : NaN;
+    still = at === last ? still + 1 : 0;
+    last = at;
+    if (still < 2 && ++tries < 30) {
+      settleRaf = requestAnimationFrame(settle);
+      return;
+    }
+    scrollToCheck();
+  };
+  void nextTick(() => { settleRaf = requestAnimationFrame(settle); });
+}
+let settleRaf = 0;
+let unmounted = false;
+
+function scrollToCheck() {
+  const hc = hcRef.value?.$el as HTMLElement | undefined;
+  const scroller = pageEl?.closest<HTMLElement>('.main__scroll');
+  const board = pageEl?.querySelector<HTMLElement>('.board');
+  const top = document.querySelector<HTMLElement>('.top');
+  if (hc && scroller && board) {
+    const view = scroller.getBoundingClientRect();
+    const titleBottom = top ? top.getBoundingClientRect().bottom : view.top;
+    const delta = Math.max(0, Math.min(hc.getBoundingClientRect().bottom - (view.bottom - 16), board.getBoundingClientRect().top - (titleBottom + 8)));
+    const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (delta > 0) scroller.scrollBy({ top: delta, behavior: reduce ? 'auto' : 'smooth' });
+  }
+  hcRef.value?.focusTitle();
+}
+
 function clearGraph() {
   live.clear();
   graphHold.value = false;
@@ -164,6 +346,7 @@ onMounted(() => {
   syncFocusFromSelection();
   if (live.focusId === null) live.setFocus(device.keys.find((k) => k.name === 'W')?.id ?? 0);
   live.clear();
+  live.resetPeaks(); // the check lives as long as the page: coming back starts it over
   graphHold.value = false;
   live.start();
   offProfile = device.onProfileChanged(async () => {
@@ -175,6 +358,7 @@ onMounted(() => {
   raf = requestAnimationFrame(frame);
   pageEl = pageRef.value?.$el ?? null;
   pageEl?.addEventListener('keydown', onControlKey, true);
+  if (route.query.check === '1') enterCheck();
 });
 onBeforeUnmount(() => {
   pageEl?.removeEventListener('keydown', onControlKey, true);
@@ -183,6 +367,9 @@ onBeforeUnmount(() => {
   offProfile?.();
   detachDemo?.();
   cancelAnimationFrame(raf);
+  cancelAnimationFrame(settleRaf);
+  unmounted = true;
+  clearTimeout(nudgeTimer);
 });
 
 const fmt = (v: number | null) => (v === null ? '—' : v.toFixed(2));
@@ -228,8 +415,21 @@ function onTypeKey(e: KeyboardEvent) {
           :fill="heatFill"
           :state="heatState"
           :color="heatColor"
+          :mark="capMark"
+          :led-style="capLed"
+          :glow="capGlow"
+          :badge-icon="capIcon"
+          :badge-title="capTitle"
+          :status="capStatus"
           selectable
         />
+        <div class="kbfoot">
+          <p class="kblegend">
+            <span class="kl__k">{{ t('sel.shows') }}</span><span class="kl__num">0.42</span> {{ t('live.showsNow') }}<span class="kl__dot" aria-hidden="true">·</span><span class="kl__mark" aria-hidden="true" />{{ t('live.showsPeak') }}<template v-if="colorByResult"><span class="kl__dot" aria-hidden="true">·</span><span class="kl__ico kl__ico--ok"><IconCheck :size="14" stroke-width="1.8" aria-hidden="true" /></span>{{ t('live.showsOk') }}<span class="kl__dot" aria-hidden="true">·</span><span class="kl__ico kl__ico--short"><IconArrowBarToDown :size="14" stroke-width="1.8" aria-hidden="true" /></span>{{ t('live.showsShort') }}<span class="kl__dot" aria-hidden="true">·</span><span class="kl__ico kl__ico--stuck"><IconArrowBarToUp :size="14" stroke-width="1.8" aria-hidden="true" /></span>{{ t('live.showsStuck') }}</template>
+          </p>
+          <Switch v-model="colorByResult" class="toggle" :label="t('live.colorByResult')" :title="t('live.colorByResultHint')" :describedby="colorHintId" />
+          <span :id="colorHintId" class="sr-only">{{ t('live.colorByResultHint') }}</span>
+        </div>
       </div>
       <aside class="aside">
         <span class="micro">{{ t('live.follow') }}</span>
@@ -243,6 +443,18 @@ function onTypeKey(e: KeyboardEvent) {
         <p class="hint">{{ live.follow ? t('live.followAutoHint') : t('live.followPinnedHint') }}</p>
         <Switch v-if="!live.follow" v-model="live.allKeys" class="toggle" :label="t('live.allKeys')" :title="t('live.allKeysHint')" />
         <Switch v-if="device.demo" v-model="demoKeys" class="toggle" :label="t('live.demoKeys')" :title="t('live.demoKeysHint')" />
+        <span class="aside__br" aria-hidden="true" />
+        <div class="klock" :class="{ 'klock--off': lockState === 'off', 'klock--idle': lockState === 'idle', 'klock--nudge': lockNudge }">
+          <span class="klock__ico" aria-hidden="true">
+            <IconLock v-if="lockState === 'on'" :size="16" stroke-width="1.5" />
+            <IconLockOpen v-else :size="16" stroke-width="1.5" />
+          </span>
+          <span :id="lockTextId" class="klock__text">{{ lockText }}</span>
+          <span class="klock__div" aria-hidden="true" />
+          <Switch v-model="keyLock" data-keylock class="toggle" :label="t('live.lockLabel')" :title="t('live.lockHint')" :describedby="`${lockTextId} ${lockHintId}`" />
+          <span :id="lockHintId" class="sr-only">{{ t('live.lockHint') }}</span>
+          <span class="klock__live" aria-live="polite">{{ lockSay }}</span>
+        </div>
       </aside>
     </section>
 
@@ -255,6 +467,26 @@ function onTypeKey(e: KeyboardEvent) {
       {{ t('live.stopped') }}
       <Button size="sm" variant="ghost" :icon="IconRefresh" @click="live.start()">{{ t('live.restart') }}</Button>
     </p>
+
+    <div class="checkrow">
+      <HealthCheck
+        ref="hcRef"
+        :pressed="checkView.pressed"
+        :full="checkView.full"
+        :short="checkView.short"
+        :stuck="checkView.stuck"
+        :total="device.keys.length"
+        :issues="checkView.issues"
+        :estimated="checkView.estimated"
+        :partial-key="partialKey"
+        :pinned-id="pinnedId"
+        :announcement="announcement"
+        @pin="pinKey"
+        @restart="restartCheck"
+        @all-keys="live.allKeys = true"
+      />
+      <PeakTable :rows="checkView.rows" :pinned-id="pinnedId" :estimated="checkView.estimated" :since-reset="sinceReset" @pin="pinKey" />
+    </div>
 
     <div class="grid">
       <Card class="simcard" :title="t('live.sim')" :subtitle="focusKey ? `${keyName} · ${modeLabel}` : undefined">
@@ -377,8 +609,67 @@ function onTypeKey(e: KeyboardEvent) {
   .kbrow { flex-direction: column-reverse; align-items: stretch; }
   .board { width: 100%; }
   .aside { width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
-  .aside .hint { flex-basis: 100%; order: 9; }
+  /* second line: the hint (left) and the key-lock banner (right) */
+  .aside__br { display: block; flex-basis: 100%; height: 0; order: 8; }
+  .aside .hint { flex: 1 1 auto; min-width: 0; order: 9; }
+  .klock { order: 10; margin-left: auto; }
 }
+
+/* Keyboard footer: keycap legend (left), "Color by result" (right: it acts on the keycaps) */
+.kbfoot { display: flex; align-items: center; gap: var(--s-4); margin-top: var(--s-2); min-height: 28px; }
+.kblegend { flex: 1 1 auto; min-width: 0; margin: 0; font-size: var(--fs-label); line-height: 20px; color: var(--fg-2); text-wrap: balance; }
+.kbfoot .sw { flex: none; }
+.kl__k { color: var(--fg-3); font-weight: 500; margin-right: 6px; }
+.kl__dot { color: var(--fg-4); margin: 0 6px; }
+.kl__num { font-weight: 600; color: var(--fg-1); font-variant-numeric: tabular-nums; }
+/* the keycap's deepest-reading line (Keycap .cap__mark) */
+.kl__mark { display: inline-block; width: 16px; height: 1.5px; vertical-align: 4px; margin-right: 4px; background: var(--fg-2); }
+.kl__ico { display: inline-flex; vertical-align: -2px; margin-right: 3px; }
+.kl__ico--ok { color: var(--ok); }
+.kl__ico--short { color: var(--warn); }
+.kl__ico--stuck { color: var(--danger); }
+
+/* Key-lock banner. ≤1420: right side of the controls' second line. ≥1421: the last block of the 188px column. */
+.klock {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 32px;
+  padding: 4px var(--s-2) 4px var(--s-3);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-control);
+  background: var(--bg-2);
+  font-size: var(--fs-label);
+  color: var(--fg-2);
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.klock__ico { flex: none; display: inline-flex; color: var(--fg-2); }
+.klock__text { flex: 0 1 auto; min-width: 0; }
+.klock--off .klock__ico, .klock--idle .klock__ico, .klock--off .klock__text, .klock--idle .klock__text { color: var(--fg-3); }
+.klock .sw { flex: none; }
+.klock__div { flex: none; width: 1px; height: 16px; background: var(--line-2); }
+/* a key blocked on a keyboard-focused control: the frame lights up for 1.2 s (no motion) */
+.klock--nudge { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 8%, var(--bg-2)); }
+.klock__live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .klock { transition: none; } }
+@media (min-width: 1421px) {
+  .aside__br { display: none; }
+  /* 188px column: icon + text, then the switch on its own line */
+  .klock { display: grid; grid-template-columns: 16px 1fr; align-items: start; margin-top: var(--s-2); padding: var(--s-2) var(--s-3); }
+  .klock__ico { margin-top: 2px; }
+  .klock__div { display: none; }
+  .klock .sw { grid-column: 1 / -1; }
+}
+
+/* Key check row: same columns as .grid below so the edges line up; 16px above and below whatever is around it */
+.checkrow {
+  display: grid;
+  grid-template-columns: minmax(360px, 1.15fr) minmax(280px, 1fr);
+  gap: var(--s-4);
+  align-items: stretch;
+  margin: var(--s-4) 0;
+}
+@media (max-width: 1100px) { .checkrow { grid-template-columns: 1fr; } }
 
 @media (min-width: 1600px) { .board { max-width: 1100px; } }
 

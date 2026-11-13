@@ -23,6 +23,8 @@ const props = defineProps<{
   badgeIcon?: Component;
   /** 0..1 vertical fill (e.g. travel or actuation depth). */
   fill?: number;
+  /** 0..1: a 1.5px line across the face at this depth (e.g. the deepest reading); undefined = none. */
+  mark?: number;
   /** CSS colour for this key's values (sets --metric; overrides the inherited one). */
   tone?: string;
   /** LED colour (CSS colour). */
@@ -67,6 +69,7 @@ const capStyle = computed(() => {
       <span v-if="ledStyle === 'glow'" class="cap__lit" aria-hidden="true"><span class="cap__ledc" /></span>
       <span v-if="ledStyle === 'glow'" class="cap__ring" aria-hidden="true" />
       <span v-if="fill !== undefined" class="cap__fill" :style="{ transform: `scaleY(${Math.min(1, Math.max(0, fill))})` }" />
+      <span v-if="mark !== undefined" class="cap__mark" :style="{ '--mark': Math.min(1, Math.max(0, mark)) }" />
       <span v-if="bar" class="cap__led" :style="{ background: bar, boxShadow: `0 0 10px ${bar}`, height: ledHeight ? `${ledHeight}px` : undefined }" />
       <span v-if="$slots.default" class="cap__extra" :style="bar && ledHeight ? { bottom: `${ledHeight + 6}px` } : undefined"><slot /></span>
       <span class="cap__legend">{{ legend }}</span>
@@ -134,6 +137,17 @@ const capStyle = computed(() => {
   border-bottom: 1px solid color-mix(in srgb, var(--metric, var(--acc)) 45%, transparent);
   pointer-events: none;
   transition: transform var(--t-med) var(--ease);
+}
+/* The deepest reading: neutral --fg-2, since the accent already means "now" (the fill edge) and "followed key" (the LED
+   bar). No transition: it jumps straight to the new depth. 1 = against the bottom of the face, still inside it. */
+.cap__mark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--mark) * (100% - 1.5px));
+  height: 1.5px;
+  background: var(--fg-2);
+  pointer-events: none;
 }
 .cap__led {
   position: absolute;
