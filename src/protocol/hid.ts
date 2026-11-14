@@ -41,6 +41,12 @@ export function webHidAvailable(): boolean {
   return typeof navigator !== 'undefined' && 'hid' in navigator && Boolean(navigator.hid);
 }
 
+/**
+ * The connection that opened each device. WebHID's `opened` belongs to the page, not to a connection: closing one HidTransport
+ * closes the device under every other HidTransport of it. Only the owner closes it (FW review FW-1).
+ */
+const owners = new WeakMap<HIDDevice, HidTransport>();
+
 export class HidTransport extends BaseTransport {
   readonly kind = 'hid' as const;
   private pending: Pending | null = null;
@@ -83,14 +89,22 @@ export class HidTransport extends BaseTransport {
 
   async open(): Promise<void> {
     if (!hasConfigCollection(this.device)) throw new Error(tr('error.noConfigEndpoint'));
-    if (!this.device.opened) await this.device.open();
+    if (!this.device.opened) {
+      await this.device.open();
+      owners.set(this.device, this);
+    } else if (!owners.has(this.device)) {
+      owners.set(this.device, this);
+    }
     this.device.addEventListener('inputreport', this.onReport);
     navigator.hid.addEventListener('disconnect', this.onHidDisconnect);
   }
 
+  /** Stops this connection; closes the device only when this connection opened it (another one may be using it now). */
   async close(): Promise<void> {
     this.failPending(new Error(tr('error.connectionClosed')));
     this.teardown();
+    if (owners.get(this.device) !== this) return;
+    owners.delete(this.device);
     if (this.device.opened) await this.device.close();
   }
 
@@ -212,7 +226,13 @@ export class HidFwPort implements FwPort {
 
   /** The device store's connection (the session's app): known, never opened again or closed here. */
   adopt(t: unknown): void {
-    if (t instanceof HidTransport) this.open.set(t.hidDevice, t);
+    if (!(t instanceof HidTransport)) return;
+    this.open.set(t.hidDevice, t);
+    this.mine.delete(t);
+  }
+
+  keep(t: BaseTransport): void {
+    this.adopt(t);
   }
 
   private async openAll(devices: HIDDevice[]): Promise<BaseTransport[]> {
@@ -220,7 +240,9 @@ export class HidFwPort implements FwPort {
     for (const d of devices) {
       if (!matchesProbe(d)) continue;
       let t = this.open.get(d);
-      if (!t || (!t.connected && !d.opened)) {
+      if (!t || !t.connected) {
+        // Opened by a connection of this page the port does not know: never a second transport on the same device.
+        if (d.opened) continue;
         try {
           t = await openDevice(d, { probeOnly: !isAe64(d) });
         } catch {
@@ -262,7 +284,11 @@ export class HidFwPort implements FwPort {
     this.mine.delete(t);
     if (this.open.get(d) === t) this.open.delete(d);
     await t.close().catch(() => undefined);
-    return openDevice(d, { probeOnly: t.probeOnly });
+    const fresh = await openDevice(d, { probeOnly: t.probeOnly });
+    // The app's connection from now on: list() returns it (no second transport on the device), release() never closes it.
+    this.open.set(d, fresh);
+    fresh.onDisconnect(() => { if (this.open.get(d) === fresh) this.open.delete(d); });
+    return fresh;
   }
 
   async release(t: BaseTransport): Promise<void> {

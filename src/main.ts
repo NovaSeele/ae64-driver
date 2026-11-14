@@ -10,6 +10,7 @@ import { useFirmwareStore } from './stores/firmware';
 import { locale } from './i18n/locale';
 import './theme';
 import { registerServiceWorker } from './update';
+import { installDesktopCloseGuard } from './data/desktopClose';
 
 if (typeof document !== 'undefined') {
   document.documentElement.lang = locale.value;
@@ -23,4 +24,5 @@ installFirmwareGuard(router, () => {
   const fw = useFirmwareStore(pinia);
   return { enabled: fw.enabled, active: fw.active, rescue: fw.rescue };
 });
+installDesktopCloseGuard(() => useFirmwareStore(pinia).active);
 app.use(router).mount('#app');

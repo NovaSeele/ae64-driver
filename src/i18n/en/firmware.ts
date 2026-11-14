@@ -68,6 +68,7 @@ export const firmwareEn: Record<keyof typeof firmwareVi, string> = {
   'fw.err.lost': 'The keyboard disconnected while writing. Plug it back in: if it shows up in update mode, this page opens in rescue mode.',
   'fw.err.notFound': 'The keyboard was not found again within 20 seconds. Unplug it and plug it back in; if it still does not show up, see the rescue notes.',
   'fw.err.enter': 'The keyboard did not enter update mode, so nothing was written. It still runs its old firmware; the app has reconnected as usual.',
+  'fw.err.enterNoApp': 'The keyboard did not enter update mode, so nothing was written. It still runs its old firmware, but the app could not reconnect to it: connect the keyboard again.',
   'fw.err.busy': 'Not started because {reason}. Wait for it to finish, then press again. Nothing was sent to the keyboard.',
   'fw.busy.write': 'the app is writing settings to the keyboard',
   'fw.busy.calib': 'the keyboard is calibrating',

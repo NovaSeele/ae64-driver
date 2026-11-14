@@ -66,6 +66,7 @@ export const firmwareVi = {
   'fw.err.lost': 'Mất kết nối với bàn phím giữa lúc ghi. Cắm lại cáp: nếu bàn phím hiện ra ở chế độ cập nhật, trang này mở chế độ cứu.',
   'fw.err.notFound': 'Không tìm lại được bàn phím sau 20 giây. Rút ra cắm lại; nếu vẫn không thấy, xem hướng dẫn cứu.',
   'fw.err.enter': 'Bàn phím không vào chế độ cập nhật, nên chưa có gì được ghi. Bàn phím vẫn chạy firmware cũ; app đã kết nối lại như thường.',
+  'fw.err.enterNoApp': 'Bàn phím không vào chế độ cập nhật, nên chưa có gì được ghi. Bàn phím vẫn chạy firmware cũ, nhưng app chưa kết nối lại được: hãy kết nối lại bàn phím.',
   'fw.err.busy': 'Chưa bắt đầu vì {reason}. Chờ việc đó xong rồi bấm lại. Chưa có gì được gửi tới phím.',
   'fw.busy.write': 'app đang ghi cấu hình vào bàn phím',
   'fw.busy.calib': 'bàn phím đang hiệu chuẩn',

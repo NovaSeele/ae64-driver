@@ -24,6 +24,13 @@ fn force_close(window: tauri::Window) {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![hold_close, force_close])
+        // A page (re)load starts without a session: release the hold, so a webview that reloaded mid-session can still be
+        // closed (FW review FW-2). The page also calls hold_close(false) at start-up.
+        .on_page_load(|_webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                HOLD_CLOSE.store(false, Ordering::SeqCst);
+            }
+        })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if HOLD_CLOSE.load(Ordering::SeqCst) {

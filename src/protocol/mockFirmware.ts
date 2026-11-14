@@ -17,8 +17,18 @@ export interface FwMockFlags {
   delayAt: { packet: number; ms: number } | null;
   /** `08 03` reports a bad image whatever was written. */
   verifyFail: boolean;
+  /** `08 03` is never answered (the app waits 10 s). */
+  verifySilent: boolean;
+  /** Byte 2 of the `08 03` reply, whatever was written (only 1 means verified; 2, 0xFF… do not). */
+  verifyStatus: number | null;
+  /** The bootloader is unplugged when `08 03` arrives (no reply), and plugged back in after 1.5 s. One-shot. */
+  unplugAtVerify: boolean;
   /** The bootloader is unplugged right after answering this packet (lost), and plugged back in after 1.5 s. */
   unplugAt: number | null;
+  /** After unplugAt / unplugAtVerify the keyboard comes back running its app (run mode 0), not in its bootloader. */
+  lostIntoApp: boolean;
+  /** After `08 04` the keyboard comes back in its bootloader again (run mode 255), not in its app. */
+  restartIntoBoot: boolean;
   /** After `08 04` the keyboard never comes back. */
   notFound: boolean;
   /** After `08 04` `01 02` reports this version instead of the file's. */
@@ -34,6 +44,10 @@ export interface FwMockFlags {
   enterSilent: boolean;
   /** `08 01` does nothing: the keyboard keeps running its app (run mode 0). */
   enterFail: boolean;
+  /** With enterFail: the keyboard does not answer this many `01 02` after `08 01` (busy copying its flash). */
+  enterQuiet: number;
+  /** `08 01`: the keyboard leaves USB and comes back running its app (a new connection), not in its bootloader. */
+  enterBounce: boolean;
   /** The bootloader is not allowed yet: only "Allow the keyboard in update mode" (request) shows it. */
   bootNeedsPermission: boolean;
   /** What the chooser of request() returns. */
@@ -41,17 +55,23 @@ export interface FwMockFlags {
   /** ms from `08 01` to the bootloader on USB, and from `08 04` to the keyboard back in its app. */
   bootDelayMs: number;
   appDelayMs: number;
-  /** Other devices on the bus: an AE64 Max; an AE64 Pro whose serial differs but reads the same as decimals; a second bootloader. */
-  extra: ('max' | 'pro-twin' | 'boot-twin')[];
+  /**
+   * Other devices on the bus: an AE64 Max; an AE64 Pro whose serial differs but reads the same as decimals; a second bootloader
+   * (after `08 01`); a bootloader of board 0030000D without a serial, and a bootloader of the Pro board with another serial (both
+   * plugged in and allowed from the start).
+   */
+  extra: ('max' | 'pro-twin' | 'boot-twin' | 'boot-max' | 'boot-other')[];
 }
 
 export const defaultFwMockFlags = (): FwMockFlags => ({
-  wrongEchoAt: null, delayAt: null, verifyFail: false, unplugAt: null, notFound: false, version: null, noGamepad: false,
-  staleGamepad: false, bootNoBoard: false, bootNoSerial: false, enterSilent: false, enterFail: false, bootNeedsPermission: false,
-  choose: 'boot', bootDelayMs: 2000, appDelayMs: 1500, extra: [],
+  wrongEchoAt: null, delayAt: null, verifyFail: false, verifySilent: false, verifyStatus: null, unplugAtVerify: false,
+  unplugAt: null, lostIntoApp: false, restartIntoBoot: false, notFound: false, version: null, noGamepad: false,
+  staleGamepad: false, bootNoBoard: false, bootNoSerial: false, enterSilent: false, enterFail: false, enterQuiet: 0,
+  enterBounce: false, bootNeedsPermission: false, choose: 'boot', bootDelayMs: 2000, appDelayMs: 1500, extra: [],
 });
 
 const PRO_BOARD = [0x00, 0x30, 0x00, 0x0a];
+const MAX_BOARD = [0x00, 0x30, 0x00, 0x0d];
 const hex2 = (b: number) => b.toString(16).padStart(2, '0');
 
 /** 12 bytes with the same decimal concatenation as `serial` (`[1, 11]` and `[11, 1]` both read "111"), or null when none exists. */
@@ -86,7 +106,10 @@ export class MockBootloader extends BaseTransport {
   private expected = 0;
   private verified = false;
 
-  constructor(readonly bus: MockFwBus, readonly serial: readonly number[], readonly label: 'boot' | 'boot-twin') {
+  constructor(
+    readonly bus: MockFwBus, readonly serial: readonly number[], readonly label: 'boot' | 'boot-twin' | 'boot-max' | 'boot-other',
+    private readonly board: readonly number[] = PRO_BOARD,
+  ) {
     super();
   }
 
@@ -133,7 +156,8 @@ export class MockBootloader extends BaseTransport {
     const cmd = `${hex2(frame[0])} ${hex2(frame[1])}`;
     if (frame[0] === 0x01 && frame[1] === 0x02) {
       bus.log(this.label, cmd);
-      reply = bus.deviceInfo(f.bootNoBoard ? [0, 0, 0, 0] : PRO_BOARD, f.bootNoSerial ? new Array(12).fill(0) : this.serial, 255, [0, 0, 0, 0]);
+      const noSerial = f.bootNoSerial && this.label !== 'boot-other';
+      reply = bus.deviceInfo(f.bootNoBoard ? [0, 0, 0, 0] : [...this.board], noSerial ? new Array(12).fill(0) : this.serial, 255, [0, 0, 0, 0]);
     } else if (frame[0] === 0x08 && frame[1] === 0x02) {
       const off = (frame[2] | (frame[3] << 8) | (frame[4] << 16) | (frame[5] << 24)) >>> 0;
       const len = frame[6] | (frame[7] << 8);
@@ -156,13 +180,20 @@ export class MockBootloader extends BaseTransport {
       }
     } else if (frame[0] === 0x08 && frame[1] === 0x03) {
       bus.log(this.label, cmd);
+      if (f.unplugAtVerify) {
+        f.unplugAtVerify = false;
+        bus.later(5, () => bus.lose(this));
+        return;
+      }
+      if (f.verifySilent) return; // no reply: the app gives up after 10 s
       const len = this.expected;
       const img = this.image;
       const declared = FW_HEADER_BYTES + ((img[12] | (img[13] << 8) | (img[14] << 16) | (img[15] << 24)) >>> 0);
       const crc = (img[16] | (img[17] << 8) | (img[18] << 16) | (img[19] << 24)) >>> 0;
       this.verified = !f.verifyFail && len > FW_HEADER_BYTES && len === declared && FW_SIGNATURE.every((b, i) => img[i] === b)
         && fwCrc32(img, FW_HEADER_BYTES, len) === crc;
-      reply = [0x08, 0x03, this.verified ? 1 : 0];
+      if (f.verifyStatus !== null && f.verifyStatus !== 1) this.verified = false;
+      reply = [0x08, 0x03, f.verifyStatus ?? (this.verified ? 1 : 0)];
     } else if (frame[0] === 0x08 && frame[1] === 0x04) {
       bus.log(this.label, cmd);
       if (!this.verified) bus.violation('08 04 before the image was verified');
@@ -215,6 +246,8 @@ export class MockFwBus implements FwPort {
   private readonly connectListeners = new Set<() => void>();
   /** The extra devices already plugged in (FwMockFlags.extra is read again at attach and at `08 01`). */
   private readonly extrasPlugged = new Set<string>();
+  /** `01 02` the keyboard still leaves unanswered after `08 01` (FwMockFlags.enterQuiet). */
+  private quiet = 0;
 
   constructor(readonly serial: readonly number[], private readonly opts: { fastLedReplies?: boolean } = {}) {}
 
@@ -257,6 +290,8 @@ export class MockFwBus implements FwPort {
     for (const e of this.flags.extra) {
       if (this.extrasPlugged.has(e) || e === 'boot-twin') continue;
       this.extrasPlugged.add(e);
+      if (e === 'boot-max') this.plug(new MockBootloader(this, new Array(12).fill(0), 'boot-max', MAX_BOARD));
+      if (e === 'boot-other') this.plug(new MockBootloader(this, this.serial.map((b) => b ^ 0x5a), 'boot-other'));
       if (e === 'max') this.plug(new MockTransport({ seed: 'max', fastLedReplies: this.opts.fastLedReplies, fwLabel: 'max', fwBus: this }));
       if (e === 'pro-twin') {
         const twin = twinSerial(this.serial);
@@ -280,7 +315,15 @@ export class MockFwBus implements FwPort {
   entered(app: MockTransport): boolean {
     const f = this.flags;
     this.plugExtras();
-    if (f.enterFail) return true;
+    if (f.enterFail) {
+      this.quiet = f.enterQuiet;
+      return true;
+    }
+    if (f.enterBounce) {
+      this.later(30, () => this.unplug(app));
+      this.later(f.bootDelayMs, () => this.plug(new MockTransport({ ...app.initOpts, fwBus: this })));
+      return true;
+    }
     if (f.enterSilent) this.unplug(app);
     else this.later(30, () => this.unplug(app));
     this.later(f.bootDelayMs, () => {
@@ -292,10 +335,19 @@ export class MockFwBus implements FwPort {
     return !f.enterSilent;
   }
 
-  /** The bootloader was unplugged mid-write; it comes back (still in its bootloader) after 1.5 s. */
+  /** The bootloader was unplugged mid-write; it comes back after 1.5 s (still in its bootloader, or in its app: lostIntoApp). */
   lose(boot: MockBootloader): void {
     this.unplug(boot);
-    this.later(1500, () => this.plug(new MockBootloader(this, this.serial, 'boot')));
+    this.later(1500, () => this.plug(this.flags.lostIntoApp
+      ? new MockTransport({ seed: 'pro', serial: [...this.serial], fastLedReplies: this.opts.fastLedReplies, fwBus: this })
+      : new MockBootloader(this, this.serial, 'boot')));
+  }
+
+  /** The keyboard in its app does not answer this `01 02` (FwMockFlags.enterQuiet, after `08 01`). */
+  swallow(t: MockTransport): boolean {
+    if (t.fwLabel !== 'app' || this.quiet <= 0) return false;
+    this.quiet--;
+    return true;
   }
 
   /** `08 04`: the bootloader leaves USB and the keyboard comes back running `image` (unless notFound). */
@@ -304,6 +356,10 @@ export class MockFwBus implements FwPort {
     for (const d of this.devices.filter((x) => x instanceof MockBootloader)) this.unplug(d);
     const f = this.flags;
     if (f.notFound) return;
+    if (f.restartIntoBoot) {
+      this.later(f.appDelayMs, () => this.plug(new MockBootloader(this, this.serial, 'boot')));
+      return;
+    }
     const known = knownFw(fwCrc32(image, FW_HEADER_BYTES));
     const version = (f.version ?? known?.appVersion ?? '0.1.0.0').split('.').map((n) => Number(n) & 0xff);
     const xinput = known ? (known.gamepad ? !f.noGamepad : f.staleGamepad) : false;
@@ -341,6 +397,10 @@ export class MockFwBus implements FwPort {
 
   async release(): Promise<void> {
     // a demo device stays on the bus
+  }
+
+  keep(): void {
+    // the bus never closes a device
   }
 
   /** The same demo keyboard on a new connection (its edits of this session are not kept). */

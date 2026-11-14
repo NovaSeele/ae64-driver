@@ -12,6 +12,8 @@ export interface FwPort {
   onConnect(cb: () => void): () => void;
   /** Close a transport the session does not keep (a probed keyboard that was not the one). */
   release(t: BaseTransport): Promise<void>;
+  /** `t` goes to the app (device.init): the port never closes it from now on. */
+  keep(t: BaseTransport): void;
   /**
    * A new connection to the same device. After `08 01` a connection only ever sends `01 02` (client.ts); when the keyboard did not
    * enter update mode (enterFail) the app gets a fresh one.

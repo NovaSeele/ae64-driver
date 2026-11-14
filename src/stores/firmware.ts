@@ -5,7 +5,7 @@
 import { defineStore } from 'pinia';
 import { computed, markRaw, ref, shallowRef, watch } from 'vue';
 import {
-  BaseTransport, FirmwarePacketError, FirmwareSessionError, fwAttach, fwFind, fwForgetProbes, sessionFile,
+  BaseTransport, FirmwarePacketError, FirmwareSessionError, fwAppBack, fwAttach, fwFind, fwForgetProbes, sessionFile,
   FW_PROBE_TIMEOUT_MS,
 } from '../protocol/client';
 import type { FwTicket } from '../protocol/client';
@@ -279,24 +279,27 @@ export const useFirmwareStore = defineStore('firmware', () => {
     later(FW_ENTER_CHECK_MS, () => void enterCheck());
   }
 
-  /** The keyboard stayed in (or came back to) its app: nothing was written. A fresh connection goes to device.init. */
-  async function enterFailed(): Promise<void> {
+  /** The keyboard stayed in (or came back to) its app: nothing was written. `back`: it left USB and came back in its app on
+   * another connection (fwAppBack, it got only `01 02`): that one goes to device.init. Otherwise the app connection is opened
+   * again (after `08 01` it may only send `01 02`). The message says the app reconnected only when it did (FW review FW-1).
+   */
+  async function enterFailed(back: BaseTransport | null = null): Promise<void> {
     const device = useDeviceStore();
     const p = port.value;
     const old = app;
     fail('enterFail', { key: 'fw.err.enter' });
     epoch++;
     ticket = null;
-    let fresh: BaseTransport | null = null;
-    if (p && old) {
+    let fresh: BaseTransport | null = back?.connected ? back : null;
+    if (!fresh && p && old) {
       try {
         fresh = await p.reopen(old);
       } catch {
         fresh = null;
       }
     }
-    await endSession(fresh, undefined);
-    if (!fresh) device.transport && void device.disconnect({ flush: false });
+    const reconnected = await endSession(fresh, undefined, () => { error.value = { key: 'fw.err.enterNoApp' }; });
+    if (!reconnected && device.transport) await device.disconnect({ flush: false });
   }
 
   /** Looks for the bootloader once (one `01 02` per device). */
@@ -309,7 +312,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
       if (mine !== epoch) return;
       if (r.ok) return void attached(r.transport);
       if (r.why === 'many') return fail('manyBoot', { key: 'fw.err.manyBoot' });
-      if (r.why === 'appBack') return void enterFailed();
+      if (r.why === 'appBack') return void enterFailed(fwAppBack(ticket));
     } catch {
       // a step of an ended session
     } finally {
@@ -473,9 +476,9 @@ export const useFirmwareStore = defineStore('firmware', () => {
   /**
    * The keyboard is in its app again (or never left): device.init on `t` as a new connection, then unlock. The app stays locked
    * (and the page kept: App's keepPage) until init is done, so the connect screen never flashes between the session and the
-   * keyboard handed back, and the page's focus (banner / failed step) is not lost.
+   * keyboard handed back, and the page's focus (banner / failed step) is not lost. True when `t` is now the app's connection.
    */
-  async function endSession(t: BaseTransport | null, seed: DemoSeed | undefined): Promise<void> {
+  async function endSession(t: BaseTransport | null, seed: DemoSeed | undefined, onNotAdopted?: () => void): Promise<boolean> {
     const device = useDeviceStore();
     const p = port.value;
     stopTimers();
@@ -490,12 +493,17 @@ export const useFirmwareStore = defineStore('firmware', () => {
     typed.value = '';
     riskOk.value = false;
     const mine = epoch;
+    let ok = false;
     try {
+      if (p && t) p.keep(t);
       if (p) for (const d of await p.list().catch(() => [])) if (d !== t) await p.release(d).catch(() => undefined);
-      if (t) await device.adoptFromFirmware(t, isDemo, seed).catch(() => undefined);
+      if (t) ok = await device.adoptFromFirmware(t, isDemo, seed).then(() => device.connected && device.transport === t, () => false);
+      // set before the unlock, so the page never shows the other message
+      if (!ok && mine === epoch) onNotAdopted?.();
     } finally {
       if (mine === epoch) active.value = false; // (init found a bootloader: openRescue took over)
     }
+    return ok;
   }
 
   /** Lost during write or check: stop; wait for the keyboard to come back (in its bootloader: rescue). */

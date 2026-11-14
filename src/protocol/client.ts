@@ -822,6 +822,17 @@ export async function fwAttach(ticket: FwTicket, devices: readonly BaseTransport
   return { ok: false, why: live.length ? 'wrong' : 'none' };
 }
 
+/**
+ * After fwAttach said `appBack`: the connection to the session's keyboard back in its app (its probe said run mode 0, the
+ * session's board and serial), still connected; null if there is none. The page hands it to device.init (it got only `01 02`).
+ */
+export function fwAppBack(ticket: FwTicket): BaseTransport | null {
+  const st = sessionOf(ticket);
+  const back = [...st.probedBoot].filter(([d, i]) => d !== st.app && d.connected && i?.runMode === 0 && i.boardId === st.board
+    && i.serialHex === st.serialHex);
+  return back.length === 1 ? back[0][0] : null;
+}
+
 export type FwFindResult =
   | { ok: true; transport: BaseTransport; info: DeviceInfo }
   | { ok: false; why: 'none' | 'many' | 'boot' };

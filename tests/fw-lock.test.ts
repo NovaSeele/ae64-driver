@@ -194,7 +194,8 @@ describe('3. the 08 lock', () => {
     for (const f of files) {
       const rel = f.slice(root.length + 1).replace(/\\/g, '/');
       if (rel === 'protocol/client.ts') continue;
-      readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+      // CRLF or LF (a Git for Windows checkout is CRLF): `.` does not match `\r`, so a comment would not be stripped
+      readFileSync(f, 'utf8').split(/\r?\n/).forEach((line, i) => {
         const code = line.replace(/\/\/.*$/, '');
         const head = HEAD.test(code) || AT0.test(code) || OF.test(code);
         const name = NAME.test(code) && !(rel === 'protocol/constants.ts' && /export const FIRMWARE_FAMILY = 0x08;/.test(code));
@@ -208,6 +209,14 @@ describe('3. the 08 lock', () => {
     }
     for (const fine of ['const s = reply[8];', 'mode: d[8] };', 'x = arr[0x08]', 'f(a)[8]']) expect(HEAD.test(fine) || AT0.test(fine), fine).toBe(false);
     expect(REPLY.test('      reply = [0x08, 0x03, this.verified ? 1 : 0];')).toBe(true);
+    // a CRLF file: split as above, the comment is stripped and a real frame is still caught
+    const lines = 'const status = d[3]; // [8] status\r\nt.raw([8, 2])\r\nx = 1;\r\n'.split(/\r?\n/);
+    expect(lines.some((l) => l.endsWith('\r'))).toBe(false);
+    const hit = (l: string) => { const c = l.replace(/\/\/.*$/, ''); return HEAD.test(c) || AT0.test(c) || OF.test(c); };
+    expect(lines.map(hit)).toEqual([false, true, false, false]);
+    // what split('\n') left: the `\r` kept the comment in the code
+    expect(hit('// [8] status\r')).toBe(true);
+    expect(hit('// [8] status')).toBe(false);
   });
 });
 

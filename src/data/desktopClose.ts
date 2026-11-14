@@ -22,3 +22,16 @@ export function holdWindowClose(on: boolean): void {
 export function forceWindowClose(): void {
   void desktopShell.get()?.invoke('force_close').catch(() => undefined);
 }
+
+/**
+ * Once at start-up (FW review FW-2). The shell may still hold the window from before a reload (the webview reloaded while a
+ * session ran), so the hold follows this page's session from the start; and a blocked close while no session runs closes at once
+ * (the Firmware page asks only while one runs). Returns the remover.
+ */
+export function installDesktopCloseGuard(isActive: () => boolean): () => void {
+  if (typeof window === 'undefined' || !desktopShell.get()) return () => undefined;
+  holdWindowClose(isActive());
+  const onBlocked = (): void => { if (!isActive()) forceWindowClose(); };
+  window.addEventListener(CLOSE_BLOCKED_EVENT, onBlocked);
+  return () => window.removeEventListener(CLOSE_BLOCKED_EVENT, onBlocked);
+}

@@ -344,10 +344,13 @@ export class MockTransport extends BaseTransport {
     };
   }
 
-  protected exchange(frame: Uint8Array): Promise<Bytes> {
+  protected exchange(frame: Uint8Array, timeoutMs = 1000): Promise<Bytes> {
     const bus = this.fwMock;
     if (bus && (frame[0] === 0x01 || frame[0] === 0x08 || this.fwLabel !== 'app')) {
       bus.log(this.fwLabel, `${frame[0].toString(16).padStart(2, '0')} ${frame[1].toString(16).padStart(2, '0')}`);
+    }
+    if (bus && frame[0] === 0x01 && frame[1] === 0x02 && bus.swallow(this)) {
+      return new Promise((_, reject) => setTimeout(() => reject(new TransportTimeoutError(Array.from(frame.slice(0, 2)))), timeoutMs));
     }
     if (frame[0] === 0x08) {
       // A keyboard running its app takes `08 01` (restart into the bootloader) and nothing else of family 08.

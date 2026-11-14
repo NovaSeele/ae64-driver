@@ -24,7 +24,8 @@ import { LABS_FIRMWARE_KEY, useFirmwareStore } from '../src/stores/firmware';
 import { useHistoryStore } from '../src/stores/history';
 import { useSyncStore } from '../src/stores/sync';
 import { useUpdateStore } from '../src/update';
-import { CLOSE_BLOCKED_EVENT, desktopShell } from '../src/data/desktopClose';
+import { CLOSE_BLOCKED_EVENT, desktopShell, installDesktopCloseGuard } from '../src/data/desktopClose';
+import { readFileSync } from 'node:fs';
 import { t as tr } from '../src/i18n/vi';
 import type { MessageKey } from '../src/i18n/vi';
 import { CRC, demo, fileOf, makeFw, run, startWith } from './fw-helpers';
@@ -482,6 +483,45 @@ describe('14. the UI during a session', { timeout: 60_000 }, () => {
     await run(0);
     expect(m.fw.phase).toBe('done');
     expect(holds()).toEqual([true, false]);
+  });
+
+  it('desktop (FW review FW-2): at start-up the hold follows the session; a blocked close with no session closes at once', async () => {
+    const invoke = vi.fn(async (_cmd: string, _args?: Record<string, unknown>): Promise<unknown> => undefined);
+    const shell = vi.spyOn(desktopShell, 'get').mockReturnValue({ invoke });
+    const forced = () => invoke.mock.calls.filter((c) => c[0] === 'force_close').length;
+    let active = false;
+    // a reload while the shell still held the window (the page had a session): the new page releases it at once
+    const remove = installDesktopCloseGuard(() => active);
+    expect(invoke.mock.calls).toEqual([['hold_close', { on: false }]]);
+    window.dispatchEvent(new Event(CLOSE_BLOCKED_EVENT));
+    expect(forced()).toBe(1); // no session: the close goes through, whatever page is open
+    active = true;
+    window.dispatchEvent(new Event(CLOSE_BLOCKED_EVENT));
+    expect(forced()).toBe(1); // a session: the Firmware page asks instead
+    remove();
+    active = false;
+    window.dispatchEvent(new Event(CLOSE_BLOCKED_EVENT));
+    expect(forced()).toBe(1);
+    // started while a session runs (cannot happen at start-up, but the hold must follow it)
+    const remove2 = installDesktopCloseGuard(() => true);
+    expect(invoke.mock.calls.at(-1)).toEqual(['hold_close', { on: true }]);
+    remove2();
+    // the web build: no shell, nothing installed
+    shell.mockReturnValue(null);
+    const n = invoke.mock.calls.length;
+    const remove3 = installDesktopCloseGuard(() => false);
+    window.dispatchEvent(new Event(CLOSE_BLOCKED_EVENT));
+    expect(invoke.mock.calls.length).toBe(n);
+    remove3();
+  });
+
+  it('desktop (FW review FW-2): main.ts installs the guard on the firmware session; the shell drops its hold on every page load', () => {
+    const main = readFileSync('src/main.ts', 'utf8');
+    expect(main).toContain('installDesktopCloseGuard(() => useFirmwareStore(pinia).active);');
+    const rust = readFileSync('src-tauri/src/main.rs', 'utf8');
+    const load = rust.slice(rust.indexOf('.on_page_load('), rust.indexOf('.on_page_load(') + 300);
+    expect(load).toContain('if payload.event() == tauri::webview::PageLoadEvent::Started {');
+    expect(load).toContain('HOLD_CLOSE.store(false, Ordering::SeqCst);');
   });
 
   it('rescue mode: focus on the step 3 title (not its button); the pill says rescue', async () => {
