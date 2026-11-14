@@ -717,6 +717,9 @@ export const FW_RESTART_TIMEOUT_MS = 1_000;
 export const FW_RETRY_QUIET_MS = 1_000;
 /** A probe (`01 02`) of a device while looking for the bootloader or the keyboard. */
 export const FW_PROBE_TIMEOUT_MS = 1_500;
+/** A device that did not answer its probe is asked again, at most this many times in all, this far apart (W-05). */
+export const FW_PROBE_TRIES = 3;
+export const FW_PROBE_AGAIN_MS = 2_000;
 
 /** The key of a session: an empty frozen object. Its state is only in `fwSessions` below. */
 export type FwTicket = Readonly<Record<string, never>>;
@@ -732,16 +735,18 @@ interface FwState {
   boot: BaseTransport | null;
   rescue: boolean;
   nextOffset: number;
-  /** Devices that got their one `01 02` while looking for the bootloader / the keyboard, and what they answered. */
+  /** Devices that got their `01 02` while looking for the bootloader / the keyboard, and what they answered (null: nothing yet). */
   probedBoot: Map<BaseTransport, DeviceInfo | null>;
   probedApp: Map<BaseTransport, DeviceInfo | null>;
+  /** Probes without an answer: how many, and when the last one was sent. */
+  misses: Map<BaseTransport, { n: number; at: number }>;
 }
 
 const fwSessions = new WeakMap<FwTicket, FwState>();
 
-function newSession(s: Omit<FwState, 'nextOffset' | 'probedBoot' | 'probedApp'>): FwTicket {
+function newSession(s: Omit<FwState, 'nextOffset' | 'probedBoot' | 'probedApp' | 'misses'>): FwTicket {
   const ticket: FwTicket = Object.freeze({});
-  fwSessions.set(ticket, { ...s, nextOffset: 0, probedBoot: new Map(), probedApp: new Map() });
+  fwSessions.set(ticket, { ...s, nextOffset: 0, probedBoot: new Map(), probedApp: new Map(), misses: new Map() });
   return ticket;
 }
 
@@ -773,17 +778,35 @@ export function sessionFile(ticket: FwTicket): { known: KnownFw | null; size: nu
   return { known: st.check.known, size: st.bytes.length, packets: Math.ceil(st.bytes.length / FW_CHUNK), rescue: st.rescue };
 }
 
-/** One `01 02` per device until it is unplugged; null when it does not answer. */
-async function probe(t: BaseTransport, seen: Map<BaseTransport, DeviceInfo | null>): Promise<DeviceInfo | null> {
-  if (seen.has(t)) return seen.get(t)!;
+/** A probe of this device is out (a second caller does not ask it twice at once). */
+const probing = new WeakSet<BaseTransport>();
+
+/**
+ * One `01 02` per device until it is unplugged; null when it does not answer. A device that did not answer is asked again, up to
+ * FW_PROBE_TRIES in all, FW_PROBE_AGAIN_MS apart (a bootloader may still be busy right after it enumerated), as the maker's
+ * transport resends a command without a reply.
+ */
+async function probe(t: BaseTransport, seen: Map<BaseTransport, DeviceInfo | null>, misses: FwState['misses']): Promise<DeviceInfo | null> {
+  const had = seen.get(t);
+  if (had) return had;
+  if (probing.has(t)) return null;
+  if (seen.has(t)) {
+    const m = misses.get(t);
+    if (!m || m.n >= FW_PROBE_TRIES || Date.now() - m.at < FW_PROBE_AGAIN_MS) return null;
+  }
   seen.set(t, null);
+  probing.add(t);
   let info: DeviceInfo | null = null;
   try {
     info = await t.getDeviceInfo(FW_PROBE_TIMEOUT_MS);
   } catch {
     info = null;
+  } finally {
+    probing.delete(t);
   }
   seen.set(t, info);
+  if (info) misses.delete(t);
+  else misses.set(t, { n: (misses.get(t)?.n ?? 0) + 1, at: Date.now() });
   return info;
 }
 
@@ -801,7 +824,7 @@ export type FwAttachResult =
 export async function fwAttach(ticket: FwTicket, devices: readonly BaseTransport[]): Promise<FwAttachResult> {
   const st = sessionOf(ticket);
   if (st.step !== 'entered') throw new UnsafeCommandError([FIRMWARE_FAMILY, 0x02], `looking for the bootloader in step ${st.step}`);
-  for (const d of devices) if (d !== st.app && d.connected) await probe(d, st.probedBoot);
+  for (const d of devices) if (d !== st.app && d.connected) await probe(d, st.probedBoot, st.misses);
   for (const d of [...st.probedBoot.keys()]) if (!d.connected) st.probedBoot.delete(d);
   const live = [...st.probedBoot];
   const boots = live.filter(([, i]) => i?.runMode === 255 && i.boardId === st.board);
@@ -845,7 +868,7 @@ export type FwFindResult =
 export async function fwFind(ticket: FwTicket, devices: readonly BaseTransport[]): Promise<FwFindResult> {
   const st = sessionOf(ticket);
   if (st.step !== 'restarted') throw new UnsafeCommandError([FIRMWARE_FAMILY], `looking for the keyboard in step ${st.step}`);
-  for (const d of devices) if (d !== st.boot && d.connected) await probe(d, st.probedApp);
+  for (const d of devices) if (d !== st.boot && d.connected) await probe(d, st.probedApp, st.misses);
   for (const d of [...st.probedApp.keys()]) if (!d.connected) st.probedApp.delete(d);
   const live = [...st.probedApp];
   const apps = live.filter(([, i]) => i?.runMode === 0 && i.boardId === st.board);
@@ -861,4 +884,33 @@ export function fwForgetProbes(ticket: FwTicket): void {
   const st = sessionOf(ticket);
   st.probedBoot.clear();
   st.probedApp.clear();
+  st.misses.clear();
+}
+
+/**
+ * After fwAttach said `wrong` (W-06): the one AE64 Pro bootloader it probed (run mode 255, the session's board) whose readable
+ * serial is not the session's, still connected; null when there is none or several. Never attached: the page may only offer
+ * rescue mode on it, which the user confirms and which runs its own checks.
+ */
+export function fwOtherBoot(ticket: FwTicket): BaseTransport | null {
+  const st = sessionOf(ticket);
+  const other = [...st.probedBoot].filter(([d, i]) => d.connected && i?.runMode === 255 && i.boardId === st.board
+    && serialReadable(i.serialHex) && i.serialHex !== st.serialHex);
+  return other.length === 1 ? other[0][0] : null;
+}
+
+/** The board and serial (null: a rescue session whose bootloader reported none) the session's keyboard has. */
+export function fwSessionKeyboard(ticket: FwTicket): { board: number; serialHex: string | null } {
+  const st = sessionOf(ticket);
+  return { board: st.board, serialHex: st.serialHex };
+}
+
+/**
+ * After fwFind said `boot`: the bootloader it saw with the session's board, the one with the session's serial first; null when
+ * none is connected any more (W-13: not just the first bootloader listed).
+ */
+export function fwFoundBoot(ticket: FwTicket): BaseTransport | null {
+  const st = sessionOf(ticket);
+  const boots = [...st.probedApp].filter(([d, i]) => d.connected && i?.runMode === 255 && i.boardId === st.board);
+  return (boots.find(([, i]) => st.serialHex !== null && i!.serialHex === st.serialHex) ?? boots[0])?.[0] ?? null;
 }

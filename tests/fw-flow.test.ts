@@ -1059,17 +1059,45 @@ describe('FW-TEST-3. guards the review mutants found untested', { timeout: 60_00
     expect(s.fw.rescue).toBe(true);
   });
 
-  it('Sk: lost mid-write, the keyboard comes back in its app → stays lost (01 02 only), no rescue', async () => {
+  it('Sk (W-07): lost mid-write, the keyboard comes back in its app → the session ends (no rescue), nothing more written', async () => {
     const s = await demo('pro');
     s.bus.flags.unplugAt = 100;
     s.bus.flags.lostIntoApp = true;
     await startWith(s.fw, makeFw({ crc: CRC.v0100 }));
     await until(() => s.fw.phase === 'lost');
     const from = s.bus.received.length;
+    const writes = s.bus.writes.length;
+    await run(6000);
+    expect(s.fw.phase).toBe('appBack');
+    expect(s.fw.active).toBe(false);
+    expect(s.fw.rescue).toBe(false);
+    expect(s.device.connected).toBe(true);
+    expect(s.device.transport).not.toBe(s.t);
+    const v = s.device.info!.firmware;
+    expect(s.fw.error).toEqual({ key: 'fw.err.appBack', params: { v } });
+    expect(fwText(s.fw.error)).toContain(v);
+    expect(s.fw.rows.write).toBe('fail');
+    // its probe, then device.init's reads: no family 08, no 08 02
+    expect(after(s.bus, from)[0]).toBe('app 01 02');
+    expect(after(s.bus, from).filter((c) => c.includes(' 08 '))).toEqual([]);
+    expect(s.bus.writes.length).toBe(writes);
+    expect(s.bus.violations).toEqual([]);
+  });
+
+  it('Sk2 (W-07): the device that comes back in its app has another serial → the page stays lost', async () => {
+    const s = await demo('pro');
+    s.bus.flags.unplugAt = 100;
+    const other = [...s.bus.serial].map((b) => b ^ 0x33);
+    s.bus.lose = (b: MockBootloader) => {
+      s.bus.unplug(b);
+      setTimeout(() => s.bus.plug(new MockTransport({ seed: 'pro', serial: other, fwBus: s.bus })), 1500);
+    };
+    await startWith(s.fw, makeFw({ crc: CRC.v0100 }));
+    await until(() => s.fw.phase === 'lost');
     await run(6000);
     expect(s.fw.phase).toBe('lost');
-    expect(s.fw.rescue).toBe(false);
-    expect(after(s.bus, from)).toEqual(['app 01 02']);
+    expect(s.fw.active).toBe(true);
+    expect(s.device.transport).toBe(s.t);
   });
 
   it('Sd: choosing a file while writing changes nothing', async () => {

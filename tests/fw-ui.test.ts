@@ -539,3 +539,34 @@ describe('14. the UI during a session', { timeout: 60_000 }, () => {
     expect(m.top.find('.pill').text()).toBe(tr('fw.pillRescue'));
   });
 });
+
+describe('N-FW4 (WX2): view-only rescue (no board read) does not show step 3 as running', { timeout: 60_000 }, () => {
+  async function rescuePage(flags: Partial<MockFwBus['flags']>) {
+    const s = await demo('pro');
+    s.fw.setEnabled(true);
+    Object.assign(s.bus.flags, flags);
+    s.bus.replugAsBootloader();
+    await run(1000);
+    const boot = (await s.bus.list()).find((d) => d instanceof MockBootloader)!;
+    const p = s.device.adoptFromFirmware(boot, true);
+    await run(500);
+    await p;
+    vi.useRealTimers();
+    const router = makeRouter();
+    await router.push('/firmware');
+    const page = keep(mount(FirmwarePage, { global: { plugins: [router] }, attachTo: document.body }));
+    await flushPromises();
+    return { ...s, page };
+  }
+  const step3 = (page: VueWrapper) => page.findAll('.fws')[2].classes().find((c) => c.startsWith('fws--'));
+
+  it('no board: step 3 is not "now"; with the board read it is', async () => {
+    const a = await rescuePage({ bootNoBoard: true });
+    expect(a.fw.phase).toBe('rescue');
+    expect(a.fw.rescueBoard).toBeNull();
+    expect(step3(a.page)).toBe('fws--todo');
+    const b = await rescuePage({});
+    expect(b.fw.rescueBoard).not.toBeNull();
+    expect(step3(b.page)).toBe('fws--now');
+  });
+});

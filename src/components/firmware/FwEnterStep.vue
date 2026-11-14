@@ -3,7 +3,7 @@
 // unknown file, then "Bắt đầu cập nhật". While waiting for the bootloader: a spinner, and the "Allow…" button when the browser
 // has no permission for it yet (a real click: requestDevice cannot run by itself).
 import { computed } from 'vue';
-import { IconAlertCircle, IconPlayerPlay, IconRefresh, IconUsb } from '@tabler/icons-vue';
+import { IconAlertCircle, IconLifebuoy, IconPlayerPlay, IconRefresh, IconUsb } from '@tabler/icons-vue';
 import Button from '../ui/Button.vue';
 import { typedOk, useFirmwareStore } from '../../stores/firmware';
 import { t } from '../../i18n/vi';
@@ -52,10 +52,19 @@ const err = computed(() => (fw.phase === 'preflightFail' || fw.phase === 'enterF
     <p class="fw-wait" role="status"><span class="fw-spin" aria-hidden="true" />{{ t('fw.s2.wait') }}</p>
     <template v-if="fw.phase === 'needPermission'">
       <p class="fws__p">{{ t('fw.s2.perm') }}</p>
-      <div><Button variant="primary" :icon="IconUsb" @click="fw.allow()">{{ t('fw.s2.permBtn') }}</Button></div>
+      <div class="fw-btns">
+        <Button variant="primary" :icon="IconUsb" @click="fw.allow()">{{ t('fw.s2.permBtn') }}</Button>
+        <Button variant="secondary" :icon="IconRefresh" @click="fw.findAgain()">{{ t('fw.findAgain') }}</Button>
+      </div>
       <p v-if="fw.wrongDevice" class="fw-err" role="alert">
         <IconAlertCircle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.s2.wrongDevice') }}</span>
       </p>
+      <template v-if="fw.otherSerial">
+        <p class="fw-err" role="alert">
+          <IconAlertCircle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.s2.otherSerial') }}</span>
+        </p>
+        <div><Button variant="danger" :icon="IconLifebuoy" @click="fw.continueRescue()">{{ t('fw.s2.otherSerialBtn') }}</Button></div>
+      </template>
     </template>
   </template>
   <template v-else-if="fw.phase === 'manyBoot'">
@@ -65,6 +74,7 @@ const err = computed(() => (fw.phase === 'preflightFail' || fw.phase === 'enterF
 </template>
 
 <style scoped>
+.fw-btns { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 .fws__p { margin: 0; font-size: var(--fs-label); line-height: 20px; color: var(--fg-2); }
 .fw-confirm { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-3); }
 .fw-field { display: flex; flex-direction: column; gap: 6px; min-width: 220px; flex: 1 1 260px; }

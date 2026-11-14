@@ -5,11 +5,11 @@
 import { defineStore } from 'pinia';
 import { computed, markRaw, ref, shallowRef, watch } from 'vue';
 import {
-  BaseTransport, FirmwarePacketError, FirmwareSessionError, fwAppBack, fwAttach, fwFind, fwForgetProbes, sessionFile,
-  FW_PROBE_TIMEOUT_MS,
+  BaseTransport, FirmwarePacketError, FirmwareSessionError, fwAppBack, fwAttach, fwFind, fwForgetProbes, fwFoundBoot,
+  fwOtherBoot, fwSessionKeyboard, sessionFile, FW_PROBE_AGAIN_MS, FW_PROBE_TIMEOUT_MS, FW_PROBE_TRIES,
 } from '../protocol/client';
 import type { FwTicket } from '../protocol/client';
-import { FW_BOARD_PRO, FW_MAX_FILE, checkFile } from '../protocol/firmware';
+import { FW_BOARD_PRO, FW_MAX_FILE, checkFile, serialReadable } from '../protocol/firmware';
 import type { FwCheck, KnownFw } from '../protocol/firmware';
 import type { FwPort } from '../protocol/fwPort';
 import { HidFwPort } from '../protocol/hid';
@@ -29,12 +29,17 @@ import { holdWindowClose } from '../data/desktopClose';
 /** localStorage: '1' shows the Firmware page (DESIGN FW §3.8). Not exported or imported; a reset removes it. */
 export const LABS_FIRMWARE_KEY = 'ae64.labs.firmware';
 
-/** Wait after `08 01` before looking for the bootloader (as the maker's page), then every FW_LOOK_MS. */
+/**
+ * Wait after the `08 01` exchange settled (its reply, its timeout, or the app connection leaving USB; the maker's page waits
+ * after its reply too) before looking for the bootloader, then every FW_LOOK_MS.
+ */
 export const FW_ENTER_WAIT_MS = 6_000;
 export const FW_LOOK_MS = 500;
-/** No bootloader and the app connection still there this long after `08 01`: ask the app (`01 02`) whether it left. */
+/** No bootloader and the app connection still there this long after `08 01` settled: ask the app (`01 02`) whether it left. */
 export const FW_ENTER_CHECK_MS = 10_000;
 export const FW_ENTER_PROBE_TIMEOUT_MS = 3_000;
+/** "Did not enter" needs a second run-mode-0 answer at least this long after the first (the app may linger before it leaves). */
+export const FW_ENTER_CONFIRM_MS = 3_000;
 /** After `08 04`: wait, then look for the keyboard in its app for at most FW_FIND_MS. */
 export const FW_RESTART_WAIT_MS = 3_000;
 export const FW_FIND_MS = 20_000;
@@ -42,7 +47,9 @@ export const FW_FIND_MS = 20_000;
 export type FwPhase =
   | 'idle' | 'preflight' | 'preflightFail' | 'entering' | 'needPermission' | 'enterFail' | 'manyBoot'
   | 'writing' | 'packetFail' | 'verifying' | 'verifyFail' | 'rebooting' | 'finding' | 'notFound' | 'manyApp' | 'lost'
-  | 'done' | 'doneUnknown' | 'versionMismatch' | 'noGamepad' | 'rescue';
+  | 'done' | 'doneUnknown' | 'versionMismatch' | 'noGamepad' | 'rescue'
+  /** Lost (or rescue mode), then the session's keyboard came back running its app: the session ended, nothing more was written. */
+  | 'appBack';
 
 /** A message with its parameters; a parameter that is itself a message key is translated when shown (the locale may change). */
 export interface FwMessage {
@@ -84,6 +91,8 @@ export const useFirmwareStore = defineStore('firmware', () => {
   const total = ref(0);
   const error = shallowRef<FwMessage | null>(null);
   const wrongDevice = ref(false);
+  /** "Allow…" (or the search) found an AE64 Pro bootloader with another serial: the page offers rescue mode on it (W-06). */
+  const otherSerial = ref(false);
   /** The step the session was in when the keyboard was lost (to mark that row failed). */
   const lostIn = ref<'write' | 'verify' | 'reboot' | null>(null);
   /** Rescue: what the bootloader's `01 02` reported. board null = not readable (read-only page). */
@@ -100,10 +109,19 @@ export const useFirmwareStore = defineStore('firmware', () => {
   let timers: ReturnType<typeof setTimeout>[] = [];
   let unsub: (() => void)[] = [];
   let looking = false;
-  let probedHere = new WeakSet<BaseTransport>();
-  let wakeLock: { release(): Promise<void> } | null = null;
+  /** watchForBootloader's probes: the answer, or how many went unanswered and when the last one was sent. */
+  let probedHere = new WeakMap<BaseTransport, { info: DeviceInfo | null; n: number; at: number }>();
+  /** The keyboard of the session or of rescue mode: its board and serial (null: not reported), to recognise it again. */
+  let ident: { board: number; serialHex: string | null } | null = null;
+  /** The bootloader with another serial that W-06 may continue on. */
+  let other: BaseTransport | null = null;
+  /** The first run-mode-0 answer of the enter check (ms). */
+  let zeroAt: number | null = null;
+  let wakeLock: { release(): Promise<void>; released?: boolean } | null = null;
   /** Bumped whenever a session ends or restarts: callbacks of an older one do nothing. */
   let epoch = 0;
+  /** Bumped by every start and rescue write, at the press: a file read that was out meanwhile is dropped (W-13). */
+  let starts = 0;
 
   function setEnabled(on: boolean): void {
     enabled.value = on;
@@ -141,11 +159,28 @@ export const useFirmwareStore = defineStore('firmware', () => {
     && fileOk.value && !rescueRefused.value && (!needsRisk.value || riskOk.value) && bootTick.value >= 0);
   /** Bumped when the rescue bootloader comes or goes (canRescueWrite reads `boot`, which is not reactive). */
   const bootTick = ref(0);
+  /** The session's bootloader connection is there (packetFail / verifyFail: "Write again" needs it). */
+  const bootLive = computed(() => bootTick.value >= 0 && !!boot && boot.connected);
+  const failedOnBoot = computed(() => active.value && (phase.value === 'packetFail' || phase.value === 'verifyFail'));
+  /** Step 1 takes a file: before a session, in rescue mode before its write, and after a failed write or check (W-04). */
+  const canChoose = computed(() => !active.value || phase.value === 'rescue' || (failedOnBoot.value && bootLive.value));
 
   // ---------------------------------------------------------------- file (step 1): no HID
 
   async function chooseFile(f: File): Promise<void> {
-    if (active.value && phase.value !== 'rescue') return; // the file of a running session never changes
+    if (!canChoose.value) return; // the file of a running session never changes
+    const mine = epoch;
+    const started = starts;
+    const p0 = phase.value;
+    const wasActive = active.value;
+    const bytes = f.size > FW_MAX_FILE ? null : new Uint8Array(await f.arrayBuffer()).slice();
+    // W-13: a session may have started (or moved on) while the file was read: it keeps its own file.
+    if (mine !== epoch || started !== starts || phase.value !== p0 || active.value !== wasActive || !canChoose.value) return;
+    if (wasActive && p0 !== 'rescue') {
+      // packetFail / verifyFail (W-04): rescue mode on the same bootloader connection, with a fresh `01 02` and its own checks.
+      await openRescueOn(boot!);
+      if (phase.value !== 'rescue') return;
+    }
     riskOk.value = false;
     error.value = null;
     if (!active.value) {
@@ -153,14 +188,10 @@ export const useFirmwareStore = defineStore('firmware', () => {
       stopTimers();
       phase.value = 'idle';
       wrongDevice.value = false;
+      otherSerial.value = false;
       sent.value = 0;
     }
-    if (f.size > FW_MAX_FILE) {
-      file.value = markRaw({ name: f.name, size: f.size, bytes: null, check: null });
-      return;
-    }
-    const bytes = new Uint8Array(await f.arrayBuffer()).slice();
-    file.value = markRaw({ name: f.name, size: f.size, bytes, check: checkFile(bytes, deviceBoard.value) });
+    file.value = markRaw({ name: f.name, size: f.size, bytes, check: bytes ? checkFile(bytes, deviceBoard.value) : null });
   }
 
   /** The device's board changed (rescue opened, another keyboard): check the chosen file again. */
@@ -190,6 +221,17 @@ export const useFirmwareStore = defineStore('firmware', () => {
     error.value = msg;
   }
 
+  /** packetFail / verifyFail: the keyboard sits in its bootloader; keep watching that connection (W-03). */
+  function failOnBoot(p: 'packetFail' | 'verifyFail', msg: FwMessage): void {
+    fail(p, msg);
+    bootTick.value++;
+    if (!boot?.connected) {
+      lostIn.value = p === 'packetFail' ? 'write' : 'verify';
+      return lost();
+    }
+    watchBoot(boot);
+  }
+
   function portFor(t: BaseTransport | null): FwPort {
     if (t instanceof MockTransport && t.fwMock) return t.fwMock;
     if (t instanceof MockBootloader) return t.bus;
@@ -205,6 +247,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     if (!canStart.value) return;
     const t = device.transport;
     if (!(t instanceof BaseTransport) || !file.value?.bytes) return;
+    starts++;
     epoch++;
     active.value = true;
     phase.value = 'preflight';
@@ -238,12 +281,19 @@ export const useFirmwareStore = defineStore('firmware', () => {
     isDemo = device.demo;
     port.value = markRaw(portFor(t));
     total.value = sessionFile(ticket).packets;
+    ident = fwSessionKeyboard(ticket);
+    zeroAt = null;
     phase.value = 'entering';
     const mine = epoch;
-    void t.fwEnter(ticket);
+    // The clocks start when the `08 01` exchange settled: its reply, its timeout, or the app connection leaving USB (W-05).
+    let leftUsb = (): void => undefined;
+    const left = new Promise<void>((r) => { leftUsb = r; });
+    unsub.push(t.onDisconnect(() => leftUsb()));
+    await Promise.race([t.fwEnter(ticket).catch(() => undefined), left]);
+    if (mine !== epoch) return;
     // Nothing is asked of any device for the first 6 s (the keyboard copies its app meanwhile), then every 500 ms and on every
     // new device; "Allow…" shows after 6 s when no bootloader was found, and looking goes on.
-    const port0 = port.value;
+    const port0 = port.value!;
     later(FW_ENTER_WAIT_MS, () => {
       void look().then(() => { if (mine === epoch && phase.value === 'entering') phase.value = 'needPermission'; });
       const tick = () => later(FW_LOOK_MS, () => { void look(); if (phase.value === 'entering' || phase.value === 'needPermission') tick(); });
@@ -275,7 +325,13 @@ export const useFirmwareStore = defineStore('firmware', () => {
       info = null; // no answer: it may still be copying its flash; ask again in 10 s
     }
     if (mine !== epoch) return;
-    if (info?.runMode === 0) return void enterFailed();
+    if (info?.runMode === 0) {
+      // Two run-mode-0 answers at least 3 s apart: it really stays in its app (W-05).
+      const now = Date.now();
+      if (zeroAt !== null && now - zeroAt >= FW_ENTER_CONFIRM_MS) return void enterFailed();
+      zeroAt ??= now;
+      return later(FW_ENTER_CONFIRM_MS, () => void enterCheck());
+    }
     later(FW_ENTER_CHECK_MS, () => void enterCheck());
   }
 
@@ -313,6 +369,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
       if (r.ok) return void attached(r.transport);
       if (r.why === 'many') return fail('manyBoot', { key: 'fw.err.manyBoot' });
       if (r.why === 'appBack') return void enterFailed(fwAppBack(ticket));
+      if (r.why === 'wrong' && phase.value === 'needPermission') offerOther();
     } catch {
       // a step of an ended session
     } finally {
@@ -331,7 +388,26 @@ export const useFirmwareStore = defineStore('firmware', () => {
     if (mine !== epoch || !r) return;
     if (r.ok) return void attached(r.transport);
     if (r.why === 'many') return fail('manyBoot', { key: 'fw.err.manyBoot' });
-    wrongDevice.value = true;
+    if (!offerOther()) wrongDevice.value = true;
+  }
+
+  /** W-06: the device found is an AE64 Pro bootloader with another serial: say so, and offer rescue mode on it (never by itself). */
+  function offerOther(): boolean {
+    const o = ticket ? fwOtherBoot(ticket) : null;
+    other = o;
+    otherSerial.value = !!o;
+    if (o) wrongDevice.value = false;
+    return !!o;
+  }
+
+  /** "Continue in rescue mode" on that bootloader: the session ends; rescue reads its `01 02` and runs its own checks. */
+  async function continueRescue(): Promise<void> {
+    const t = other;
+    if (phase.value !== 'needPermission' || !otherSerial.value || !t?.connected) return;
+    other = null;
+    otherSerial.value = false;
+    ident = null;
+    await openRescueOn(t);
   }
 
   // ---------------------------------------------------------------- write → check → restart → find
@@ -341,8 +417,10 @@ export const useFirmwareStore = defineStore('firmware', () => {
     unsub.push(t.onDisconnect(() => {
       if (mine !== epoch) return;
       const p = phase.value;
-      if (p === 'writing' || p === 'verifying') {
-        lostIn.value = p === 'writing' ? 'write' : 'verify';
+      if (p === 'writing' || p === 'verifying' || p === 'packetFail' || p === 'verifyFail') {
+        lostIn.value = p === 'writing' || p === 'packetFail' ? 'write' : 'verify';
+        boot = null;
+        bootTick.value++;
         return void lost();
       }
       if (p === 'rescue') {
@@ -357,6 +435,8 @@ export const useFirmwareStore = defineStore('firmware', () => {
     stopTimers();
     boot = t;
     wrongDevice.value = false;
+    otherSerial.value = false;
+    other = null;
     void runWrite();
   }
 
@@ -375,14 +455,14 @@ export const useFirmwareStore = defineStore('firmware', () => {
       await t.fwWrite(ticket, (n, all) => { if (mine === epoch) { sent.value = n; total.value = all; } });
     } catch (err) {
       if (mine !== epoch || (phase.value as FwPhase) === 'lost') return;
-      if (err instanceof FirmwarePacketError) return fail('packetFail', { key: 'fw.err.packet', params: { n: err.index } });
-      return fail('packetFail', { key: 'fw.err.recheck', paramKeys: { reason: 'fw.why.file' } });
+      if (err instanceof FirmwarePacketError) return failOnBoot('packetFail', { key: 'fw.err.packet', params: { n: err.index } });
+      return failOnBoot('packetFail', { key: 'fw.err.recheck', paramKeys: { reason: 'fw.why.file' } });
     }
     if (mine !== epoch) return;
     phase.value = 'verifying';
     const ok = await t.fwVerify(ticket).catch(() => false);
     if (mine !== epoch || (phase.value as FwPhase) === 'lost') return;
-    if (!ok) return fail('verifyFail', { key: 'fw.err.verify' });
+    if (!ok) return failOnBoot('verifyFail', { key: 'fw.err.verify' });
     phase.value = 'rebooting';
     await t.fwRestart(ticket).catch(() => undefined);
     if (mine !== epoch) return;
@@ -423,7 +503,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
       if (r.ok) return void found(r.transport, r.info);
       if (r.why === 'many') return fail('manyApp', { key: 'fw.err.manyApp' });
       if (r.why === 'boot') {
-        const b = list.find((d) => d.connected && d.runModeSeen === 255);
+        const b = fwFoundBoot(ticket);
         if (b) return void openRescueOn(b);
       }
     } catch {
@@ -488,6 +568,8 @@ export const useFirmwareStore = defineStore('firmware', () => {
     app = null;
     rescue.value = false;
     rescueBoard.value = null;
+    other = null;
+    otherSerial.value = false;
     releaseExclusive?.();
     releaseExclusive = null;
     typed.value = '';
@@ -512,24 +594,56 @@ export const useFirmwareStore = defineStore('firmware', () => {
     void watchForBootloader();
   }
 
-  /** While locked without a bootloader: every new device gets one `01 02`; a Pro bootloader opens rescue mode. */
+  /** One `01 02` per device; one without an answer is asked again (FW_PROBE_TRIES in all, FW_PROBE_AGAIN_MS apart). */
+  async function probeHere(d: BaseTransport): Promise<DeviceInfo | null> {
+    const seen = probedHere.get(d);
+    if (seen?.info) return seen.info;
+    if (seen && (seen.n >= FW_PROBE_TRIES || Date.now() - seen.at < FW_PROBE_AGAIN_MS)) return null;
+    const at = Date.now();
+    probedHere.set(d, { info: null, n: (seen?.n ?? 0) + 1, at });
+    const info = await d.getDeviceInfo(FW_PROBE_TIMEOUT_MS).catch(() => null);
+    if (info) probedHere.set(d, { info, n: 0, at });
+    return info;
+  }
+
+  const isOurs = (i: DeviceInfo): boolean => !!ident && i.boardId === ident.board && ident.serialHex !== null && i.serialHex === ident.serialHex;
+
+  /**
+   * While locked without a bootloader: every new device gets its `01 02`. A Pro bootloader opens rescue mode (the session's
+   * keyboard first, W-13); the session's keyboard back in its app (its board and serial, run mode 0) ends the session (W-07).
+   */
   async function watchForBootloader(): Promise<void> {
     const p = port.value;
     if (!p) return;
     const mine = epoch;
+    let checking = false;
     const check = async (): Promise<void> => {
-      if (mine !== epoch) return;
-      for (const d of await p.list()) {
-        if (!d.connected || probedHere.has(d) || d === boot) continue;
-        probedHere.add(d);
-        const info = await d.getDeviceInfo(FW_PROBE_TIMEOUT_MS).catch(() => null);
-        if (mine !== epoch) return;
-        if (info?.runMode === 255) return void openRescueOn(d, info);
+      if (mine !== epoch || checking) return;
+      checking = true;
+      try {
+        const boots: [BaseTransport, DeviceInfo][] = [];
+        for (const d of await p.list()) {
+          if (!d.connected || d === boot) continue;
+          const info = await probeHere(d);
+          if (mine !== epoch) return;
+          if (info?.runMode === 255) boots.push([d, info]);
+          else if (info?.runMode === 0 && isOurs(info)) return void backInApp(d, info);
+        }
+        const pick = boots.find(([, i]) => isOurs(i)) ?? boots[0];
+        if (pick) return void openRescueOn(pick[0], pick[1]);
+      } finally {
+        if (mine === epoch) checking = false;
       }
     };
     unsub.push(p.onConnect(() => later(0, () => void check())));
     const tick = (): void => later(1000, () => { void check().then(() => { if (mine === epoch) tick(); }); });
     tick();
+  }
+
+  /** W-07: the session's keyboard runs its app again. Nothing more is sent but device.init's reads; the app unlocks. */
+  async function backInApp(t: BaseTransport, info: DeviceInfo): Promise<void> {
+    fail('appBack', { key: 'fw.err.appBack', params: { v: info.firmware } });
+    await endSession(t, isDemo ? 'pro' : undefined, () => { error.value = { key: 'fw.err.appBackNoApp', params: { v: info.firmware } }; });
   }
 
   // ---------------------------------------------------------------- rescue mode (DESIGN FW §3.6)
@@ -551,15 +665,23 @@ export const useFirmwareStore = defineStore('firmware', () => {
     active.value = true;
     rescue.value = true;
     rescueBoard.value = i && i.boardId !== 0 && i.boardId !== 0xffffffff ? i.boardId : null;
+    if (rescueBoard.value !== null) {
+      ident = { board: rescueBoard.value, serialHex: serialReadable(i!.serialHex) ? i!.serialHex : ident?.serialHex ?? null };
+    }
     phase.value = 'rescue';
     error.value = null;
+    wrongDevice.value = false;
+    otherSerial.value = false;
+    other = null;
     sent.value = 0;
+    lostIn.value = null;
     watchBoot(t);
   }
 
   /** "Write firmware" in rescue mode: a session on the bootloader (its own `01 02`), then the same steps. */
   async function rescueWrite(): Promise<void> {
     if (!canRescueWrite.value || !boot || !file.value?.bytes) return;
+    starts++;
     const t = boot;
     error.value = null;
     try {
@@ -571,20 +693,34 @@ export const useFirmwareStore = defineStore('firmware', () => {
       return;
     }
     total.value = sessionFile(ticket).packets;
+    const k = fwSessionKeyboard(ticket);
+    ident = { board: k.board, serialHex: k.serialHex ?? ident?.serialHex ?? null };
     void runWrite();
   }
 
-  /** "Write again from the start" (packetFail / verifyFail): same file, same bootloader connection, never `08 01` again. */
+  /**
+   * "Write again from the start" (packetFail / verifyFail): same file, same bootloader connection, never `08 01` again. Refused
+   * when that connection is gone (the button says so, W-03).
+   */
   function retry(): void {
-    if ((phase.value !== 'packetFail' && phase.value !== 'verifyFail') || !boot || !ticket) return;
+    if ((phase.value !== 'packetFail' && phase.value !== 'verifyFail') || !ticket) return;
+    if (!boot?.connected) {
+      bootTick.value++; // the button turns off and says why
+      return;
+    }
     void runWrite();
   }
 
-  /** "Search again" (several bootloaders / keyboards): every device gets its `01 02` again. */
+  /** "Search again" (several bootloaders / keyboards, or no bootloader seen yet): every device gets its `01 02` again. */
   function findAgain(): void {
     if (!ticket) return;
     fwForgetProbes(ticket);
-    if (phase.value === 'manyBoot') {
+    if (phase.value === 'needPermission') {
+      // the look loop of start() still runs: it asks every device again from now on (W-05)
+      wrongDevice.value = false;
+      otherSerial.value = false;
+      void look();
+    } else if (phase.value === 'manyBoot') {
       phase.value = 'needPermission';
       error.value = null;
       const tick = () => later(FW_LOOK_MS, () => { void look(); if (phase.value === 'needPermission') tick(); });
@@ -607,7 +743,8 @@ export const useFirmwareStore = defineStore('firmware', () => {
       if (p === 'versionMismatch' || p === 'noGamepad') out.find = 'fail';
       return out;
     }
-    if (p === 'lost') {
+    if (p === 'appBack' && lostIn.value === null) return out;
+    if (p === 'lost' || p === 'appBack') {
       const li = order.indexOf(lostIn.value ?? 'write');
       order.forEach((k, i) => { out[k] = i < li ? 'done' : i === li ? 'fail' : 'todo'; });
       return out;
@@ -637,18 +774,32 @@ export const useFirmwareStore = defineStore('firmware', () => {
     holdWindowClose(on); // the desktop app: a window close asks first (no-op on the web)
     if (on) {
       window.addEventListener('beforeunload', onBeforeUnload);
-      try {
-        const wl = (navigator as Navigator & { wakeLock?: { request(type: 'screen'): Promise<{ release(): Promise<void> }> } }).wakeLock;
-        wakeLock = wl ? await wl.request('screen') : null;
-      } catch {
-        wakeLock = null; // not allowed: the note card still says not to let the computer sleep
-      }
-      if (!active.value) void releaseWake();
+      document.addEventListener('visibilitychange', onVisible);
+      await requestWake();
     } else {
       window.removeEventListener('beforeunload', onBeforeUnload);
+      document.removeEventListener('visibilitychange', onVisible);
       void releaseWake();
     }
   });
+
+  async function requestWake(): Promise<void> {
+    try {
+      const wl = (navigator as Navigator & { wakeLock?: { request(type: 'screen'): Promise<{ release(): Promise<void>; released?: boolean }> } }).wakeLock;
+      wakeLock = wl ? await wl.request('screen') : null;
+    } catch {
+      wakeLock = null; // not allowed: the note card still says not to let the computer sleep
+    }
+    if (!active.value) void releaseWake();
+  }
+
+  /** The browser drops the wake lock when the tab is hidden: ask again when it shows, while writing or checking (W-13). */
+  function onVisible(): void {
+    if (document.visibilityState !== 'visible' || !active.value) return;
+    if (phase.value !== 'writing' && phase.value !== 'verifying') return;
+    if (wakeLock && (wakeLock as { released?: boolean }).released !== true) return;
+    void requestWake();
+  }
 
   async function releaseWake(): Promise<void> {
     const w = wakeLock;
@@ -664,14 +815,15 @@ export const useFirmwareStore = defineStore('firmware', () => {
     phase.value = 'idle';
     error.value = null;
     wrongDevice.value = false;
+    otherSerial.value = false;
     sent.value = 0;
-    probedHere = new WeakSet();
+    probedHere = new WeakMap();
   }
 
   return {
-    enabled, active, rescue, phase, file, typed, riskOk, sent, total, error, wrongDevice, rescueBoard, doneVersion, port, rows,
-    known, fileOk, needsRisk, officialOnly, rescueRefused, busy, isPro, canStart, canRescueWrite, deviceBoard,
-    setEnabled, chooseFile, start, allow, retry, findAgain, rescueWrite, openRescue, clear,
+    enabled, active, rescue, phase, file, typed, riskOk, sent, total, error, wrongDevice, otherSerial, rescueBoard, doneVersion, port,
+    rows, known, fileOk, needsRisk, officialOnly, rescueRefused, busy, isPro, canStart, canRescueWrite, deviceBoard, bootLive,
+    canChoose, setEnabled, chooseFile, start, allow, continueRescue, retry, findAgain, rescueWrite, openRescue, clear,
     /** Test hook: wait for queued microtasks of the store. */
     _sleep: sleep,
   };

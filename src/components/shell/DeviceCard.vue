@@ -34,7 +34,9 @@ const statusText = computed(() => {
   if (device.status === 'connecting') return t('device.connecting');
   return t('device.disconnected');
 });
-const cardTitle = computed(() => (props.compact ? `${name.value} · ${statusText.value}` : undefined));
+const cardTitle = computed(() => (props.compact ? `${name.value} · ${fwStatus.value ?? statusText.value}` : undefined));
+/** A firmware session or rescue mode (N-FW3): the card says so instead of the app's latency and version. */
+const fwStatus = computed(() => (firmware.active ? t(firmware.rescue ? 'fw.cardRescue' : 'fw.cardUpdating') : null));
 </script>
 
 <template>
@@ -43,7 +45,8 @@ const cardTitle = computed(() => (props.compact ? `${name.value} · ${statusText
       <span class="dc__dot" :class="`dc__dot--${device.status}`" aria-hidden="true" />
       <div class="dc__id">
         <div class="dc__name">{{ name }}</div>
-        <div class="dc__status">
+        <div v-if="fwStatus" class="dc__status">{{ fwStatus }}</div>
+        <div v-else class="dc__status">
           {{ statusText }}
           <template v-if="device.connected">
             · <span class="num">{{ device.latencyMs.toFixed(1) }} ms</span>
@@ -54,7 +57,7 @@ const cardTitle = computed(() => (props.compact ? `${name.value} · ${statusText
       <IconButton v-if="device.connected && !compact" :icon="IconPlugConnectedX" :label="t('device.disconnect')" size="sm" :disabled="locked" :title="calibratingTitle ?? t('device.disconnect')" @click="device.disconnect({ user: true })" />
     </div>
     <Segmented v-if="device.connected && device.demo && !compact" v-model="demoModel" :options="demoModels" :label="t('device.demoModel')" size="sm" :disabled="locked" :title="calibratingTitle" />
-    <dl v-if="device.info && !compact" class="dc__meta">
+    <dl v-if="device.info && !compact && !fwStatus" class="dc__meta">
       <div><dt class="micro">{{ t('device.firmware') }}</dt><dd class="num">{{ device.info.firmware }}</dd></div>
       <div><dt class="micro">{{ t('device.board') }}</dt><dd class="num">{{ device.info.boardIdHex.toUpperCase() }}</dd></div>
     </dl>

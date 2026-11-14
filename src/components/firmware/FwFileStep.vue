@@ -14,8 +14,8 @@ const fw = useFirmwareStore();
 const input = ref<HTMLInputElement | null>(null);
 const dragging = ref(false);
 
-/** Choosing is possible before a session, and in rescue mode before its write starts. */
-const canChoose = computed(() => !fw.active || fw.phase === 'rescue');
+/** Choosing is possible before a session, in rescue mode before its write starts, and after a failed write or check (W-04). */
+const canChoose = computed(() => fw.canChoose);
 
 function pick(): void {
   if (canChoose.value) input.value?.click();

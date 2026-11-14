@@ -81,13 +81,14 @@ watch(() => fw.phase, (p) => { if (p === 'writing' && fw.sent === 0) said.value 
     <p v-if="running" class="fw-dont"><IconAlertTriangle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.s3.dont') }}</span></p>
     <p v-if="showErr" class="fw-err" role="alert"><IconAlertCircle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ err }}</span></p>
     <div v-if="canRetry" class="fw-retry">
-      <Button variant="primary" :icon="IconRefresh" @click="fw.retry()">{{ t('fw.err.retry') }}</Button>
-      <p class="fws__p">{{ t('fw.err.retryHelp') }}</p>
+      <Button variant="primary" :icon="IconRefresh" :disabled="!fw.bootLive" @click="fw.retry()">{{ t('fw.err.retry') }}</Button>
+      <p class="fws__p">{{ t(fw.bootLive ? 'fw.err.retryHelp' : 'fw.err.retryNoBoot') }}</p>
     </div>
     <div v-else-if="fw.phase === 'manyApp' || fw.phase === 'notFound'">
       <Button variant="primary" :icon="IconRefresh" @click="fw.findAgain()">{{ t('fw.findAgain') }}</Button>
     </div>
   </template>
+  <p v-else-if="fw.phase === 'appBack' && err" class="fws__p" role="status">{{ err }}</p>
 </template>
 
 <style scoped>

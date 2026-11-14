@@ -46,11 +46,15 @@ export function webHidAvailable(): boolean {
  * closes the device under every other HidTransport of it. Only the owner closes it (FW review FW-1).
  */
 const owners = new WeakMap<HIDDevice, HidTransport>();
+/** Every open connection of each device (W-13): the owner's close hands the device to another one instead of closing it. */
+const users = new WeakMap<HIDDevice, Set<HidTransport>>();
 
 export class HidTransport extends BaseTransport {
   readonly kind = 'hid' as const;
   private pending: Pending | null = null;
   private quietUntil = 0;
+  /** close() was called: this connection is over, whoever owns the device (W-13). */
+  private closed = false;
   private readonly onReport = (e: HIDInputReportEvent) => this.handleReport(e);
   private readonly onHidDisconnect = (e: HIDConnectionEvent) => {
     if (e.device !== this.device) return;
@@ -84,7 +88,7 @@ export class HidTransport extends BaseTransport {
   }
 
   get connected(): boolean {
-    return this.device.opened;
+    return !this.closed && this.device.opened;
   }
 
   async open(): Promise<void> {
@@ -95,15 +99,30 @@ export class HidTransport extends BaseTransport {
     } else if (!owners.has(this.device)) {
       owners.set(this.device, this);
     }
+    this.closed = false;
+    let set = users.get(this.device);
+    if (!set) users.set(this.device, (set = new Set()));
+    set.add(this);
     this.device.addEventListener('inputreport', this.onReport);
     navigator.hid.addEventListener('disconnect', this.onHidDisconnect);
   }
 
-  /** Stops this connection; closes the device only when this connection opened it (another one may be using it now). */
+  /**
+   * Stops this connection: from now on it reports `connected === false` and refuses requests at once. The device is closed only
+   * when this connection owns it and no other open connection of this page uses it (that one becomes the owner).
+   */
   async close(): Promise<void> {
+    this.closed = true;
     this.failPending(new Error(tr('error.connectionClosed')));
     this.teardown();
+    const set = users.get(this.device);
+    set?.delete(this);
     if (owners.get(this.device) !== this) return;
+    const heir = set ? [...set].find((t) => !t.closed) : undefined;
+    if (heir) {
+      owners.set(this.device, heir);
+      return;
+    }
     owners.delete(this.device);
     if (this.device.opened) await this.device.close();
   }
@@ -137,6 +156,7 @@ export class HidTransport extends BaseTransport {
   }
 
   protected async exchange(frame: Uint8Array, timeoutMs: number): Promise<Bytes> {
+    if (this.closed) throw new Error(tr('error.connectionClosed'));
     // After a timeout the keyboard may still answer the old request: let that reply arrive (and be
     // dropped, nothing is pending) before asking anything else.
     const quiet = this.quietUntil - performance.now();

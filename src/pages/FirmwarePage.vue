@@ -43,7 +43,7 @@ const s1 = computed<StepState>(() => {
 });
 const s2 = computed<StepState>(() => {
   const p = fw.phase;
-  if (fw.rescue || WRITE_NOW.includes(p) || WRITE_FAIL.includes(p) || WRITE_DONE.includes(p)) return 'done';
+  if (fw.rescue || p === 'appBack' || WRITE_NOW.includes(p) || WRITE_FAIL.includes(p) || WRITE_DONE.includes(p)) return 'done';
   if (p === 'preflightFail' || p === 'enterFail' || p === 'manyBoot') return 'fail';
   if (ENTER.includes(p)) return 'now';
   return fw.fileOk ? 'now' : 'todo';
@@ -52,6 +52,10 @@ const s3 = computed<StepState>(() => {
   const p = fw.phase;
   if (WRITE_DONE.includes(p)) return 'done';
   if (WRITE_FAIL.includes(p)) return 'fail';
+  // the keyboard came back in its app: failed when it was lost mid-write, nothing done when it left rescue mode
+  if (p === 'appBack') return fw.rows.write === 'todo' ? 'todo' : 'fail';
+  // view-only rescue (no board read): nothing on this step can run (N-FW4)
+  if (p === 'rescue' && fw.rescueBoard === null) return 'todo';
   if (WRITE_NOW.includes(p)) return 'now';
   return 'todo';
 });

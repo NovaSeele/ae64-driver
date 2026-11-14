@@ -895,3 +895,31 @@ describe('N-WX1-1: the packet log while the Key test tab polls travel', () => {
     }
   });
 });
+
+describe('WX2 (WX1 leftover, mutant F6): the read after a profile batch fails', () => {
+  it('no toast, the app keeps its profile, the batch is saved, nothing more is written', async () => {
+    const { device, t, sync } = await boot();
+    const perf = usePerformanceStore();
+    await device.switchProfile(1); // profile 2 of 4: a failed read taken as "profile 1" would move the app
+    await perf.load();
+    await settle();
+    useToast().items.value = [];
+    const writes = vi.spyOn(t, 'setPerformance');
+    const orig = t.getActiveProfile.bind(t);
+    let n = 0;
+    vi.spyOn(t, 'getActiveProfile').mockImplementation(async (...a: Parameters<typeof orig>) => {
+      n++;
+      if (n === 2) throw new Error('timeout'); // the second 02 03 01, after the last verify
+      return orig(...a);
+    });
+    perf.apply([device.keys[3].id, device.keys[4].id], () => ({ rtPress: 0.4 }), 'RT press');
+    await sync.flush();
+    await settle();
+    expect(n).toBe(2);
+    expect(toasts()).toEqual([]);
+    expect(device.activeProfile).toBe(1);
+    expect(sync.state).toBe('saved');
+    expect(sync.pendingCount()).toBe(0);
+    expect(writes).toHaveBeenCalledTimes(2);
+  });
+});

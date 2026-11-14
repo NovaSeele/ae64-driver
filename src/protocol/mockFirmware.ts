@@ -48,6 +48,12 @@ export interface FwMockFlags {
   enterQuiet: number;
   /** `08 01`: the keyboard leaves USB and comes back running its app (a new connection), not in its bootloader. */
   enterBounce: boolean;
+  /** A bootloader does not answer its first n `01 02` (busy right after it enumerated). */
+  bootQuiet: number;
+  /** The `08 01` reply comes after this many ms (0: at once); the keyboard leaves USB just after it. */
+  enterLate: number;
+  /** After `08 01` the keyboard keeps running its app (answering run mode 0) this many ms, then restarts into its bootloader. */
+  appLingers: number;
   /** The bootloader is not allowed yet: only "Allow the keyboard in update mode" (request) shows it. */
   bootNeedsPermission: boolean;
   /** What the chooser of request() returns. */
@@ -67,7 +73,8 @@ export const defaultFwMockFlags = (): FwMockFlags => ({
   wrongEchoAt: null, delayAt: null, verifyFail: false, verifySilent: false, verifyStatus: null, unplugAtVerify: false,
   unplugAt: null, lostIntoApp: false, restartIntoBoot: false, notFound: false, version: null, noGamepad: false,
   staleGamepad: false, bootNoBoard: false, bootNoSerial: false, enterSilent: false, enterFail: false, enterQuiet: 0,
-  enterBounce: false, bootNeedsPermission: false, choose: 'boot', bootDelayMs: 2000, appDelayMs: 1500, extra: [],
+  enterBounce: false, bootQuiet: 0, enterLate: 0, appLingers: 0, bootNeedsPermission: false, choose: 'boot', bootDelayMs: 2000,
+  appDelayMs: 1500, extra: [],
 });
 
 const PRO_BOARD = [0x00, 0x30, 0x00, 0x0a];
@@ -105,6 +112,8 @@ export class MockBootloader extends BaseTransport {
   private readonly image = new Uint8Array(FW_MAX_FILE);
   private expected = 0;
   private verified = false;
+  /** `01 02` left unanswered so far (FwMockFlags.bootQuiet). */
+  private ignored = 0;
 
   constructor(
     readonly bus: MockFwBus, readonly serial: readonly number[], readonly label: 'boot' | 'boot-twin' | 'boot-max' | 'boot-other',
@@ -156,6 +165,10 @@ export class MockBootloader extends BaseTransport {
     const cmd = `${hex2(frame[0])} ${hex2(frame[1])}`;
     if (frame[0] === 0x01 && frame[1] === 0x02) {
       bus.log(this.label, cmd);
+      if (this.ignored < f.bootQuiet) {
+        this.ignored++;
+        return; // busy: no reply
+      }
       const noSerial = f.bootNoSerial && this.label !== 'boot-other';
       reply = bus.deviceInfo(f.bootNoBoard ? [0, 0, 0, 0] : [...this.board], noSerial ? new Array(12).fill(0) : this.serial, 255, [0, 0, 0, 0]);
     } else if (frame[0] === 0x08 && frame[1] === 0x02) {
@@ -324,9 +337,11 @@ export class MockFwBus implements FwPort {
       this.later(f.bootDelayMs, () => this.plug(new MockTransport({ ...app.initOpts, fwBus: this })));
       return true;
     }
+    // enterLate: it answers late, then leaves; appLingers: it keeps running its app that long, then restarts.
+    const stay = Math.max(f.enterLate, f.appLingers);
     if (f.enterSilent) this.unplug(app);
-    else this.later(30, () => this.unplug(app));
-    this.later(f.bootDelayMs, () => {
+    else this.later(stay + 30, () => this.unplug(app));
+    this.later(stay + f.bootDelayMs, () => {
       this.plug(new MockBootloader(this, this.serial, 'boot'), !f.bootNeedsPermission);
       if (f.extra.includes('boot-twin')) {
         this.plug(new MockBootloader(this, f.bootNoSerial ? this.serial : (twinSerial(this.serial) ?? this.serial.map((b) => b ^ 1)), 'boot-twin'), !f.bootNeedsPermission);

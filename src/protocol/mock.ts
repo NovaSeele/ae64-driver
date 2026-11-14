@@ -359,7 +359,9 @@ export class MockTransport extends BaseTransport {
         return Promise.reject(new TransportTimeoutError(Array.from(frame.slice(0, 2))));
       }
       if (!bus.entered(this)) return Promise.reject(new Error('disconnected'));
-      return new Promise((resolve) => setTimeout(() => resolve(Uint8Array.from({ length: 64 }, (_, i) => (i < 2 ? frame[i] : 0))), this.latencyMs));
+      const late = bus.flags.enterLate || this.latencyMs;
+      if (late > timeoutMs) return new Promise((_, reject) => setTimeout(() => reject(new TransportTimeoutError(Array.from(frame.slice(0, 2)))), timeoutMs));
+      return new Promise((resolve) => setTimeout(() => resolve(Uint8Array.from({ length: 64 }, (_, i) => (i < 2 ? frame[i] : 0))), late));
     }
     const reply = this.handle(Array.from(frame));
     if (frame[0] === GP_FAMILY && this.dropGamepadReply?.(frame[1])) {
