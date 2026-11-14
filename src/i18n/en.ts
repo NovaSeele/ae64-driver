@@ -9,6 +9,7 @@ import { performanceEn } from './en/performance';
 import { advancedEn } from './en/advanced';
 import { macroEn } from './en/macro';
 import { gamepadEn } from './en/gamepad';
+import { overviewEn } from './en/overview';
 
 const baseEn: Record<keyof typeof base, string> = {
   'app.name': 'AE64 Control',
@@ -25,6 +26,8 @@ const baseEn: Record<keyof typeof base, string> = {
   'nav.groupDevice': 'Device',
   'nav.groupKeyboard': 'Keyboard',
   'nav.groupCustomize': 'Customize',
+  'page.overview': 'Overview',
+  'page.profiles': 'Profiles',
   'page.keymap': 'Keymap',
   'page.performance': 'Performance',
   'page.advanced': 'Advanced keys',
@@ -263,4 +266,5 @@ export const en = {
   ...calibrationEn,
   ...performanceEn,
   ...gamepadEn,
+  ...overviewEn,
 } as const;

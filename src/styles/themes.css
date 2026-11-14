@@ -712,6 +712,8 @@
   --focus-ring: 0 0 0 2px var(--acc-line);
 
   /* feature identity (sidebar tiles, rail, page title icon) */
+  --f-overview: var(--fg-3);
+  --f-profiles: var(--fg-3);
   --f-keymap: var(--fg-3);
   --f-performance: var(--fg-3);
   --f-advanced: var(--fg-3);

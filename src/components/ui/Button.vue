@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { Component } from 'vue';
+import { RouterLink } from 'vue-router';
+import type { RouteLocationRaw } from 'vue-router';
 
 withDefaults(defineProps<{
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
@@ -9,11 +11,19 @@ withDefaults(defineProps<{
   disabled?: boolean;
   block?: boolean;
   type?: 'button' | 'submit';
+  /** A button that navigates: rendered as a link (<RouterLink>, opens in a new tab with a middle click) with the same
+   *  look. A link has no type, disabled or busy state. */
+  to?: RouteLocationRaw;
 }>(), { variant: 'secondary', size: 'md', type: 'button' });
 </script>
 
 <template>
+  <RouterLink v-if="to" :to="to" class="btn" :class="[`btn--${variant}`, `btn--${size}`, { 'btn--block': block }]">
+    <component :is="icon" v-if="icon" class="btn__icon" :size="size === 'sm' ? 15 : 17" stroke-width="1.5" aria-hidden="true" />
+    <span v-if="$slots.default" class="btn__label"><slot /></span>
+  </RouterLink>
   <button
+    v-else
     :type="type"
     class="btn"
     :class="[`btn--${variant}`, `btn--${size}`, { 'btn--block': block }]"

@@ -14,7 +14,7 @@ export function deriveRtLinked(recs: PerformanceRec[], isRt: (mode: number) => b
 // its window listeners and the profile hook follow activation, and its view tools are shown only while it is open.
 import { computed, inject, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { IconAlertTriangle, IconFlask, IconLink, IconLinkOff, IconLock, IconRefresh, IconX } from '@tabler/icons-vue';
+import { IconAlertTriangle, IconFlask, IconLink, IconLinkOff, IconRefresh, IconX } from '@tabler/icons-vue';
 import KeyboardView from '../keyboard/KeyboardView.vue';
 import TabKeyboard from '../keyboard/TabKeyboard.vue';
 import type { LegendItem } from '../keyboard/SelectionBar.vue';
@@ -45,6 +45,7 @@ import { t } from '../../i18n/vi';
 import type { MessageKey } from '../../i18n/vi';
 import type { SubLine } from '../keyboard/Keycap.vue';
 import { PTAB_TOOLS } from './tabTools';
+import { actBadge, actBadgeIcon, actBadgeTitle, actFill, actSublabel, actuationLegend, capDecimals, fmtMm, uncalFlagFor } from '../../data/keycapActuation';
 
 type Metric = 'actuation' | 'rt' | 'deadzone';
 
@@ -198,20 +199,17 @@ onBeforeUnmount(() => {
   dismissUndoToast();
 });
 
-const decimals = computed(() => (device.rtPrecision < 0.01 ? 3 : 2));
+const decimals = computed(() => capDecimals(device.rtPrecision));
 /** Editor value text: 2 decimals unless the value needs the third. */
 const fmtEdit = (v: number) => formatMm(v, decimals.value);
-function fmt(v: number): string {
-  const s = v.toFixed(decimals.value).replace(/0+$/, '');
-  return s.endsWith('.') ? `${s}0` : s;
-}
+const fmt = (v: number): string => fmtMm(v, decimals.value);
 
-// ----- keyboard
+// ----- keyboard (the Actuation view's caps are shared with the Overview page: data/keycapActuation.ts)
 function sublabel(k: PhysicalKey): string | SubLine[] | undefined {
   const p = perf.values[k.id];
   if (!p) return undefined;
   switch (metric.value) {
-    case 'actuation': return fmt(actuationOf(p));
+    case 'actuation': return actSublabel(p, decimals.value);
     case 'rt':
       return isRtMode(p.mode)
         ? [{ text: `↓${fmt(p.rtPress)}`, tone: 'var(--m-press)' }, { text: `↑${fmt(p.rtRelease)}`, tone: 'var(--m-release)' }]
@@ -222,11 +220,11 @@ function sublabel(k: PhysicalKey): string | SubLine[] | undefined {
 /** Rapid Trigger keys carry an "RT" tag in the actuation view; the full numbers are in its title. */
 function badge(k: PhysicalKey): string | undefined {
   const p = perf.values[k.id];
-  return p && isRtMode(p.mode) && metric.value === 'actuation' ? 'RT' : undefined;
+  return p && metric.value === 'actuation' ? actBadge(p) : undefined;
 }
 function badgeIcon(k: PhysicalKey) {
   const p = perf.values[k.id];
-  return p && !isKnownMode(p.mode) ? IconLock : undefined;
+  return p ? actBadgeIcon(p) : undefined;
 }
 // The keycap legend of the active chip (DESIGN B §3.4). "If any" items look at every loaded key, not only the selection,
 // with the same tests as badge() / sublabel() / badgeIcon() so an item is listed exactly when a keycap shows it.
@@ -234,12 +232,10 @@ function legendFor(m: Metric): LegendItem[] | undefined {
   if (perf.loading || perf.loadError) return undefined;
   const recs = device.keys.map((k) => perf.values[k.id]).filter(Boolean);
   if (!recs.length) return undefined;
+  if (m === 'actuation') return actuationLegend(recs, perf.uncalibrated.length);
   const known = recs.filter((p) => isKnownMode(p.mode));
   const items: LegendItem[] = [];
-  if (m === 'actuation') {
-    items.push({ text: t('perf.showsAct'), tone: METRIC_TONE.actuation });
-    if (recs.some((p) => isRtMode(p.mode))) items.push({ glyph: 'RT', tone: 'var(--m-press)', text: t('perf.showsRtTag') });
-  } else if (m === 'rt') {
+  if (m === 'rt') {
     items.push({ glyph: '↓', tone: 'var(--m-press)', text: t('perf.showsRtPress') });
     items.push({ glyph: '↑', tone: 'var(--m-release)', text: t('perf.showsRtRelease') });
     if (recs.some((p) => !isRtMode(p.mode))) items.push({ glyph: '—', text: t('perf.showsRtOff') });
@@ -254,16 +250,16 @@ function legendFor(m: Metric): LegendItem[] | undefined {
 const shows = computed(() => legendFor(metric.value));
 /** The other chips' legends: the bar keeps one row count across chips. */
 const showsAlt = computed(() => METRICS.filter((m) => m.id !== metric.value).map((m) => legendFor(m.id)).filter((l): l is LegendItem[] => !!l));
-const uncalFlag = (k: PhysicalKey) => (perf.uncalibrated.includes(k.id) ? { label: t('kb.uncalibrated') } : undefined);
+const uncalFlag = (k: PhysicalKey) => uncalFlagFor(perf.uncalibrated, k.id);
 function badgeTitle(k: PhysicalKey): string | undefined {
   const p = perf.values[k.id];
   if (!p) return undefined;
-  if (!isKnownMode(p.mode)) return t('perf.unsupportedMode');
-  return badge(k) ? t('perf.rtTagTitle', { press: fmt(p.rtPress), release: fmt(p.rtRelease) }) : undefined;
+  // the lock's reason in every view; the RT numbers only where the RT tag is drawn (the Actuation view)
+  return isKnownMode(p.mode) && metric.value !== 'actuation' ? undefined : actBadgeTitle(p, decimals.value);
 }
 function fill(k: PhysicalKey): number | undefined {
   const p = perf.values[k.id];
-  return p && depthShading.value && metric.value === 'actuation' ? actuationOf(p) / rangeMm(p) : undefined;
+  return p && depthShading.value && metric.value === 'actuation' ? actFill(p) : undefined;
 }
 
 // ----- scope: the selection, or every key of the connected keyboard when nothing is selected

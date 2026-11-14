@@ -10,6 +10,7 @@ import { liveVi } from './live';
 import { calibrationVi } from './calibration';
 import { performanceVi } from './performance';
 import { gamepadVi } from './gamepad';
+import { overviewVi } from './overview';
 import { applyPlurals, locale } from './locale';
 import { en } from './en';
 
@@ -28,6 +29,8 @@ export const base = {
   'nav.groupDevice': 'Thiết bị',
   'nav.groupKeyboard': 'Bàn phím',
   'nav.groupCustomize': 'Tuỳ biến',
+  'page.overview': 'Tổng quan',
+  'page.profiles': 'Profile',
   'page.keymap': 'Keymap',
   'page.performance': 'Hiệu năng',
   'page.advanced': 'Phím nâng cao',
@@ -266,6 +269,7 @@ export const vi = {
   ...calibrationVi,
   ...performanceVi,
   ...gamepadVi,
+  ...overviewVi,
 } as const;
 
 export type MessageKey = keyof typeof vi;

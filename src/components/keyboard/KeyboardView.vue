@@ -51,6 +51,9 @@ const props = defineProps<{
   /** id of the sentence that explains the values on the keys (aria-describedby of the board). */
   describedby?: string;
   selectable?: boolean;
+  /** A board that does not select (no `selectable`) but opens a key: a click, Enter or Space on a key calls it (the
+   *  Overview page opens the key in the Travel tab). Ignored on a selectable board. */
+  pick?: (key: PhysicalKey) => void;
   /** Shows skeleton value lines while page data loads. */
   loading?: boolean;
 }>();
@@ -237,7 +240,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
   <div
     ref="root"
     class="kb"
-    :class="{ 'kb--selectable': selectable }"
+    :class="{ 'kb--selectable': selectable, 'kb--pick': !selectable && !!pick }"
     role="group"
     :aria-label="t('keyboard.label', { model: device.modelName ?? 'AE64' })"
     :aria-describedby="describedby"
@@ -261,6 +264,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
         :style="{ left: `${k.x * unit}px`, top: `${k.y * unit}px`, width: `${k.w * unit}px`, height: `${unit}px` }"
         @keydown="onKeyDown($event, k)"
         @focus="focusId = k.id"
+        @click="!selectable && pick?.(k)"
       >
         <Keycap
           :legend="legend ? legend(k) : k.name"
@@ -320,7 +324,8 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
   border-radius: var(--r-key);
   cursor: default;
 }
-.kb--selectable .kb__key { cursor: pointer; }
+.kb--selectable .kb__key,
+.kb--pick .kb__key { cursor: pointer; }
 .kb__key:focus-visible { box-shadow: none; }
 .kb__key:focus-visible :deep(.cap__face) { box-shadow: 0 0 0 2px var(--acc-line); }
 /* A glowing key keeps its glow under focus and gets an outer dashed --fg-1 outline, so focus never reads as the

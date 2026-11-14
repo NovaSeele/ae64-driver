@@ -1,12 +1,19 @@
 <script lang="ts">
+import { t as tr } from '../../i18n/vi';
+
 /**
  * One entry of the keycap legend ("Keycap: …", DESIGN B §3.2). A glyph or sample is drawn the way the keycap draws it
- * (same character, same tone), followed by " = " and its meaning.
+ * (same character, same tone), followed by " = " and its meaning. 'fill' is the depth fill (DESIGN F §3.6).
  */
 export type LegendItem =
   | { text: string; tone?: string }
   | { glyph: string; tone?: string; text: string }
-  | { sample: 'flag' | 'bar' | 'lock'; label: string; colors?: string[]; tone?: string; text: string };
+  | { sample: 'flag' | 'bar' | 'lock' | 'fill'; label: string; colors?: string[]; tone?: string; text: string };
+
+/** The legend as one plain sentence, read once by a screen reader and used as its title (the selection bar, Overview). */
+export function legendSentence(items: readonly LegendItem[]): string {
+  return `${tr('sel.shows')}: ${items.map((i) => ('glyph' in i ? `${i.glyph} = ${i.text}` : 'sample' in i ? `${i.label} = ${i.text}` : i.text)).join(' · ')}`;
+}
 </script>
 
 <script setup lang="ts">
@@ -70,9 +77,7 @@ function pick(g: { fn: 'wasd' | 'letters' | 'digits' | 'modifiers'; n: number },
 }
 
 /** The legend read once by a screen reader, and its title. */
-const plain = computed(() => props.shows
-  ? `${t('sel.shows')}: ${props.shows.map((i) => ('glyph' in i ? `${i.glyph} = ${i.text}` : 'sample' in i ? `${i.label} = ${i.text}` : i.text)).join(' · ')}`
-  : '');
+const plain = computed(() => (props.shows ? legendSentence(props.shows) : ''));
 /** The legends measured for the row count: the one shown and the ones the page can switch to. */
 const ghostLegends = computed(() => (props.shows ? [props.shows, ...(props.showsAlt ?? [])] : []));
 
