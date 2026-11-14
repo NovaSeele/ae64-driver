@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, KeepAlive, nextTick, ref } from 'vue';
 import { mount } from '@vue/test-utils';
-import { useKeyLock } from '../src/composables/useKeyLock';
+import { lockBlocks, useKeyLock } from '../src/composables/useKeyLock';
 import { useRovingFocus } from '../src/composables/useRovingFocus';
 
 const active = ref(true);
@@ -232,5 +232,44 @@ describe('useRovingFocus', () => {
     await nextTick();
     expect(stops()).toEqual(['1']);
     w.unmount();
+  });
+});
+
+describe('lockBlocks: Enter on a sidebar link (DESIGN L §11.1, K1)', () => {
+  function fixture() {
+    document.body.innerHTML = '<nav data-shellnav><a id="nl" href="#/keymap">Keymap</a><button id="nb">b</button><a id="nn">no href</a></nav>'
+      + '<a id="out" href="#/x">x</a>';
+  }
+  /** lockBlocks() for a keydown on `id`, read inside a listener so the event has its target. */
+  function blocks(code: string, id: string, opts?: { navEnter?: boolean }): boolean {
+    const el = document.getElementById(id)!;
+    let r: boolean | undefined;
+    const f = (e: Event) => { r = opts === undefined ? lockBlocks(e as KeyboardEvent) : lockBlocks(e as KeyboardEvent, opts); };
+    el.addEventListener('keydown', f);
+    el.dispatchEvent(new KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true }));
+    el.removeEventListener('keydown', f);
+    return r!;
+  }
+
+  it('navEnter: Enter and NumpadEnter on a [data-shellnav] link pass; Space, arrows, letters, Backspace there stay blocked', () => {
+    fixture();
+    expect(blocks('Enter', 'nl', { navEnter: true })).toBe(false);
+    expect(blocks('NumpadEnter', 'nl', { navEnter: true })).toBe(false);
+    for (const code of ['Space', 'ArrowDown', 'KeyA', 'Backspace']) expect(blocks(code, 'nl', { navEnter: true }), code).toBe(true);
+  });
+
+  it('navEnter: Enter stays blocked on a link outside the nav, on a button inside it, and on a nav link without href', () => {
+    fixture();
+    expect(blocks('Enter', 'out', { navEnter: true })).toBe(true);
+    expect(blocks('Enter', 'nb', { navEnter: true })).toBe(true);
+    expect(blocks('Enter', 'nn', { navEnter: true })).toBe(true);
+  });
+
+  it('without navEnter (or false) Enter on the nav link is blocked as before', () => {
+    fixture();
+    expect(blocks('Enter', 'nl')).toBe(true);
+    expect(blocks('Enter', 'nl', {})).toBe(true);
+    expect(blocks('Enter', 'nl', { navEnter: false })).toBe(true);
+    expect(blocks('NumpadEnter', 'nl', { navEnter: false })).toBe(true);
   });
 });

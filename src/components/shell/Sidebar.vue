@@ -15,7 +15,7 @@ const device = useDeviceStore();
   <aside class="side" :class="{ 'side--compact': compact }">
     <DeviceCard :compact="compact" />
     <ProfileSelect v-if="device.connected && device.profileNames.length" :compact="compact" />
-    <nav class="side__nav" :aria-label="t('nav.configure')">
+    <nav class="side__nav" data-shellnav :aria-label="t('nav.configure')">
       <div v-for="g in NAV" :key="g.group" class="side__group">
         <div class="micro side__label">{{ t(g.group) }}</div>
         <RouterLink

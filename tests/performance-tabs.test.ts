@@ -28,6 +28,8 @@ import GamepadDetail from '../src/components/gamepad/GamepadDetail.vue';
 import { physKey } from '../src/components/gamepad/outputs';
 import { isAnalogIndex } from '../src/protocol/gamepad';
 import { useGamepadStore } from '../src/stores/gamepad';
+import { useToast } from '../src/components/ui/toast';
+import { watch } from 'vue';
 import { locale } from '../src/i18n/locale';
 import { t } from '../src/i18n/vi';
 import type { MessageKey } from '../src/i18n/vi';
@@ -743,5 +745,110 @@ describe('Performance tabs: review of r109 (E-TEST-1, E-TEST-2, E-BUG-1)', () =>
     await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/performance'));
     expect(router.currentRoute.value.fullPath).toBe('/performance?tab=travel');
     expect(useSelectionStore().ids).toEqual([pk.id]);
+  });
+});
+
+describe('Performance tabs: refused while calibrating, with a toast (DESIGN L §11.2)', () => {
+  const toasts = () => useToast().items.value.map((x) => ({ text: x.text, kind: x.kind }));
+  const ptab = () => toasts().filter((x) => x.text === t('ptab.locked') || x.text === t('ptab.lockedFinishing'));
+  async function calTab(phase: 'starting' | 'running' | 'finishing' | 'idle') {
+    await at('/performance?tab=calibration');
+    useCalibrationStore().phase = phase;
+    await settle();
+    useToast().items.value = [];
+  }
+
+  it('P1. running: a push to another tab stays on Calibration with one "warn" toast ptab.locked', async () => {
+    await calTab('running');
+    await router.push('/performance?tab=test');
+    await settle();
+    expect(router.currentRoute.value.query).toEqual({ tab: 'calibration' });
+    expect(ptab()).toEqual([{ text: t('ptab.locked'), kind: 'warn' }]);
+  });
+
+  it('P2. finishing: the toast is ptab.lockedFinishing', async () => {
+    await calTab('finishing');
+    await router.push('/performance?tab=test');
+    await settle();
+    expect(router.currentRoute.value.query).toEqual({ tab: 'calibration' });
+    expect(ptab()).toEqual([{ text: t('ptab.lockedFinishing'), kind: 'warn' }]);
+    expect(t('ptab.lockedFinishing')).toBe('Đang kết thúc phiên hiệu chuẩn. Chờ xong rồi hãy mở tab khác.');
+  });
+
+  it('P3. starting: the toast is ptab.locked', async () => {
+    await calTab('starting');
+    await router.push('/performance?tab=switch');
+    await settle();
+    expect(router.currentRoute.value.query).toEqual({ tab: 'calibration' });
+    expect(ptab()).toEqual([{ text: t('ptab.locked'), kind: 'warn' }]);
+  });
+
+  it('P4. idle: the push opens the tab, no toast', async () => {
+    await calTab('idle');
+    await router.push('/performance?tab=test');
+    await settle();
+    expect(router.currentRoute.value.query).toEqual({ tab: 'test' });
+    expect(ptab()).toEqual([]);
+  });
+
+  it('P5. running, a push that stays on Calibration (another query): no toast', async () => {
+    await calTab('running');
+    await router.push('/performance?tab=calibration&x=1');
+    await settle();
+    expect(router.currentRoute.value.query.tab).toBe('calibration');
+    expect(ptab()).toEqual([]);
+  });
+
+  it('P6. running, Back to the tab before (?tab=test → ?tab=calibration): refused, the toast once', async () => {
+    await at('/performance?tab=test');
+    await click('calibration');
+    expect(router.currentRoute.value.query).toEqual({ tab: 'calibration' });
+    useCalibrationStore().phase = 'running';
+    await settle();
+    useToast().items.value = [];
+    let shown = 0; // show() replaces a toast of the same text, so count each time one is put up
+    const stop = watch(useToast().items, (now) => { if (now.at(-1)?.text === t('ptab.locked')) shown++; }, { flush: 'sync' });
+    router.back();
+    await vi.waitFor(() => expect(ptab().length).toBe(1));
+    await new Promise((r) => setTimeout(r, 50));
+    await settle();
+    expect(router.currentRoute.value.query).toEqual({ tab: 'calibration' });
+    expect(ptab()).toEqual([{ text: t('ptab.locked'), kind: 'warn' }]);
+    stop();
+    expect(shown).toBe(1);
+  });
+
+  it('P7. a dirty Advanced draft (the draft guard, not calBusy): its dialog, no ptab toast', async () => {
+    const device = useDeviceStore();
+    await device.connectDemo();
+    await device.switchProfile(1);
+    await useAdvancedStore().load();
+    await at('/performance?tab=advanced');
+    await w!.find('.item__main').trigger('click');
+    await settle();
+    useSelectionStore().selectMany([keyId('W')]);
+    await settle();
+    expect(useHistoryStore().suspended).toBe(true); // dirty
+    useToast().items.value = [];
+    await click('switch');
+    expect(dialogs()).toBe(1);
+    expect(ptab()).toEqual([]);
+    expect(toasts().filter((x) => x.text.startsWith('Đang'))).toEqual([]);
+  });
+});
+
+describe('the sidebar nav for the key lock (DESIGN L §11.1, K4)', () => {
+  it('K4. the sidebar <nav> carries data-shellnav and holds every NAV item as an a[href]', async () => {
+    const device = useDeviceStore();
+    if (!device.connected) await device.connectDemo();
+    const r = perfRouter();
+    const s = mount(Sidebar, { global: { plugins: [r, pinia], stubs: { teleport: true } } });
+    await flushPromises();
+    const nav = s.find('nav[data-shellnav]');
+    expect(nav.exists()).toBe(true);
+    const links = nav.findAll('a[href]');
+    expect(links.length).toBe(NAV.flatMap((g) => g.items).length);
+    expect(s.findAll('.side__link').length).toBe(links.length);
+    s.unmount();
   });
 });

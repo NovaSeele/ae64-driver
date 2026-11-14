@@ -23,6 +23,7 @@ export const performanceVi = {
   'ptab.scopeBoard': 'Áp dụng cho cả bàn phím',
   'ptab.scopeRead': 'Chỉ đọc, không ghi gì vào phím',
   'ptab.locked': 'Đang hiệu chuẩn: hoàn tất hoặc huỷ để mở các tab khác',
+  'ptab.lockedFinishing': 'Đang kết thúc phiên hiệu chuẩn. Chờ xong rồi hãy mở tab khác.',
   'swp.tabSwitch': 'Switch',
   'swp.tabCalibration': 'Hiệu chuẩn',
   'swp.tabSwitchSub': 'Xem và đổi switch của từng phím',

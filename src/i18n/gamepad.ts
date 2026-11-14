@@ -153,7 +153,7 @@ export const gamepadVi = {
   'gp.handleStart': 'Điểm bắt đầu',
   'gp.handleFull': 'Điểm tối đa',
   'gp.now': 'Đang nhấn {depth} mm → {pct}%',
-  'gp.digital': '{out} là nút bật/tắt: nó theo điểm nhấn và Rapid Trigger của phím trong trang Hành trình, không dùng đường cong.',
+  'gp.digital': '{out} là nút bật/tắt: nó theo điểm nhấn và Rapid Trigger của phím trong tab Hành trình, không dùng đường cong.',
   'gp.openTravel': 'Mở tab Hành trình',
   'gp.curveEmpty': 'Chọn một phím đã gán cần hoặc cò để chỉnh đường cong.',
   'gp.keyUnassigned': 'Phím {key} chưa gán đầu ra nào. Chọn một đầu ra bên trái.',

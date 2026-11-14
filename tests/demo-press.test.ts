@@ -204,3 +204,42 @@ describe('demo press reads during a stroke', () => {
     for (const d of mids) expect(Math.abs(d - mean)).toBeLessThan(1e-6);
   });
 });
+
+describe('demo press and links (DESIGN L §11.1, K5)', () => {
+  let detach: (() => void) | null = null;
+  afterEach(() => {
+    detach?.();
+    detach = null;
+    document.body.innerHTML = '';
+    vi.unstubAllGlobals();
+  });
+
+  it('K5. Enter (and NumpadEnter) on a focused link is neither prevented nor simulated; Space on it still is; Enter on a button as before', () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { frames.push(cb); return frames.length; });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    const mock = new MockTransport({ latencyMs: 0 });
+    const spy = vi.spyOn(mock, 'simulatePress');
+    detach = attachDemoPress(mock);
+    const flush = () => { for (let i = 0; i < 20 && frames.length; i++) frames.shift()!(performance.now() + 1000); };
+    const link = document.createElement('a');
+    link.href = '#/keymap';
+    const btn = document.createElement('button');
+    document.body.append(link, btn);
+    const down = (code: string, el: Element) => {
+      const e = new KeyboardEvent('keydown', { code, key: code === 'Space' ? ' ' : code, bubbles: true, cancelable: true });
+      el.dispatchEvent(e);
+      flush();
+      return e.defaultPrevented;
+    };
+
+    for (const code of ['Enter', 'NumpadEnter']) {
+      expect(down(code, link), code).toBe(false);
+      expect(spy, code).not.toHaveBeenCalled();
+    }
+    expect(down('Enter', btn)).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+    expect(down('Space', link)).toBe(true);
+    expect(spy.mock.calls.some(([, mm]) => mm > 0)).toBe(true);
+  });
+});

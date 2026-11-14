@@ -953,3 +953,63 @@ describe('leave dialog (DESIGN L)', () => {
     await until(() => cal.phase === 'idle');
   });
 });
+
+describe('the calibration key lock and sidebar links (DESIGN L §11.1, K2)', () => {
+  /** A stand-in for the app's sidebar: <nav data-shellnav><a href>. */
+  function navLink() {
+    const nav = document.createElement('nav');
+    nav.setAttribute('data-shellnav', '');
+    const a = document.createElement('a');
+    a.href = '#/b';
+    a.textContent = 'B';
+    nav.appendChild(a);
+    document.body.appendChild(nav);
+    return a;
+  }
+  const keydown = (code: string, target: EventTarget) => {
+    const e = new KeyboardEvent('keydown', { code, key: code === 'Space' ? ' ' : code, bubbles: true, cancelable: true });
+    target.dispatchEvent(e);
+    return e.defaultPrevented;
+  };
+
+  it('K2. running: Enter and NumpadEnter on a sidebar link pass, Space there is still blocked, Enter on a page button too; idle blocks nothing', async () => {
+    await open();
+    const a = navLink();
+    expect(keydown('Enter', a)).toBe(false); // idle: no lock
+    expect(keydown('Space', a)).toBe(false);
+    await begin();
+    expect(cal.phase).toBe('running');
+    expect(keydown('Enter', a)).toBe(false);
+    expect(keydown('NumpadEnter', a)).toBe(false);
+    expect(keydown('Space', a)).toBe(true);
+    const btn = w!.findAll('button').find((b) => !b.element.closest('[role="dialog"]'))!.element;
+    expect(keydown('Enter', btn)).toBe(true); // Finish / Cancel stay locked (§11.1 point 4)
+  });
+});
+
+describe('leaving while the session is starting (review L-TEST-1)', () => {
+  it('L-TEST-1. starting (the start reply held): a push leaves at once, no dialog; once the reply comes, one stop and no commit', async () => {
+    await open();
+    let release!: () => void;
+    const start = mock.startCalibration.bind(mock);
+    const starts = vi.spyOn(mock, 'startCalibration').mockImplementation(() => new Promise<void>((r) => { release = r; }).then(() => start()));
+    const stops = vi.spyOn(mock, 'stopCalibration');
+    const writes = vi.spyOn(mock as unknown as { write(p: number[]): Promise<unknown> }, 'write');
+    await actionButton(t('calibration.start'))!.trigger('click');
+    await flushPromises();
+    bodyButton(t('calibration.start'))!.click();
+    await until(() => !!release);
+    expect(cal.phase).toBe('starting');
+    await router.push('/a');
+    await flushPromises();
+    expect(router.currentRoute.value.fullPath).toBe('/a');
+    expect(document.body.querySelectorAll('.dlg').length).toBe(0);
+    expect(stops).not.toHaveBeenCalled();
+    release();
+    await until(() => cal.phase === 'idle');
+    await flushPromises();
+    expect(starts).toHaveBeenCalledTimes(1);
+    expect(stops).toHaveBeenCalledTimes(1);
+    expect(writes.mock.calls.map(([p]) => [...p.slice(0, 3)].map((b) => b.toString(16).padStart(2, '0')).join(' '))).toEqual(['02 06 00', '02 06 01']);
+  });
+});

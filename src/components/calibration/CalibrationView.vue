@@ -200,7 +200,8 @@ watch(shallowIds, (now, before) => {
 
 // ---- Key lock while the session runs (DESIGN D §3.7, review D P2-b): keys typed by the board being calibrated must not
 // scroll the page away from the keyboard and the card, nor press the focused button. Always on, no switch.
-useKeyLock({ active: () => cal.phase === 'running' || cal.phase === 'finishing' });
+// navEnter: DESIGN L §11.1: the leave Dialog guards every sidebar link, so Enter on one may pass the lock.
+useKeyLock({ active: () => cal.phase === 'running' || cal.phase === 'finishing', navEnter: true });
 
 // ---- Start, finish, cancel
 const runningEl = ref<HTMLElement | null>(null);
@@ -340,9 +341,10 @@ async function leaveNow() {
   leaveTo.value = null;
   let failed: unknown;
   try { failed = await router.push(to); } finally { leaving = false; }
-  // Refused (another guard or the target): the session runs on, focus back on the status line. Only then: after a push
-  // that went through, App's out-in Transition keeps this page mounted and running until it has left, so a phase check
-  // alone would focus the leaving page and drop focus to body (review L-P1).
+  // Refused (another guard or the target): the session runs on, focus back on the status line. When the push went
+  // through, this view has already been unmounted by the time it resolves (`unmounted` is true and the unmount's cancel
+  // has moved the phase to 'finishing'); only its DOM stays a moment for App's out-in Transition. So the phase check
+  // alone already keeps focus off the leaving page; `failed` is an extra guard on top of it (review L-TEXT-1).
   if (failed && !unmounted && cal.phase === 'running') runningEl.value?.focus({ preventScroll: true });
 }
 // Closed without leaving (stay, Esc, backdrop, X, or the session ended): as finishAsk, never back on the sidebar link the

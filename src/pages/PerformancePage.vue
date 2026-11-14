@@ -17,11 +17,13 @@ import { asPerfTab, saveTab, storedTab } from '../router';
 import type { PerfTab } from '../router';
 import { useDeviceStore } from '../stores/device';
 import { useCalibrationStore } from '../stores/calibration';
+import { useToast } from '../components/ui/toast';
 import { t } from '../i18n/vi';
 import type { MessageKey } from '../i18n/vi';
 
 const device = useDeviceStore();
 const cal = useCalibrationStore();
+const toast = useToast();
 const route = useRoute();
 const router = useRouter();
 
@@ -81,8 +83,12 @@ function draftGuard(to: RouteLocationNormalized): false | undefined {
   return false;
 }
 onBeforeRouteUpdate((to) => {
-  // While a calibration session runs, only the Calibration tab can be open: Back and links to another tab stay put.
-  if (calBusy.value && tabOf(to) !== 'calibration') return false;
+  // While a calibration session runs, only the Calibration tab can be open: Back and links to another tab stay put, with
+  // a toast saying why (DESIGN L §11.2). The draft guard below refuses without one: its own Dialog asks.
+  if (calBusy.value && tabOf(to) !== 'calibration') {
+    toast.show(t(cal.phase === 'finishing' ? 'ptab.lockedFinishing' : 'ptab.locked'), 'warn');
+    return false;
+  }
   return draftGuard(to);
 });
 // Leaving the page: CalibrationView keeps its own leave guard (a Dialog, DESIGN L).

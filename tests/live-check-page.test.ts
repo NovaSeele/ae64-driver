@@ -493,3 +493,21 @@ describe('key lock on the live page', () => {
     expect(w!.find('.klock__live').text()).toBe('');
   });
 });
+
+describe('key lock on the live page and sidebar links (DESIGN L §11.1, K3)', () => {
+  it('K3. measuring with the lock on: Enter on a sidebar link is still blocked (Key test has no leave dialog)', async () => {
+    await open();
+    expect(w!.find('.klock__text').text()).toBe(t('live.lockOn'));
+    const nav = document.createElement('nav');
+    nav.setAttribute('data-shellnav', '');
+    const a = document.createElement('a');
+    a.href = '#/keymap';
+    nav.appendChild(a);
+    document.body.appendChild(nav);
+    for (const code of ['Enter', 'NumpadEnter']) {
+      const e = new KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true });
+      a.dispatchEvent(e);
+      expect(e.defaultPrevented, code).toBe(true);
+    }
+  });
+});

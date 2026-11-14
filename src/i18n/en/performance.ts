@@ -24,6 +24,7 @@ export const performanceEn: Record<keyof typeof performanceVi, string> = {
   'ptab.scopeBoard': 'Applies to the whole keyboard',
   'ptab.scopeRead': 'Read-only, nothing is written to the keyboard',
   'ptab.locked': 'Calibrating: finish or cancel to open the other tabs',
+  'ptab.lockedFinishing': 'The calibration session is ending. Wait until it finishes, then open the other tab.',
   'swp.tabSwitch': 'Switches',
   'swp.tabCalibration': 'Calibration',
   'swp.tabSwitchSub': "See and change each key's switch",
