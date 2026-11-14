@@ -129,6 +129,9 @@ describe('item 2: the rule of each key is the one its reader uses', () => {
 
     expect(v(JSON.stringify([preset('a1', 'Deep', { actuation: 12 })]))).toBe(false); // over the 10 mm ceiling: the reader would clamp
     expect(v(JSON.stringify(Array.from({ length: USER_PRESET_MAX + 1 }, (_, i) => preset(`p${i}`))))).toBe(false);
+    // H-TEST-1: exactly the most the store keeps (6) passes
+    expect(USER_PRESET_MAX).toBe(6);
+    expect(presetsValid(JSON.stringify(Array.from({ length: USER_PRESET_MAX }, (_, i) => preset(`p${i}`))))).toBe(true);
     expect(v(JSON.stringify([preset('a1'), preset('a1', 'Other')]))).toBe(false);
     expect(v(JSON.stringify([preset('a1', ' FPS')]))).toBe(false); // the reader would trim it
     expect(v(JSON.stringify([{ ...preset('a1'), extra: 1 }]))).toBe(false);
@@ -156,6 +159,8 @@ describe('item 2: the rule of each key is the one its reader uses', () => {
     expect(loadRecent()).toEqual(['#73f0c0', '#FF0000']);
     expect(v('"#73f0c0"')).toBe(false);
     expect(v(JSON.stringify(Array.from({ length: 13 }, () => '#000000')))).toBe(false);
+    // H-TEST-2: exactly the most the picker keeps (12) passes
+    expect(recentValid(JSON.stringify(Array.from({ length: 12 }, (_, i) => `#0000${String(i).padStart(2, '0')}`)))).toBe(true);
     expect(v('["red"]')).toBe(false);
     expect(recentValid('[1]')).toBe(false);
   });

@@ -241,4 +241,20 @@ describe('item 10: Copy info on the Diagnostics device card', () => {
     expect(out).toEqual([]);
     expect(card.find('.card__actions button').text()).toBe(t('info.copied'));
   });
+
+  it('H-TEST-6: settings read once, then a load that failed: polling rate and macro memory are "—", not the old values', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    setNav('clipboard', { writeText });
+    const { card } = await diagPage();
+    const settings = useSettingsStore();
+    await settings.load();
+    expect(settings.loaded).toBe(true); // values are there …
+    settings.loadError = 'x'; // … but the last read failed
+    expect(settings.loaded).toBe(true);
+    await card.find('.card__actions button').trigger('click');
+    await flushPromises();
+    const text = writeText.mock.calls[0][0] as string;
+    expect(text).toContain('Polling rate: —');
+    expect(text).toContain('Macro memory: —');
+  });
 });

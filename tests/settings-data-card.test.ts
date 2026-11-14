@@ -1,6 +1,7 @@
 // DESIGN H §3.3, §3.4, §3.6, §3.7, §11 items 6, 7, 8, 13: the "Where your data lives" card on the Settings page, its two
 // dialogs, the busy lock, the read-only profile names, and the Diagnostics link. Every case counts HID commands: 0.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { createMemoryHistory, createRouter, type Router } from 'vue-router';
@@ -162,9 +163,44 @@ describe('Export', () => {
     expect(useToast().items.value.map((x) => x.text)).toContain(t('appcfg.exported', { n: 2, file: 'ae64-control-settings-20300102.json' }));
     expect(p.out).toEqual([]);
   });
+
+  it('H-TEST-3: nothing stored, then the language changed (no pointer, focus or storage event): Export turns on', async () => {
+    const p = await page();
+    expect(p.exportBtn().attributes('disabled')).toBeDefined();
+    setLocale('en'); // writes ae64.locale
+    await nextTick();
+    await nextTick();
+    expect(localStorage.getItem('ae64.locale')).toBe('en');
+    expect(p.exportBtn().attributes('disabled')).toBeUndefined();
+    setLocale('vi');
+  });
+
+  it('H-TEST-5: storage emptied behind its back (no event): Export downloads nothing, no toast, and turns off', async () => {
+    const p = await page({ before: () => localStorage.setItem('ae64.theme', 'ember') });
+    expect(p.exportBtn().attributes('disabled')).toBeUndefined();
+    useToast().items.value.splice(0);
+    localStorage.clear();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    await p.exportBtn().trigger('click');
+    await nextTick();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(click).not.toHaveBeenCalled();
+    expect(useToast().items.value).toHaveLength(0);
+    expect(p.exportBtn().attributes('disabled')).toBeDefined();
+    expect(p.out).toEqual([]);
+  });
 });
 
 describe('Import', () => {
+  it('H-TEST-4: the file input is emptied after each pick (the same file chosen again runs again)', async () => {
+    const p = await page();
+    const set = vi.fn();
+    Object.defineProperty(p.input().element, 'value', { set, get: () => '', configurable: true });
+    await choose(p, 'not json');
+    expect(set).toHaveBeenCalledWith('');
+    expect(p.err().text()).toBe(t('appcfg.errJson'));
+  });
+
   it('a wrong file: the error under the buttons, no dialog, nothing written; a button press clears it', async () => {
     const p = await page();
     await choose(p, fileOf({ 'ae64.layout.v2': '1', 'ae64.beta': '1' }));
@@ -502,6 +538,24 @@ describe('the Diagnostics link (§3.3)', () => {
     expect(scroll.mock.contexts[0]).toBe(title.closest('.card'));
     expect(scroll.mock.calls[0][0]).toMatchObject({ block: 'start' });
     expect(router.currentRoute.value.query).toEqual({ keep: '1' });
+  });
+
+  it.each([[true, 'auto'], [false, 'smooth']] as const)('H-TEST-7: reduced motion %s → the scroll is %s', async (reduce, behavior) => {
+    const had = Object.prototype.hasOwnProperty.call(window, 'matchMedia');
+    const old = window.matchMedia;
+    window.matchMedia = vi.fn((q: string) => ({
+      matches: q === '(prefers-reduced-motion: reduce)' ? reduce : false, media: q, onchange: null,
+      addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined, dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+    try {
+      const { scroll } = await diag({ focus: 'backup' });
+      expect(window.matchMedia).toHaveBeenCalledWith('(prefers-reduced-motion: reduce)');
+      expect(scroll).toHaveBeenCalledTimes(1);
+      expect(scroll.mock.calls[0][0]).toEqual({ block: 'start', behavior });
+    } finally {
+      if (had) window.matchMedia = old;
+      else delete (window as unknown as Record<string, unknown>).matchMedia;
+    }
   });
 
   it('without the query nothing moves', async () => {
