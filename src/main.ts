@@ -5,7 +5,8 @@ import './styles/tokens.css';
 import './styles/themes.css';
 import './styles/base.css';
 import App from './App.vue';
-import { router } from './router';
+import { installFirmwareGuard, router } from './router';
+import { useFirmwareStore } from './stores/firmware';
 import { locale } from './i18n/locale';
 import './theme';
 import { registerServiceWorker } from './update';
@@ -16,4 +17,10 @@ if (typeof document !== 'undefined') {
 
 registerServiceWorker();
 
-createApp(App).use(createPinia()).use(router).mount('#app');
+const pinia = createPinia();
+const app = createApp(App).use(pinia);
+installFirmwareGuard(router, () => {
+  const fw = useFirmwareStore(pinia);
+  return { enabled: fw.enabled, active: fw.active, rescue: fw.rescue };
+});
+app.use(router).mount('#app');

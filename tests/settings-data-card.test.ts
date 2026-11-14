@@ -108,9 +108,9 @@ describe('the card', () => {
     expect(k.get('.dl__promise').text()).toBe(t('sync.savedHelp'));
     expect(k.get('a.dl__link').attributes('href')).toBe('/diagnostics?focus=backup');
     expect(c.get('.dl__note').text()).toBe(t('appcfg.note'));
-    // Tab order in the card: link → Export → Import → Reset
-    const focusables = [...p.card().element.querySelectorAll<HTMLElement>('a[href], button')].map((e) => e.textContent!.trim());
-    expect(focusables).toEqual([t('data.keyboardBackup'), t('appcfg.export'), t('appcfg.import'), t('appcfg.reset')]);
+    // Tab order in the card: link → Export → Import → Reset → the Firmware page switch (labs row, DESIGN FW §3.8)
+    const focusables = [...p.card().element.querySelectorAll<HTMLElement>('a[href], button')].map((e) => e.getAttribute('aria-label') ?? e.textContent!.trim());
+    expect(focusables).toEqual([t('data.keyboardBackup'), t('appcfg.export'), t('appcfg.import'), t('appcfg.reset'), t('labs.firmware')]);
     expect(p.out).toEqual([]);
   });
 

@@ -73,6 +73,8 @@ export function decodeDeviceInfo(d: Bytes): DeviceInfo {
     runMode: d[16],
     // The factory driver prints the 12 UID bytes as concatenated decimals.
     serial: Array.from(d.slice(17, 29)).join(''),
+    // `serial` loses information ([1, 11] and [11, 1] both read "111"): compare keyboards by this one.
+    serialHex: Array.from(d.slice(17, 29), (b) => (b & 0xff).toString(16).padStart(2, '0')).join(''),
     timestamp: String.fromCharCode(...(end < 0 ? ts : ts.slice(0, end))),
   };
 }

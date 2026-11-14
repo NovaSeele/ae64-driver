@@ -13,6 +13,8 @@ import { useCalibrationStore } from './calibration';
 import { useHistoryStore } from './history';
 import { useSettingsStore } from './settings';
 import { useSyncStore } from './sync';
+import { useFirmwareStore } from './firmware';
+import { BaseTransport } from '../protocol/client';
 
 export type DeviceStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
@@ -260,8 +262,14 @@ export const useDeviceStore = defineStore('device', () => {
       statsTick.value++;
     }, LATENCY_REFRESH_MS);
     try {
+      // `01 02` first (DESIGN FW §3.3): a keyboard not running its app gets nothing else.
+      const first = await t.getDeviceInfo();
+      if (first.runMode !== 0 || (t as { probeOnly?: boolean }).probeOnly) {
+        await handOver(t, first, isDemo);
+        return;
+      }
+      info.value = first;
       version.value = await t.getProtocolVersion();
-      info.value = await t.getDeviceInfo();
       boardAllowed.value = ALLOWED_BOARDS.includes(info.value.boardIdHex);
       features.value = await t.getFeatures();
       await readProfiles(t);
@@ -284,6 +292,50 @@ export const useDeviceStore = defineStore('device', () => {
       status.value = 'error';
       error.value = message(err);
       throw err;
+    }
+  }
+
+  /**
+   * A connection whose `01 02` says it is not an AE64 running its app: run mode 255 (bootloader) goes to the firmware page's
+   * rescue mode; another run mode, or a device found through the PID-less probe filter that is not an AE64, is refused. Nothing
+   * more is sent to it here.
+   */
+  async function handOver(t: Ae64Transport, first: DeviceInfo, isDemo: boolean): Promise<void> {
+    reset();
+    if (first.runMode === 255 && t instanceof BaseTransport) {
+      status.value = 'idle';
+      useFirmwareStore().openRescue(t, first, isDemo);
+      return;
+    }
+    await t.close().catch(() => undefined);
+    status.value = 'error';
+    error.value = first.runMode === 0 ? tr('error.noAe64Selected') : tr('fw.rescue.unknownMode', { mode: first.runMode });
+  }
+
+  /** Keeps every poller paused (exclusiveActive) until the returned release runs, or the connection is reset. */
+  function holdExclusive(): () => void {
+    const mine = session;
+    exclusiveCount.value++;
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      if (mine === session) exclusiveCount.value = Math.max(0, exclusiveCount.value - 1);
+    };
+  }
+
+  /**
+   * The firmware page hands a keyboard back (DESIGN FW §3.3): a new connection whatever came before (sync and undo history
+   * empty, everything read again), `init` once.
+   */
+  async function adoptFromFirmware(t: Ae64Transport, isDemo: boolean, seed?: DemoSeed): Promise<void> {
+    const prev = transport.value;
+    reset();
+    if (prev && prev !== t) void prev.close().catch(() => undefined);
+    await init(t, isDemo);
+    if (isDemo && seed) {
+      demoSeed.value = seed;
+      writeDemoModel(seed);
     }
   }
 
@@ -318,6 +370,12 @@ export const useDeviceStore = defineStore('device', () => {
   }
 
   function handleDisconnect(): void {
+    // A firmware session expects the keyboard to leave USB: no reset, no toast, no replug (it finds the keyboard itself).
+    if (useFirmwareStore().active) {
+      detach.forEach((fn) => fn());
+      detach = [];
+      return;
+    }
     const lostProductId = demo.value ? undefined : transport.value?.productId;
     const lost = reset();
     status.value = 'idle';
@@ -353,7 +411,7 @@ export const useDeviceStore = defineStore('device', () => {
   }
 
   async function tryAutoReconnect(): Promise<boolean> {
-    if (!hidAvailable || transport.value) return false;
+    if (!hidAvailable || transport.value || useFirmwareStore().active) return false;
     try {
       status.value = 'connecting';
       const t = await reconnectGrantedHid();
@@ -373,6 +431,8 @@ export const useDeviceStore = defineStore('device', () => {
   async function disconnect(opts: { flush?: boolean; user?: boolean } = {}): Promise<void> {
     const t = transport.value;
     if (!t) return;
+    // The firmware page owns the connections while it runs (DESIGN FW §3.4): the sidebar buttons are off, this is the backstop.
+    if (opts.user && useFirmwareStore().active) return;
     if (opts.user && calibrationBusy()) {
       useToast().show(tr('device.calibrating'), 'warn');
       return;
@@ -386,6 +446,7 @@ export const useDeviceStore = defineStore('device', () => {
 
   /** True when the keyboard may be left: not calibrating, and every edit was saved (otherwise a toast says why and the connection stays). */
   async function readyToLeave(): Promise<boolean> {
+    if (useFirmwareStore().active) return false;
     if (calibrationBusy()) {
       useToast().show(tr('device.calibrating'), 'warn');
       return false;
@@ -423,6 +484,7 @@ export const useDeviceStore = defineStore('device', () => {
 
   async function switchProfile(i: number): Promise<void> {
     if (i === activeProfile.value) return;
+    if (useFirmwareStore().active) throw new Error(tr('fw.pill'));
     if (calibrationLocked()) throw new Error(tr('device.calibrating'));
     // Rejects unless every edit of the current profile reached the keyboard: never carry one across.
     await useSyncStore().flush();
@@ -450,6 +512,6 @@ export const useDeviceStore = defineStore('device', () => {
     transport, status, error, info, version, features, boardAllowed, demo, demoSeed, keys, profileCount, activeProfile,
     profileNames, rtPrecision, layer0, latencyMs, connection, packetSeq, statsTick, exclusiveActive, connected, hidAvailable, model, modelName, packetEntries, activeProfileName,
     legend, withTransport, calibrationLocked, watchPackets, onProfileChanged, refreshLayer0, connect, connectDemo,
-    tryAutoReconnect, disconnect, changeKeyboard, switchDemoModel, switchProfile, renameProfile,
+    tryAutoReconnect, disconnect, changeKeyboard, switchDemoModel, switchProfile, renameProfile, holdExclusive, adoptFromFirmware,
   };
 });

@@ -3,12 +3,20 @@ import { RouterLink } from 'vue-router';
 import DeviceCard from './DeviceCard.vue';
 import ProfileSelect from './ProfileSelect.vue';
 import SidebarFooter from './SidebarFooter.vue';
+import { computed } from 'vue';
 import { NAV } from '../../router';
+import type { NavItem } from '../../router';
 import { useDeviceStore } from '../../stores/device';
+import { useFirmwareStore } from '../../stores/firmware';
 import { t } from '../../i18n/vi';
 
 const compact = defineModel<boolean>('compact', { default: false });
 const device = useDeviceStore();
+const firmware = useFirmwareStore();
+/** A labs page (Firmware) only while its switch is on, or while it runs (rescue mode with the switch off). */
+const groups = computed(() => NAV.map((g) => ({ ...g, items: g.items.filter((it) => !it.labs || firmware.enabled || firmware.active) })));
+/** Locked to the firmware page while it runs (DESIGN FW §3.4); otherwise every page needs a keyboard. */
+const off = (it: NavItem): boolean => (firmware.active ? it.path !== '/firmware' : !device.connected);
 </script>
 
 <template>
@@ -16,7 +24,7 @@ const device = useDeviceStore();
     <DeviceCard :compact="compact" />
     <ProfileSelect v-if="device.connected && device.profileNames.length" :compact="compact" />
     <nav class="side__nav" data-shellnav :aria-label="t('nav.configure')">
-      <div v-for="g in NAV" :key="g.group" class="side__group">
+      <div v-for="g in groups" :key="g.group" class="side__group">
         <div class="micro side__label">{{ t(g.group) }}</div>
         <RouterLink
           v-for="it in g.items"
@@ -24,8 +32,9 @@ const device = useDeviceStore();
           :to="it.path"
           class="side__link"
           active-class="side__link--on"
-          :tabindex="device.connected ? 0 : -1"
-          :aria-disabled="!device.connected || undefined"
+          :class="{ 'side__link--locked': firmware.active && off(it) }"
+          :tabindex="off(it) ? -1 : 0"
+          :aria-disabled="off(it) || undefined"
           :title="compact ? t(it.title) : undefined"
           :style="{ '--f': it.tone }"
         >
@@ -115,4 +124,5 @@ const device = useDeviceStore();
 .side__link--on { background: var(--sel-bg); color: var(--fg-1); font-weight: 600; }
 .side__link--on .tile { background: color-mix(in srgb, var(--acc) 16%, transparent); color: var(--acc); }
 .side__link[aria-disabled='true'] { opacity: 0.4; pointer-events: none; }
+.side__link--locked[aria-disabled='true'] { opacity: 0.45; }
 </style>

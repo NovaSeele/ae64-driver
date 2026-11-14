@@ -9,6 +9,7 @@ import { performanceEn } from './en/performance';
 import { advancedEn } from './en/advanced';
 import { macroEn } from './en/macro';
 import { gamepadEn } from './en/gamepad';
+import { firmwareEn } from './en/firmware';
 import { overviewEn } from './en/overview';
 import { profilesEn } from './en/profiles';
 
@@ -37,6 +38,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'page.calibration': 'Calibration',
   'page.settings': 'Device settings',
   'page.diagnostics': 'Diagnostics',
+  'page.firmware': 'Firmware',
   'page.wip': 'Work in progress',
   'page.wipBody': 'This page will be available in a future update. Other pages are fully functional.',
 
@@ -217,6 +219,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'update.applyFailed': 'Update failed: {error}',
   'update.retry': 'Retry',
   'update.busyWrite': 'Cannot update while a keyboard write is in progress.',
+  'update.busyFirmware': 'Cannot update while the keyboard firmware is being updated.',
   'update.busyCalibration': 'Cannot update while calibration is running.',
   'update.deferred': 'Downloaded {version}. It applies when the page reloads.',
   'update.reloadNow': 'Reload now',
@@ -268,6 +271,7 @@ export const en = {
   ...calibrationEn,
   ...performanceEn,
   ...gamepadEn,
+  ...firmwareEn,
   ...overviewEn,
   ...profilesEn,
 } as const;

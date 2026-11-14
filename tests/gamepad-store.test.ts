@@ -338,7 +338,21 @@ describe('Xbox USB device switch', () => {
       const s = await real();
       vi.spyOn(s.device, 'tryAutoReconnect').mockImplementation(async () => {
         await s.device.connectDemo('pro-xinput');
-        s.device.info = { ...s.device.info!, serial: '123412341234' };
+        s.device.info = { ...s.device.info!, serial: '123412341234', serialHex: '010203040102030401020304' };
+        return true;
+      });
+      vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+      const p = s.gp.setXboxDevice(false);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(await p).toBe(false);
+      expect(s.gp.usbError).toBe(tr('gp.usbOtherKeyboard'));
+    });
+    it('a keyboard back whose serial reads the same as decimals but differs in hex: not confirmed (serialHex compared)', async () => {
+      const s = await real();
+      const before = s.device.info!;
+      vi.spyOn(s.device, 'tryAutoReconnect').mockImplementation(async () => {
+        await s.device.connectDemo('pro-xinput');
+        s.device.info = { ...s.device.info!, serial: before.serial, serialHex: 'aa'.repeat(12) };
         return true;
       });
       vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
@@ -371,7 +385,7 @@ describe('Xbox USB device switch', () => {
     });
     it('a keyboard without a serial number is not switched', async () => {
       const s = await real();
-      s.device.info = { ...s.device.info!, serial: '000000000000' };
+      s.device.info = { ...s.device.info!, serial: '000000000000', serialHex: '000000000000000000000000' };
       s.frames.length = 0;
       expect(await s.gp.setXboxDevice(false)).toBe(false);
       expect(s.gp.usbError).toBe(tr('gp.usbNoSerial'));

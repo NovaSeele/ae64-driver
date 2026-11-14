@@ -16,6 +16,7 @@ import { useDeviceStore } from '../stores/device';
 import { useGamepadStore } from '../stores/gamepad';
 import { useSettingsStore } from '../stores/settings';
 import { useSyncStore } from '../stores/sync';
+import { LABS_FIRMWARE_KEY, useFirmwareStore } from '../stores/firmware';
 import { t } from '../i18n/vi';
 
 /** The "Stored on this computer" list, in this order. A new key joins a group (or J adds one). */
@@ -27,6 +28,8 @@ export interface AppSetting {
   group: AppSettingGroup;
   /** The same rule as the place that reads the key (stricter only where the reader silently fixes a value). */
   valid: (raw: string) => boolean;
+  /** false: never written to an export file, and ignored (dropped, not refused) in an imported one; a reset removes it. */
+  export?: false;
 }
 
 /** A remembered on/off switch: the readers take '1' as on and '0' as off. */
@@ -43,6 +46,8 @@ export const APP_SETTINGS: readonly AppSetting[] = [
   { key: 'ae64.live.keyLock', group: 'toggles', valid: isFlag01 },
   { key: 'ae64.live.colorByResult', group: 'toggles', valid: isFlag01 },
   { key: 'ae64.calibration.showAdc', group: 'toggles', valid: isFlag01 },
+  // The Firmware page switch (DESIGN FW §3.8): turning it on is a choice made on this computer, never carried by a file.
+  { key: LABS_FIRMWARE_KEY, group: 'toggles', valid: isFlag01, export: false },
   { key: 'ae64.recentColors', group: 'colors', valid: recentValid },
   { key: 'ae64.sidebarCollapsed', group: 'sidebar', valid: isFlag01 },
   { key: 'ae64.demoModel', group: 'demo', valid: isDemoSeed },
@@ -77,6 +82,7 @@ function getItem(key: string): string | null {
 export function storedSettings(): Record<string, string> {
   const data: Record<string, string> = {};
   for (const s of APP_SETTINGS) {
+    if (s.export === false) continue;
     const v = getItem(s.key);
     if (v !== null && s.valid(v)) data[s.key] = v;
   }
@@ -126,10 +132,11 @@ export function parseImport(text: string, size: number): ParsedImport {
   let file: unknown;
   try { file = JSON.parse(text); } catch { return { ok: false, error: 'errJson' }; }
   if (!isPlainObject(file) || file.app !== APP_ID || !isPlainObject(file.data)) return { ok: false, error: 'errApp' };
-  const data = file.data;
-  const keys = Object.keys(data);
-  const unknown = keys.filter((k) => !BY_KEY.has(k));
+  const unknown = Object.keys(file.data).filter((k) => !BY_KEY.has(k));
   if (unknown.length) return { ok: false, error: 'errKeys', keys: keyList(unknown) };
+  // A key that is never exported (the Firmware switch) is ignored: the file cannot turn it on or off.
+  const data = Object.fromEntries(Object.entries(file.data).filter(([k]) => BY_KEY.get(k)!.export !== false));
+  const keys = Object.keys(data);
   const bad = keys.filter((k) => { const v = data[k]; return typeof v !== 'string' || !BY_KEY.get(k)!.valid(v); });
   if (bad.length) return { ok: false, error: 'errValue', keys: keyList(bad) };
   if (!keys.length) return { ok: false, error: 'errEmpty' };
@@ -172,6 +179,7 @@ export function useAppSettings() {
   const settings = useSettingsStore();
   const gamepad = useGamepadStore();
   const sync = useSyncStore();
+  const firmware = useFirmwareStore();
 
   /**
    * Why the page must not reload now, or null; read fresh every time (device.calibrationLocked() is not reactive).
@@ -180,6 +188,8 @@ export function useAppSettings() {
    * restart, a profile switch.
    */
   function busyNow(): string | null {
+    // A firmware session or rescue mode (DESIGN FW §3.4): a reload would cut the write or lose the bootloader.
+    if (firmware.active) return t('update.busyFirmware');
     if (calibration.phase !== 'idle' || device.calibrationLocked()) return t('appcfg.busyCal');
     if (device.exclusiveActive || settings.pollingState === 'applying' || settings.pollingState === 'reconnecting' || gamepad.usbBusy) {
       return t('appcfg.busyWrite');
@@ -205,6 +215,9 @@ export function useAppSettings() {
     // Reset also removes the wallpaper image (IndexedDB), and waits until the delete is committed: a reload in the middle
     // would abort it and the image would outlive the reset. If it fails nothing is reset (DESIGN J §3.8). Import keeps it.
     if (kind === 'reset') {
+      // Checked again before the delete: the image must not go while the keyboard became busy during flush().
+      const mid = busyNow();
+      if (mid) throw new Error(mid);
       try {
         const { getWallpaperStore } = await import('./wallpaperStore');
         await getWallpaperStore().remove();

@@ -1,8 +1,9 @@
 // WebHID transport for the AE64 vendor configuration collection (FFB0:0001, report ID 0, 64 bytes).
 
 import type { Ae64Transport, Bytes } from './types';
-import { CONFIG_USAGE, CONFIG_USAGE_PAGE, HID_FILTERS, REPORT_ID, VENDOR_ID } from './constants';
+import { CONFIG_USAGE, CONFIG_USAGE_PAGE, FW_PROBE_FILTER, HID_FILTERS, REPORT_ID, VENDOR_ID } from './constants';
 import { BaseTransport, TransportTimeoutError, replyMatches } from './client';
+import type { FwPort } from './fwPort';
 import { t as tr } from '../i18n/vi';
 
 /** Quiet period after a timeout: late replies to the timed-out request are dropped before the next one. */
@@ -22,6 +23,11 @@ function hasConfigCollection(device: HIDDevice): boolean {
 
 export function isAe64(device: HIDDevice): boolean {
   return HID_FILTERS.some((f) => f.vendorId === device.vendorId && f.productId === device.productId) && hasConfigCollection(device);
+}
+
+/** The vendor collection of vendor 1CA6 whatever the product ID (FW_PROBE_FILTER): an AE64 in app mode, or one in its bootloader. */
+export function matchesProbe(device: HIDDevice): boolean {
+  return device.vendorId === VENDOR_ID && hasConfigCollection(device);
 }
 
 export class NoDeviceSelectedError extends Error {
@@ -47,8 +53,20 @@ export class HidTransport extends BaseTransport {
     this.emitDisconnect();
   };
 
-  constructor(private readonly device: HIDDevice) {
+  /**
+   * `probeOnly`: found through FW_PROBE_FILTER, not HID_FILTERS (an unknown product ID, e.g. a bootloader). The device store sends
+   * it `01 02` only, and goes on only for an AE64 in its app (isAe64) or a bootloader (rescue).
+   */
+  readonly probeOnly: boolean;
+
+  constructor(private readonly device: HIDDevice, opts: { probeOnly?: boolean } = {}) {
     super();
+    this.probeOnly = opts.probeOnly ?? false;
+  }
+
+  /** The WebHID device behind this transport (the firmware port maps devices to transports with it). */
+  get hidDevice(): HIDDevice {
+    return this.device;
   }
 
   get productName(): string {
@@ -98,6 +116,12 @@ export class HidTransport extends BaseTransport {
     p.resolve(bytes);
   }
 
+  /** Drops every input report for `ms`: nothing is pending meanwhile (handleReport drops it), and the next request waits. */
+  protected override async drainInput(ms: number): Promise<void> {
+    this.quietUntil = Math.max(this.quietUntil, performance.now() + ms);
+    await new Promise((r) => setTimeout(r, ms));
+  }
+
   protected async exchange(frame: Uint8Array, timeoutMs: number): Promise<Bytes> {
     // After a timeout the keyboard may still answer the old request: let that reply arrive (and be
     // dropped, nothing is pending) before asking anything else.
@@ -120,8 +144,8 @@ export class HidTransport extends BaseTransport {
   }
 }
 
-async function openDevice(device: HIDDevice): Promise<HidTransport> {
-  const t = new HidTransport(device);
+async function openDevice(device: HIDDevice, opts: { probeOnly?: boolean } = {}): Promise<HidTransport> {
+  const t = new HidTransport(device, opts);
   try {
     await t.open();
   } catch (err) {
@@ -136,10 +160,11 @@ async function openDevice(device: HIDDevice): Promise<HidTransport> {
 /** requestDevice + open. Throws readable (Vietnamese) errors. */
 export async function connectHid(): Promise<Ae64Transport> {
   if (!webHidAvailable()) throw new Error(tr('error.noWebHid'));
-  const devices = await navigator.hid.requestDevice({ filters: [...HID_FILTERS] });
-  const device = devices.find(isAe64);
+  // FW_PROBE_FILTER too: a keyboard in its bootloader has another product ID (DESIGN FW §3.6). Such a device is probe-only.
+  const devices = await navigator.hid.requestDevice({ filters: [...HID_FILTERS, FW_PROBE_FILTER] });
+  const device = devices.find(isAe64) ?? devices.find(matchesProbe);
   if (!device) throw new NoDeviceSelectedError();
-  return openDevice(device);
+  return openDevice(device, { probeOnly: !isAe64(device) });
 }
 
 const LAST_DEVICE_KEY = 'ae64.lastDevice';
@@ -167,8 +192,83 @@ export function rememberDevice(productId: number | undefined): void {
 /** Re-open an already-granted keyboard (no permission prompt): the remembered model if plugged in, else the first. Null if none. */
 export async function reconnectGrantedHid(): Promise<Ae64Transport | null> {
   if (!webHidAvailable()) return null;
-  const granted = (await navigator.hid.getDevices()).filter(isAe64);
+  const all = await navigator.hid.getDevices();
+  const granted = all.filter(isAe64);
   const last = readLastDevice();
   const device = (last && granted.find((d) => d.vendorId === last.vendorId && d.productId === last.productId)) || granted[0];
-  return device ? openDevice(device) : null;
+  if (device) return openDevice(device);
+  // No AE64 in its app: a granted keyboard in its bootloader opens the rescue page (probe-only: `01 02` first, DESIGN FW §3.6).
+  const probe = all.find(matchesProbe);
+  return probe ? openDevice(probe, { probeOnly: true }) : null;
+}
+
+/**
+ * The firmware session's view of WebHID (DESIGN FW §3.3): every device of FW_PROBE_FILTER, opened once and kept per device until
+ * it is unplugged, so each one gets its single probe. The app connection the session started from is adopted, not reopened.
+ */
+export class HidFwPort implements FwPort {
+  private readonly open = new Map<HIDDevice, HidTransport>();
+  private readonly mine = new Set<HidTransport>();
+
+  /** The device store's connection (the session's app): known, never opened again or closed here. */
+  adopt(t: unknown): void {
+    if (t instanceof HidTransport) this.open.set(t.hidDevice, t);
+  }
+
+  private async openAll(devices: HIDDevice[]): Promise<BaseTransport[]> {
+    const out: BaseTransport[] = [];
+    for (const d of devices) {
+      if (!matchesProbe(d)) continue;
+      let t = this.open.get(d);
+      if (!t || (!t.connected && !d.opened)) {
+        try {
+          t = await openDevice(d, { probeOnly: !isAe64(d) });
+        } catch {
+          continue; // another app holds it: not ours to probe
+        }
+        this.open.set(d, t);
+        this.mine.add(t);
+        t.onDisconnect(() => { if (this.open.get(d) === t) this.open.delete(d); });
+      }
+      out.push(t);
+    }
+    return out;
+  }
+
+  async list(): Promise<BaseTransport[]> {
+    if (!webHidAvailable()) return [];
+    return this.openAll(await navigator.hid.getDevices());
+  }
+
+  async request(): Promise<BaseTransport[]> {
+    if (!webHidAvailable()) return [];
+    try {
+      return await this.openAll(await navigator.hid.requestDevice({ filters: [FW_PROBE_FILTER] }));
+    } catch {
+      return []; // cancelled, or refused without a click: the button stays
+    }
+  }
+
+  onConnect(cb: () => void): () => void {
+    if (!webHidAvailable()) return () => undefined;
+    const listener = (e: HIDConnectionEvent): void => { if (matchesProbe(e.device)) cb(); };
+    navigator.hid.addEventListener('connect', listener);
+    return () => navigator.hid.removeEventListener('connect', listener);
+  }
+
+  async reopen(t: BaseTransport): Promise<BaseTransport> {
+    if (!(t instanceof HidTransport)) throw new Error('not a WebHID connection');
+    const d = t.hidDevice;
+    this.mine.delete(t);
+    if (this.open.get(d) === t) this.open.delete(d);
+    await t.close().catch(() => undefined);
+    return openDevice(d, { probeOnly: t.probeOnly });
+  }
+
+  async release(t: BaseTransport): Promise<void> {
+    if (!(t instanceof HidTransport) || !this.mine.has(t)) return;
+    this.mine.delete(t);
+    this.open.delete(t.hidDevice);
+    await t.close().catch(() => undefined);
+  }
 }

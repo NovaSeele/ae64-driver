@@ -20,6 +20,8 @@ export interface PhysicalKey {
 export interface DeviceInfo {
   type: number; subType: number; boardId: number; boardIdHex: string;
   firmware: string; pcb: string; runMode: number; serial: string; timestamp: string;
+  /** The 12 UID bytes 17–28 as fixed two-digit hex (lower case): the identity a firmware session compares (`serial` is for display). */
+  serialHex: string;
 }
 export interface ProtocolVersion { main: number; sub: number; hardware: number; software: number }
 export interface FeatureBitmap {

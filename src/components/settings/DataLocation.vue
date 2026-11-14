@@ -10,12 +10,14 @@ import {
 import Card from '../ui/Card.vue';
 import Button from '../ui/Button.vue';
 import Dialog from '../ui/Dialog.vue';
+import Switch from '../ui/Switch.vue';
 import { useToast } from '../ui/toast';
 import {
   APP_SETTING_GROUPS, MAX_IMPORT_BYTES, PRESETS_KEY, buildExport, groupsOf, parseImport, presetCount, storedSettings,
   useAppSettings, type AppSettingGroup,
 } from '../../data/appSettings';
 import { useUserPresetsStore } from '../../stores/userPresets';
+import { useFirmwareStore } from '../../stores/firmware';
 import { themeChoice } from '../../theme';
 import { locale } from '../../i18n/locale';
 import { t } from '../../i18n/vi';
@@ -27,6 +29,9 @@ const ON_KEYBOARD = [
 const groupLabel = (g: AppSettingGroup) => t(`data.c.${g}` as const);
 
 const { busyReason, applyAndReload } = useAppSettings();
+// "Experimental features" (DESIGN FW §3.8): the Firmware page switch, a choice of this computer (never exported or imported).
+const firmware = useFirmwareStore();
+const labsFirmware = computed({ get: () => firmware.enabled, set: (v: boolean) => firmware.setEnabled(v) });
 const userPresets = useUserPresetsStore();
 const toast = useToast();
 
@@ -195,6 +200,13 @@ async function run(kind: 'import' | 'reset'): Promise<void> {
           <p class="dl__note">{{ t('appcfg.note') }}</p>
           <p v-if="err" class="dl__err" role="alert"><IconAlertCircle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ err }}</span></p>
         </div>
+        <div class="dl__labs" role="group" aria-labelledby="dl-labs">
+          <h5 id="dl-labs" class="micro dl__labs-title">{{ t('labs.title') }}</h5>
+          <Switch v-model="labsFirmware" :label="t('labs.firmware')" describedby="dl-labs-help" :disabled="firmware.active" />
+          <p id="dl-labs-help" class="dl__labs-help">
+            <IconAlertTriangle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('labs.firmwareHelp') }}</span>
+          </p>
+        </div>
       </section>
     </div>
   </Card>
@@ -303,6 +315,17 @@ async function run(kind: 'import' | 'reset'): Promise<void> {
 }
 .dl__link:hover { text-decoration: underline; text-underline-offset: 3px; }
 .dl__actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.dl__labs {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--line-1);
+}
+.dl__labs-title { margin: 0; }
+.dl__labs-help { display: flex; align-items: flex-start; gap: 6px; margin: 0; font-size: var(--fs-label); line-height: 18px; color: var(--fg-2); }
+.dl__labs-help svg { flex: none; margin-top: 1px; color: var(--warn); }
 .dl__note { margin: 0; font-size: var(--fs-caption); line-height: 16px; color: var(--fg-3); }
 .dl__err {
   display: flex;

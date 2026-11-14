@@ -12,8 +12,10 @@ import {
   LED_RECORDS_PER_PACKET, LED_STRIP_COUNT, REPORT_LENGTH, REQUEST_TIMEOUT_MS,
 } from './constants';
 import * as c from './codec';
-import { checkFrame, checkGamepadFrame, checkPerformanceWrite, isWriteCommand, UnsafeCommandError } from './safety';
-import type { GamepadStaging } from './safety';
+import { checkFirmwareFrame, checkFrame, checkGamepadFrame, checkPerformanceWrite, isWriteCommand, UnsafeCommandError } from './safety';
+import type { FwStep, GamepadStaging } from './safety';
+import { FW_BOARD_PRO, FW_CHUNK, checkFile, chunks, serialReadable } from './firmware';
+import type { FwCheck, KnownFw } from './firmware';
 import * as gp from './gamepad';
 import type { GamepadInfo, GamepadUsbState } from './gamepad';
 import { t } from '../i18n/vi';
@@ -129,6 +131,10 @@ export abstract class BaseTransport implements Ae64Transport {
   protected request(payload: number[], timeoutMs = REQUEST_TIMEOUT_MS): Promise<Bytes> {
     const run = async (): Promise<Bytes> => {
       if (!this.connected) throw new Error(t('error.notConnected'));
+      // A keyboard not running its app (bootloader, or told to restart into it) only ever gets `01 02` (DESIGN FW §3.5).
+      if ((this.#runModeSeen !== null || this.#leftApp) && !(payload[0] === FAMILY.DEVICE && payload[1] === 0x02)) {
+        throw new UnsafeCommandError(payload, `the keyboard is not running its app (run mode ${this.#runModeSeen ?? 'restarting'}): only 01 02 is sent`);
+      }
       if (payload[0] === gp.GP_FAMILY) {
         const why = checkGamepadFrame(payload, { boardIdHex: this.boardIdHex, caps: this.gamepad?.caps ?? null, staging: this.gamepadStaging });
         if (why) throw new UnsafeCommandError(payload, why);
@@ -190,8 +196,10 @@ export abstract class BaseTransport implements Ae64Transport {
   /** Board id read by getDeviceInfo(), lowercase: selects the switch catalog in the performance write guard. */
   private boardIdHex: string | undefined;
 
-  async getDeviceInfo(): Promise<DeviceInfo> {
-    const info = c.decodeDeviceInfo(await this.request([FAMILY.DEVICE, 0x02]));
+  /** `timeoutMs`: a firmware probe waits FW_PROBE_TIMEOUT_MS (or 3 s for the check after `08 01`). */
+  async getDeviceInfo(timeoutMs?: number): Promise<DeviceInfo> {
+    const info = c.decodeDeviceInfo(await this.request([FAMILY.DEVICE, 0x02], timeoutMs));
+    if (info.runMode !== 0) this.#runModeSeen = info.runMode;
     this.boardAllowed = ALLOWED_BOARDS.includes(info.boardIdHex);
     this.boardIdHex = info.boardIdHex.toLowerCase();
     return info;
@@ -536,4 +544,310 @@ export abstract class BaseTransport implements Ae64Transport {
   async gamepadUsbSet(enabled: boolean, revision: number): Promise<GamepadUsbState> {
     return gp.decodeUsbState(await this.agp1(gp.GP_CMD.USB_SET, gp.usbSetData(enabled, revision)));
   }
+
+  // ------------------------------------------------------------------ 08 firmware (DESIGN FW §3.5)
+  // Family 08 is built only below (#fwFrame) and sent only through #fwRequest, after checkFirmwareFrame, for a session this
+  // module opened (the ticket's state is in `fwSessions`, never handed out). frameOf / checkFrame / raw() refuse 08 always.
+
+  /** Run mode other than 0 read by `01 02` on this connection (sticky); null while the keyboard ran its app. */
+  #runModeSeen: number | null = null;
+  /** `08 01` was sent here: the keyboard is (or may be) restarting into its bootloader. Only `01 02` from now on. */
+  #leftApp = false;
+
+  /** Run mode other than 0 that `01 02` reported on this connection, or null. */
+  get runModeSeen(): number | null {
+    return this.#runModeSeen;
+  }
+
+  /**
+   * Opens a firmware session on this connection (the keyboard running its app). Copies `bytes`, checks the copy, then reads a
+   * fresh `01 02`: run mode 0, board 0x0030000A equal to the file's, a readable serial. Never takes a check, board or serial
+   * from outside. Throws FirmwareSessionError (nothing of family 08 was sent).
+   */
+  async beginFirmwareSession(bytes: Uint8Array, opts: { officialOnly?: boolean } = {}): Promise<FwTicket> {
+    const copy = Uint8Array.from(bytes);
+    const pre = checkFile(copy, FW_BOARD_PRO);
+    if (!pre.ok) throw new FirmwareSessionError('file');
+    if (opts.officialOnly && pre.known?.kind !== 'official') throw new FirmwareSessionError('official');
+    const info = await this.getDeviceInfo();
+    if (info.runMode !== 0) throw new FirmwareSessionError('mode');
+    if (info.boardId !== FW_BOARD_PRO || info.boardId !== pre.header.board) throw new FirmwareSessionError('board', info.boardId);
+    if (!serialReadable(info.serialHex)) throw new FirmwareSessionError('serial');
+    const check = checkFile(copy, info.boardId);
+    if (!check.ok) throw new FirmwareSessionError('file');
+    return newSession({ bytes: copy, check, board: info.boardId, serialHex: info.serialHex, step: 'open', app: this, boot: null, rescue: false });
+  }
+
+  /**
+   * Rescue (DESIGN FW §3.6): a session on this connection, a keyboard already in its bootloader. Like beginFirmwareSession but
+   * run mode 255 and a readable board; the session starts attached. `officialOnly` (only ever narrows) also needs an official
+   * build of KNOWN_FW. The bootloader's serial, when it reports one, is the session's.
+   */
+  async beginRescueSession(bytes: Uint8Array, opts: { officialOnly?: boolean } = {}): Promise<FwTicket> {
+    const copy = Uint8Array.from(bytes);
+    const info = await this.getDeviceInfo();
+    if (info.runMode !== 255) throw new FirmwareSessionError('mode');
+    if (info.boardId !== FW_BOARD_PRO) throw new FirmwareSessionError('board', info.boardId);
+    const check = checkFile(copy, info.boardId);
+    if (!check.ok) throw new FirmwareSessionError('file');
+    if (opts.officialOnly && check.known?.kind !== 'official') throw new FirmwareSessionError('official');
+    const serial = serialReadable(info.serialHex) ? info.serialHex : null;
+    return newSession({ bytes: copy, check, board: info.boardId, serialHex: serial, step: 'attached', app: null, boot: this, rescue: true });
+  }
+
+  /** `08 01`, once, on the app connection that opened the session. The reply is optional (the keyboard may reset first). */
+  async fwEnter(ticket: FwTicket): Promise<void> {
+    const st = sessionOf(ticket);
+    await this.#fwRequest(st, [FIRMWARE_FAMILY, 0x01], FW_ENTER_TIMEOUT_MS, () => {
+      st.step = 'entered';
+      this.#leftApp = true;
+    }).catch((err: unknown) => {
+      if (err instanceof UnsafeCommandError) throw err;
+    });
+  }
+
+  /**
+   * Every `08 02` of the session's file from offset 0, each waiting at most 3 s for an `08 02` reply, never resent. Runs the file
+   * check again on the session's copy first. A rewrite (after a failed packet or check) first drops every input report for
+   * FW_RETRY_QUIET_MS. Throws FirmwarePacketError (step `packetFail`) at the first packet without a reply.
+   */
+  async fwWrite(ticket: FwTicket, onProgress?: (sent: number, total: number) => void): Promise<void> {
+    const st = sessionOf(ticket);
+    if (st.boot !== this) throw new UnsafeCommandError([FIRMWARE_FAMILY, 0x02], 'this connection is not the bootloader of the session');
+    if (st.step !== 'attached' && st.step !== 'packetFail' && st.step !== 'verifyFail') {
+      throw new UnsafeCommandError([FIRMWARE_FAMILY, 0x02], `08 02 in step ${st.step}`);
+    }
+    if (!checkFile(st.bytes, st.board).ok) throw new FirmwareSessionError('file');
+    if (st.step !== 'attached') await this.drainInput(FW_RETRY_QUIET_MS);
+    st.step = 'writing';
+    st.nextOffset = 0;
+    const list = chunks(st.bytes);
+    for (let i = 0; i < list.length; i++) {
+      const { offset, data } = list[i];
+      const payload = [
+        FIRMWARE_FAMILY, 0x02, offset & 0xff, (offset >>> 8) & 0xff, (offset >>> 16) & 0xff, (offset >>> 24) & 0xff,
+        data.length & 0xff, (data.length >>> 8) & 0xff, ...data,
+      ];
+      try {
+        await this.#fwRequest(st, payload, FW_PACKET_TIMEOUT_MS);
+      } catch (err) {
+        if (st.step === 'writing') st.step = 'packetFail';
+        if (err instanceof UnsafeCommandError) throw err;
+        throw new FirmwarePacketError(i, err);
+      }
+      st.nextOffset = offset + data.length;
+      onProgress?.(i + 1, list.length);
+    }
+    st.step = 'written';
+  }
+
+  /** `08 03` once every packet was acknowledged. True when byte 2 of the reply is 1; false (step `verifyFail`) otherwise or after 10 s. */
+  async fwVerify(ticket: FwTicket): Promise<boolean> {
+    const st = sessionOf(ticket);
+    let ok = false;
+    try {
+      const reply = await this.#fwRequest(st, [FIRMWARE_FAMILY, 0x03], FW_VERIFY_TIMEOUT_MS);
+      ok = reply[2] === 1;
+    } catch (err) {
+      if (err instanceof UnsafeCommandError) throw err;
+    }
+    st.step = ok ? 'verified' : 'verifyFail';
+    return ok;
+  }
+
+  /** `08 04`, only after `08 03` passed. The reply is optional. */
+  async fwRestart(ticket: FwTicket): Promise<void> {
+    const st = sessionOf(ticket);
+    await this.#fwRequest(st, [FIRMWARE_FAMILY, 0x04], FW_RESTART_TIMEOUT_MS, () => { st.step = 'restarted'; }).catch((err: unknown) => {
+      if (err instanceof UnsafeCommandError) throw err;
+    });
+  }
+
+  /** Drops every input report for `ms` before the next request (a late reply must not answer it). The base just waits. */
+  protected async drainInput(ms: number): Promise<void> {
+    await new Promise((r) => setTimeout(r, ms));
+  }
+
+  /** The 64-byte report of a family-08 payload. Only #fwRequest calls it. */
+  #fwFrame(payload: number[]): Uint8Array {
+    const frame = new Uint8Array(REPORT_LENGTH);
+    payload.forEach((b, i) => { frame[i] = c.byte(b, `byte ${i}`); });
+    return frame;
+  }
+
+  /**
+   * The only path of family 08: checkFirmwareFrame against the session (and this connection's place in it), then `before`
+   * (the step change), then the same queue as every other request.
+   */
+  #fwRequest(st: FwState, payload: number[], timeoutMs: number, before?: () => void): Promise<Bytes> {
+    const sender = this === st.app ? 'app' : this === st.boot ? 'boot' : 'other';
+    const why = checkFirmwareFrame(payload, { board: st.board, step: st.step, sender, nextOffset: st.nextOffset, size: st.bytes.length });
+    if (why) return Promise.reject(new UnsafeCommandError(payload, why));
+    if (payload.length > REPORT_LENGTH) return Promise.reject(new UnsafeCommandError(payload, 'longer than one report'));
+    const frame = this.#fwFrame(payload);
+    before?.();
+    const run = async (): Promise<Bytes> => {
+      if (!this.connected) throw new Error(t('error.notConnected'));
+      this.log('out', frame);
+      try {
+        const reply = await this.exchange(frame, timeoutMs);
+        this.log('in', reply);
+        return reply;
+      } catch (err) {
+        if (err instanceof TransportTimeoutError) this.stats.timeouts++;
+        this.log('in', new Uint8Array(0), err instanceof Error ? err.message : String(err));
+        throw err;
+      }
+    };
+    const result = this.queue.then(run, run);
+    this.queue = result.catch(() => undefined);
+    return result;
+  }
+}
+
+// ---------------------------------------------------------------- firmware sessions (DESIGN FW §3.5)
+
+/** `08 01`: the keyboard may reset before answering (optional reply). */
+export const FW_ENTER_TIMEOUT_MS = 10_000;
+/** `08 02`: one packet, never resent (USB already retries a NAKed report). */
+export const FW_PACKET_TIMEOUT_MS = 3_000;
+export const FW_VERIFY_TIMEOUT_MS = 10_000;
+export const FW_RESTART_TIMEOUT_MS = 1_000;
+/** Input reports dropped before packet 0 of a rewrite. */
+export const FW_RETRY_QUIET_MS = 1_000;
+/** A probe (`01 02`) of a device while looking for the bootloader or the keyboard. */
+export const FW_PROBE_TIMEOUT_MS = 1_500;
+
+/** The key of a session: an empty frozen object. Its state is only in `fwSessions` below. */
+export type FwTicket = Readonly<Record<string, never>>;
+
+interface FwState {
+  bytes: Uint8Array;
+  check: FwCheck;
+  board: number;
+  /** null: a rescue session whose bootloader reports no serial. */
+  serialHex: string | null;
+  step: FwStep;
+  app: BaseTransport | null;
+  boot: BaseTransport | null;
+  rescue: boolean;
+  nextOffset: number;
+  /** Devices that got their one `01 02` while looking for the bootloader / the keyboard, and what they answered. */
+  probedBoot: Map<BaseTransport, DeviceInfo | null>;
+  probedApp: Map<BaseTransport, DeviceInfo | null>;
+}
+
+const fwSessions = new WeakMap<FwTicket, FwState>();
+
+function newSession(s: Omit<FwState, 'nextOffset' | 'probedBoot' | 'probedApp'>): FwTicket {
+  const ticket: FwTicket = Object.freeze({});
+  fwSessions.set(ticket, { ...s, nextOffset: 0, probedBoot: new Map(), probedApp: new Map() });
+  return ticket;
+}
+
+function sessionOf(ticket: FwTicket): FwState {
+  const st = fwSessions.get(ticket);
+  if (!st) throw new UnsafeCommandError([FIRMWARE_FAMILY], 'not a firmware session of this app');
+  return st;
+}
+
+export type FwSessionReason = 'file' | 'mode' | 'board' | 'serial' | 'official';
+
+export class FirmwareSessionError extends Error {
+  constructor(readonly reason: FwSessionReason, readonly board?: number) {
+    super(`firmware session refused: ${reason}`);
+    this.name = 'FirmwareSessionError';
+  }
+}
+
+export class FirmwarePacketError extends Error {
+  constructor(readonly index: number, readonly reason?: unknown) {
+    super(`packet ${index} was not acknowledged`);
+    this.name = 'FirmwarePacketError';
+  }
+}
+
+/** What a session's file is, as the session checked it (for the page: the build, the versions to compare). */
+export function sessionFile(ticket: FwTicket): { known: KnownFw | null; size: number; packets: number; rescue: boolean } {
+  const st = sessionOf(ticket);
+  return { known: st.check.known, size: st.bytes.length, packets: Math.ceil(st.bytes.length / FW_CHUNK), rescue: st.rescue };
+}
+
+/** One `01 02` per device until it is unplugged; null when it does not answer. */
+async function probe(t: BaseTransport, seen: Map<BaseTransport, DeviceInfo | null>): Promise<DeviceInfo | null> {
+  if (seen.has(t)) return seen.get(t)!;
+  seen.set(t, null);
+  let info: DeviceInfo | null = null;
+  try {
+    info = await t.getDeviceInfo(FW_PROBE_TIMEOUT_MS);
+  } catch {
+    info = null;
+  }
+  seen.set(t, info);
+  return info;
+}
+
+export type FwAttachResult =
+  | { ok: true; transport: BaseTransport }
+  | { ok: false; why: 'none' | 'many' | 'wrong' | 'appBack' };
+
+/**
+ * Looks for the session's keyboard in its bootloader among `devices` (DESIGN FW §3.3). Each device gets one `01 02` (until it is
+ * unplugged); the session's own app connection gets none. A bootloader counts when it reports run mode 255 and the session's
+ * board; it is the one when its serial equals the session's, or (no serial reported) when it is the only bootloader plugged in.
+ * `appBack`: the session's keyboard answered from its app (same serial and board, run mode 0): it did not enter update mode.
+ * `wrong`: something answered, but not the session's bootloader.
+ */
+export async function fwAttach(ticket: FwTicket, devices: readonly BaseTransport[]): Promise<FwAttachResult> {
+  const st = sessionOf(ticket);
+  if (st.step !== 'entered') throw new UnsafeCommandError([FIRMWARE_FAMILY, 0x02], `looking for the bootloader in step ${st.step}`);
+  for (const d of devices) if (d !== st.app && d.connected) await probe(d, st.probedBoot);
+  for (const d of [...st.probedBoot.keys()]) if (!d.connected) st.probedBoot.delete(d);
+  const live = [...st.probedBoot];
+  const boots = live.filter(([, i]) => i?.runMode === 255 && i.boardId === st.board);
+  const same = boots.filter(([, i]) => i!.serialHex === st.serialHex);
+  if (same.length > 1) return { ok: false, why: 'many' };
+  let pick = same[0]?.[0];
+  if (!pick) {
+    const noSerial = boots.filter(([, i]) => !serialReadable(i!.serialHex));
+    if (noSerial.length === 1 && boots.length === 1) pick = noSerial[0][0];
+    else if (noSerial.length > 1) return { ok: false, why: 'many' };
+  }
+  if (pick) {
+    st.boot = pick;
+    st.step = 'attached';
+    return { ok: true, transport: pick };
+  }
+  if (live.some(([, i]) => i?.runMode === 0 && i.boardId === st.board && i.serialHex === st.serialHex)) return { ok: false, why: 'appBack' };
+  return { ok: false, why: live.length ? 'wrong' : 'none' };
+}
+
+export type FwFindResult =
+  | { ok: true; transport: BaseTransport; info: DeviceInfo }
+  | { ok: false; why: 'none' | 'many' | 'boot' };
+
+/**
+ * After `08 04`: the session's keyboard back in its app among `devices` (one `01 02` each): run mode 0, the session's board and
+ * serial. A rescue session without a serial takes the only AE64 Pro in app mode; several: `many`. `boot`: the keyboard showed up
+ * in its bootloader again.
+ */
+export async function fwFind(ticket: FwTicket, devices: readonly BaseTransport[]): Promise<FwFindResult> {
+  const st = sessionOf(ticket);
+  if (st.step !== 'restarted') throw new UnsafeCommandError([FIRMWARE_FAMILY], `looking for the keyboard in step ${st.step}`);
+  for (const d of devices) if (d !== st.boot && d.connected) await probe(d, st.probedApp);
+  for (const d of [...st.probedApp.keys()]) if (!d.connected) st.probedApp.delete(d);
+  const live = [...st.probedApp];
+  const apps = live.filter(([, i]) => i?.runMode === 0 && i.boardId === st.board);
+  const pickable = st.serialHex ? apps.filter(([, i]) => i!.serialHex === st.serialHex) : apps;
+  if (pickable.length === 1) return { ok: true, transport: pickable[0][0], info: pickable[0][1]! };
+  if (pickable.length > 1) return { ok: false, why: 'many' };
+  const boot = live.some(([, i]) => i?.runMode === 255 && i.boardId === st.board && (!st.serialHex || i.serialHex === st.serialHex));
+  return { ok: false, why: boot ? 'boot' : 'none' };
+}
+
+/** "Search again": every device gets its `01 02` again. */
+export function fwForgetProbes(ticket: FwTicket): void {
+  const st = sessionOf(ticket);
+  st.probedBoot.clear();
+  st.probedApp.clear();
 }

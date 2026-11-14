@@ -493,8 +493,9 @@ describe('Performance tabs: sidebar, titles, the tab row', () => {
   it('11. the sidebar has three groups with their items in order; Performance is the current page on every tab', async () => {
     expect(NAV.map((g) => g.group)).toEqual(['nav.groupKeyboard', 'nav.groupCustomize', 'nav.groupDevice']);
     expect(NAV.map((g) => g.items.map((i) => i.path))).toEqual([
-      ['/overview', '/performance', '/profiles'], ['/keymap', '/macro', '/lighting', '/gamepad'], ['/settings', '/diagnostics'], // F: Overview first; G: Profiles
+      ['/overview', '/performance', '/profiles'], ['/keymap', '/macro', '/lighting', '/gamepad'], ['/settings', '/diagnostics', '/firmware'], // F: Overview first; G: Profiles; FW: labs
     ]);
+    expect(NAV.flatMap((g) => g.items).filter((i) => i.labs).map((i) => i.path)).toEqual(['/firmware']);
     const r = perfRouter();
     const s = mount(Sidebar, { global: { plugins: [r, pinia], stubs: { teleport: true } } });
     expect(s.findAll('.side__label').map((x) => x.text())).toEqual([t('nav.groupKeyboard'), t('nav.groupCustomize'), t('nav.groupDevice')]);
@@ -847,7 +848,8 @@ describe('the sidebar nav for the key lock (DESIGN L §11.1, K4)', () => {
     const nav = s.find('nav[data-shellnav]');
     expect(nav.exists()).toBe(true);
     const links = nav.findAll('a[href]');
-    expect(links.length).toBe(NAV.flatMap((g) => g.items).length);
+    // the labs page (Firmware) is listed only while its switch is on (DESIGN FW §3.8)
+    expect(links.length).toBe(NAV.flatMap((g) => g.items).filter((i) => !i.labs).length);
     expect(s.findAll('.side__link').length).toBe(links.length);
     s.unmount();
   });

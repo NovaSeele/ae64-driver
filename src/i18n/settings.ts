@@ -187,4 +187,7 @@ export const settingsVi = {
   'wall.errStore': 'Trình duyệt không cho lưu ảnh (hết chỗ hoặc đang ở chế độ riêng tư). Ảnh nền giữ nguyên.',
   'data.c.accent': 'Màu nhấn',
   'data.c.wallpaper': 'Cách hiện ảnh nền (ảnh thì không vào file)',
+  'labs.title': 'Tính năng thử nghiệm',
+  'labs.firmware': 'Trang Firmware',
+  'labs.firmwareHelp': 'Hiện trang cập nhật firmware ở nhóm Thiết bị. Ghi sai firmware có thể làm bàn phím không dùng được.',
 } as const;

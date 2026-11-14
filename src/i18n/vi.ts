@@ -10,6 +10,7 @@ import { liveVi } from './live';
 import { calibrationVi } from './calibration';
 import { performanceVi } from './performance';
 import { gamepadVi } from './gamepad';
+import { firmwareVi } from './firmware';
 import { overviewVi } from './overview';
 import { profilesVi } from './profiles';
 import { applyPlurals, locale } from './locale';
@@ -40,6 +41,7 @@ export const base = {
   'page.calibration': 'Hiệu chuẩn',
   'page.settings': 'Cài đặt thiết bị',
   'page.diagnostics': 'Chẩn đoán',
+  'page.firmware': 'Firmware',
   'page.wip': 'Đang phát triển',
   'page.wipBody': 'Trang này sẽ có trong bản cập nhật tới. Các trang khác vẫn dùng bình thường.',
 
@@ -220,6 +222,7 @@ export const base = {
   'update.applyFailed': 'Cập nhật thất bại: {error}',
   'update.retry': 'Thử lại',
   'update.busyWrite': 'Không thể cập nhật khi đang ghi vào bàn phím.',
+  'update.busyFirmware': 'Không thể cập nhật khi đang cập nhật firmware bàn phím.',
   'update.busyCalibration': 'Không thể cập nhật khi đang hiệu chuẩn.',
   'update.deferred': 'Đã tải bản {version}. Sẽ áp dụng khi tải lại trang.',
   'update.reloadNow': 'Tải lại ngay',
@@ -271,6 +274,7 @@ export const vi = {
   ...calibrationVi,
   ...performanceVi,
   ...gamepadVi,
+  ...firmwareVi,
   ...overviewVi,
   ...profilesVi,
 } as const;

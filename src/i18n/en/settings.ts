@@ -189,4 +189,7 @@ export const settingsEn: Record<keyof typeof settingsVi, string> = {
   'wall.errStore': 'The browser refused to store the image (out of space or private mode). The wallpaper is unchanged.',
   'data.c.accent': 'Accent colour',
   'data.c.wallpaper': 'How the wallpaper shows (not the image itself)',
+  'labs.title': 'Experimental features',
+  'labs.firmware': 'Firmware page',
+  'labs.firmwareHelp': 'Shows the firmware update page in the Device group. Writing the wrong firmware can leave the keyboard unusable.',
 };

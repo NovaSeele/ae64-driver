@@ -8,6 +8,7 @@
 import type { Bytes, Performance, PhysicalKey } from './types';
 import { BaseTransport, TransportTimeoutError } from './client';
 import { MockGamepadFirmware } from './mockGamepad';
+import { MockFwBus } from './mockFirmware';
 import { GP_CONTROLS, GP_FAMILY, GP_KEY_COUNT, decodeConfig, defaultBinding, emptyConfig, encodeConfig, gamepadOutputs, keyPosOf, toStandardGamepad } from './gamepad';
 import type { GamepadConfig, StandardGamepadState } from './gamepad';
 import { encodeLayoutStyleEntry, encodePerformance, le16, mmToUm, read16 } from './codec';
@@ -170,13 +171,37 @@ export class MockTransport extends BaseTransport {
   /** Test hook: the reply to the next AGP1 command this returns true for is lost (the command still runs), as a timeout. */
   dropGamepadReply: ((cmd: number) => boolean) | null = null;
   private gamepadHandler: ((req: Uint8Array) => Uint8Array | null) | null = null;
+  /** The demo USB bus of the firmware page (an AE64 Pro only): its bootloader and failure flags (mockFirmware.ts). */
+  readonly fwMock: MockFwBus | null;
+  /** Which device of the bus this is (`app`: the demo keyboard itself). */
+  readonly fwLabel: string;
+  /** What this demo keyboard was made with (the bus reconnects it as the same keyboard). */
+  readonly seed: DemoSeed;
+  readonly initOpts: { seed?: DemoSeed; fastLedReplies?: boolean; serial?: number[]; firmware?: number[]; fwLabel?: string };
 
-  constructor(opts: { latencyMs?: number; seed?: DemoSeed; fastLedReplies?: boolean } = {}) {
+  /**
+   * `serial` (12 bytes) and `firmware` (4 bytes) replace those of the snapshot's `01 02`. `fwBus`: the bus this keyboard is on
+   * (a keyboard coming back after a firmware write); a demo AE64 Pro without one gets its own bus.
+   */
+  constructor(opts: {
+    latencyMs?: number; seed?: DemoSeed; fastLedReplies?: boolean; serial?: number[]; firmware?: number[]; fwBus?: MockFwBus; fwLabel?: string;
+  } = {}) {
     super();
     const pro = opts.seed === 'pro' || opts.seed === 'pro-xinput';
     this.productName = pro ? 'AE64 Pro (demo)' : 'AE64-MAX (demo)';
     this.productId = pro ? PRODUCT_ID_PRO : PRODUCT_ID_MAX;
     this.snapshot = pro ? { ...SNAPSHOT, ...PRO_SNAPSHOT } : SNAPSHOT;
+    if (opts.serial || opts.firmware) {
+      const info = this.snapshot['01:02'].slice();
+      if (opts.firmware) info.splice(8, 4, ...opts.firmware);
+      if (opts.serial) info.splice(17, 12, ...opts.serial);
+      this.snapshot = { ...this.snapshot, '01:02': info };
+    }
+    this.fwLabel = opts.fwLabel ?? 'app';
+    this.seed = opts.seed ?? 'max';
+    this.initOpts = { seed: opts.seed, fastLedReplies: opts.fastLedReplies, serial: opts.serial, firmware: opts.firmware, fwLabel: opts.fwLabel };
+    this.fwMock = opts.fwBus ?? (pro ? new MockFwBus(this.snapshot['01:02'].slice(17, 29), { fastLedReplies: opts.fastLedReplies }) : null);
+    if (pro && !opts.fwBus) this.fwMock?.attach(this);
     this.latencyMs = opts.latencyMs ?? 2;
     this.fastLedReplies = !!opts.fastLedReplies && typeof MessageChannel !== 'undefined';
     const sw = pro ? PRO_SWITCH : {};
@@ -255,6 +280,14 @@ export class MockTransport extends BaseTransport {
     return this.open;
   }
 
+  /** The demo bus unplugs this keyboard (it restarts into its bootloader, or is pulled out). */
+  unplug(): void {
+    if (!this.open) return;
+    this.open = false;
+    for (const answer of this.replyQueue.splice(0)) answer();
+    this.emitDisconnect();
+  }
+
   async close(): Promise<void> {
     this.open = false;
     for (const answer of this.replyQueue.splice(0)) answer();
@@ -312,6 +345,19 @@ export class MockTransport extends BaseTransport {
   }
 
   protected exchange(frame: Uint8Array): Promise<Bytes> {
+    const bus = this.fwMock;
+    if (bus && (frame[0] === 0x01 || frame[0] === 0x08 || this.fwLabel !== 'app')) {
+      bus.log(this.fwLabel, `${frame[0].toString(16).padStart(2, '0')} ${frame[1].toString(16).padStart(2, '0')}`);
+    }
+    if (frame[0] === 0x08) {
+      // A keyboard running its app takes `08 01` (restart into the bootloader) and nothing else of family 08.
+      if (frame[1] !== 0x01 || !bus || this.fwLabel !== 'app') {
+        bus?.violation(`08 ${frame[1].toString(16).padStart(2, '0')} sent to ${this.fwLabel} running its app`);
+        return Promise.reject(new TransportTimeoutError(Array.from(frame.slice(0, 2))));
+      }
+      if (!bus.entered(this)) return Promise.reject(new Error('disconnected'));
+      return new Promise((resolve) => setTimeout(() => resolve(Uint8Array.from({ length: 64 }, (_, i) => (i < 2 ? frame[i] : 0))), this.latencyMs));
+    }
     const reply = this.handle(Array.from(frame));
     if (frame[0] === GP_FAMILY && this.dropGamepadReply?.(frame[1])) {
       this.dropGamepadReply = null;

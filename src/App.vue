@@ -7,13 +7,14 @@ import ConnectScreen from './components/shell/ConnectScreen.vue';
 import Wallpaper from './components/shell/Wallpaper.vue';
 import { startWallpaper } from './data/wallpaperState';
 import ToastHost from './components/ui/Toast.vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { createSafePad, toastSafeTarget, useToast } from './components/ui/toast';
 import { takeAppcfgDone } from './data/appcfgDone';
 import { useDeviceStore } from './stores/device';
 import { useGamepadStore } from './stores/gamepad';
 import { useHistoryStore } from './stores/history';
 import { useSettingsStore } from './stores/settings';
+import { useFirmwareStore } from './stores/firmware';
 import { t } from './i18n/vi';
 
 const SIDEBAR_KEY = 'ae64.sidebarCollapsed';
@@ -24,7 +25,14 @@ const settings = useSettingsStore();
 const usbRestarting = computed(() => settings.pollingState === 'applying' || settings.pollingState === 'reconnecting');
 // Showing / hiding the Xbox controller re-enumerates the keyboard: the Gamepad page stays (busy) until it is back.
 const gamepad = useGamepadStore();
-const keepPage = computed(() => usbRestarting.value || gamepad.usbBusy);
+// A firmware session (and rescue mode) keeps the page while the keyboard is off USB or in its bootloader (DESIGN FW §3.3).
+const firmware = useFirmwareStore();
+const keepPage = computed(() => usbRestarting.value || gamepad.usbBusy || firmware.active);
+const router = useRouter();
+// A keyboard found in its bootloader (at connect, or after a lost write) opens the firmware page in rescue mode.
+watch(() => firmware.rescue, (on) => {
+  if (on) void router.push({ path: '/firmware', query: { rescue: '1' } });
+});
 const collapsed = ref(localStorage.getItem(SIDEBAR_KEY) === '1');
 watch(collapsed, (v) => localStorage.setItem(SIDEBAR_KEY, v ? '1' : '0'));
 

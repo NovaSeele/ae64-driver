@@ -3,8 +3,8 @@ import { createRouter, createWebHashHistory } from 'vue-router';
 import type { Router, RouteRecordRaw } from 'vue-router';
 import type { Component } from 'vue';
 import {
-  IconAdjustmentsHorizontal, IconBulb, IconDeviceGamepad2, IconKeyboard, IconLayoutDashboard, IconListDetails, IconSettings,
-  IconStack2, IconStethoscope,
+  IconAdjustmentsHorizontal, IconBulb, IconCpu, IconDeviceGamepad2, IconKeyboard, IconLayoutDashboard, IconListDetails,
+  IconSettings, IconStack2, IconStethoscope,
 } from '@tabler/icons-vue';
 import type { MessageKey } from './i18n/vi';
 import OverviewPage from './pages/OverviewPage.vue';
@@ -21,6 +21,8 @@ export interface NavItem {
   icon: Component;
   /** Feature colour (CSS value) of the sidebar icon tile and the top-bar title tile. */
   tone: string;
+  /** Shown only when its labs switch is on, or while the firmware page runs (DESIGN FW §3.8). */
+  labs?: true;
 }
 
 // DESIGN E §3.8: Travel, Advanced keys, Switch, Calibration and Key test are the five tabs of the one Performance item.
@@ -48,6 +50,7 @@ export const NAV: { group: MessageKey; items: NavItem[] }[] = [
     items: [
       { path: '/settings', title: 'page.settings', icon: IconSettings, tone: 'var(--f-settings)' },
       { path: '/diagnostics', title: 'page.diagnostics', icon: IconStethoscope, tone: 'var(--f-diagnostics)' },
+      { path: '/firmware', title: 'page.firmware', icon: IconCpu, tone: 'var(--f-diagnostics)', labs: true },
     ],
   },
 ];
@@ -83,6 +86,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/macro', component: () => import('./pages/MacroPage.vue'), meta: { title: 'page.macro' } },
   { path: '/settings', component: () => import('./pages/SettingsPage.vue'), meta: { title: 'page.settings' } },
   { path: '/diagnostics', component: () => import('./pages/DiagnosticsPage.vue'), meta: { title: 'page.diagnostics' } },
+  // Behind the labs switch (installFirmwareGuard); its own chunk, never loaded while the switch is off.
+  { path: '/firmware', component: () => import('./pages/FirmwarePage.vue'), meta: { title: 'page.firmware' } },
   { path: '/:pathMatch(.*)*', redirect: '/overview' },
 ];
 
@@ -96,6 +101,30 @@ export function installPerfTabGuard(r: Router): void {
     if (to.path === '/performance' && !asPerfTab(to.query.tab)) {
       return { path: to.path, query: { ...to.query, tab: storedTab() ?? 'travel' }, hash: to.hash };
     }
+  });
+}
+
+/** What the firmware guard reads (the firmware store, given by main.ts so this file does not import a store). */
+export interface FirmwareGate {
+  /** The labs switch. */
+  enabled: boolean;
+  /** A session or rescue mode: the whole app is locked to the firmware page. */
+  active: boolean;
+  rescue: boolean;
+}
+
+/**
+ * DESIGN FW §3.4, §3.8: while a firmware session runs (or rescue mode) every path other than /firmware goes back to it; with
+ * the switch off and nothing running, /firmware goes to /settings (where the switch is).
+ */
+export function installFirmwareGuard(r: Router, gate: () => FirmwareGate): void {
+  r.beforeEach((to) => {
+    const g = gate();
+    if (g.active) {
+      if (to.path === '/firmware') return;
+      return { path: '/firmware', query: g.rescue ? { rescue: '1' } : {} };
+    }
+    if (to.path === '/firmware' && !g.enabled) return { path: '/settings' };
   });
 }
 

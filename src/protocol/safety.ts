@@ -202,6 +202,66 @@ export function checkFrame(payload: readonly number[], opts: { readOnly?: boolea
   if (why) throw new UnsafeCommandError(payload, why);
 }
 
+/** Where a firmware session stands (client.ts keeps it per session; DESIGN FW §3.5). */
+export type FwStep = 'open' | 'entered' | 'attached' | 'writing' | 'written' | 'packetFail' | 'verified' | 'verifyFail' | 'restarted';
+
+/** What a family-08 frame is checked against: the session's own state, kept in client.ts and never handed out. */
+export interface FirmwareGuard {
+  /** Board read by `01 02` when the session opened (a number). */
+  board: number;
+  step: FwStep;
+  /** Which connection sends: the app connection that opened the session, the bootloader attached to it, or another one. */
+  sender: 'app' | 'boot' | 'other';
+  /** Offset the next `08 02` must carry, and the size of the session's file. */
+  nextOffset: number;
+  size: number;
+}
+
+const FW_PRO_BOARD = 0x0030000a;
+const FW_DATA_MAX = 56;
+const le32At = (p: readonly number[], o: number): number => ((p[o] ?? 0) | ((p[o + 1] ?? 0) << 8) | ((p[o + 2] ?? 0) << 16) | ((p[o + 3] ?? 0) << 24)) >>> 0;
+
+/**
+ * The only check family 08 goes through (DESIGN FW §3.5). Returns a reason to refuse, or null:
+ * - a session must exist, for board 0x0030000A (compared as a number);
+ * - `08 01` once, on the app connection that opened the session (step `open`);
+ * - `08 02` on the attached bootloader while writing, at the next offset (contiguous from 0, step 56), with the length of the
+ *   rest of the file (56, the last one shorter) and exactly that many data bytes;
+ * - `08 03` on the bootloader once every packet was acknowledged (step `written`); `08 04` only after `08 03` passed.
+ * Nothing else of family 08 (no other command, no second `08 01`, no `08 04` after a failed check).
+ */
+export function checkFirmwareFrame(p: readonly number[], g: FirmwareGuard | null | undefined): string | null {
+  if (p[0] !== 0x08) return 'not a firmware frame';
+  if (!g) return 'firmware frame without a firmware session';
+  if (g.board !== FW_PRO_BOARD) return `firmware is only written to board 0030000A (session board ${g.board.toString(16).padStart(8, '0')})`;
+  switch (p[1]) {
+    case 0x01:
+      if (g.step !== 'open') return `08 01 in step ${g.step}`;
+      if (g.sender !== 'app') return '08 01 must go to the app connection that opened the session';
+      return p.length === 2 ? null : '08 01 carries no data';
+    case 0x02: {
+      if (g.step !== 'writing') return `08 02 in step ${g.step}`;
+      if (g.sender !== 'boot') return '08 02 must go to the bootloader attached to the session';
+      const offset = le32At(p, 2);
+      const len = (p[6] ?? 0) | ((p[7] ?? 0) << 8);
+      if (offset !== g.nextOffset) return `08 02 offset ${offset}, expected ${g.nextOffset}`;
+      const want = Math.min(FW_DATA_MAX, g.size - offset);
+      if (!(want > 0) || len !== want) return `08 02 length ${len}, expected ${want}`;
+      return p.length === 8 + len ? null : `08 02 carries ${p.length - 8} data bytes, length says ${len}`;
+    }
+    case 0x03:
+      if (g.step !== 'written') return `08 03 in step ${g.step}`;
+      if (g.sender !== 'boot') return '08 03 must go to the bootloader attached to the session';
+      return p.length === 2 ? null : '08 03 carries no data';
+    case 0x04:
+      if (g.step !== 'verified') return `08 04 in step ${g.step}: only after 08 03 confirmed the image`;
+      if (g.sender !== 'boot') return '08 04 must go to the bootloader attached to the session';
+      return p.length === 2 ? null : '08 04 carries no data';
+    default:
+      return `firmware command 08 ${(p[1] ?? 0).toString(16).padStart(2, '0')} is never sent`;
+  }
+}
+
 export function isWriteCommand(payload: readonly number[]): boolean {
   return ruleFor(payload)?.write ?? false;
 }

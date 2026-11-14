@@ -95,7 +95,7 @@ function formatUpdateDate(iso: string): string {
 
           <div v-else-if="update.state === 'available' && update.availableInfo" class="help__status-row help__status-row--avail">
             <span>{{ t('update.available', { version: update.availableInfo.version, date: formatUpdateDate(update.availableInfo.builtAt) }) }}</span>
-            <Button variant="primary" size="sm" @click="update.apply()">
+            <Button variant="primary" size="sm" :disabled="update.busyReason !== null" :title="update.busyReason ?? undefined" @click="update.apply()">
               {{ t('update.apply') }}
             </Button>
           </div>

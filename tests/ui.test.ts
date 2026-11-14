@@ -157,7 +157,7 @@ describe('Sidebar', () => {
     });
     expect(w.classes()).toContain('side--compact');
     const links = w.findAll('.side__link');
-    const allItems = NAV.flatMap((g) => g.items);
+    const allItems = NAV.flatMap((g) => g.items).filter((i) => !i.labs); // Firmware: only with its labs switch on
     expect(links.length).toBe(allItems.length);
     for (let i = 0; i < links.length; i++) {
       expect(links[i].attributes('title')).toBe(t(allItems[i].title));

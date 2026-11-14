@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { useDeviceStore } from '../stores/device';
 import { useCalibrationStore } from '../stores/calibration';
 import { useSyncStore } from '../stores/sync';
+import { useFirmwareStore } from '../stores/firmware';
 import { t as tr } from '../i18n/vi';
 import { isNewerVersion } from './version';
 
@@ -46,6 +47,8 @@ export const useUpdateStore = defineStore('update', () => {
   const busyReason = computed<string | null>(() => {
     const device = useDeviceStore();
     const calibration = useCalibrationStore();
+    // A firmware session (or rescue mode): a reload would cut the write or lose the bootloader (DESIGN FW §3.4).
+    if (useFirmwareStore().active) return tr('update.busyFirmware');
     if (device.exclusiveActive) return tr('update.busyWrite');
     if (calibration.phase !== 'idle' || device.calibrationLocked()) return tr('update.busyCalibration');
     return null;
@@ -149,6 +152,7 @@ export const useUpdateStore = defineStore('update', () => {
   /** Checked fresh (the computed may cache device.calibrationLocked(), which is not reactive). */
   function busyNow(): string | null {
     const device = useDeviceStore();
+    if (useFirmwareStore().active) return tr('update.busyFirmware');
     if (device.exclusiveActive) return tr('update.busyWrite');
     if (useCalibrationStore().phase !== 'idle' || device.calibrationLocked()) return tr('update.busyCalibration');
     return null;
@@ -238,7 +242,8 @@ export const useUpdateStore = defineStore('update', () => {
           window.location.reload();
         }
       } else {
-        // Without service worker: reload
+        // Without service worker: reload, after the same check as above (the user kept working meanwhile).
+        if (!(await readyToReload())) return;
         if (typeof window !== 'undefined') {
           window.location.reload();
         }

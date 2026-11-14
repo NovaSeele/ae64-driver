@@ -18,6 +18,13 @@ export const HID_FILTERS: readonly HIDDeviceFilter[] = Object.freeze([
   { vendorId: VENDOR_ID, productId: PRODUCT_ID_PRO, usagePage: CONFIG_USAGE_PAGE, usage: CONFIG_USAGE },
 ]);
 
+/**
+ * The vendor collection without a product ID (DESIGN FW §3.6): the bootloader's product ID is not known. Matches every AE64 in app
+ * mode too, so a device found through it only ever gets `01 02` until its run mode and board are known. Never FF80 (the wireless
+ * dongle). Only the firmware page and the connect screen's probe use it; HID_FILTERS stays the normal path.
+ */
+export const FW_PROBE_FILTER: Readonly<HIDDeviceFilter> = Object.freeze({ vendorId: VENDOR_ID, usagePage: CONFIG_USAGE_PAGE, usage: CONFIG_USAGE });
+
 /** Command families. Family 08 (firmware upgrade) is deliberately absent and refused by the transport. */
 export const FAMILY = Object.freeze({
   DEVICE: 0x01,

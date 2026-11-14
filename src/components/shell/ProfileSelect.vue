@@ -6,6 +6,7 @@ import { useRoute } from 'vue-router';
 import { IconChevronDown, IconPencil } from '@tabler/icons-vue';
 import { useCalibrationStore } from '../../stores/calibration';
 import { useDeviceStore } from '../../stores/device';
+import { useFirmwareStore } from '../../stores/firmware';
 import { PROFILE_NAME_MAX_BYTES, truncateUtf8 } from '../../stores/settings';
 import { useToast } from '../ui/toast';
 import { t } from '../../i18n/vi';
@@ -16,6 +17,7 @@ const listId = `ps-list-${Math.random().toString(36).slice(2, 9)}`;
 
 const device = useDeviceStore();
 const calibration = useCalibrationStore();
+const firmware = useFirmwareStore();
 const toast = useToast();
 const route = useRoute();
 const calibrating = computed(() => calibration.phase !== 'idle' || device.calibrationLocked());
@@ -276,6 +278,7 @@ async function finishRename(save: boolean) {
       :aria-label="`${t('device.profile')} ${active + 1} · ${activeName}`"
       :title="compact ? `${t('device.profile')} ${active + 1} · ${activeName}` : undefined"
       :aria-busy="busy !== null || undefined"
+      :disabled="firmware.active"
       @click="toggle"
       @keydown="onTriggerKey"
     >
@@ -366,6 +369,7 @@ async function finishRename(save: boolean) {
 .ps__trigger:hover { background: var(--bg-3); border-color: var(--line-3); }
 .ps__trigger[aria-expanded='true'] { border-color: var(--acc-line); }
 .ps__trigger[aria-busy='true'] { opacity: 0.6; }
+.ps__trigger:disabled { opacity: 0.45; cursor: not-allowed; }
 .ps__chip {
   display: grid;
   place-items: center;

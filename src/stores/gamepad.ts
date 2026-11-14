@@ -25,6 +25,7 @@ import {
 } from '../protocol/gamepad';
 import type { GamepadConfig, GamepadInfo, GamepadUsbState, GpBinding, GpCurve, GpIssue, GpMode, GpStick, GpTransport, GpTravelIssue } from '../protocol/gamepad';
 import { USB_SWITCH_MS } from '../protocol/mockGamepad';
+import { serialReadable } from '../protocol/firmware';
 import type { Ae64Transport } from '../protocol';
 import { t as tr } from '../i18n/vi';
 import { longNameOf } from '../components/gamepad/outputs';
@@ -598,7 +599,8 @@ export const useGamepadStore = defineStore('gamepad', () => {
     }, { exclusive: true }));
   }
 
-  const unknownSerial = (s: string | undefined): boolean => !s || /^0*$/.test(s) || s === '255'.repeat(12);
+  /** The serial as 24 hex digits (review FW, P3): the decimal join of `serial` loses where one byte ends and the next starts. */
+  const unknownSerial = (hex: string | undefined): boolean => !serialReadable(hex ?? '');
 
   /**
    * Show (true) or hide the Xbox controller device. The keyboard re-enumerates on USB; success only when the same keyboard
@@ -613,7 +615,7 @@ export const useGamepadStore = defineStore('gamepad', () => {
       await sync.flush(); // nothing of this keyboard may be pending when it re-enumerates
       const isDemo = device.demo;
       const original = device.info;
-      if (!isDemo && unknownSerial(original?.serial)) throw new Error(tr('gp.usbNoSerial'));
+      if (!isDemo && unknownSerial(original?.serialHex)) throw new Error(tr('gp.usbNoSerial'));
       const current = await serial(() => device.withTransport(async (t) => {
         if (!(await t.gamepadInfo())?.usbSwitch) throw new Error(tr('gp.usbUnsupported'));
         return t.gamepadUsbStatus();
@@ -645,7 +647,7 @@ export const useGamepadStore = defineStore('gamepad', () => {
           await sleep(USB_RECONNECT_STEP_MS);
         }
         if (!device.connected) throw new Error(tr('gp.usbReconnectFailed'));
-        if (device.info?.serial !== original?.serial || device.info?.boardIdHex !== original?.boardIdHex) throw new Error(tr('gp.usbOtherKeyboard'));
+        if (device.info?.serialHex !== original?.serialHex || device.info?.boardIdHex !== original?.boardIdHex) throw new Error(tr('gp.usbOtherKeyboard'));
         await load(true);
         state = await serial(() => device.withTransport(async (t) => {
           if (!(await t.gamepadInfo())?.usbSwitch) throw new Error(tr('gp.usbNotConfirmed'));
