@@ -220,6 +220,23 @@ describe('item 3: parseImport, in the order of §3.5', () => {
     expect(parseImport(file({ a: '1', b: '1', c: '1', d: '1' }), 50)).toEqual({ ok: false, error: 'errKeys', keys: 'a, b, c…' });
   });
 
+  it('H-1: a key longer than 40 characters is shown as its first 39 + "…"; 40 and the real keys stay whole', () => {
+    const long = `ae64.${'x'.repeat(400)}`;
+    const r = parseImport(file({ [long]: '1' }), 500);
+    expect(r).toEqual({ ok: false, error: 'errKeys', keys: `${long.slice(0, 39)}…` });
+    expect(r.ok === false && [...r.keys!].length).toBe(40);
+    const forty = `ae64.${'y'.repeat(35)}`;
+    expect(forty).toHaveLength(40);
+    expect(parseImport(file({ [forty]: '1' }), 100)).toEqual({ ok: false, error: 'errKeys', keys: forty });
+    expect(parseImport(file({ [`${forty}z`]: '1' }), 100)).toEqual({ ok: false, error: 'errKeys', keys: `${forty.slice(0, 39)}…` });
+    expect(parseImport(file({ 'ae64.live.colorByResult': 'x' }), 100)).toEqual({ ok: false, error: 'errValue', keys: 'ae64.live.colorByResult' });
+    // 4 long keys: 3 cut keys, then "…"; a character outside the BMP is not split in half
+    const four = Object.fromEntries(['a', 'b', 'c', 'd'].map((c) => [c.repeat(50), '1']));
+    expect(parseImport(file(four), 500)).toEqual({ ok: false, error: 'errKeys', keys: ['a', 'b', 'c'].map((c) => `${c.repeat(39)}…`).join(', ') + '…' });
+    const emoji = `${'e'.repeat(38)}😀😀😀`;
+    expect(parseImport(file({ [emoji]: '1' }), 500)).toEqual({ ok: false, error: 'errKeys', keys: `${'e'.repeat(38)}😀…` });
+  });
+
   it('a value that is not a string is a wrong value', () => {
     expect(parseImport(file({ 'ae64.sidebarCollapsed': 1 }), 50)).toEqual({ ok: false, error: 'errValue', keys: 'ae64.sidebarCollapsed' });
     expect(parseImport(file({ 'ae64.live.keyLock': 'true', 'ae64.locale': 'fr' }), 50)).toEqual({ ok: false, error: 'errValue', keys: 'ae64.live.keyLock, ae64.locale' });

@@ -285,6 +285,113 @@ describe('Reset', () => {
   });
 });
 
+describe('H-1: a very long unknown key', () => {
+  it('the error shows it cut to 40 characters, never the whole key', async () => {
+    const p = await page();
+    const long = `ae64.${'x'.repeat(400)}`;
+    await choose(p, fileOf({ [long]: '1' }));
+    const text = p.err().text();
+    expect(text).not.toContain('x'.repeat(41));
+    expect(text).toBe(t('appcfg.errKeys', { keys: `${long.slice(0, 39)}…` }));
+    expect(dlg()).toBeNull();
+    expect(p.out).toEqual([]);
+  });
+});
+
+describe('H-2: the dialog cannot be closed while the confirm waits for the keyboard writes', () => {
+  /** sync.flush() held until release() or fail(). */
+  function holdFlush() {
+    let release!: () => void;
+    let fail!: (e: Error) => void;
+    vi.spyOn(useSyncStore(), 'flush').mockImplementation(() => new Promise<void>((ok, no) => { release = ok; fail = no; }));
+    return { release: () => release(), fail: (e: Error) => fail(e) };
+  }
+  /** × and Esc on the panel, Cancel disabled: the dialog stays open; focus stays in it. */
+  async function triesToClose() {
+    const cancel = dlgButton(t('appcfg.cancel'));
+    expect(cancel.disabled).toBe(true);
+    cancel.click();
+    await settle();
+    expect(dlg()).not.toBeNull();
+    dlg()!.querySelector<HTMLButtonElement>('.dlg__close')!.click();
+    await settle();
+    expect(dlg()).not.toBeNull();
+    dlg()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle();
+    expect(dlg()).not.toBeNull();
+    expect(dlg()!.contains(document.activeElement)).toBe(true);
+  }
+
+  it('import: Cancel off, × and Esc ignored while flush waits; released → the file is written and the page reloads once', async () => {
+    const p = await page({ before: () => localStorage.setItem('ae64.theme', 'light') });
+    const flush = holdFlush();
+    await choose(p, fileOf({ 'ae64.theme': 'ember' }));
+    dlgButton(t('appcfg.importConfirm')).click();
+    await settle();
+    await triesToClose();
+    expect(localStorage.getItem('ae64.theme')).toBe('light');
+    expect(p.reload).not.toHaveBeenCalled();
+    flush.release();
+    await settle();
+    expect(localStorage.getItem('ae64.theme')).toBe('ember');
+    expect(sessionStorage.getItem(APPCFG_DONE_KEY)).toBe('import');
+    expect(p.reload).toHaveBeenCalledTimes(1);
+    expect(p.out).toEqual([]);
+  });
+
+  it('reset: Cancel off, × and Esc ignored while flush waits; released → cleared and the page reloads once', async () => {
+    const p = await page({ before: () => localStorage.setItem('ae64.perf.userPresets', THREE) });
+    const flush = holdFlush();
+    await p.resetBtn().trigger('click');
+    await settle();
+    dlgButton(t('appcfg.resetConfirm')).click();
+    await settle();
+    await triesToClose();
+    expect(localStorage.getItem('ae64.perf.userPresets')).toBe(THREE);
+    expect(p.reload).not.toHaveBeenCalled();
+    flush.release();
+    await settle();
+    expect(localStorage.getItem('ae64.perf.userPresets')).toBeNull();
+    expect(sessionStorage.getItem(APPCFG_DONE_KEY)).toBe('reset');
+    expect(p.reload).toHaveBeenCalledTimes(1);
+    expect(p.out).toEqual([]);
+  });
+
+  it.each(['import', 'reset'] as const)('%s: flush refuses after waiting → the dialog closes, errPending, nothing written, no reload', async (kind) => {
+    const p = await page({ before: () => { localStorage.setItem('ae64.theme', 'light'); localStorage.setItem('ae64.perf.userPresets', THREE); } });
+    const flush = holdFlush();
+    if (kind === 'import') await choose(p, fileOf({ 'ae64.theme': 'ember' }));
+    else { await p.resetBtn().trigger('click'); await settle(); }
+    dlgButton(t(kind === 'import' ? 'appcfg.importConfirm' : 'appcfg.resetConfirm')).click();
+    await settle();
+    expect(dlg()).not.toBeNull();
+    flush.fail(new Error('held'));
+    await settle();
+    expect(dlg()).toBeNull();
+    expect(p.err().text()).toBe(t('appcfg.errPending', { msg: 'held' }));
+    expect(localStorage.getItem('ae64.theme')).toBe('light');
+    expect(localStorage.getItem('ae64.perf.userPresets')).toBe(THREE);
+    expect(sessionStorage.getItem(APPCFG_DONE_KEY)).toBeNull();
+    expect(p.reload).not.toHaveBeenCalled();
+    expect(p.out).toEqual([]);
+  });
+
+  it('before confirming, × and Esc still close (and Cancel is on)', async () => {
+    const p = await page();
+    await p.resetBtn().trigger('click');
+    await settle();
+    expect(dlgButton(t('appcfg.cancel')).disabled).toBe(false);
+    dlg()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle();
+    expect(dlg()).toBeNull();
+    await p.resetBtn().trigger('click');
+    await settle();
+    dlg()!.querySelector<HTMLButtonElement>('.dlg__close')!.click();
+    await settle();
+    expect(dlg()).toBeNull();
+  });
+});
+
 describe('item 7: locked while the keyboard is busy', () => {
   const locked = (p: Page, reason: string) => {
     expect(p.importBtn().attributes('disabled')).toBeDefined();

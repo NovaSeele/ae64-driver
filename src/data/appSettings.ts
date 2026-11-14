@@ -97,9 +97,16 @@ export type ParsedImport =
   | { ok: true; data: Record<string, string>; savedAt: string; version: string }
   | { ok: false; error: ImportError; keys?: string };
 
-/** At most 3 keys, then "…". */
+/** The longest key shown whole in an error; a longer one is cut to 39 characters + "…" (the longest real key has 23). */
+export const KEY_SHOWN_MAX = 40;
+const shortKey = (k: string): string => {
+  const ch = [...k];
+  return ch.length > KEY_SHOWN_MAX ? `${ch.slice(0, KEY_SHOWN_MAX - 1).join('')}…` : k;
+};
+
+/** At most 3 keys, each at most KEY_SHOWN_MAX characters, then "…". */
 function keyList(keys: string[]): string {
-  return keys.slice(0, 3).join(', ') + (keys.length > 3 ? '…' : '');
+  return keys.slice(0, 3).map(shortKey).join(', ') + (keys.length > 3 ? '…' : '');
 }
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);

@@ -116,9 +116,22 @@ function askReset(): void {
   resetOpen.value = true;
 }
 
+// While the confirm waits (flush, then write and reload) the dialog cannot be closed: Cancel is off, and ×, Esc and the
+// backdrop come through these two (Dialog sets its model to false), so nothing is written after the user cancelled.
+function setImportOpen(v: boolean): void {
+  if (!v && applying.value) return;
+  importOpen.value = v;
+}
+function setResetOpen(v: boolean): void {
+  if (!v && applying.value) return;
+  resetOpen.value = v;
+}
+
 async function run(kind: 'import' | 'reset'): Promise<void> {
   if (applying.value) return;
   applying.value = true;
+  // The confirm button turns to loading (disabled): keep focus in the dialog, on its panel.
+  (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('.dlg__panel')?.focus();
   try {
     await applyAndReload(kind, kind === 'import' ? importData.value?.data : undefined);
   } catch (e) {
@@ -186,7 +199,7 @@ async function run(kind: 'import' | 'reset'): Promise<void> {
     </div>
   </Card>
 
-  <Dialog v-model:open="importOpen" :title="t('appcfg.importTitle')" :width="480">
+  <Dialog :open="importOpen" :title="t('appcfg.importTitle')" :width="480" @update:open="setImportOpen">
     <div class="ac__body">
       <p>{{ t('appcfg.importBody', { time: importTime, version: importData?.version || '—' }) }}</p>
       <ul class="ac__list">
@@ -198,12 +211,12 @@ async function run(kind: 'import' | 'reset'): Promise<void> {
       <p class="ac__safe"><IconCircleCheck :size="16" stroke-width="2" aria-hidden="true" /><span>{{ t('appcfg.keyboardSafe') }}</span></p>
     </div>
     <template #footer>
-      <Button variant="ghost" @click="importOpen = false">{{ t('appcfg.cancel') }}</Button>
+      <Button variant="ghost" :disabled="applying" @click="setImportOpen(false)">{{ t('appcfg.cancel') }}</Button>
       <Button ref="confirmImport" variant="primary" :icon="IconUpload" :loading="applying" @click="run('import')">{{ t('appcfg.importConfirm') }}</Button>
     </template>
   </Dialog>
 
-  <Dialog v-model:open="resetOpen" :title="t('appcfg.resetTitle')" :width="480">
+  <Dialog :open="resetOpen" :title="t('appcfg.resetTitle')" :width="480" @update:open="setResetOpen">
     <div class="ac__body">
       <p>{{ t('appcfg.resetBody') }}</p>
       <p v-if="userPresets.presets.length" class="ac__warn">
@@ -212,7 +225,7 @@ async function run(kind: 'import' | 'reset'): Promise<void> {
       <p class="ac__safe"><IconCircleCheck :size="16" stroke-width="2" aria-hidden="true" /><span>{{ t('appcfg.keyboardSafe') }}</span></p>
     </div>
     <template #footer>
-      <Button variant="ghost" @click="resetOpen = false">{{ t('appcfg.cancel') }}</Button>
+      <Button variant="ghost" :disabled="applying" @click="setResetOpen(false)">{{ t('appcfg.cancel') }}</Button>
       <Button variant="danger" :icon="IconRestore" :loading="applying" @click="run('reset')">{{ t('appcfg.resetConfirm') }}</Button>
     </template>
   </Dialog>
@@ -304,6 +317,8 @@ async function run(kind: 'import' | 'reset'): Promise<void> {
   line-height: 18px;
 }
 .dl__err svg { flex: none; margin-top: 1px; }
+/* any message (a key, a browser error in errPending) wraps inside the card instead of pushing it wider */
+.dl__err span { min-width: 0; overflow-wrap: anywhere; }
 .dl__lock { margin: 0; font-size: var(--fs-label); line-height: 18px; color: var(--warn); }
 
 .ac__body { display: flex; flex-direction: column; gap: var(--s-3); font-size: var(--fs-body); line-height: 20px; color: var(--fg-2); }
