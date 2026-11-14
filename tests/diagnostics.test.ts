@@ -304,7 +304,7 @@ describe('diagnostics store', () => {
     const mock = await connectMock();
     const device = useDeviceStore();
     expect(device.packetEntries().length).toBeGreaterThan(0); // the connect handshake itself
-    for (let i = 0; i < 150; i++) await mock.getActiveProfile(); // 300 packets
+    for (let i = 0; i < 150; i++) await mock.getProfileCount(); // 300 packets
     const rows = device.packetEntries();
     expect(rows.length).toBe(200);
     for (let i = 1; i < rows.length; i++) expect(rows[i].t).toBeGreaterThanOrEqual(rows[i - 1].t);
@@ -326,7 +326,7 @@ describe('diagnostics store', () => {
     expect(rows.length).toBe(base + 1);
     expect(rows[base].repeat).toBe(10);
     expect(rows[base].tEnd).toBeGreaterThanOrEqual(rows[base].t);
-    await mock.getActiveProfile(); // 2 packets
+    await mock.getProfileCount(); // 2 packets
     await mock.getAxisData('route', 2);
     rows = device.packetEntries();
     expect(rows.length).toBe(base + 4);
@@ -352,7 +352,7 @@ describe('diagnostics store', () => {
     const snapshot = [...row.bytes];
     for (const b of seen) b.fill(0xee); // reusing/mutating the transport buffers must not touch the log
     expect(row.bytes).toEqual(snapshot);
-    await mock.getActiveProfile();
+    await mock.getProfileCount();
     const rows = device.packetEntries();
     const copy = [...rows[base + 1].bytes];
     seen.forEach((b) => b.fill(0x11));
@@ -368,7 +368,7 @@ describe('diagnostics store', () => {
     const remove = device.watchPackets();
     expect(vi.getTimerCount()).toBe(timersBefore + 1);
     const seq0 = device.packetSeq;
-    for (let i = 0; i < 110; i++) await mock.getActiveProfile(); // 220 packets
+    for (let i = 0; i < 110; i++) await mock.getProfileCount(); // 220 packets
     expect(device.packetEntries().length).toBe(200);
     expect(device.packetSeq).toBe(seq0); // nothing bumped between ticks
     await vi.advanceTimersByTimeAsync(1000);
@@ -376,7 +376,7 @@ describe('diagnostics store', () => {
     remove();
     expect(vi.getTimerCount()).toBe(timersBefore);
     // Still recording, but silently: no timer, no bump.
-    await mock.getActiveProfile();
+    await mock.getProfileCount();
     await vi.advanceTimersByTimeAsync(2000);
     expect(device.packetSeq - seq0).toBe(1);
   });
@@ -384,7 +384,7 @@ describe('diagnostics store', () => {
   it('clears the buffer on a new connection', async () => {
     const mock = await connectMock();
     const device = useDeviceStore();
-    for (let i = 0; i < 5; i++) await mock.getActiveProfile();
+    for (let i = 0; i < 5; i++) await mock.getProfileCount();
     const old = device.packetEntries();
     await device.disconnect();
     await device.connectDemo();

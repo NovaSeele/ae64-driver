@@ -258,13 +258,13 @@ describe('device housekeeping', () => {
     const mock = await connectMock();
     const device = useDeviceStore();
     const before = device.packetEntries().length;
-    await mock.getActiveProfile();
+    await mock.getProfileCount();
     expect(device.packetEntries().length).toBe(before + 2);
     const stop = device.watchPackets();
-    await mock.getActiveProfile();
+    await mock.getProfileCount();
     expect(device.packetEntries().length).toBe(before + 4);
     stop();
-    await mock.getActiveProfile();
+    await mock.getProfileCount();
     expect(device.packetEntries().length).toBe(before + 6);
   });
 

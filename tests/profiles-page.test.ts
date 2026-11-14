@@ -237,13 +237,15 @@ describe('Profiles: switching (§5, items 8, 9)', () => {
     const { device, mock } = await connect();
     const spy = spyExchange(mock);
     const { w } = await mountPage();
-    expect(sent(spy).filter((f) => f.startsWith('04 01'))).toHaveLength(64);
-    expect(sent(spy)).toHaveLength(64);
+    // '02 03 01': the idle active-profile poll (every 2 s, W-01) may land in a long run; it is no part of the page's reads.
+    const pageSent = () => sent(spy).filter((f) => f !== '02 03 01');
+    expect(pageSent().filter((f) => f.startsWith('04 01'))).toHaveLength(64);
+    expect(pageSent()).toHaveLength(64);
     spy.mockClear();
     await useBtn(w, 2).trigger('click');
     await vi.waitFor(() => expect(device.activeProfile).toBe(2), { timeout: 15000, interval: 5 });
     await idle();
-    const frames = sent(spy);
+    const frames = pageSent();
     expect(frames.filter((f) => f.startsWith('02 03 02'))).toEqual(['02 03 02']); // setActiveProfile, once
     expect(frames.filter((f) => f.startsWith('04 01'))).toHaveLength(64);
     expect(frames.filter((f) => !f.startsWith('04 01') && !f.startsWith('03 01') && f !== '02 03 02')).toEqual([]); // + layer-0 keymap reads

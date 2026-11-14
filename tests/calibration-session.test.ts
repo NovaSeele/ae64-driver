@@ -33,6 +33,7 @@ function travel(id: number, um: number) {
   const perf = usePerformanceStore();
   const base = perf.values[id] ?? ({ axisRangeMax: 3310 } as Performance);
   perf.values = { ...perf.values, [id]: { ...base, axisRangeMax: um } };
+  perf.loadedProfile = useDeviceStore().activeProfile; // the active profile's travel (another profile's is never used)
 }
 
 beforeEach(async () => {

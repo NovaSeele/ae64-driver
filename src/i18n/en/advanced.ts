@@ -42,6 +42,7 @@ export const advancedEn: Record<keyof typeof advancedVi, string> = {
   'advanced.loadFailed': 'Failed to load advanced keys',
   'advanced.reload': 'Reload',
   'advanced.notLoaded': 'Advanced key data not loaded for this profile.',
+  'advanced.changedMeanwhile': 'This advanced key changed meanwhile (another profile, or read again): nothing was deleted.',
   'advanced.newTitle': 'New {type}',
   'advanced.editTitle': 'Edit {type}',
   'advanced.moveHost': 'Move {type} from {from} to {to}',

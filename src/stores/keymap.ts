@@ -100,6 +100,8 @@ export const useKeymapStore = defineStore('keymap', () => {
             for (const row of FIRMWARE_ROWS) {
               const rowCodes = await t.getKeymapRow(layer, row);
               if (gen !== device.connection) return;
+              // A read carries no profile number: it reads the keyboard's active profile. Switched mid-read: drop it all.
+              if (device.activeProfile !== profile) return;
               for (const key of device.keys) {
                 if (key.row === row) {
                   const code = rowCodes[key.col] ?? 0;
@@ -112,6 +114,8 @@ export const useKeymapStore = defineStore('keymap', () => {
           }
         });
         if (gen !== device.connection) return;
+        // Not an error: the read stops, `values` stays empty, and the new profile's load() reads it fresh.
+        if (device.activeProfile !== profile) return;
         values.value = next;
         loadedProfile.value = profile;
       } catch (err) {

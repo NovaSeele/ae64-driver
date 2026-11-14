@@ -41,9 +41,12 @@ const confirmClear = ref(false);
 const confirmClearList = ref(false);
 const readOnly = computed(() => !device.boardAllowed);
 
+let offProfile: (() => void) | null = null;
 onMounted(() => {
   void macro.load();
   void keymap.load(); // "Đang gán" looks at every layer
+  // The Fn layers are per profile: read the new one's (layer 0 comes with the switch itself).
+  offProfile = device.onProfileChanged(() => void keymap.load(true));
 });
 
 const slot = computed(() => macro.slots.find((s) => s.id === current.value) ?? null);
@@ -142,9 +145,11 @@ const problem = computed(() => (draft.value ? validateDraft(draft.value, macro.l
 const assignedKeys = computed(() => {
   const code = 0xf500 + current.value;
   const out: string[] = [];
+  // Fn layers only while they are the active profile's (another profile's are never shown as this one's).
+  const fn = keymap.loadedProfile === device.activeProfile ? keymap.values : null;
   LAYER_NAMES.forEach((layer, l) => {
     for (const k of device.keys) {
-      if ((l === 0 ? device.layer0[k.id] : keymap.values[l]?.[k.id]) === code) out.push(`${layer}:${k.name}`);
+      if ((l === 0 ? device.layer0[k.id] : fn?.[l]?.[k.id]) === code) out.push(`${layer}:${k.name}`);
     }
   });
   return out;
@@ -199,6 +204,8 @@ function stopRecording() {
   rec = null;
 }
 onBeforeUnmount(() => {
+  offProfile?.();
+  offProfile = null;
   stopRecording();
   releaseHistory?.();
   releaseHistory = null;

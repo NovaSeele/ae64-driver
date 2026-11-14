@@ -124,6 +124,9 @@ function activate() {
   void adv.load(); // a no-op unless the profile changed while the tab was hidden
   offProfile = device.onProfileChanged(() => {
     if (dirty.value) toast.show(t('advanced.discarded'), 'warn');
+    // A dialog names an assignment of the profile that was left: never act on it in the new one.
+    confirmDel.value = null;
+    discardAsk.value = null;
     close();
     void adv.load(true);
   });

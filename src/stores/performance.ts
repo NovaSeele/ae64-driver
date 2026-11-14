@@ -108,6 +108,16 @@ export const usePerformanceStore = defineStore('performance', () => {
       uncalibrated.value = [...uncalibrated.value, id].sort((a, b) => a - b);
     }
   }
+  /**
+   * A record of key `id` that another store read from profile `profile` (advanced keys restore the tuning after their
+   * write): later writes of this key start from it, and the hardware-owned fields shown follow it. Ignored for another profile.
+   */
+  function noteRead(profile: number, id: number, read: Performance): void {
+    if (loadedProfile.value !== profile || device.activeProfile !== profile) return;
+    noteFresh(id, read);
+    const cur = values.value[id];
+    if (cur) values.value = { ...values.value, [id]: { ...cur, calibrate: read.calibrate, axis: read.axis } };
+  }
   /** Catalog for the connected board, or null (selector read-only). */
   const catalog = computed(() => switchCatalogFor(device.info?.boardIdHex));
   /**
@@ -387,5 +397,5 @@ export const usePerformanceStore = defineStore('performance', () => {
     });
   }
 
-  return { values, loading, loadedCount, loadError, loadedProfile, uncalibrated, profileSnapshots, load, apply, catalog, switchOf, planSwitch, applySwitch, switchNotices };
+  return { values, loading, loadedCount, loadError, loadedProfile, uncalibrated, profileSnapshots, load, apply, catalog, switchOf, planSwitch, applySwitch, switchNotices, noteRead };
 });

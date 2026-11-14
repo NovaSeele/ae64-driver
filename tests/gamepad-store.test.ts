@@ -85,7 +85,8 @@ describe('apply → write → verify', () => {
     expect(gp.dirty).toBe(false);
     const seq = frames.map((f) => (f[0] === 0x10 ? `10:${f[1].toString(16)}` : `${f[0]}:${f[1]}`));
     const i = seq.indexOf('10:21');
-    expect(seq.slice(0, i)).toEqual(['10:20', '2:3', ...new Array(10).fill('4:1')]); // INFO, active profile, 04 01 of the 10 assigned keys
+    // the queue's profile guard (02 03 01, W-01), INFO, the job's own active-profile check, 04 01 of the 10 assigned keys
+    expect(seq.slice(0, i)).toEqual(['2:3', '10:20', '2:3', ...new Array(10).fill('4:1')]);
     // each 04 01 asks the record's key by its firmware (row, col)
     const asked = frames.filter((f) => f[0] === 4 && f[1] === 1).map((f) => `${f[2]}:${f[3]}`);
     const assigned = draft.bindings.filter((b) => b.key !== null).map((b) => keyPosOf(b.key!)!);
@@ -180,13 +181,14 @@ describe('checks before writing', () => {
     expect(agp(frames)).not.toContain(GP_CMD.BEGIN);
     expect(block(gp.config!)).toEqual(before);
   });
-  it('the keyboard switched profile behind the app: refused before BEGIN', async () => {
+  it('the keyboard switched profile behind the app: refused before BEGIN (the queue guard drops it, the app follows)', async () => {
     const { gp, t, frames, sync } = await setup();
     await t.setActiveProfile(2);
     frames.length = 0;
     gp.apply((d) => { d.mode = 'mixed'; }, 'mode');
-    await expect(sync.flush()).rejects.toThrow(tr('gp.profileChanged'));
+    await expect(sync.flush()).rejects.toThrow(tr('sync.keyboardChangedProfile'));
     expect(agp(frames)).not.toContain(GP_CMD.BEGIN);
+    expect(useDeviceStore().activeProfile).toBe(2);
   });
   it('an output the firmware does not offer is refused before BEGIN', async () => {
     const { gp, t, frames, sync } = await setup('pro-xinput', { load: false });

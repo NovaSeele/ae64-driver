@@ -7,6 +7,7 @@ import { IconChevronDown, IconPencil } from '@tabler/icons-vue';
 import { useCalibrationStore } from '../../stores/calibration';
 import { useDeviceStore } from '../../stores/device';
 import { useFirmwareStore } from '../../stores/firmware';
+import { useSyncStore } from '../../stores/sync';
 import { PROFILE_NAME_MAX_BYTES, truncateUtf8 } from '../../stores/settings';
 import { useToast } from '../ui/toast';
 import { t } from '../../i18n/vi';
@@ -21,6 +22,12 @@ const firmware = useFirmwareStore();
 const toast = useToast();
 const route = useRoute();
 const calibrating = computed(() => calibration.phase !== 'idle' || device.calibrationLocked());
+const sync = useSyncStore();
+/** Another exclusive job (backup, restore, a gamepad write, …) talks to the keyboard; the write queue's own batch does not count (it ends in a moment, and a switch waits for it). */
+const jobBusy = computed(() => device.exclusiveActive && sync.state !== 'writing');
+/** Other profiles look off (as while calibrating); a click still reaches switchProfile, whose refusal says why. */
+const locked = computed(() => calibrating.value || jobBusy.value);
+const lockedTip = computed(() => (calibrating.value ? t('device.calibrating') : t('device.busy')));
 const active = computed(() => device.activeProfile);
 const activeName = computed(() => device.profileNames[device.activeProfile] ?? '');
 const editing = ref<number | null>(null);
@@ -292,11 +299,11 @@ async function finishRename(save: boolean) {
           v-for="(name, i) in device.profileNames"
           :key="i"
           class="ps__item"
-          :class="{ 'ps__item--on': i === device.activeProfile, 'ps__item--busy': busy === i, 'ps__item--off': calibrating && i !== device.activeProfile }"
+          :class="{ 'ps__item--on': i === device.activeProfile, 'ps__item--busy': busy === i, 'ps__item--off': locked && i !== device.activeProfile }"
           role="option"
           :aria-selected="i === device.activeProfile"
-          :aria-disabled="calibrating && i !== device.activeProfile ? true : undefined"
-          :title="calibrating && i !== device.activeProfile ? t('device.calibrating') : undefined"
+          :aria-disabled="locked && i !== device.activeProfile ? true : undefined"
+          :title="locked && i !== device.activeProfile ? lockedTip : undefined"
           :tabindex="i === focusIdx ? 0 : -1"
           @click="pick(i)"
           @dblclick="onRowDblclick(i)"

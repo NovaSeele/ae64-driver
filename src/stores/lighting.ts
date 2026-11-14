@@ -180,6 +180,7 @@ export const useLightingStore = defineStore('lighting', () => {
           try {
             const areas = await t.getLightingAreas();
             if (gen !== device.connection) return;
+            if (device.activeProfile !== profile) return;
             if (areas.areas[0]?.modes) area0ModeCount.value = areas.areas[0].modes;
             if (areas.areas[1]?.modes) area1ModeCount.value = areas.areas[1].modes;
           } catch {
@@ -195,6 +196,8 @@ export const useLightingStore = defineStore('lighting', () => {
             t.readLedMatrix(1),
           ]);
           if (gen !== device.connection) return;
+          // A read carries no profile number: it reads the keyboard's active profile. Switched mid-read: drop it all.
+          if (device.activeProfile !== profile) return;
 
           area0Base.value = { ...b0 };
           area0Palette.value = p0.map((e) => ({ ...e }));
@@ -211,6 +214,8 @@ export const useLightingStore = defineStore('lighting', () => {
           freshMatrix.set(1, m1.map((e) => ({ ...e })));
         });
         if (gen !== device.connection) return;
+        // Not an error: nothing of the other profile was kept, and the new profile's load() reads it fresh.
+        if (device.activeProfile !== profile) return;
         loadedProfile.value = profile;
       } catch (err) {
         if (gen !== device.connection) return;

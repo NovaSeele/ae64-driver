@@ -21,10 +21,18 @@ export type DeviceStatus = 'idle' | 'connecting' | 'connected' | 'error';
 const PACKET_LOG_SIZE = 200;
 const LATENCY_REFRESH_MS = 250;
 const PACKET_SEQ_MS = 250;
+/** While connected and idle the keyboard's active profile is read this often (its P1–P4 keys switch it without telling the app). */
+export const PROFILE_POLL_MS = 2000;
 
-/** Live-travel poll = axis data read `04 03 …` (FAMILY.PERFORMANCE, command 0x03), both the request and its reply. */
-function isTravelPoll(bytes: Uint8Array): boolean {
-  return bytes[0] === 0x04 && bytes[1] === 0x03;
+/**
+ * Packets of a poll that the log collapses into one entry while they repeat (both the request and its reply):
+ * 'travel' = live-travel axis read `04 03 …` (FAMILY.PERFORMANCE, command 0x03); 'profile' = the idle active-profile read
+ * `02 03 01`; null for anything else.
+ */
+function pollKind(bytes: Uint8Array | number[]): 'travel' | 'profile' | null {
+  if (bytes[0] === 0x04 && bytes[1] === 0x03) return 'travel';
+  if (bytes[0] === 0x02 && bytes[1] === 0x03 && bytes[2] === 0x01) return 'profile';
+  return null;
 }
 
 const DEMO_MODEL_KEY = 'ae64.demoModel';
@@ -102,6 +110,9 @@ export const useDeviceStore = defineStore('device', () => {
   let packetTimer: ReturnType<typeof setInterval> | null = null;
   let packetsDirty = false;
   let latencyTimer: ReturnType<typeof setInterval> | null = null;
+  let profileTimer: ReturnType<typeof setInterval> | null = null;
+  /** Names of the exclusive jobs running now that gave one (a refused profile switch says what it waits for). */
+  const busyWith: string[] = [];
   /**
    * Bumped on every reset: an exclusive job that started on an earlier connection must not decrement the
    * count of the current one (reset() zeroes it while that job may still be unwinding).
@@ -115,15 +126,22 @@ export const useDeviceStore = defineStore('device', () => {
     return code === undefined ? key.name : keycodeLabel(code).label;
   }
 
-  async function withTransport<T>(fn: (t: Ae64Transport) => Promise<T>, opts: { exclusive?: boolean } = {}): Promise<T> {
+  /** `what`: for an exclusive job, its name in "Running {what}" (a profile switch refused meanwhile). */
+  async function withTransport<T>(fn: (t: Ae64Transport) => Promise<T>, opts: { exclusive?: boolean; what?: string } = {}): Promise<T> {
     const t = transport.value;
     if (!t || status.value !== 'connected') throw new Error(tr('error.notConnected'));
     const mine = session;
     if (opts.exclusive) exclusiveCount.value++;
+    const what = opts.exclusive ? opts.what : undefined;
+    if (what) busyWith.push(what);
     try {
       return await fn(t);
     } finally {
       if (opts.exclusive && mine === session) exclusiveCount.value = Math.max(0, exclusiveCount.value - 1);
+      if (what && mine === session) {
+        const i = busyWith.lastIndexOf(what);
+        if (i >= 0) busyWith.splice(i, 1);
+      }
     }
   }
 
@@ -164,9 +182,10 @@ export const useDeviceStore = defineStore('device', () => {
   function handlePacket(dir: 'out' | 'in', bytes: Uint8Array, note?: string): void {
     packetsDirty = true;
     const t = Date.now();
-    if (isTravelPoll(bytes)) {
+    const kind = pollKind(bytes);
+    if (kind) {
       const last = lastPacket;
-      if (last?.repeat !== undefined) {
+      if (last?.repeat !== undefined && pollKind(last.bytes) === kind) {
         last.repeat++;
         last.tEnd = t;
         return;
@@ -225,6 +244,9 @@ export const useDeviceStore = defineStore('device', () => {
     detach = [];
     if (latencyTimer) clearInterval(latencyTimer);
     latencyTimer = null;
+    if (profileTimer) clearInterval(profileTimer);
+    profileTimer = null;
+    busyWith.length = 0;
     transport.value = null;
     info.value = null;
     version.value = null;
@@ -284,6 +306,7 @@ export const useDeviceStore = defineStore('device', () => {
       await readLayer0(t);
       latencyMs.value = t.stats.lastLatencyMs;
       status.value = 'connected';
+      watchKeyboardProfile(t);
       if (!isDemo) rememberDevice(t.productId);
       if (!boardAllowed.value) useToast().show(tr('device.notAllowed', { board: info.value.boardIdHex.toUpperCase() }), 'warn');
     } catch (err) {
@@ -482,12 +505,23 @@ export const useDeviceStore = defineStore('device', () => {
     await init(createMockTransport({ seed: m }), true).then(() => { demoSeed.value = m; writeDemoModel(m); }, () => undefined);
   }
 
+  /** Refuse a profile switch while another exclusive job (backup, restore, gamepad write, …) talks to the keyboard. */
+  function refuseWhileBusy(): void {
+    // The write queue's own batch is not "another job": the switch flushes (waits for) it.
+    if (!exclusiveActive.value || useSyncStore().busy()) return;
+    const what = busyWith[busyWith.length - 1];
+    throw new Error(what ? tr('device.busyWith', { what }) : tr('device.busy'));
+  }
+
   async function switchProfile(i: number): Promise<void> {
     if (i === activeProfile.value) return;
     if (useFirmwareStore().active) throw new Error(tr('fw.pill'));
     if (calibrationLocked()) throw new Error(tr('device.calibrating'));
+    refuseWhileBusy();
     // Rejects unless every edit of the current profile reached the keyboard: never carry one across.
     await useSyncStore().flush();
+    // The flush ran the queue's own exclusive batch; anything still exclusive is someone else's job.
+    refuseWhileBusy();
     await withTransport(async (t) => {
       activeProfile.value = await t.setActiveProfile(i);
       await readLayer0(t);
@@ -495,6 +529,76 @@ export const useDeviceStore = defineStore('device', () => {
     useHistoryStore().clear();
     useToast().show(tr('device.switched', { name: activeProfileName.value }), 'success');
     for (const cb of [...profileListeners]) cb();
+  }
+
+  /**
+   * The keyboard is on profile `real`, not the one the app holds (its P1–P4 keys or another app switched it). Follow it
+   * without writing anything: the unsaved edits of the profile it left are dropped, never written to `real` (`dropped`:
+   * how many a running batch already dropped), undo / redo forget the old profile's steps, every page reloads, one toast.
+   * `from`: the profile the caller saw; nothing happens when the app already moved on.
+   */
+  async function profileChangedOnKeyboard(real: number, dropped = 0, from = activeProfile.value): Promise<void> {
+    if (real === activeProfile.value || from !== activeProfile.value || !transport.value) return;
+    const mine = session;
+    activeProfile.value = real;
+    const k = dropped + useSyncStore().dropProfile(from);
+    useHistoryStore().clear();
+    useToast().show(
+      k > 0
+        ? tr('device.keyboardSwitchedDropped', { n: real + 1, m: from + 1, k })
+        : tr('device.keyboardSwitched', { n: real + 1 }),
+      'warn',
+      k > 0 ? 8000 : 4000,
+    );
+    try {
+      await withTransport(readLayer0);
+    } catch {
+      // lost meanwhile: the keycaps show their names until the next read
+    }
+    if (mine !== session || activeProfile.value !== real) return;
+    for (const cb of [...profileListeners]) cb();
+  }
+
+  /** Connected, and nothing else talks to the keyboard: no write batch, no exclusive job, no calibration or firmware session, tab visible. */
+  function idleForProfilePoll(): boolean {
+    if (status.value !== 'connected' || !transport.value || exclusiveActive.value) return false;
+    if (useSyncStore().busy() || calibrationBusy() || useFirmwareStore().active) return false;
+    return typeof document === 'undefined' || document.visibilityState !== 'hidden';
+  }
+
+  let profileCheck: Promise<void> | null = null;
+  /** Read the keyboard's active profile once (when idle) and follow it if it changed. */
+  function checkKeyboardProfile(): Promise<void> {
+    if (profileCheck || !idleForProfilePoll()) return profileCheck ?? Promise.resolve();
+    const mine = session;
+    const seen = activeProfile.value;
+    const run = (async () => {
+      try {
+        const real = await withTransport((t) => t.getActiveProfile());
+        // Anything that started meanwhile (a write batch reads it itself, a sidebar switch) wins over this read.
+        if (mine !== session || activeProfile.value !== seen || !idleForProfilePoll()) return;
+        if (real !== seen) await profileChangedOnKeyboard(real, 0, seen);
+      } catch {
+        // busy or lost: the next tick reads again
+      } finally {
+        profileCheck = null;
+      }
+    })();
+    profileCheck = run;
+    return run;
+  }
+
+  /** Follow the keyboard while connected: every PROFILE_POLL_MS when idle, and when the window gets focus. Undone by reset(). */
+  function watchKeyboardProfile(t: Ae64Transport): void {
+    if (profileTimer) clearInterval(profileTimer);
+    profileTimer = setInterval(() => {
+      if (transport.value === t) void checkKeyboardProfile();
+    }, PROFILE_POLL_MS);
+    if (typeof window !== 'undefined') {
+      const onFocus = (): void => { if (transport.value === t) void checkKeyboardProfile(); };
+      window.addEventListener('focus', onFocus);
+      detach.push(() => window.removeEventListener('focus', onFocus));
+    }
   }
 
   async function renameProfile(i: number, name: string): Promise<void> {
@@ -513,5 +617,6 @@ export const useDeviceStore = defineStore('device', () => {
     profileNames, rtPrecision, layer0, latencyMs, connection, packetSeq, statsTick, exclusiveActive, connected, hidAvailable, model, modelName, packetEntries, activeProfileName,
     legend, withTransport, calibrationLocked, watchPackets, onProfileChanged, refreshLayer0, connect, connectDemo,
     tryAutoReconnect, disconnect, changeKeyboard, switchDemoModel, switchProfile, renameProfile, holdExclusive, adoptFromFirmware,
+    profileChangedOnKeyboard, checkKeyboardProfile,
   };
 });

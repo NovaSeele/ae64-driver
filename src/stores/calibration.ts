@@ -78,14 +78,18 @@ export const useCalibrationStore = defineStore('calibration', () => {
   }
   /** Last travel read per key: Finish reloads the performance store (its values are empty for a second or two), and a
    *  key of a shorter switch must not turn "too shallow" against the 3.31 mm default meanwhile. Same keyboard only. */
-  const knownRange = new Map<number, number>();
-  watch(() => perf.values, (v) => {
-    for (const [id, p] of Object.entries(v)) if (p?.axisRangeMax) knownRange.set(Number(id), p.axisRangeMax);
-  }, { immediate: true, flush: 'sync' });
+  /** The travel is per profile (a switch change writes it to the active profile only): `${profile}:${keyId}` → µm. */
+  const knownRange = new Map<string, number>();
+  /** The performance store's values, when they are the active profile's (it may still hold the profile left on another tab). */
+  const activeValues = (): Record<number, { axisRangeMax?: number } | undefined> | null => (perf.loadedProfile === device.activeProfile ? perf.values : null);
+  watch(() => [perf.values, perf.loadedProfile] as const, ([v, profile]) => {
+    if (profile === null || profile !== device.activeProfile) return;
+    for (const [id, p] of Object.entries(v)) if (p?.axisRangeMax) knownRange.set(`${profile}:${id}`, p.axisRangeMax);
+  }, { immediate: true });
   watch(() => device.connection, () => knownRange.clear(), { flush: 'sync' });
-  /** The key's travel in µm (its switch's axisRangeMax), as the keyboard's fill uses it. */
+  /** The key's travel in µm (its switch's axisRangeMax in the active profile), as the keyboard's fill uses it. */
   function rangeUm(id: number): number {
-    return perf.values[id]?.axisRangeMax || knownRange.get(id) || DEFAULT_RANGE_MM * 1000;
+    return activeValues()?.[id]?.axisRangeMax || knownRange.get(`${device.activeProfile}:${id}`) || DEFAULT_RANGE_MM * 1000;
   }
   /** % and ⤓ are a reading of `route`, not the firmware's word (status 2 is): one switch to turn them off after the real
    *  keyboard test (PLAN, deferred list item 8). Every place that shows them goes through this. `trustPeaks` is that

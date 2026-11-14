@@ -223,6 +223,9 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
           macros.push({ meta, actions });
         }
 
+        // A backup holds one profile: the keyboard must still be on the one it was read from (its P1–P4 keys, a switch).
+        if ((await t.getActiveProfile()) !== activeProfile) throw new Error(tr('diagnostics.backupProfileChanged'));
+
         const payload: BackupPayload = {
           schemaVersion: 1,
           appName: 'ae64max',
@@ -239,7 +242,7 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
         };
 
         return payload;
-      }, { exclusive: true });
+      }, { exclusive: true, what: tr('diagnostics.whatBackup') });
     } finally {
       isExporting.value = false;
     }
@@ -374,9 +377,17 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
       let skipped = 0;
       let currentSection = '';
       let restoreError: Error | null = null;
+      /** The keyboard's own active profile when it is not the one the baseline was read from (nothing is written then). */
+      let moved = null as number | null;
 
       try {
         await device.withTransport(async (t) => {
+          // The wire format has no profile byte: refuse before the first write when the keyboard switched by itself.
+          const real = await t.getActiveProfile();
+          if (real !== device.activeProfile) {
+            moved = real;
+            throw new Error(tr('diagnostics.restoreProfileChanged', { n: real + 1 }));
+          }
           // 1. Keymap restore (only changed keys)
           if (payload.keymap) {
             currentSection = 'keymap';
@@ -458,11 +469,13 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
             void settingsCommitted;
             writtenSections.push('settings');
           }
-        }, { exclusive: true });
+        }, { exclusive: true, what: tr('diagnostics.whatRestore') });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         const prefix = writtenSections.length > 0 ? `${writtenSections.join(', ')} written; ` : '';
-        restoreError = new Error(`${prefix}${currentSection} failed: ${msg}`);
+        restoreError = moved !== null ? new Error(msg) : new Error(`${prefix}${currentSection} failed: ${msg}`);
+        // Follow the keyboard (one toast; the reloads below then read the profile it is on).
+        if (moved !== null) await device.profileChangedOnKeyboard(moved);
       } finally {
         try {
           await Promise.all([

@@ -344,7 +344,7 @@ export const useAdvancedStore = defineStore('advanced', () => {
   const loadedProfile = ref<number | null>(null);
   let loadPromise: Promise<void> | null = null;
   /** Performance per key read for MPT limits (cleared with the profile). */
-  const perfCache = new Map<number, Performance>();
+  const perfCache = new Map<string, Performance>(); // `${profile}:${keyId}`
   // Another keyboard (or the demo) was connected: nothing cached belongs to it.
   watch(() => device.connection, () => {
     records.value = {};
@@ -386,11 +386,15 @@ export const useAdvancedStore = defineStore('advanced', () => {
           for (const key of device.keys) {
             const rec = await t.getAdvanced(key);
             if (gen !== device.connection) return;
+            // A read carries no profile number: it reads the keyboard's active profile. Switched mid-read: drop it all.
+            if (device.activeProfile !== profile) return;
             next[key.id] = rec;
             loadedCount.value++;
           }
         });
         if (gen !== device.connection) return;
+        // Not an error: the read stops, `records` stays empty, and the new profile's load() reads it fresh.
+        if (device.activeProfile !== profile) return;
         records.value = next;
         loadedProfile.value = profile;
       } catch (err) {
@@ -409,10 +413,14 @@ export const useAdvancedStore = defineStore('advanced', () => {
 
   /** Performance of a key (performance page cache, else one read) — for the MPT depth limit. */
   async function performanceOf(id: number): Promise<Performance> {
-    const cached = usePerformanceStore().values[id] ?? perfCache.get(id);
+    const perf = usePerformanceStore();
+    const profile = device.activeProfile;
+    // The performance store may still hold the profile the Travel tab loaded before a switch: only the active one counts.
+    const cached = (perf.loadedProfile === profile ? perf.values[id] : undefined) ?? perfCache.get(`${profile}:${id}`);
     if (cached) return cached;
     const p = await device.withTransport((t) => t.getPerformance(device.keys[id]));
-    perfCache.set(id, p);
+    // A read carries no profile number: keep it only if the profile did not change meanwhile.
+    if (device.activeProfile === profile) perfCache.set(`${profile}:${id}`, p);
     return p;
   }
 
@@ -512,6 +520,9 @@ export const useAdvancedStore = defineStore('advanced', () => {
           await t.setPerformance(keys[id], desired);
           const restored = await t.getPerformance(keys[id]);
           if (!sameTuning(restored, desired)) throw new Error(tr('advanced.tuningFailed', { key: device.legend(keys[id]) }));
+          // The keyboard's axis / calibrate now: a later travel edit must start from them, not from an older read.
+          usePerformanceStore().noteRead(profile, id, restored);
+          perfCache.set(`${profile}:${id}`, restored);
         }
         await t.commit(SAVE_GROUP.PERFORMANCE);
         pending.verified = true;
@@ -642,6 +653,9 @@ export const useAdvancedStore = defineStore('advanced', () => {
   /** Clear an assignment (both keys of a pair). Read-only kinds cannot be re-created, so they get no undo. */
   async function remove(a: Assignment): Promise<void> {
     if (loadedProfile.value !== device.activeProfile) throw new Error(tr('advanced.notLoaded'));
+    // `a` came from a list or dialog shown earlier: delete it only while the active profile still has exactly it.
+    const cur = byKey.value.get(a.keys[0]);
+    if (!cur || !sameSlot(cur, a) || !sameRecord(cur, a)) throw new Error(tr('advanced.changedMeanwhile'));
     const change: Change = { before: a, after: null };
     const pending = commit(change);
     let failure: unknown = null;

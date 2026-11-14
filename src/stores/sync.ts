@@ -6,7 +6,11 @@
 // - Permanent errors are never retried: the transport safety guard (UnsafeCommandError), a read-only board
 //   (WriteNotAllowedError) and PermanentSyncError (e.g. an advanced-key conflict found on the device).
 // - A job tagged with `profile` is only written while that profile is active (the wire format has no profile
-//   byte, so writing it later would land in another profile). Otherwise it is dropped.
+//   byte, so writing it later would land in another profile). Otherwise it is dropped. Before the first such job
+//   of a batch the keyboard's own active profile is read: when the keyboard switched by itself (its P1–P4 keys,
+//   another app), every profile-tagged job of the batch is dropped unwritten and the device store follows the keyboard.
+// - A batch still running when the connection is reset (unplug, another keyboard) settles nothing: its unfinished
+//   jobs are dropped silently (the disconnect toast counts them) and never retried on the next connection.
 // - Dropped jobs call `onDrop` so their store can put back the value the keyboard really has.
 // - flush() rejects unless everything that was pending has been written and verified.
 import { defineStore } from 'pinia';
@@ -121,6 +125,11 @@ export const useSyncStore = defineStore('sync', () => {
   let running: Promise<boolean> | null = null;
   /** > 0 while something else writes the keyboard directly (backup restore): nothing is written meanwhile. */
   let holds = 0;
+  /** Bumped by reset(): a batch that started before it belongs to a lost connection and settles nothing. */
+  let gen = 0;
+  /** Entries of the running batch, and those of them already settled (saved, or dropped): reset() counts the rest as lost. */
+  let inFlight: Entry[] = [];
+  let inFlightSettled = new Set<Entry>();
 
   function schedule(delay = SYNC_DEBOUNCE_MS): void {
     if (timer) clearTimeout(timer);
@@ -138,6 +147,7 @@ export const useSyncStore = defineStore('sync', () => {
   /** Dropped jobs are collected per batch and reported once (toast + flashing keys) by reportDropped. */
   function drop(e: Entry, reason: string, dropped: Dropped[], bareReason = reason): void {
     dropped.push({ entry: e, reason: bareReason });
+    inFlightSettled.add(e);
     try {
       e.job.onDrop?.(reason);
     } catch {
@@ -167,10 +177,42 @@ export const useSyncStore = defineStore('sync', () => {
       if (isPermanent(err) || e.attempts >= MAX_ATTEMPTS) drop(e, msg, dropped, messageOf(err));
       else retry.push(e);
     };
+    const mine = gen;
+    inFlight = entries;
+    inFlightSettled = new Set();
+    const settled = inFlightSettled;
+    /** The keyboard's own active profile, read once before the first profile-tagged job (`moved`: it differs from the app's). */
+    const guard: { read: boolean; error: unknown; moved: number | null; from: number; count: number } = {
+      read: false, error: null, moved: null, from: device.activeProfile, count: 0,
+    };
     try {
       await device.withTransport(async (t) => {
         const written: Entry[] = [];
         for (const e of entries) {
+          if (e.job.profile !== undefined && !guard.read) {
+            guard.read = true;
+            guard.from = device.activeProfile;
+            try {
+              const real = await t.getActiveProfile();
+              if (real !== device.activeProfile) guard.moved = real;
+            } catch (err) {
+              guard.error = err ?? new Error(tr('sync.error'));
+            }
+          }
+          if (e.job.profile !== undefined && guard.error !== null) {
+            // Unknown which profile the keyboard is on: write none of them (a failed attempt, retried like any other).
+            fail(e, guard.error);
+            continue;
+          }
+          if (e.job.profile !== undefined && guard.moved !== null) {
+            // The keyboard switched by itself: this edit belongs to the profile it left. Dropped unwritten, no drop toast
+            // (the device store shows one toast for the whole switch).
+            const reason = tr('sync.keyboardChangedProfile');
+            problems.push({ label: e.job.label, reason });
+            drop(e, `${e.job.label}: ${reason}`, [], reason);
+            guard.count++;
+            continue;
+          }
           if (e.job.profile !== undefined && e.job.profile !== device.activeProfile) {
             const msg = `${e.job.label}: ${tr('sync.otherProfile')}`;
             problems.push({ label: e.job.label, reason: tr('sync.otherProfile') });
@@ -195,9 +237,10 @@ export const useSyncStore = defineStore('sync', () => {
           }
         }
         for (const e of committed) {
-          if (!e.job.verify) continue;
+          if (!e.job.verify) { settled.add(e); continue; }
           try {
-            if (!(await e.job.verify(t))) fail(e, new Error(tr('sync.verifyMismatch')));
+            if (await e.job.verify(t)) settled.add(e);
+            else fail(e, new Error(tr('sync.verifyMismatch')));
           } catch (err) {
             fail(e, err);
           }
@@ -206,7 +249,27 @@ export const useSyncStore = defineStore('sync', () => {
     } catch (err) {
       // Not connected / transport gone before anything ran: every job is a failed attempt.
       // (Every step inside is caught per job, so this only happens when withTransport itself refused.)
-      for (const e of entries) fail(e, err);
+      if (gen === mine) for (const e of entries) fail(e, err);
+    }
+    if (inFlight === entries) inFlight = [];
+    if (gen !== mine) {
+      // The connection was reset while this batch ran: the disconnect toast already counted what was not saved.
+      // Nothing is retried (a retry would write it to the next keyboard) and the new connection's state is left alone.
+      for (const e of entries) {
+        if (settled.has(e)) continue;
+        settled.add(e);
+        try {
+          e.job.onDrop?.(tr('sync.lost'));
+        } catch {
+          // a store callback must never break the queue
+        }
+      }
+      return false;
+    }
+    // Follow the keyboard (sets the profile, drops the queued edits of the old one, one toast) before the state below counts the queue.
+    if (guard.moved !== null) {
+      await device.profileChangedOnKeyboard(guard.moved, guard.count, guard.from);
+      if (gen !== mine) return false;
     }
     reportDropped(dropped);
     for (const e of retry) if (!queued.has(e.job.key)) failed.set(e.job.key, e);
@@ -242,7 +305,7 @@ export const useSyncStore = defineStore('sync', () => {
     if (running) {
       const ok = await running;
       if (queued.size || failed.size) return flush();
-      if (!ok) throw new Error(lastError.value ?? 'sync failed');
+      if (!ok) throw new Error(lastError.value ?? tr('sync.lost'));
       return;
     }
     if (!queued.size && !failed.size) return;
@@ -258,7 +321,7 @@ export const useSyncStore = defineStore('sync', () => {
       running = null;
     }
     if (queued.size) schedule();
-    if (!ok) throw new Error(lastError.value ?? 'sync failed');
+    if (!ok) throw new Error(lastError.value ?? tr('sync.lost'));
   }
 
   /**
@@ -285,11 +348,15 @@ export const useSyncStore = defineStore('sync', () => {
     return queued.size + failed.size;
   }
 
-  /** Drop everything (disconnect). Returns how many unsaved edits were lost. */
+  /** Drop everything (disconnect). Returns how many unsaved edits were lost, the unfinished ones of a running batch included. */
   function reset(): number {
+    gen++;
     if (timer) clearTimeout(timer);
     timer = null;
     const lost = [...queued.values(), ...failed.values()];
+    // The running batch drops its own unfinished jobs once its transport call unwinds (see runBatch).
+    const flying = inFlight.filter((e) => !inFlightSettled.has(e)).length;
+    inFlight = [];
     queued = new Map();
     failed = new Map();
     // No drop toast or key flash: the disconnect path already reports the lost count.
@@ -298,8 +365,35 @@ export const useSyncStore = defineStore('sync', () => {
     lastError.value = null;
     lastErrorDetail.value = null;
     lastProblem.value = null;
-    return lost.length;
+    return lost.length + flying;
   }
 
-  return { state, lastError, lastErrorDetail, lastProblem, enqueue, flush, retry, reset, pendingCount, hold };
+  /**
+   * Drop, unwritten and without a toast, every queued or retrying job of `profile` (the keyboard left it by itself).
+   * Returns how many were dropped.
+   */
+  function dropProfile(profile: number): number {
+    const gone: Entry[] = [];
+    for (const m of [queued, failed]) {
+      for (const [k, e] of m) {
+        if (e.job.profile !== profile) continue;
+        m.delete(k);
+        gone.push(e);
+      }
+    }
+    const reason = tr('sync.keyboardChangedProfile');
+    for (const e of gone) drop(e, `${e.job.label}: ${reason}`, []);
+    if (!queued.size && !failed.size) {
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (state.value !== 'writing') state.value = 'saved';
+    }
+    return gone.length;
+  }
+
+  /** A batch is being written. */
+  function busy(): boolean {
+    return running !== null;
+  }
+
+  return { state, lastError, lastErrorDetail, lastProblem, enqueue, flush, retry, reset, pendingCount, hold, dropProfile, busy };
 });

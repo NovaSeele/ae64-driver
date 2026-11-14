@@ -40,6 +40,7 @@ export const advancedVi = {
   'advanced.loadFailed': 'Không đọc được advanced keys',
   'advanced.reload': 'Đọc lại',
   'advanced.notLoaded': 'Dữ liệu advanced keys chưa được đọc cho profile này.',
+  'advanced.changedMeanwhile': 'Phím advanced này đã đổi (profile khác, hoặc vừa đọc lại): chưa xoá gì.',
   'advanced.newTitle': '{type} mới',
   'advanced.editTitle': 'Sửa {type}',
   'advanced.moveHost': 'Chuyển {type} từ {from} sang {to}',
