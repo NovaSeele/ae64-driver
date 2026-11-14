@@ -168,7 +168,7 @@ function openTravel(): void {
   const k = binding.value?.key;
   const pk = k == null ? undefined : physKey(device.keys, k);
   if (pk) sel.select(pk.id);
-  void router.push('/performance');
+  void router.push({ path: '/performance', query: { tab: 'travel' } }); // the Travel tab, not the last-used one (DESIGN E §3.1)
 }
 
 const unassignedKey = computed(() => props.selectedKeys.map((k) => keyLegend(device, k)).join(' '));

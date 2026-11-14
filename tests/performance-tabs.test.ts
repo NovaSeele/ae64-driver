@@ -24,6 +24,10 @@ import { useSyncStore } from '../src/stores/sync';
 import { clearTuningSnapshots } from '../src/stores/tuning';
 import Sidebar from '../src/components/shell/Sidebar.vue';
 import FeatureSwitch from '../src/components/switch/FeatureSwitch.vue';
+import GamepadDetail from '../src/components/gamepad/GamepadDetail.vue';
+import { physKey } from '../src/components/gamepad/outputs';
+import { isAnalogIndex } from '../src/protocol/gamepad';
+import { useGamepadStore } from '../src/stores/gamepad';
 import { locale } from '../src/i18n/locale';
 import { t } from '../src/i18n/vi';
 import type { MessageKey } from '../src/i18n/vi';
@@ -594,5 +598,150 @@ describe('Performance tabs: sidebar, titles, the tab row', () => {
     // another tab: the tools leave the scope line
     await click('travel');
     expect(tools.find('.ktools').exists()).toBe(false);
+  });
+});
+
+describe('Performance tabs: review of r109 (E-TEST-1, E-TEST-2, E-BUG-1)', () => {
+  it('E-TEST-1a. a profile change on Advanced: Travel reads the 64 keys on return; a change on Calibration: Advanced reads its 64 records of the new profile', async () => {
+    const { device, mock } = await at('/performance?tab=travel');
+    await click('switch');
+    await click('advanced');
+    const reads = vi.spyOn(mock, 'getPerformance');
+    await device.switchProfile(2);
+    await idle();
+    expect(reads).not.toHaveBeenCalled(); // Travel and Switch are hidden: they do not listen
+    await click('travel');
+    expect(reads).toHaveBeenCalledTimes(64);
+    expect(usePerformanceStore().loadedProfile).toBe(2);
+
+    await click('calibration');
+    const adv = useAdvancedStore();
+    const advReads = vi.spyOn(mock, 'getAdvanced');
+    await device.switchProfile(1);
+    await idle();
+    expect(advReads).not.toHaveBeenCalled();
+    await click('advanced');
+    expect(advReads).toHaveBeenCalledTimes(64);
+    expect(adv.loadedProfile).toBe(1);
+    const want: Record<number, unknown> = {};
+    for (const k of device.keys) want[k.id] = await mock.getAdvanced(k); // the new profile's list, read straight
+    expect(adv.records).toEqual(want);
+  });
+
+  it('E-TEST-1b. a profile change on Advanced, then Switch first: Switch reads the 64 keys; Travel afterwards reads nothing more', async () => {
+    const { device, mock } = await at('/performance?tab=travel');
+    await click('switch');
+    await click('advanced');
+    const reads = vi.spyOn(mock, 'getPerformance');
+    await device.switchProfile(3);
+    await idle();
+    await click('switch');
+    expect(reads).toHaveBeenCalledTimes(64);
+    expect(usePerformanceStore().loadedProfile).toBe(3);
+    await click('travel');
+    expect(reads).toHaveBeenCalledTimes(64);
+  });
+
+  it('E-TEST-1c. Travel → Switch → Travel: the keyboard listens again (Esc returns to all keys)', async () => {
+    await at('/performance?tab=travel');
+    await click('switch');
+    await click('travel');
+    const sel = useSelectionStore();
+    sel.selectMany([keyId('Q'), keyId('W'), keyId('E')]);
+    await settle();
+    const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(e);
+    await settle();
+    expect(sel.ids).toEqual([]);
+  });
+
+  it('E-TEST-2a. Travel "Thử ngay" opens Key test on the picked key: ?tab=test&key=N, that key is followed', async () => {
+    await at('/performance?tab=travel');
+    const id = keyId('E');
+    useSelectionStore().selectMany([id]);
+    await settle();
+    const btn = document.body.querySelector<HTMLButtonElement>('.wb__try')!;
+    expect(btn.disabled).toBe(false);
+    btn.click();
+    await settle();
+    await vi.waitFor(() => expect(selected()).toEqual(['test']));
+    expect(router.currentRoute.value.query).toEqual({ tab: 'test', key: String(id) });
+    expect(useLiveStore().focusId).toBe(id);
+  });
+
+  it('E-TEST-2b. Key test "Sửa cài đặt phím" opens the Travel tab (not the stored tab) with the followed key picked', async () => {
+    localStorage.setItem('ae64.perfTab', 'test');
+    await at('/performance?tab=test');
+    const id = keyId('R');
+    useSelectionStore().select(id);
+    await settle();
+    expect(useLiveStore().focusId).toBe(id);
+    useSelectionStore().selectMany([]); // the button picks the key itself
+    await settle();
+    const btn = w!.findAll('button').find((b) => b.text() === t('live.editKey'))!;
+    expect(btn.attributes('disabled')).toBeUndefined();
+    await btn.trigger('click');
+    await settle();
+    await idle();
+    expect(router.currentRoute.value.fullPath).toBe('/performance?tab=travel');
+    expect(selected()).toEqual(['travel']);
+    expect(useSelectionStore().ids).toEqual([id]);
+  });
+
+  it('E-TEST-2c. clicking the open tab at ?tab=test&key=12 changes nothing: same fullPath, no history entry', async () => {
+    await at('/performance?tab=test&key=12');
+    const before = router.currentRoute.value.fullPath;
+    const h = spyHistory();
+    await click('test');
+    expect(router.currentRoute.value.fullPath).toBe(before);
+    expect(h.push).not.toHaveBeenCalled();
+    expect(h.replace).not.toHaveBeenCalled();
+  });
+
+  it('E-TEST-2d. a window resize while Travel is hidden: on return the grid measures itself again', async () => {
+    const unobserved: Element[] = [];
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private cb: (e: unknown[]) => void) {}
+      observe() { this.cb([{ contentRect: { width: 900 } }]); }
+      unobserve(el: Element) { unobserved.push(el); }
+      disconnect() {}
+    });
+    await at('/performance?tab=travel');
+    await click('switch');
+    const width = window.innerWidth;
+    vi.stubGlobal('innerWidth', width + 200);
+    window.dispatchEvent(new Event('resize')); // nobody on Travel hears it: the tab is hidden
+    await settle();
+    unobserved.length = 0;
+    await click('travel');
+    await settle();
+    const grid = document.body.querySelector('.editors > .grid');
+    expect(unobserved.length).toBeGreaterThan(0);
+    expect(unobserved).toContain(grid);
+  });
+
+  it('E-BUG-1. Gamepad "Mở tab Hành trình" on a digital output opens the Travel tab (stored tab Key test) with its key picked', async () => {
+    localStorage.setItem('ae64.perfTab', 'test');
+    const device = useDeviceStore();
+    await device.connectDemo('pro-xinput');
+    const gp = useGamepadStore();
+    await gp.load();
+    const index = gp.config!.bindings.findIndex((b, i) => !isAnalogIndex(i) && b.key !== null);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const pk = physKey(device.keys, gp.config!.bindings[index].key!)!;
+    router = perfRouter();
+    await router.push('/gamepad');
+    w = mount(GamepadDetail, {
+      props: { current: [index], selectedKeys: [], depthUm: () => null },
+      global: { plugins: [router, pinia] },
+      attachTo: document.body,
+    });
+    await settle();
+    const btn = w.findAll('button').find((b) => b.text() === t('gp.openTravel'))!;
+    expect(t('gp.openTravel')).toBe('Mở tab Hành trình');
+    await btn.trigger('click');
+    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/performance'));
+    expect(router.currentRoute.value.fullPath).toBe('/performance?tab=travel');
+    expect(useSelectionStore().ids).toEqual([pk.id]);
   });
 });

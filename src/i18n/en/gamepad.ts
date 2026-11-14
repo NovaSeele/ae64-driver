@@ -156,7 +156,7 @@ export const gamepadEn: Record<keyof typeof gamepadVi, string> = {
   'gp.handleFull': 'Full point',
   'gp.now': 'Pressed {depth} mm → {pct}%',
   'gp.digital': '{out} is an on/off button: it follows the key’s actuation and Rapid Trigger from the Travel page, not a curve.',
-  'gp.openTravel': 'Open the Travel page',
+  'gp.openTravel': 'Open the Travel tab',
   'gp.curveEmpty': 'Pick a key assigned to a stick or trigger to edit its curve.',
   'gp.keyUnassigned': 'Key {key} has no output. Pick one on the left.',
   'gp.unassign': 'Unassign',
