@@ -941,7 +941,7 @@ const modeOptions = computed(() => [
   flex-direction: column;
   gap: var(--s-3);
   padding: var(--s-5);
-  background: var(--bg-2);
+  background: var(--panel);
   border: 1px solid var(--line-1);
   border-radius: var(--r-card);
 }
@@ -978,7 +978,7 @@ const modeOptions = computed(() => [
   padding: var(--s-3) var(--s-4);
   border: 1px solid var(--line-2);
   border-radius: var(--r-control);
-  background: var(--bg-2);
+  background: var(--panel);
   color: var(--fg-2);
   font-size: var(--fs-label);
 }

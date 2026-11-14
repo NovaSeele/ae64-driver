@@ -639,7 +639,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
   flex-direction: column;
   gap: var(--s-3);
   padding: var(--s-5);
-  background: var(--bg-2);
+  background: var(--panel);
   border: 1px solid var(--line-1);
   border-radius: var(--r-card);
 }

@@ -197,6 +197,9 @@ defineExpose({ fit, measure });
 </template>
 
 <style scoped>
+/* Over a wallpaper (DESIGN J §3.5, review fix 2): the bar carries --fg-4 and the legend tones, which are panel text, so it
+   sits on the panel. The pad is a spread shadow, not padding: selectionFit.ts measures the bar, which must lay out the same. */
+:root[data-wall] .sb { background: var(--panel); border-radius: var(--r-control); box-shadow: 0 0 0 6px var(--panel); }
 .sb {
   position: relative; /* the measuring ghost */
   display: flex;

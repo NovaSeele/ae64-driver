@@ -966,6 +966,8 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
 
 /* Strip selection bar: the same row as the keys' SelectionBar. */
 .sb { display: flex; align-items: center; gap: var(--s-4); min-height: 36px; }
+/* DESIGN J §3.5: the hint is --fg-4, so over a wallpaper the strip bar sits on the panel like the keys' SelectionBar */
+:root[data-wall] .sb { background: var(--panel); border-radius: var(--r-control); box-shadow: 0 0 0 6px var(--panel); }
 .sb__count { flex: none; font-weight: 500; color: var(--fg-3); transition: color var(--t-fast) var(--ease); }
 .sb__count--on { color: var(--fg-1); }
 .sb__hint { flex: 1; min-width: 0; color: var(--fg-4); font-size: var(--fs-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -977,7 +979,7 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
   align-items: center;
   gap: var(--s-3);
   padding: var(--s-6);
-  background: var(--bg-2);
+  background: var(--panel);
   border: 1px solid var(--danger);
   border-radius: var(--r-card);
   color: var(--danger);
@@ -990,7 +992,7 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
   flex-direction: column;
   gap: var(--s-3);
   padding: var(--s-3) var(--s-5) var(--s-4);
-  background: var(--bg-2);
+  background: var(--panel);
   border: 1px solid var(--line-1);
   border-radius: var(--r-card);
   min-width: 0;

@@ -3,6 +3,8 @@
 // keyboard to finish (applyAndReload).
 import { computed } from 'vue';
 import { isThemeChoice } from '../theme';
+import { ACCENT_VARS_KEY, isAccentHex } from '../accentCache';
+import { WALLPAPER_KEY, wallpaperPrefsValid } from './wallpaperPrefs';
 import { isLocale } from '../i18n/locale';
 import { presetsValid } from '../stores/userPresets';
 import { asPerfTab } from '../router';
@@ -17,7 +19,7 @@ import { useSyncStore } from '../stores/sync';
 import { t } from '../i18n/vi';
 
 /** The "Stored on this computer" list, in this order. A new key joins a group (or J adds one). */
-export const APP_SETTING_GROUPS = ['theme', 'locale', 'presets', 'tabs', 'toggles', 'colors', 'sidebar', 'demo'] as const;
+export const APP_SETTING_GROUPS = ['theme', 'accent', 'wallpaper', 'locale', 'presets', 'tabs', 'toggles', 'colors', 'sidebar', 'demo'] as const;
 export type AppSettingGroup = (typeof APP_SETTING_GROUPS)[number];
 
 export interface AppSetting {
@@ -32,6 +34,8 @@ export const isFlag01 = (raw: string): boolean => raw === '0' || raw === '1';
 
 export const APP_SETTINGS: readonly AppSetting[] = [
   { key: 'ae64.theme', group: 'theme', valid: isThemeChoice },
+  { key: 'ae64.accent', group: 'accent', valid: isAccentHex },
+  { key: WALLPAPER_KEY, group: 'wallpaper', valid: wallpaperPrefsValid },
   { key: 'ae64.locale', group: 'locale', valid: isLocale },
   { key: 'ae64.perf.userPresets', group: 'presets', valid: presetsValid },
   { key: 'ae64.perfTab', group: 'tabs', valid: (r) => asPerfTab(r) !== null },
@@ -45,6 +49,11 @@ export const APP_SETTINGS: readonly AppSetting[] = [
 ];
 /** localStorage, never exported, imported or reset: which keyboard this browser connected last (auto-reconnect). */
 export const NOT_EXPORTED = ['ae64.lastDevice'] as const;
+/**
+ * localStorage caches derived from a key of the table (DESIGN J §3.8): never exported (not in APP_SETTINGS), refused in an
+ * imported file (an unknown key), removed by an import (with the keys it writes) and by a reset.
+ */
+export const DERIVED_KEYS = [ACCENT_VARS_KEY] as const;
 /** sessionStorage keys. */
 export const SESSION_KEYS = [APPCFG_DONE_KEY] as const;
 
@@ -193,7 +202,17 @@ export function useAppSettings() {
     } catch (e) {
       throw new Error(t('appcfg.errPending', { msg: e instanceof Error ? e.message : String(e) }));
     }
-    // An exclusive write may have started while flush() waited.
+    // Reset also removes the wallpaper image (IndexedDB), and waits until the delete is committed: a reload in the middle
+    // would abort it and the image would outlive the reset. If it fails nothing is reset (DESIGN J §3.8). Import keeps it.
+    if (kind === 'reset') {
+      try {
+        const { getWallpaperStore } = await import('./wallpaperStore');
+        await getWallpaperStore().remove();
+      } catch {
+        throw new Error(t('appcfg.errWallpaper'));
+      }
+    }
+    // An exclusive write may have started while flush() (or the wallpaper delete) waited.
     const after = busyNow();
     if (after) throw new Error(after);
     writeKeys(kind === 'import' ? data ?? {} : null);
@@ -204,7 +223,10 @@ export function useAppSettings() {
   return { busyNow, busyReason, applyAndReload };
 }
 
-/** Writes `data` (or removes resetKeys() when null), key by key; on a refused write every key touched gets its old value. */
+/**
+ * Writes `data` and removes the derived caches (or removes resetKeys() when null), key by key; on a refused write every key
+ * touched gets its old value.
+ */
 function writeKeys(data: Record<string, string> | null): void {
   const old = new Map<string, string | null>();
   try {
@@ -213,6 +235,13 @@ function writeKeys(data: Record<string, string> | null): void {
       old.set(k, localStorage.getItem(k));
       if (data) localStorage.setItem(k, data[k]);
       else localStorage.removeItem(k);
+    }
+    if (data) {
+      for (const k of DERIVED_KEYS) {
+        if (old.has(k)) continue;
+        old.set(k, localStorage.getItem(k));
+        localStorage.removeItem(k);
+      }
     }
   } catch {
     for (const [k, v] of old) {

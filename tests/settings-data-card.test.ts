@@ -90,7 +90,7 @@ async function choose(p: Page, text: string, size?: number) {
 const fileOf = (data: Record<string, string>) => JSON.stringify({ app: 'ae64-control', version: '0.1.0+20261110', savedAt: new Date(2026, 10, 10, 21, 14).toISOString(), data });
 
 describe('the card', () => {
-  it('last cell of the grid, full row; 11 items on the keyboard, 8 groups on this computer; the promise; the Diagnostics link', async () => {
+  it('last cell of the grid, full row; 11 items on the keyboard, 10 groups on this computer; the promise; the Diagnostics link', async () => {
     const p = await page();
     const grid = p.w.get('.settings-grid');
     expect(grid.element.lastElementChild).toBe(p.card().element);
@@ -103,7 +103,7 @@ describe('the card', () => {
       'data.k.profiles', 'data.k.system', 'data.k.sleep', 'data.k.gamepad',
     ].map((x) => t(x as never)));
     expect(c.findAll('.dl__list li').map((li) => li.text())).toEqual(
-      ['theme', 'locale', 'presets', 'tabs', 'toggles', 'colors', 'sidebar', 'demo'].map((g) => t(`data.c.${g}` as never)),
+      ['theme', 'accent', 'wallpaper', 'locale', 'presets', 'tabs', 'toggles', 'colors', 'sidebar', 'demo'].map((g) => t(`data.c.${g}` as never)),
     );
     expect(k.get('.dl__promise').text()).toBe(t('sync.savedHelp'));
     expect(k.get('a.dl__link').attributes('href')).toBe('/diagnostics?focus=backup');

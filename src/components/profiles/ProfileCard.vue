@@ -214,7 +214,7 @@ function onKey(e: KeyboardEvent) {
 <style scoped>
 .pfc {
   flex: 1; display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; padding: 14px var(--s-4) var(--s-4);
-  background: var(--bg-2); border: 1px solid var(--line-1); border-radius: var(--r-card);
+  background: var(--panel); border: 1px solid var(--line-1); border-radius: var(--r-card);
 }
 /* active: a 2 px accent edge drawn as border + inset ring, so the card does not grow by a pixel */
 .pfc--on { border-color: var(--acc); box-shadow: inset 0 0 0 1px var(--acc); }

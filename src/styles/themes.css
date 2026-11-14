@@ -709,6 +709,8 @@
   /* selected rows/segments/chips: the same tint as a selected key, on an opaque card base */
   --sel-bg: color-mix(in srgb, var(--sel) var(--sel-pct), var(--bg-2));
   --glass: color-mix(in srgb, var(--bg-0) 82%, transparent);
+  /* cards and page-level panels (DESIGN J §6): bg-2, or bg-2 at --panel-pct over a wallpaper (below) */
+  --panel: var(--bg-2);
   --focus-ring: 0 0 0 2px var(--acc-line);
 
   /* feature identity (sidebar tiles, rail, page title icon) */
@@ -751,4 +753,9 @@
   /* diagnostics packet direction */
   --d-in: var(--hue-blue);
   --d-out: var(--hue-orange);
+}
+
+/* A wallpaper is shown (set on <html> by Wallpaper.vue once the image is decoded, with --panel-pct): panels let it through. */
+:root[data-wall] {
+  --panel: color-mix(in srgb, var(--bg-2) var(--panel-pct, 90%), transparent);
 }

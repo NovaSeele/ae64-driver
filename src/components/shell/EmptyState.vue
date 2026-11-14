@@ -34,7 +34,7 @@ withDefaults(defineProps<{ icon: Component; title?: string; body?: string }>(), 
   width: 56px;
   height: 56px;
   border-radius: 14px;
-  background: var(--bg-2);
+  background: var(--panel);
   border: 1px solid var(--line-2);
   color: var(--acc);
   margin-bottom: var(--s-2);

@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import {
-  APP_SETTINGS, NOT_EXPORTED, SESSION_KEYS, buildExport, exportFileName, groupsOf, isFlag01, pageReload, parseImport,
+  APP_SETTINGS, DERIVED_KEYS, NOT_EXPORTED, SESSION_KEYS, buildExport, exportFileName, groupsOf, isFlag01, pageReload, parseImport,
   resetKeys, storedSettings, useAppSettings,
 } from '../src/data/appSettings';
 import { APPCFG_DONE_KEY, takeAppcfgDone } from '../src/data/appcfgDone';
@@ -61,8 +61,8 @@ afterEach(() => {
 describe('item 1: the key table is complete', () => {
   const literals = (src: string) => [...src.matchAll(/'(ae64\.[^']+)'/g)].map((m) => m[1]);
 
-  it('every ae64.* string in src is in APP_SETTINGS, NOT_EXPORTED or SESSION_KEYS (localStorage and sessionStorage)', () => {
-    const registered = new Set<string>([...TABLE, ...NOT_EXPORTED, ...SESSION_KEYS]);
+  it('every ae64.* string in src is in APP_SETTINGS, NOT_EXPORTED, DERIVED_KEYS or SESSION_KEYS (localStorage and sessionStorage)', () => {
+    const registered = new Set<string>([...TABLE, ...NOT_EXPORTED, ...DERIVED_KEYS, ...SESSION_KEYS]);
     const found = new Set<string>();
     for (const [file, src] of Object.entries(SRC)) {
       for (const k of literals(src)) {
@@ -74,19 +74,21 @@ describe('item 1: the key table is complete', () => {
         for (const k of literals(src)) expect((SESSION_KEYS as readonly string[]).includes(k), `${k} in ${file}`).toBe(true);
       }
     }
-    // 11 in the table + ae64.lastDevice + ae64.appcfg.done; ae64.switchTab is gone (E)
-    expect(found.size).toBe(13);
-    expect(TABLE).toHaveLength(11);
+    // 13 in the table (J: ae64.accent, ae64.wallpaper) + ae64.lastDevice + ae64.accentVars + ae64.appcfg.done; ae64.switchTab
+    // is gone (E)
+    expect(found.size).toBe(16);
+    expect(TABLE).toHaveLength(13);
+    expect([...DERIVED_KEYS]).toEqual(['ae64.accentVars']);
     expect(TABLE).not.toContain('ae64.switchTab');
   });
 
   it('every registered key is used somewhere outside the table (no stale entry)', () => {
     const outside = Object.entries(SRC).filter(([f]) => !f.endsWith('data/appSettings.ts')).map(([, s]) => s).join('\n');
-    for (const k of [...TABLE, ...NOT_EXPORTED, ...SESSION_KEYS]) expect(outside.includes(`'${k}'`), k).toBe(true);
+    for (const k of [...TABLE, ...NOT_EXPORTED, ...DERIVED_KEYS, ...SESSION_KEYS]) expect(outside.includes(`'${k}'`), k).toBe(true);
   });
 
-  it('the groups keep the design order and all eight have a key', () => {
-    expect(groupsOf(TABLE)).toEqual(['theme', 'locale', 'presets', 'tabs', 'toggles', 'colors', 'sidebar', 'demo']);
+  it('the groups keep the design order and all ten have a key (J: accent and wallpaper next to theme)', () => {
+    expect(groupsOf(TABLE)).toEqual(['theme', 'accent', 'wallpaper', 'locale', 'presets', 'tabs', 'toggles', 'colors', 'sidebar', 'demo']);
   });
 });
 
@@ -490,7 +492,8 @@ describe('item 14: strings', () => {
     const viKeys = Object.keys(viDict).filter((k) => H_KEY.test(k));
     const enKeys = Object.keys(en).filter((k) => H_KEY.test(k));
     expect(viKeys.sort()).toEqual(enKeys.sort());
-    expect(viKeys.length).toBe(63);
+    // 63 of H + data.c.accent, data.c.wallpaper and appcfg.errWallpaper of J
+    expect(viKeys.length).toBe(66);
     for (const k of viKeys) {
       const v = (viDict as Record<string, string>)[k];
       const e = (en as Record<string, string>)[k];

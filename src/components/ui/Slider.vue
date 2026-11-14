@@ -17,6 +17,13 @@ const props = withDefaults(defineProps<{
   range?: [number, number] | null;
   /** Formats aria-valuetext. */
   format?: (v: number) => string;
+  /**
+   * The lowest value the slider gives (DESIGN J §3.4): drags, track clicks and every decreasing key (←, ↓, PageDown, Home)
+   * stop here, and it is aria-valuemin. The track is still drawn from `min`. Absent: `min`.
+   */
+  floor?: number;
+  /** id of a line that explains the value (aria-describedby on the thumb). */
+  describedby?: string;
 }>(), { step: 0.01, orientation: 'horizontal', range: null });
 
 const emit = defineEmits<{ 'update:modelValue': [number]; commit: [number] }>();
@@ -24,6 +31,7 @@ const track = ref<HTMLElement | null>(null);
 const dragging = ref(false);
 
 const vertical = computed(() => props.orientation === 'vertical');
+const lowest = computed(() => (props.floor === undefined ? props.min : Math.min(props.max, Math.max(props.min, props.floor))));
 const fine = computed(() => props.fineStep ?? props.step / 10);
 const ratio = (v: number) => (props.max === props.min ? 0 : (Math.min(props.max, Math.max(props.min, v)) - props.min) / (props.max - props.min));
 const pct = computed(() => ratio(props.modelValue) * 100);
@@ -33,7 +41,7 @@ function snap(v: number, step: number): number {
   // Absolute grid (0.30, 0.35…), not one anchored at `min` (0.01 → 0.06, 0.11…); clamped below.
   const s = Math.round(v / step) * step;
   const decimals = Math.max(0, -Math.floor(Math.log10(step)) + 1);
-  return Number(Math.min(props.max, Math.max(props.min, s)).toFixed(decimals));
+  return Number(Math.min(props.max, Math.max(lowest.value, s)).toFixed(decimals));
 }
 
 function fromPointer(e: PointerEvent): number {
@@ -92,7 +100,7 @@ function onKey(e: KeyboardEvent) {
   else if (dec.includes(e.key)) v = props.modelValue - step;
   else if (e.key === 'PageUp') v = props.modelValue + step * 10;
   else if (e.key === 'PageDown') v = props.modelValue - step * 10;
-  else if (e.key === 'Home') v = props.min;
+  else if (e.key === 'Home') v = lowest.value;
   else if (e.key === 'End') v = props.max;
   if (v === null) return;
   e.preventDefault();
@@ -122,7 +130,8 @@ function onKey(e: KeyboardEvent) {
       role="slider"
       :tabindex="disabled ? -1 : 0"
       :aria-label="label"
-      :aria-valuemin="min"
+      :aria-valuemin="lowest"
+      :aria-describedby="describedby"
       :aria-valuemax="max"
       :aria-valuenow="modelValue"
       :aria-valuetext="format ? format(modelValue) : undefined"

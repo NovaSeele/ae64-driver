@@ -10,6 +10,8 @@ import NumberField from '../components/ui/NumberField.vue';
 import Button from '../components/ui/Button.vue';
 import Dialog from '../components/ui/Dialog.vue';
 import ThemePicker from '../components/settings/ThemePicker.vue';
+import AccentPicker from '../components/settings/AccentPicker.vue';
+import WallpaperCard from '../components/settings/WallpaperCard.vue';
 import CopyInfo from '../components/settings/CopyInfo.vue';
 import DataLocation from '../components/settings/DataLocation.vue';
 import { POLLING_RATE_HZ } from '../protocol';
@@ -85,7 +87,9 @@ const shakeModel = computed({
       <Card :title="t('settings.appearance')" :subtitle="t('settings.appearanceDesc')">
         <ThemePicker />
         <p class="settings-note">{{ t('settings.zoomHint', { mod: zoomModifier(currentPlatform()) }) }}</p>
+        <AccentPicker />
       </Card>
+      <WallpaperCard />
     </div>
 
     <!-- load error -->
@@ -293,6 +297,12 @@ const shakeModel = computed({
   color: var(--warn);
   font-size: var(--fs-label);
 }
+/* --warn is not page text (DESIGN J §3.5): over a wallpaper the line sits on the panel, padded by a spread shadow */
+:root[data-wall] .settings-warn {
+  background: var(--panel);
+  border-radius: var(--r-control);
+  box-shadow: 0 0 0 6px var(--panel);
+}
 .settings-appearance {
   max-width: 1200px;
   margin: 0 auto var(--s-4);
@@ -309,7 +319,7 @@ const shakeModel = computed({
   padding: var(--s-4);
   border: 1px solid var(--line-1);
   border-radius: var(--r-card);
-  background: var(--bg-2);
+  background: var(--panel);
 }
 .settings-grid {
   display: grid;

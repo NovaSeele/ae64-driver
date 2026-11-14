@@ -30,7 +30,7 @@ defineProps<{ to?: RouteLocationRaw; icon: Component; label: string }>();
   gap: 4px;
   min-width: 0;
   padding: 14px var(--s-4) var(--s-4);
-  background: var(--bg-2);
+  background: var(--panel);
   border: 1px solid var(--line-1);
   border-radius: var(--r-card);
   color: inherit;

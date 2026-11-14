@@ -142,6 +142,6 @@ async function use(i: number) {
 @container (max-width: 759.98px) { .pfs__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* G2. Compare: drawn like Card, not the Card component (its title is an h3; this one is an h2 beside G1's). */
-.cmp { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; padding: var(--s-5); background: var(--bg-2); border: 1px solid var(--line-1); border-radius: var(--r-card); }
+.cmp { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; padding: var(--s-5); background: var(--panel); border: 1px solid var(--line-1); border-radius: var(--r-card); }
 .cmp__note { margin: 0; font-size: var(--fs-caption); color: var(--fg-3); }
 </style>

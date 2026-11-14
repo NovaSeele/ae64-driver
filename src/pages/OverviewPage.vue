@@ -286,7 +286,7 @@ const pollingText = computed(() => (settings.loaded ? `${POLLING_RATE_HZ[setting
 /* header card: identity of the connected keyboard + the main ways in */
 .ovh {
   display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-3) var(--s-4);
-  padding: var(--s-4) var(--s-5); background: var(--bg-2); border: 1px solid var(--line-1); border-radius: var(--r-card);
+  padding: var(--s-4) var(--s-5); background: var(--panel); border: 1px solid var(--line-1); border-radius: var(--r-card);
 }
 .ovh__icon { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--acc); color: var(--on-acc); }
 .ovh__id { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
@@ -327,6 +327,9 @@ const pollingText = computed(() => (settings.loaded ? `${POLLING_RATE_HZ[setting
 .ovk__loading { margin: 0; line-height: 20px; color: var(--fg-3); }
 /* the "Keycap: …" line of the selection bar (same SelectionLegend); here it may wrap, between items only */
 .ovk__shows { margin: 0; font-size: var(--fs-label); line-height: 20px; color: var(--fg-2); }
+/* DESIGN J §3.5: a page-level line with colours outside the page text set (RT in --m-press, the --fg-4 dots) gets the panel
+   behind it over a wallpaper, padded by the spread shadow like .sb (no layout change) */
+:root[data-wall] .ovk__shows { background: var(--panel); border-radius: var(--r-control); box-shadow: 0 0 0 6px var(--panel); }
 .ovk__shows :deep(.sb__k),
 .ovk__shows :deep(.sb__eq),
 .ovk__shows :deep(.sb__t) { white-space: nowrap; }
@@ -339,7 +342,7 @@ const pollingText = computed(() => (settings.loaded ? `${POLLING_RATE_HZ[setting
 .ovl__grid > li { display: flex; min-width: 0; }
 .ovl__item {
   flex: 1; display: flex; align-items: flex-start; gap: var(--s-3); min-width: 0; padding: var(--s-3) var(--s-4) var(--s-3) var(--s-3);
-  background: var(--bg-2); border: 1px solid var(--line-1); border-radius: var(--r-card); color: inherit; text-decoration: none;
+  background: var(--panel); border: 1px solid var(--line-1); border-radius: var(--r-card); color: inherit; text-decoration: none;
   transition: border-color var(--t-fast) var(--ease);
 }
 .ovl__item:hover { border-color: var(--line-3); }

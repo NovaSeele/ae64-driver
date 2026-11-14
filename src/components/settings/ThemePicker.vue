@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Appearance picker: radiogroup of theme tiles (Auto first). App preference only, never touches the device.
 import { IconCheck } from '@tabler/icons-vue';
-import { setTheme, themeChoice, THEMES, type ThemeChoice } from '../../theme';
+import { setTheme, themeChoice, THEMES, type ThemeChoice, type ThemeId } from '../../theme';
+import { accentState, accentVarsFor } from '../../accentCache';
 import { t, type MessageKey } from '../../i18n/vi';
 
 const CHOICES: readonly ThemeChoice[] = ['auto', ...THEMES];
@@ -9,6 +10,9 @@ const CHOICES: readonly ThemeChoice[] = ['auto', ...THEMES];
 const key = (c: ThemeChoice) => c.replace(/-([a-z])/g, (_, ch: string) => ch.toUpperCase());
 const name = (c: ThemeChoice) => t(`theme.${key(c)}` as MessageKey);
 const desc = (c: ThemeChoice) => t(`theme.${key(c)}Desc` as MessageKey);
+// Each scene declares its theme's own --acc (data-theme), so a custom accent is set on every scene too: each tile previews
+// the colour the app would apply on that theme (DESIGN J §3.2). Auto has two scenes, each with its own set.
+const sceneVars = (id: ThemeId) => accentVarsFor(id, accentState.value) ?? undefined;
 
 function onKey(e: KeyboardEvent) {
   const i = CHOICES.indexOf(themeChoice.value);
@@ -40,18 +44,18 @@ function onKey(e: KeyboardEvent) {
     >
       <span class="tp__prev" aria-hidden="true">
         <template v-if="c === 'auto'">
-          <span class="tp__scene" data-theme="graphite">
+          <span class="tp__scene" data-theme="graphite" :style="sceneVars('graphite')">
             <span class="tp__strip"><i /><i /><i /></span>
             <span class="tp__card"><b /><b class="tp__cap--sel" /><b /></span>
             <span class="tp__pill" />
           </span>
-          <span class="tp__scene tp__scene--cut" data-theme="light">
+          <span class="tp__scene tp__scene--cut" data-theme="light" :style="sceneVars('light')">
             <span class="tp__strip"><i /><i /><i /></span>
             <span class="tp__card"><b /><b class="tp__cap--sel" /><b /></span>
             <span class="tp__pill" />
           </span>
         </template>
-        <span v-else class="tp__scene" :data-theme="c">
+        <span v-else class="tp__scene" :data-theme="c" :style="sceneVars(c as ThemeId)">
           <span class="tp__strip"><i /><i /><i /></span>
           <span class="tp__card"><b /><b class="tp__cap--sel" /><b /></span>
           <span class="tp__pill" />

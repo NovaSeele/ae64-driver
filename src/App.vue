@@ -4,6 +4,8 @@ import { IconLoader2 } from '@tabler/icons-vue';
 import Sidebar from './components/shell/Sidebar.vue';
 import TopBar from './components/shell/TopBar.vue';
 import ConnectScreen from './components/shell/ConnectScreen.vue';
+import Wallpaper from './components/shell/Wallpaper.vue';
+import { startWallpaper } from './data/wallpaperState';
 import ToastHost from './components/ui/Toast.vue';
 import { useRoute } from 'vue-router';
 import { createSafePad, toastSafeTarget, useToast } from './components/ui/toast';
@@ -59,6 +61,8 @@ onMounted(() => {
     narrowMql.addEventListener('change', onNarrow);
   }
   void device.tryAutoReconnect();
+  // The wallpaper (DESIGN J §5.7): read from IndexedDB after the first page is painted, never before.
+  void startWallpaper();
 });
 onBeforeUnmount(() => {
   removeShortcuts?.();
@@ -71,6 +75,7 @@ onBeforeUnmount(() => {
   <div class="shell" :class="{ 'shell--collapsed': collapsed }">
     <Sidebar v-model:compact="collapsed" />
     <main class="main">
+      <Wallpaper />
       <template v-if="device.connected || keepPage">
         <TopBar />
         <div ref="scroller" class="main__scroll" :style="{ paddingBottom: `${safePad}px`, scrollPaddingBottom: `${toastSafeTarget}px` }">
@@ -106,6 +111,8 @@ onBeforeUnmount(() => {
   flex-direction: column;
   background-color: var(--bg-0);
   background-image: var(--bg-art);
+  /* its own stacking context: the wallpaper (z-index -1) sits above this background and below every other child (DESIGN J §3.5) */
+  isolation: isolate;
 }
 .main__scroll {
   flex: 1;

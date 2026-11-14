@@ -672,6 +672,9 @@ function onTypeKey(e: KeyboardEvent) {
 
 /* Keyboard footer: keycap legend (left), "Color by result" (right: it acts on the keycaps) */
 .kbfoot { display: flex; align-items: center; gap: var(--s-4); min-height: 28px; }
+/* DESIGN J §3.5: the legend carries --fg-4 dots and the ok / short / stuck icon colours, so over a wallpaper the whole foot
+   row sits on the panel (padded by the spread shadow like .sb: no layout change) */
+:root[data-wall] .kbfoot { background: var(--panel); border-radius: var(--r-control); box-shadow: 0 0 0 6px var(--panel); }
 .kblegend { flex: 1 1 auto; min-width: 0; margin: 0; font-size: var(--fs-label); line-height: 20px; color: var(--fg-2); text-wrap: balance; }
 .kbfoot .sw { flex: none; }
 .kl__k { color: var(--fg-3); font-weight: 500; margin-right: 6px; }

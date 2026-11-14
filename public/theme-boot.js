@@ -33,6 +33,14 @@
     }
   }
   document.documentElement.setAttribute('data-theme', id);
+  // A custom accent (DESIGN J §3.3): copy the cached token set of this theme; the maths is in src/accent.ts, not here.
+  try {
+    var hx = localStorage.getItem('ae64.accent'), c = JSON.parse(localStorage.getItem('ae64.accentVars') || 'null');
+    if (hx && c && c.v === 1 && c.hex === hx && c.themes && c.themes[id]) {
+      var vs = c.themes[id], ks = ['--acc', '--acc-hover', '--on-acc', '--sel', '--m-actuation'];
+      for (var i = 0; i < ks.length; i++) if (/^#[0-9a-f]{6}$/.test(vs[ks[i]])) document.documentElement.style.setProperty(ks[i], vs[ks[i]]);
+    }
+  } catch (e) { /* the theme's own accent */ }
   var t = THEMES[id];
   var cs = document.querySelector('meta[name="color-scheme"]');
   if (cs) cs.setAttribute('content', t[0]);

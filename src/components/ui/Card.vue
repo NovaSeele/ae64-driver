@@ -17,7 +17,7 @@ defineProps<{ title?: string; subtitle?: string }>();
 
 <style scoped>
 .card {
-  background: var(--bg-2);
+  background: var(--panel);
   border: 1px solid var(--line-1);
   border-radius: var(--r-card);
   padding: var(--s-5);

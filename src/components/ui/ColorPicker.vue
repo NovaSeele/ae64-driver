@@ -1,5 +1,7 @@
 <script setup lang="ts">
 // HSV square + hue strip + HEX/RGB inputs + recent colours (kept in localStorage).
+// `recent` false (the accent colour, DESIGN J §3.1): no recent row, and ae64.recentColors is never read or written (that list
+// is LED colours).
 // v-model is a "#rrggbb" string; `commit` fires when a gesture ends (and records a recent colour).
 // Arrow keys commit once, on key release, so holding a key is one edit and one recent colour.
 import { computed, ref, watch } from 'vue';
@@ -7,7 +9,7 @@ import { t } from '../../i18n/vi';
 import { RECENT_KEY, RECENT_MAX, loadRecent } from './recentColors';
 
 const model = defineModel<string>({ required: true });
-const props = defineProps<{ disabled?: boolean }>();
+const props = withDefaults(defineProps<{ disabled?: boolean; recent?: boolean }>(), { recent: true });
 const emit = defineEmits<{ commit: [string] }>();
 
 interface Hsv { h: number; s: number; v: number }
@@ -38,7 +40,7 @@ function hsvToRgb({ h, s, v }: Hsv): [number, number, number] {
 const hsv = ref<Hsv>(rgbToHsv(...hexToRgb(model.value)));
 const rgb = computed(() => hexToRgb(model.value));
 const hexText = ref(model.value);
-const recent = ref<string[]>(loadRecent());
+const recentList = ref<string[]>(props.recent ? loadRecent() : []);
 
 watch(model, (v) => {
   hexText.value = v;
@@ -46,8 +48,9 @@ watch(model, (v) => {
 });
 
 function remember(hex: string) {
-  recent.value = [hex, ...recent.value.filter((c) => c !== hex)].slice(0, RECENT_MAX);
-  try { localStorage.setItem(RECENT_KEY, JSON.stringify(recent.value)); } catch { /* storage unavailable */ }
+  if (!props.recent) return;
+  recentList.value = [hex, ...recentList.value.filter((c) => c !== hex)].slice(0, RECENT_MAX);
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(recentList.value)); } catch { /* storage unavailable */ }
 }
 // Takes the value explicitly: right after `model.value = x` the prop may still hold the old colour.
 function finish(hex = model.value) {
@@ -187,10 +190,10 @@ const hueColor = computed(() => rgbToHex(...hsvToRgb({ h: hsv.value.h, s: 1, v: 
         <input class="num" inputmode="numeric" :disabled="disabled" :value="rgb[i]" @change="onRgb(i as 0 | 1 | 2, $event)">
       </label>
     </div>
-    <div v-if="recent.length" class="cp__recent">
+    <div v-if="recent && recentList.length" class="cp__recent">
       <span class="micro">{{ t('ui.recentColors') }}</span>
       <div class="cp__chips">
-        <button v-for="c in recent" :key="c" type="button" class="cp__chip" :disabled="disabled" :style="{ background: c }" :aria-label="c" :title="c" @click="pick(c)" />
+        <button v-for="c in recentList" :key="c" type="button" class="cp__chip" :disabled="disabled" :style="{ background: c }" :aria-label="c" :title="c" @click="pick(c)" />
       </div>
     </div>
   </div>

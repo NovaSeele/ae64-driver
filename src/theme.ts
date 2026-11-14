@@ -1,4 +1,5 @@
 import { computed, ref, watch, type Ref } from 'vue';
+import { ACCENT_KEY, ACCENT_VARS_KEY, accentState, accentVarsFor, applyAccent, initAccentState, readAccentState } from './accentCache';
 
 export type ThemeId = 'graphite' | 'light' | 'indigo' | 'indigo-light' | 'gold' | 'ember' | 'aurora' | 'mint' | 'nord' | 'dracula' | 'rose';
 export type ThemeChoice = 'auto' | ThemeId;
@@ -67,6 +68,8 @@ function applyTheme(): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   root.dataset.theme = resolvedTheme.value;
+  // A custom accent: copy this theme's cached token set (DESIGN J §3.3); no maths here.
+  applyAccent(accentVarsFor(resolvedTheme.value));
   const cs = getComputedStyle(root);
   const scheme = cs.colorScheme.includes('light') ? 'light' : 'dark';
   setMeta('color-scheme', scheme);
@@ -74,8 +77,28 @@ function applyTheme(): void {
   if (bg) setMeta('theme-color', bg);
 }
 
-watch(resolvedTheme, applyTheme, { flush: 'sync' });
+initAccentState(THEMES);
+watch([resolvedTheme, accentState], applyTheme, { flush: 'sync' });
 applyTheme();
+
+/**
+ * ae64.accent set but its cache missing or stale (an imported settings file, an older build): rebuild it with the maths
+ * chunk, loaded only now. No ae64.accent but a cache left: remove the cache.
+ */
+function repairAccentCache(): void {
+  const st = accentState.value;
+  if (st.hex && !st.cache) {
+    const hex = st.hex;
+    void import('./accent').then((m) => m.rebuildAccentCache(hex)).catch(() => { /* stays on the theme's accent */ });
+  } else if (!st.hex) {
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem(ACCENT_VARS_KEY) !== null) localStorage.removeItem(ACCENT_VARS_KEY);
+    } catch {
+      // ignore storage error
+    }
+  }
+}
+repairAccentCache();
 
 export function setTheme(choice: ThemeChoice): void {
   themeChoice.value = parseThemeChoice(choice);
@@ -90,5 +113,10 @@ export function setTheme(choice: ThemeChoice): void {
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
     if (e.key === STORAGE_KEY || e.key === null) themeChoice.value = parseThemeChoice(e.newValue);
+    // Another tab picked an accent: follow once its colour and cache agree (it writes both; never write from here).
+    if (e.key === ACCENT_KEY || e.key === ACCENT_VARS_KEY || e.key === null) {
+      const st = readAccentState();
+      if (!st.hex || st.cache) accentState.value = st;
+    }
   });
 }

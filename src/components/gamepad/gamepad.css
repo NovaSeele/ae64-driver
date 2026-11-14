@@ -17,7 +17,7 @@
 .gps__desc { margin: 0; font-size: var(--fs-caption); color: var(--fg-3); line-height: 1.4; }
 
 /* status card */
-.gps { display: flex; flex-direction: column; gap: var(--s-3); padding: var(--s-4) var(--s-5); background: var(--bg-2); border: 1px solid var(--line-1); border-radius: var(--r-card); min-width: 0; }
+.gps { display: flex; flex-direction: column; gap: var(--s-3); padding: var(--s-4) var(--s-5); background: var(--panel); border: 1px solid var(--line-1); border-radius: var(--r-card); min-width: 0; }
 .gps__row { display: flex; align-items: flex-start; gap: var(--s-4) var(--s-6); flex-wrap: wrap; }
 .gps__row > .gps__tile { margin-right: calc(var(--s-4) - var(--s-6)); }
 .gps__tile { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 10px; background: color-mix(in srgb, var(--f-gamepad) 16%, transparent); color: var(--f-gamepad); }
@@ -44,7 +44,7 @@
 .gps__bact { display: flex; gap: var(--s-2); flex: none; flex-wrap: wrap; }
 
 /* not-ready card (Max, stock Pro, error, newer protocol) */
-.gpn { display: flex; flex-direction: column; gap: var(--s-5); align-items: flex-start; /* tile above the text, as in shots/K-max-* */ max-width: 760px; margin: var(--s-4) auto 0; padding: var(--s-6); background: var(--bg-2); border: 1px solid var(--line-1); border-radius: var(--r-card); }
+.gpn { display: flex; flex-direction: column; gap: var(--s-5); align-items: flex-start; /* tile above the text, as in shots/K-max-* */ max-width: 760px; margin: var(--s-4) auto 0; padding: var(--s-6); background: var(--panel); border: 1px solid var(--line-1); border-radius: var(--r-card); }
 .gpn__tile { display: grid; place-items: center; flex: none; width: 56px; height: 56px; border-radius: 14px; background: color-mix(in srgb, var(--f) 16%, transparent); color: var(--f); }
 .gpn__main { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; align-self: stretch; }
 .gpn__title { margin: 0; font-size: var(--fs-section); font-weight: 600; color: var(--fg-1); }
