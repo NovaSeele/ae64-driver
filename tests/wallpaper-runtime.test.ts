@@ -136,6 +136,34 @@ describe('J test 8: the file check', () => {
     expect(wallState.meta!.name).toBe('first.png');
   });
 
+  it('review J-TEST-4: stored but cannot be shown → errDecode; the store gets the previous record back, the image and data-wall stay', async () => {
+    await boot();
+    expect(await chooseFile(file('image/png', 'image/png', 'first.png'))).toBeNull();
+    const before = store.rec;
+    const shown = wallState.url;
+    const put = vi.spyOn(store, 'put');
+    vi.mocked(wallEnv.decode).mockRejectedValueOnce(new Error('EncodingError'));
+    expect(await chooseFile(file('image/png', 'image/png', 'second.png'))).toBe('errDecode');
+    expect(put).toHaveBeenCalledTimes(2); // the new one, then the previous one back
+    expect(store.rec).toBe(before);
+    expect(store.rec!.name).toBe('first.png');
+    expect(wallState.url).toBe(shown);
+    expect(wallState.meta!.name).toBe('first.png');
+    expect(document.documentElement.hasAttribute('data-wall')).toBe(true);
+  });
+
+  it('review J-TEST-4: the same with no previous image → errDecode, the store is empty again, nothing shown, no data-wall', async () => {
+    await boot();
+    const remove = vi.spyOn(store, 'remove');
+    vi.mocked(wallEnv.decode).mockRejectedValueOnce(new Error('EncodingError'));
+    expect(await chooseFile(file('image/png', 'image/png', 'only.png'))).toBe('errDecode');
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(store.rec).toBeNull();
+    expect(wallState.url).toBeNull();
+    expect(wallState.meta).toBeNull();
+    expect(document.documentElement.hasAttribute('data-wall')).toBe(false);
+  });
+
   it('data-wall and --panel-pct are set on <html> only once the image is decoded', async () => {
     await boot();
     let done!: () => void;

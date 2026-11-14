@@ -241,3 +241,81 @@ describe('J test 7: the colour box at native resolution', () => {
     expect(scanBox(2, 2, read)).toEqual({ lo: [0, 214, 1], hi: [252, 253, 241] });
   });
 });
+
+describe('review J-TEST-1: the target of a token the theme itself has below 4.5 (wallFloors itself)', () => {
+  // No theme in themes.css has such a token today (every text token is >= 4.5 on --bg-0 and --bg-2), so the set is
+  // Graphite's / Light's with --fg-4 moved under 4.5. On an image darker (lighter) than the page, that token keeps at least
+  // its plain contrast with no veil: its target is what it has on the plain surface, not 4.5.
+  const withFg4 = (id: ThemeId, hex: string): GuardTokens => {
+    const t = tokens(id);
+    return { ...t, all: t.all.map((c, i) => (ALL_TEXT[i] === '--fg-4' ? hexToRgb(hex) : c)) };
+  };
+  const BLACK: ColourBox = { lo: [0, 0, 0], hi: [0, 0, 0] };
+  const WHITE: ColourBox = { lo: [255, 255, 255], hi: [255, 255, 255] };
+
+  it('Graphite, --fg-4 #5f6368 (2.91 on --bg-0), a black image: veil 0, panel 75 %, overlayOk', () => {
+    const t = withFg4('graphite', '#5f6368');
+    expect(contrast(hexToRgb('#5f6368'), t.bg0)).toBeCloseTo(2.91, 2);
+    expect(contrast(hexToRgb('#5f6368'), t.bg0)).toBeLessThan(MIN_CONTRAST);
+    expect(contrast(hexToRgb('#5f6368'), [0, 0, 0])).toBeLessThan(MIN_CONTRAST); // so a 4.5 target could never be met here
+    expect(wallFloors(BLACK, t)).toEqual({ overlay: 0, panel: 0.75, overlayOk: true });
+    expect(wallFloors(BLACK, t)).toEqual(wallFloors(BLACK, tokens('graphite')));
+  });
+
+  it('Light, --fg-4 #959ca5 (2.43 on --bg-0), a white image: veil 0, panel 75 %, overlayOk', () => {
+    const t = withFg4('light', '#959ca5');
+    expect(contrast(hexToRgb('#959ca5'), t.bg0)).toBeCloseTo(2.43, 2);
+    expect(contrast(hexToRgb('#959ca5'), [255, 255, 255])).toBeLessThan(MIN_CONTRAST);
+    expect(wallFloors(WHITE, t)).toEqual({ overlay: 0, panel: 0.75, overlayOk: true });
+  });
+
+  it('the same token on an image brighter than the Graphite page cannot keep its plain contrast: veil 100 %, where the page is the plain surface (ok), panel 75 %', () => {
+    const f = wallFloors(IMG.dusk, withFg4('graphite', '#5f6368'));
+    expect(f).toEqual({ overlay: 1, panel: 0.75, overlayOk: true });
+  });
+});
+
+describe('review J-TEST-2: the tile edges of the scan', () => {
+  /** A grey W × H image with one pixel of another colour at (px, py); records every rectangle read. */
+  function image(_w: number, _h: number, px: number, py: number, rgb: Rgb) {
+    const reads: [number, number, number, number][] = [];
+    const read = (x: number, y: number, w: number, h: number) => {
+      reads.push([x, y, w, h]);
+      const d = new Uint8ClampedArray(w * h * 4).fill(128);
+      if (px >= x && px < x + w && py >= y && py < y + h) d.set(rgb, ((py - y) * w + (px - x)) * 4);
+      return d;
+    };
+    return { read, reads };
+  }
+  /** Every pixel is read exactly once: the areas add up to W × H and no two rectangles overlap. */
+  function coverage(W: number, H: number, reads: [number, number, number, number][]) {
+    const seen = new Uint8Array(W * H);
+    let area = 0;
+    for (const [x, y, w, h] of reads) {
+      area += w * h;
+      for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) seen[yy * W + xx]++;
+    }
+    return { area, once: seen.every((n) => n === 1) };
+  }
+
+  it('a pixel in column 1024 (the first of the second tile) of a 2500 × 1100 image is found', () => {
+    const { read, reads } = image(2500, 1100, 1024, 5, [255, 0, 0]);
+    expect(scanBox(2500, 1100, read)).toEqual({ lo: [128, 0, 0], hi: [255, 128, 128] });
+    expect(coverage(2500, 1100, reads)).toEqual({ area: 2500 * 1100, once: true });
+    expect(reads).toHaveLength(6);
+  });
+
+  it('a pixel in row 1024, and one in column 2048 (third tile) of a 3000 × 2100 image', () => {
+    const a = image(3000, 2100, 7, 1024, [0, 255, 0]);
+    expect(scanBox(3000, 2100, a.read)).toEqual({ lo: [0, 128, 0], hi: [128, 255, 128] });
+    expect(coverage(3000, 2100, a.reads)).toEqual({ area: 3000 * 2100, once: true });
+    const b = image(3000, 2100, 2048, 2048, [0, 0, 255]);
+    expect(scanBox(3000, 2100, b.read)).toEqual({ lo: [0, 0, 128], hi: [128, 128, 255] });
+  });
+
+  it('the last column and row (2499, 1099) are read too', () => {
+    const { read, reads } = image(2500, 1100, 2499, 1099, [9, 9, 9]);
+    expect(scanBox(2500, 1100, read)).toEqual({ lo: [9, 9, 9], hi: [128, 128, 128] });
+    expect(coverage(2500, 1100, reads).once).toBe(true);
+  });
+});

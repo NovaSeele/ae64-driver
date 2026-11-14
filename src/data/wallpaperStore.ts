@@ -1,5 +1,5 @@
 // The wallpaper image, kept in this browser's IndexedDB (DESIGN J §3.8): db "ae64", store "wallpaper", key "current". Loaded
-// on demand. Tests swap in the in-memory store (setWallpaperStore), so no IndexedDB polyfill is needed.
+// on demand. Tests swap in the in-memory store (setWallpaperStore); wallpaper-store.test.ts drives this one on a small fake.
 import type { Rgb } from '../color';
 
 export interface ColourBox { lo: Rgb; hi: Rgb }
@@ -26,21 +26,39 @@ const DB = 'ae64';
 const STORE = 'wallpaper';
 const KEY = 'current';
 
-function openDb(): Promise<IDBDatabase> {
+const createStore = (db: IDBDatabase): void => { if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE); };
+
+/** Opens "ae64" at `version`, or at whatever version it has (none given). Blocked (another tab holds an older version open)
+ *  is waited out: onsuccess follows once that connection closes. Our own connections close when another one upgrades. */
+function openAt(version?: number, upgrade?: (db: IDBDatabase) => void): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB, 1);
-    req.onupgradeneeded = () => {
-      if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
+    const req = version === undefined ? indexedDB.open(DB) : indexedDB.open(DB, version);
+    req.onupgradeneeded = () => upgrade?.(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => db.close();
+      resolve(db);
     };
-    req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error ?? new Error('indexedDB.open failed'));
-    req.onblocked = () => reject(new Error('indexedDB.open blocked'));
   });
 }
 
-/** Runs one request in its own transaction; resolves with its result at transaction complete. */
-async function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  const db = await openDb();
+/**
+ * The database with the wallpaper store, or null when it has none (nothing was ever stored). Opened without a version, so a
+ * database someone else made at v1 without our store (devtools, an extension) or a later build's higher version still opens.
+ * `create`: a missing store is made by reopening one version up.
+ */
+async function openDb(create: boolean): Promise<IDBDatabase | null> {
+  const db = await openAt(undefined, create ? createStore : undefined);
+  if (db.objectStoreNames.contains(STORE)) return db;
+  const v = db.version;
+  db.close();
+  if (!create) return null;
+  return openAt(v + 1, createStore);
+}
+
+/** Runs one request in its own transaction on an open database (closed after); resolves with its result at complete. */
+async function run<T>(db: IDBDatabase, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   try {
     return await new Promise<T>((resolve, reject) => {
       const tx = db.transaction(STORE, mode);
@@ -60,18 +78,29 @@ const isRecord = (v: unknown): v is WallRecord =>
 
 export class IdbWallpaperStore implements WallpaperStore {
   async get(): Promise<WallRecord | null> {
-    if (typeof indexedDB === 'undefined') return null;
-    const v = await run<unknown>('readonly', (s) => s.get(KEY));
+    const db = await this.existing();
+    if (!db) return null;
+    const v = await run<unknown>(db, 'readonly', (s) => s.get(KEY));
     return isRecord(v) ? v : null;
   }
   async put(rec: WallRecord): Promise<void> {
     if (typeof indexedDB === 'undefined') throw new Error('no IndexedDB');
-    await run('readwrite', (s) => s.put(rec, KEY));
+    const db = await openDb(true);
+    await run(db!, 'readwrite', (s) => s.put(rec, KEY));
   }
+  /**
+   * No IndexedDB, a database that does not open, or no wallpaper store: no image is stored, so there is nothing to remove
+   * (resolves; a reset must not be locked by it). Rejects only when the delete itself fails: the image may still be there.
+   */
   async remove(): Promise<void> {
-    // No IndexedDB at all: there is no stored image to remove.
-    if (typeof indexedDB === 'undefined') return;
-    await run('readwrite', (s) => s.delete(KEY));
+    const db = await this.existing();
+    if (!db) return;
+    await run(db, 'readwrite', (s) => s.delete(KEY));
+  }
+  /** The database when it holds the wallpaper store; null when there is none or it cannot be opened. */
+  private async existing(): Promise<IDBDatabase | null> {
+    if (typeof indexedDB === 'undefined') return null;
+    try { return await openDb(false); } catch { return null; }
   }
 }
 

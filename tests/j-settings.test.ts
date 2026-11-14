@@ -105,9 +105,11 @@ describe('J test 6: the keys in the H table', () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
-  it('import fails at a write: the cache comes back too', async () => {
+  it('import fails at a write (review J-TEST-3): ae64.accent and ae64.accentVars come back as the same strings, theme-boot still applies the old set, --acc unchanged', async () => {
     setAccent('#4da3ff');
     const cache = localStorage.getItem(ACCENT_VARS_KEY);
+    const acc = document.documentElement.style.getPropertyValue('--acc');
+    expect(cache).not.toBeNull();
     vi.spyOn(pageReload, 'reload').mockImplementation(() => undefined);
     await useDeviceStore().connectDemo('max');
     const real = Storage.prototype.setItem;
@@ -119,6 +121,15 @@ describe('J test 6: the keys in the H table', () => {
     vi.mocked(Storage.prototype.setItem).mockRestore();
     expect(localStorage.getItem(ACCENT_KEY)).toBe('#4da3ff');
     expect(localStorage.getItem(ACCENT_VARS_KEY)).toBe(cache);
+    expect(document.documentElement.style.getPropertyValue('--acc')).toBe(acc);
+    // the next start's early copy still finds a cache that matches the colour
+    const root = document.documentElement;
+    for (const k of ['--acc', '--acc-hover', '--on-acc', '--sel', '--m-actuation']) root.style.removeProperty(k);
+    localStorage.setItem('ae64.theme', 'graphite');
+    // eslint-disable-next-line no-new-func
+    new Function(readFileSync(resolve('public/theme-boot.js'), 'utf8'))();
+    expect(root.style.getPropertyValue('--acc')).toBe(acc);
+    expect(root.style.getPropertyValue('--m-actuation')).toBe(JSON.parse(cache!).themes.graphite['--m-actuation']);
   });
 
   it('reset: the image is removed (awaited) before the keys go and the page reloads', async () => {

@@ -224,24 +224,24 @@ export function useAppSettings() {
 }
 
 /**
- * Writes `data` and removes the derived caches (or removes resetKeys() when null), key by key; on a refused write every key
- * touched gets its old value.
+ * Removes the derived caches and writes `data` (or removes resetKeys() when null), key by key; on a refused write every key
+ * touched gets its old value, the caches too (a cache removed but a write refused would leave the old colour without its
+ * early copy). The caches go first: they are never written from a file, so removing them cannot fail on quota.
  */
 function writeKeys(data: Record<string, string> | null): void {
   const old = new Map<string, string | null>();
   try {
-    const keys = data ? Object.keys(data) : resetKeys();
-    for (const k of keys) {
-      old.set(k, localStorage.getItem(k));
-      if (data) localStorage.setItem(k, data[k]);
-      else localStorage.removeItem(k);
-    }
     if (data) {
       for (const k of DERIVED_KEYS) {
-        if (old.has(k)) continue;
         old.set(k, localStorage.getItem(k));
         localStorage.removeItem(k);
       }
+    }
+    const keys = data ? Object.keys(data) : resetKeys();
+    for (const k of keys) {
+      if (!old.has(k)) old.set(k, localStorage.getItem(k));
+      if (data) localStorage.setItem(k, data[k]);
+      else localStorage.removeItem(k);
     }
   } catch {
     for (const [k, v] of old) {
