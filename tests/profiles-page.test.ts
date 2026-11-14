@@ -17,6 +17,8 @@ import { useDeviceStore } from '../src/stores/device';
 import { usePerformanceStore } from '../src/stores/performance';
 import { useCalibrationStore } from '../src/stores/calibration';
 import { useSettingsStore } from '../src/stores/settings';
+import { findSwitch } from '../src/protocol/switches';
+import { switchName } from '../src/data/switchDisplay';
 import { clearTuningSnapshots } from '../src/stores/tuning';
 import ProfileSelect from '../src/components/shell/ProfileSelect.vue';
 import SettingsPage from '../src/pages/SettingsPage.vue';
@@ -318,6 +320,57 @@ describe('Profiles: compare (§3.5, §3.6, items 4, 5)', () => {
     expect(w.find('caption').text()).toBe('Khác biệt giữa A (2 · FPS) và B (1 · Default)');
   });
 
+  it('G-TEST-3: B by default is the profile left most recently, not the lowest number (open 1 → 3 → 2: A = 2, B = 3)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const { device, perf } = await connect();
+    const off = device.onProfileChanged(() => void perf.load(true));
+    vi.setSystemTime(new Date(2026, 10, 14, 10, 0));
+    await perf.load();
+    await device.switchProfile(2); // profile 1 left at 10:00
+    await idle();
+    vi.setSystemTime(new Date(2026, 10, 14, 10, 5));
+    await device.switchProfile(1); // profile 3 left at 10:05
+    await idle();
+    off();
+    vi.useRealTimers();
+    const { w } = await mountPage();
+    expect([checked(w, 0), checked(w, 1)]).toEqual([1, 2]);
+  });
+
+  it('G-TEST-4: while the active profile is read (held at 10/64), A is that profile and the compare waits; after the read A stays', async () => {
+    await openTwo(); // 1 opened (snapshot), 2 active
+    const { w, mock, device } = await mountPage();
+    expect([checked(w, 0), checked(w, 1)]).toEqual([1, 0]);
+    const get = mock.getPerformance.bind(mock);
+    let n = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((ok) => { release = ok; });
+    vi.spyOn(mock, 'getPerformance').mockImplementation(async (k) => { if (++n === 11) await gate; return get(k); });
+    await useBtn(w, 2).trigger('click');
+    await vi.waitFor(() => expect(usePerformanceStore().loadedCount).toBe(10), { timeout: 15000, interval: 2 });
+    await nextTick();
+    expect(device.activeProfile).toBe(2);
+    expect(checked(w, 0)).toBe(2);
+    expect(w.find('.cmp .cmp__empty[role="status"]').text()).toBe('Đang đọc cài đặt từ 10/64 phím…');
+    expect(w.find('.cmp__table').exists()).toBe(false);
+    release();
+    await idle();
+    expect(checked(w, 0)).toBe(2);
+    expect(w.find('.cmp__table').exists()).toBe(true);
+  });
+
+  it('G-TEST-5: a switch in the catalog shows its name, never "ID"', async () => {
+    await openTwo();
+    const { w, perf } = await mountPage();
+    const snap = perf.profileSnapshots.get(0)!;
+    const other = perf.catalog!.find((e) => e.id !== snap.values[0].axisV2Id)!;
+    perf.values = { ...Object.fromEntries(Object.entries(snap.values).map(([k, v]) => [k, { ...v }])), 0: { ...snap.values[0], axisV2Id: other.id } };
+    await nextTick();
+    const cells = w.findAll('.cmp__table td').map((td) => td.text());
+    expect(cells).toEqual(['Switch', switchName(other), switchName(findSwitch(perf.catalog, snap.values[0].axisV2Id)!)]);
+    expect(cells.join(' ')).not.toMatch(/ID/);
+  });
+
   it('item 5: A is never B: A = 1, B = 0, pick A = 0 → A = 0, B = 1 (and the other way)', async () => {
     await openTwo();
     const { w } = await mountPage();
@@ -529,6 +582,21 @@ describe('Profiles: rename on the card (§3.4, item 6, item 13)', () => {
     expect(set).toHaveBeenCalledWith(2, '配置一二三四五六七八');
   });
 
+  it('G-TEST-6: Enter with keyCode 229 (an IME ending its composition) and isComposing false neither saves nor closes', async () => {
+    const { w, mock } = await mountPage();
+    const set = vi.spyOn(mock, 'setProfileName');
+    await pencil(w, 2).trigger('click');
+    await flushPromises();
+    const input = cards(w)[2].find('input');
+    await type(input, '配置');
+    const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, isComposing: false });
+    Object.defineProperty(ev, 'keyCode', { value: 229 });
+    input.element.dispatchEvent(ev);
+    await flushPromises();
+    expect(set).not.toHaveBeenCalled();
+    expect(cards(w)[2].find('input').exists()).toBe(true);
+  });
+
   it('one card at a time: the pencil of another card closes the first as Cancel', async () => {
     const { w, mock } = await mountPage();
     const set = vi.spyOn(mock, 'setProfileName');
@@ -628,6 +696,21 @@ describe('ProfileSelect (sidebar) fixes (§3.9, items 6, 7)', () => {
     await key(input, 'Enter');
     expect(rn).toHaveBeenCalledTimes(1);
     expect(rn).toHaveBeenCalledWith(2, '一二三四五六七八九十');
+  });
+
+  it('G-TEST-6: sidebar Enter with keyCode 229 and isComposing false does not save', async () => {
+    const { w, rows, device } = await sidebar();
+    const rn = vi.spyOn(device, 'renameProfile').mockResolvedValue(undefined);
+    await rows()[2].trigger('dblclick');
+    await flushPromises();
+    const input = w.get('.ps__input');
+    await type(input, 'Gõ');
+    const ev = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, isComposing: false });
+    Object.defineProperty(ev, 'keyCode', { value: 229 });
+    input.element.dispatchEvent(ev);
+    await flushPromises();
+    expect(rn).not.toHaveBeenCalled();
+    expect(w.find('.ps__input').exists()).toBe(true);
   });
 
   it('item 7: calibrating → the pencil is disabled, and neither a double-click nor F2 opens the rename', async () => {

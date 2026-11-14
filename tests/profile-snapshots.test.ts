@@ -75,6 +75,9 @@ describe('profileSnapshots (DESIGN G §3.7)', () => {
     const { device, perf, idle } = await setup();
     await perf.load();
     const p0 = perf.values;
+    // G-TEST-2: a switch is never an error, not even for one render (every value loadError takes, synchronously)
+    const errors: (string | null)[] = [];
+    const stopErr = watch(() => perf.loadError, (e) => errors.push(e), { flush: 'sync' });
     const stop = watch(() => perf.loadedCount, (n) => {
       if (n === 10 && device.activeProfile === 1) void device.switchProfile(2);
     }, { flush: 'sync' });
@@ -82,6 +85,8 @@ describe('profileSnapshots (DESIGN G §3.7)', () => {
     await vi.waitFor(() => expect(device.activeProfile).toBe(2), { timeout: 15000, interval: 5 });
     await idle();
     stop();
+    stopErr();
+    expect(errors.filter((e) => e !== null)).toEqual([]);
     expect(perf.profileSnapshots.has(1)).toBe(false); // profile 2 (index 1) was never read in full: still "not opened"
     expect(perf.profileSnapshots.get(0)!.values).toBe(p0);
     expect(perf.loadedProfile).toBe(2);
@@ -130,6 +135,23 @@ describe('profileSnapshots (DESIGN G §3.7)', () => {
     vi.setSystemTime(at(10, 20));
     await perf.load();
     await idle();
+    expect(perf.profileSnapshots.get(0)!.at).toBe(at(10, 5));
+  });
+
+  it('G-TEST-1: load(true) on the same profile later (calibration done, "Read again") stamps that profile with now', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const { device, perf, off } = await setup();
+    off();
+    vi.setSystemTime(at(10, 0));
+    await perf.load();
+    vi.setSystemTime(at(10, 5));
+    await device.switchProfile(1);
+    vi.setSystemTime(at(10, 6));
+    await perf.load();
+    expect(perf.profileSnapshots.get(0)!.at).toBe(at(10, 5));
+    vi.setSystemTime(at(10, 20));
+    await perf.load(true);
+    expect(perf.profileSnapshots.get(1)!.at).toBe(at(10, 20)); // not 10:05, the time profile 1 (index 0) was left
     expect(perf.profileSnapshots.get(0)!.at).toBe(at(10, 5));
   });
 

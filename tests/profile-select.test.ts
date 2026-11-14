@@ -4,6 +4,8 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import ProfileSelect from '../src/components/shell/ProfileSelect.vue';
 import { useDeviceStore } from '../src/stores/device';
+import { MockTransport } from '../src/protocol';
+import { useToast } from '../src/components/ui/toast';
 
 let wrapper: VueWrapper | null = null;
 
@@ -188,5 +190,65 @@ describe('ProfileSelect double-click on another profile', () => {
     link.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
     link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     expect(onLink).toHaveBeenCalledTimes(1); // the next real press goes through
+  });
+});
+
+describe('G-1: a rename that changes nothing writes nothing (AE64 Pro names end with a space)', () => {
+  async function pro() {
+    setActivePinia(createPinia());
+    const device = useDeviceStore();
+    await device.connectDemo('pro');
+    const set = vi.spyOn(device.transport as MockTransport, 'setProfileName');
+    const toasts = () => useToast().items.value.filter((x) => x.text.includes('配置'));
+    return { device, set, toasts };
+  }
+  async function sidebar() {
+    const { device, set, toasts } = await pro();
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] });
+    await router.push('/');
+    wrapper = mount(ProfileSelect, { global: { plugins: [router] }, attachTo: document.body });
+    await wrapper.get('.ps__trigger').trigger('click');
+    await wrapper.findAll('[role="option"]')[1].trigger('keydown', { key: 'F2' });
+    await flushPromises();
+    return { device, set, toasts, w: wrapper, input: () => wrapper!.get('.ps__input') };
+  }
+
+  it('store: renameProfile(1, "配置二"), (1, "配置二 ") and (1, "  配置二  ") send nothing, show no toast, keep "配置二 "', async () => {
+    const { device, set, toasts } = await pro();
+    expect(device.profileNames[1]).toBe('配置二 ');
+    await device.renameProfile(1, '配置二');
+    await device.renameProfile(1, '配置二 ');
+    await device.renameProfile(1, '  配置二  ');
+    expect(set).not.toHaveBeenCalled();
+    expect(toasts()).toEqual([]);
+    expect(device.profileNames[1]).toBe('配置二 ');
+  });
+
+  it('sidebar: F2 then Enter with nothing typed → no setProfileName', async () => {
+    const { set, input } = await sidebar();
+    expect((input().element as HTMLInputElement).value).toBe('配置二 ');
+    await input().trigger('keydown', { key: 'Enter' });
+    await flushPromises();
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it('sidebar: F2 then blur with nothing typed → no setProfileName', async () => {
+    const { set, input, device } = await sidebar();
+    await input().trigger('blur');
+    await flushPromises();
+    expect(set).not.toHaveBeenCalled();
+    expect(device.profileNames[1]).toBe('配置二 ');
+  });
+
+  it('sidebar: a real new name still writes once', async () => {
+    const { set, input, device } = await sidebar();
+    const el = input().element as HTMLInputElement;
+    el.value = 'Game';
+    el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    await input().trigger('keydown', { key: 'Enter' });
+    await flushPromises();
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set).toHaveBeenCalledWith(1, 'Game');
+    await vi.waitFor(() => expect(device.profileNames[1]).toBe('Game'));
   });
 });

@@ -437,7 +437,7 @@ export const useDeviceStore = defineStore('device', () => {
 
   async function renameProfile(i: number, name: string): Promise<void> {
     const trimmed = name.trim();
-    if (!trimmed || trimmed === profileNames.value[i]) return;
+    if (!trimmed || trimmed === profileNames.value[i]?.trim()) return;
     const verified = await withTransport(async (t) => {
       await t.setProfileName(i, trimmed);
       return t.getProfileName(i);
