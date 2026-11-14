@@ -29,7 +29,7 @@ export const PROFILE_POLL_MS = 2000;
  * 'travel' = live-travel axis read `04 03 …` (FAMILY.PERFORMANCE, command 0x03); 'profile' = the idle active-profile read
  * `02 03 01`; null for anything else.
  */
-function pollKind(bytes: Uint8Array | number[]): 'travel' | 'profile' | null {
+export function pollKind(bytes: Uint8Array | number[]): 'travel' | 'profile' | null {
   if (bytes[0] === 0x04 && bytes[1] === 0x03) return 'travel';
   if (bytes[0] === 0x02 && bytes[1] === 0x03 && bytes[2] === 0x01) return 'profile';
   return null;
@@ -102,7 +102,8 @@ export const useDeviceStore = defineStore('device', () => {
   const packetRing: (PacketLogEntry | undefined)[] = markRaw(new Array(PACKET_LOG_SIZE).fill(undefined));
   let packetHead = 0;
   let packetCount = 0;
-  let lastPacket: PacketLogEntry | null = null;
+  /** The open row of each poll kind: a poll continues it while only poll rows came after it (any other packet closes both). */
+  let pollRows: Record<'travel' | 'profile', PacketLogEntry | null> = { travel: null, profile: null };
   const profileListeners = new Set<() => void>();
   let detach: (() => void)[] = [];
   /** Pages that show the packet log; the timer behind `packetSeq` only runs while > 0. */
@@ -184,15 +185,17 @@ export const useDeviceStore = defineStore('device', () => {
     const t = Date.now();
     const kind = pollKind(bytes);
     if (kind) {
-      const last = lastPacket;
-      if (last?.repeat !== undefined && pollKind(last.bytes) === kind) {
-        last.repeat++;
-        last.tEnd = t;
+      // The live view polls travel and the idle check polls the profile at the same time: each continues its own row.
+      const open = pollRows[kind];
+      if (open?.repeat !== undefined) {
+        open.repeat++;
+        open.tEnd = t;
         return;
       }
-      lastPacket = packetRing[packetHead] = { t, dir, bytes: Array.from(bytes), note, repeat: 1, tEnd: t };
+      pollRows[kind] = packetRing[packetHead] = { t, dir, bytes: Array.from(bytes), note, repeat: 1, tEnd: t };
     } else {
-      lastPacket = packetRing[packetHead] = { t, dir, bytes: Array.from(bytes), note };
+      packetRing[packetHead] = { t, dir, bytes: Array.from(bytes), note };
+      pollRows = { travel: null, profile: null };
     }
     packetHead = (packetHead + 1) % PACKET_LOG_SIZE;
     if (packetCount < PACKET_LOG_SIZE) packetCount++;
@@ -210,7 +213,7 @@ export const useDeviceStore = defineStore('device', () => {
     packetRing.fill(undefined);
     packetHead = 0;
     packetCount = 0;
-    lastPacket = null;
+    pollRows = { travel: null, profile: null };
     packetsDirty = false;
   }
 
@@ -535,21 +538,19 @@ export const useDeviceStore = defineStore('device', () => {
    * The keyboard is on profile `real`, not the one the app holds (its P1–P4 keys or another app switched it). Follow it
    * without writing anything: the unsaved edits of the profile it left are dropped, never written to `real` (`dropped`:
    * how many a running batch already dropped), undo / redo forget the old profile's steps, every page reloads, one toast.
-   * `from`: the profile the caller saw; nothing happens when the app already moved on.
+   * `from`: the profile the caller saw; nothing happens when the app already moved on. `message`: the toast's text instead
+   * of the default one (a switch noticed only after a batch wrote).
    */
-  async function profileChangedOnKeyboard(real: number, dropped = 0, from = activeProfile.value): Promise<void> {
+  async function profileChangedOnKeyboard(real: number, dropped = 0, from = activeProfile.value, message?: string): Promise<void> {
     if (real === activeProfile.value || from !== activeProfile.value || !transport.value) return;
     const mine = session;
     activeProfile.value = real;
     const k = dropped + useSyncStore().dropProfile(from);
     useHistoryStore().clear();
-    useToast().show(
-      k > 0
-        ? tr('device.keyboardSwitchedDropped', { n: real + 1, m: from + 1, k })
-        : tr('device.keyboardSwitched', { n: real + 1 }),
-      'warn',
-      k > 0 ? 8000 : 4000,
-    );
+    let text: string;
+    if (message !== undefined) text = k > 0 ? `${message} ${tr('device.keyboardSwitchedAlsoDropped', { m: from + 1, k })}` : message;
+    else text = k > 0 ? tr('device.keyboardSwitchedDropped', { n: real + 1, m: from + 1, k }) : tr('device.keyboardSwitched', { n: real + 1 });
+    useToast().show(text, 'warn', message !== undefined || k > 0 ? 8000 : 4000);
     try {
       await withTransport(readLayer0);
     } catch {

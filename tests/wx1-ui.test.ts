@@ -9,12 +9,15 @@ import { mountPerformance } from './mountPerformance';
 import type { MockTransport } from '../src/protocol';
 import ProfileSelect from '../src/components/shell/ProfileSelect.vue';
 import MacroPage from '../src/pages/MacroPage.vue';
+import DiagnosticsPage from '../src/pages/DiagnosticsPage.vue';
+import { routes } from '../src/router';
 import { useDeviceStore } from '../src/stores/device';
 import { useAdvancedStore } from '../src/stores/advanced';
 import type { DksAssignment } from '../src/stores/advanced';
 import { useKeymapStore } from '../src/stores/keymap';
 import { useMacroStore } from '../src/stores/macro';
 import { useSyncStore } from '../src/stores/sync';
+import { useCalibrationStore } from '../src/stores/calibration';
 import { clearTuningSnapshots } from '../src/stores/tuning';
 import { useToast } from '../src/components/ui/toast';
 import { locale } from '../src/i18n/locale';
@@ -139,6 +142,29 @@ describe('Macro "Assigned": the active profile\'s Fn layers after a switch on th
     await flushPromises();
     expect(w.find('.head__hint:last-of-type').text()).toContain('Fn1:');
   });
+
+  it('WX1-TEST-11 (M1): the Macro page drops its profile listener when it unmounts (no keymap read on a later switch)', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    const device = useDeviceStore(pinia);
+    await device.connectDemo('max');
+    const macro = useMacroStore(pinia);
+    const keymap = useKeymapStore(pinia);
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/macro', component: MacroPage }, { path: '/keymap', component: { template: '<i />' } }] });
+    await router.push('/macro');
+    w = mount({ template: '<RouterView />' }, { global: { plugins: [router, pinia] }, attachTo: document.body });
+    await until(() => macro.loaded && !macro.loading && keymap.loadedProfile === 0 && !keymap.loading);
+    w.unmount();
+    w = null;
+    const mock = device.transport as MockTransport;
+    const rows = vi.spyOn(mock, 'getKeymapRow');
+    await device.switchProfile(1);
+    await new Promise((r) => setTimeout(r, 300)); // a listener's reload would be well into layers 1-3 by now
+    await until(() => !keymap.loading);
+    expect(rows.mock.calls.filter(([layer]) => layer !== 0)).toEqual([]); // layer 0 is the switch's own read
+    expect(keymap.loadedProfile).toBe(0);
+  });
 });
 
 describe('W-09: the sidebar profile list while another exclusive job runs', () => {
@@ -169,6 +195,22 @@ describe('W-09: the sidebar profile list while another exclusive job runs', () =
     expect(rows[2].classes()).not.toContain('ps__item--off');
   });
 
+  it('WX1-TEST-11 (S1): while calibrating, the lock tooltip is the calibration text', async () => {
+    setActivePinia(createPinia());
+    const device = useDeviceStore();
+    await device.connectDemo('max');
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] });
+    await router.push('/');
+    w = mount(ProfileSelect, { global: { plugins: [router] }, attachTo: document.body });
+    useCalibrationStore().phase = 'running';
+    await flushPromises();
+    await w.get('.ps__trigger').trigger('click');
+    const rows = w.findAll('[role="option"]');
+    expect(rows[2].classes()).toContain('ps__item--off');
+    expect(rows[2].attributes('title')).toBe(tr('device.calibrating'));
+    useCalibrationStore().phase = 'idle';
+  });
+
   it('the write queue\'s own batch does not lock the list', async () => {
     setActivePinia(createPinia());
     const device = useDeviceStore();
@@ -186,5 +228,22 @@ describe('W-09: the sidebar profile list while another exclusive job runs', () =
     expect(w.findAll('[role="option"]')[2].classes()).not.toContain('ps__item--off');
     finish!();
     await flushing;
+  });
+});
+
+describe('N-WX1-1: the packet log names each poll row', () => {
+  it('a run of active-profile reads is not called live-travel packets', async () => {
+    setActivePinia(createPinia());
+    const device = useDeviceStore();
+    await device.connectDemo('max');
+    const mock = device.transport as MockTransport;
+    for (let i = 0; i < 3; i++) await mock.getActiveProfile(); // 6 packets
+    for (let i = 0; i < 2; i++) await mock.getAxisData('route', 1); // 4 packets
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    await router.push('/diagnostics');
+    w = mount(DiagnosticsPage, { global: { plugins: [router] }, attachTo: document.body });
+    await flushPromises();
+    const lines = w.findAll('.diag-log-line__hex').map((x) => x.text());
+    expect(lines.slice(0, 2)).toEqual([tr('diagnostics.travelPackets', { n: 4 }), tr('diagnostics.profilePackets', { n: 6 })]);
   });
 });

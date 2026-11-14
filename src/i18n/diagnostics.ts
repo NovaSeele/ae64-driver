@@ -32,6 +32,7 @@ export const diagnosticsVi = {
   'diagnostics.packetLogTitle': 'Nhật ký gói tin (Packet Log)',
   'diagnostics.packetLogDesc': 'Các gói gần nhất trong phiên kết nối này (tối đa {n} dòng; gói đo hành trình được gộp).',
   'diagnostics.travelPackets': '{n} gói đo hành trình',
+  'diagnostics.profilePackets': '{n} gói đọc profile đang dùng',
   'diagnostics.logPause': 'Tạm dừng',
   'diagnostics.logResume': 'Tiếp tục',
   'diagnostics.filterAll': 'Tất cả',

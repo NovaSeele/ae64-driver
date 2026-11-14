@@ -181,9 +181,12 @@ export const useSyncStore = defineStore('sync', () => {
     inFlight = entries;
     inFlightSettled = new Set();
     const settled = inFlightSettled;
-    /** The keyboard's own active profile, read once before the first profile-tagged job (`moved`: it differs from the app's). */
-    const guard: { read: boolean; error: unknown; moved: number | null; from: number; count: number } = {
-      read: false, error: null, moved: null, from: device.activeProfile, count: 0,
+    /**
+     * The keyboard's own active profile, read once before the first profile-tagged job (`moved`: it differs from the app's),
+     * and once more after the batch wrote profile-tagged jobs (`after`: it switched while they were written; `wrote`: how many).
+     */
+    const guard: { read: boolean; error: unknown; moved: number | null; from: number; count: number; after: number | null; wrote: number } = {
+      read: false, error: null, moved: null, from: device.activeProfile, count: 0, after: null, wrote: 0,
     };
     try {
       await device.withTransport(async (t) => {
@@ -245,6 +248,17 @@ export const useSyncStore = defineStore('sync', () => {
             fail(e, err);
           }
         }
+        // A switch on the keyboard during the writes (its P1–P4 keys) puts the rest of them into the new profile, and the
+        // read-back there agrees. One more read turns that silent case into a warning; nothing is written back.
+        guard.wrote = written.filter((e) => e.job.profile !== undefined).length;
+        if (guard.wrote > 0 && guard.moved === null && guard.error === null) {
+          try {
+            const real = await t.getActiveProfile();
+            if (real !== guard.from) guard.after = real;
+          } catch {
+            // unknown: the idle poll reads it again
+          }
+        }
       }, { exclusive: true });
     } catch (err) {
       // Not connected / transport gone before anything ran: every job is a failed attempt.
@@ -270,6 +284,18 @@ export const useSyncStore = defineStore('sync', () => {
     if (guard.moved !== null) {
       await device.profileChangedOnKeyboard(guard.moved, guard.count, guard.from);
       if (gen !== mine) return false;
+    } else if (guard.after !== null) {
+      const n = guard.after + 1;
+      await device.profileChangedOnKeyboard(guard.after, 0, guard.from, tr('sync.switchedWhileSaving', { n, k: guard.wrote }));
+      if (gen !== mine) return false;
+      // A job of the profile left whose read-back failed (it read the new profile) is never retried into the new one.
+      if (device.activeProfile !== guard.from) {
+        const reason = tr('sync.keyboardChangedProfile');
+        for (const e of retry.filter((r) => r.job.profile === guard.from)) {
+          retry.splice(retry.indexOf(e), 1);
+          drop(e, `${e.job.label}: ${reason}`, [], reason);
+        }
+      }
     }
     reportDropped(dropped);
     for (const e of retry) if (!queued.has(e.job.key)) failed.set(e.job.key, e);

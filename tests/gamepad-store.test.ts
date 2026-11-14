@@ -92,7 +92,8 @@ describe('apply → write → verify', () => {
     const assigned = draft.bindings.filter((b) => b.key !== null).map((b) => keyPosOf(b.key!)!);
     expect(asked).toEqual(assigned.map((p) => `${p.row}:${p.col}`));
     expect(asked).toContain('5:6'); // Space (key 58) is sensor column 6, not 3
-    expect(seq.slice(i)).toEqual(['10:21', ...new Array(6).fill('10:22'), '10:23', '10:20', ...new Array(5).fill('10:25')]);
+    // … and after the read-back, the queue's second profile read (02 03 01, N-WX1-2: did the keyboard switch meanwhile?)
+    expect(seq.slice(i)).toEqual(['10:21', ...new Array(6).fill('10:22'), '10:23', '10:20', ...new Array(5).fill('10:25'), '2:3']);
     const writes = frames.filter((f) => f[0] === 0x10 && f[1] === GP_CMD.WRITE);
     expect(writes.map((f) => f[9] - 10)).toEqual([40, 40, 40, 40, 40, 8]);
     const begin = frames.find((f) => f[0] === 0x10 && f[1] === GP_CMD.BEGIN)!;

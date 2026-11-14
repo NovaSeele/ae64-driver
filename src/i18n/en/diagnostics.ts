@@ -34,6 +34,7 @@ export const diagnosticsEn: Record<keyof typeof diagnosticsVi, string> = {
   'diagnostics.packetLogTitle': 'HID Packet Log',
   'diagnostics.packetLogDesc': 'Most recent packets of this connection (up to {n} rows; live-travel polls are grouped).',
   'diagnostics.travelPackets': '{n} live-travel packets',
+  'diagnostics.profilePackets': '{n} active-profile reads',
   'diagnostics.logPause': 'Pause',
   'diagnostics.logResume': 'Resume',
   'diagnostics.filterAll': 'All',

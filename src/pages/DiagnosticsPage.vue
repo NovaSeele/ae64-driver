@@ -13,7 +13,7 @@ import Dialog from '../components/ui/Dialog.vue';
 import Segmented from '../components/ui/Segmented.vue';
 import CopyInfo from '../components/settings/CopyInfo.vue';
 import { useToast } from '../components/ui/toast';
-import { useDeviceStore } from '../stores/device';
+import { pollKind, useDeviceStore } from '../stores/device';
 import { formatBuildTime, useDiagnosticsStore } from '../stores/diagnostics';
 import type { ImportDiff } from '../stores/diagnostics';
 import type { PacketLogEntry } from '../protocol';
@@ -115,9 +115,10 @@ const filteredPackets = computed<PacketLogEntry[]>(() => {
   return rows;
 });
 
-/** Hex of one packet, or the count for a row that stands for a run of live-travel polls. */
+/** Hex of one packet, or the count for a row that stands for a run of polls (live travel, or the idle active-profile read). */
 function rowText(e: PacketLogEntry): string {
-  return e.repeat === undefined ? toHex(e.bytes) : t('diagnostics.travelPackets', { n: e.repeat });
+  if (e.repeat === undefined) return toHex(e.bytes);
+  return t(pollKind(e.bytes) === 'profile' ? 'diagnostics.profilePackets' : 'diagnostics.travelPackets', { n: e.repeat });
 }
 
 async function copyLog() {

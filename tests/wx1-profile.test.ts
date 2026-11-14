@@ -170,7 +170,8 @@ describe('W-01: the keyboard switches profile by itself, then the queue writes',
     const setKey = vi.spyOn(t, 'setKeycode');
     const setPerf = vi.spyOn(t, 'setPerformance');
     const commit = vi.spyOn(t, 'commit');
-    await expect(diag.applyRestore(diff)).rejects.toThrow(tr('diagnostics.restoreProfileChanged', { n: 4 }));
+    // WX1-TEST-10 (G1): the exact text, without the "<section> failed:" prefix of a failed write.
+    expect(await diag.applyRestore(diff).then(() => 'ok', (e: Error) => e.message)).toBe(tr('diagnostics.restoreProfileChanged', { n: 4 }));
     expect(setKey).not.toHaveBeenCalled();
     expect(setPerf).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
@@ -329,8 +330,18 @@ describe('W-01: follow the keyboard while idle', () => {
     vi.advanceTimersByTime(PROFILE_POLL_MS);
     await settle();
     rows = device.packetEntries();
-    expect(rows.length).toBe(base + 3); // a live-travel group and a profile-poll group never merge
-    expect([rows[base + 1].repeat, rows[base + 2].repeat]).toEqual([2, 2]);
+    // A live-travel group and a profile-poll group never merge; with only polls between, each continues its own row (N-WX1-1).
+    expect(rows.length).toBe(base + 2);
+    expect([rows[base].repeat, rows[base + 1].repeat]).toEqual([12, 2]);
+    expect(rows[base].bytes.slice(0, 3)).toEqual([0x02, 0x03, 0x01]);
+    await t.getProfileCount(); // any other packet closes both rows
+    vi.advanceTimersByTime(PROFILE_POLL_MS);
+    await settle();
+    await t.getAxisData('route', 1);
+    rows = device.packetEntries();
+    expect(rows.length).toBe(base + 6);
+    expect([rows[base].repeat, rows[base + 1].repeat, rows[base + 4].repeat, rows[base + 5].repeat]).toEqual([12, 2, 2, 2]);
+    expect(rows[base + 4].bytes.slice(0, 3)).toEqual([0x02, 0x03, 0x01]);
   });
 });
 
@@ -527,11 +538,360 @@ describe('stale axis: an advanced-key write, then a travel edit of the same key'
     rec[15] = old.axis + 7;
     const a: DksAssignment = { type: 'DKS', keys: [g.id], keycodes: [0x04, 0x05, 0, 0], travels: [0xff, 0xff, 0, 0], dbs: [1.0, 2.0] };
     await adv.save(a);
+    expect(perf.values[g.id].axis).toBe(old.axis + 7); // P1: the Travel tab shows what the keyboard has now
     const set = vi.spyOn(t, 'setPerformance');
     perf.apply([g.id], () => ({ rtPress: 0.3 }), 'RT press');
     await sync.flush();
     expect(set).toHaveBeenCalledTimes(1);
     expect(set.mock.calls[0][1].axis).toBe(old.axis + 7);
     expect(perf.values[g.id].axis).toBe(old.axis + 7);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------- WX1 fix
+// One test per surviving mutant of the WX1 review (WX1-TEST-1 … 9, R2 / R3 / R7), and N-WX1-1 / N-WX1-2.
+
+describe('WX1 fix: the write queue\'s guard', () => {
+  it('WX1-TEST-1 (R1): a setting, then a travel edit in one batch: the travel edit is dropped, the setting written', async () => {
+    const { device, t, sync } = await boot();
+    const perf = usePerformanceStore();
+    await perf.load();
+    let setting = 0;
+    sync.enqueue({ key: 'global:test', label: 'setting', write: async () => { setting++; } }); // first in the batch, no profile
+    perf.apply([device.keys[3].id], () => ({ rtPress: 0.4 }), 'RT press');
+    await t.setActiveProfile(1);
+    const set = vi.spyOn(t, 'setPerformance');
+    await expect(sync.flush()).rejects.toThrow(tr('sync.keyboardChangedProfile'));
+    expect(setting).toBe(1);
+    expect(set).not.toHaveBeenCalled();
+    expect(device.activeProfile).toBe(1);
+    expect(toasts()).toEqual([followed(2, 1, 1)]);
+  });
+
+  it('WX1-TEST-2 (R6): a retrying travel edit is dropped by the poll\'s switch, counted, and the pill leaves "error"', async () => {
+    const { device, t, sync } = await boot();
+    const perf = usePerformanceStore();
+    await perf.load();
+    const set = vi.spyOn(t, 'setPerformance').mockRejectedValueOnce(new Error('usb hiccup'));
+    perf.apply([device.keys[3].id], () => ({ rtPress: 0.4 }), 'RT press');
+    await expect(sync.flush()).rejects.toThrow(/usb hiccup/);
+    expect(sync.state).toBe('error');
+    expect(sync.pendingCount()).toBe(1);
+    await t.setActiveProfile(1);
+    vi.advanceTimersByTime(PROFILE_POLL_MS);
+    await settle();
+    expect(device.activeProfile).toBe(1);
+    expect(sync.pendingCount()).toBe(0);
+    expect(sync.state).toBe('saved');
+    expect(toasts()).toEqual([followed(2, 1, 1)]);
+    await sync.retry();
+    expect(set).toHaveBeenCalledTimes(1); // the failed attempt only
+  });
+
+  it('WX1-TEST-3 (R8): the connection is lost during the handler\'s layer-0 read: nothing is kept for the next keyboard', async () => {
+    const { device, t, sync } = await boot();
+    const perf = usePerformanceStore();
+    await perf.load();
+    let setting = 0;
+    sync.enqueue({ key: 'global:test', label: 'setting', write: async () => { setting++; throw new Error('usb hiccup'); } });
+    perf.apply([device.keys[3].id], () => ({ rtPress: 0.4 }), 'RT press');
+    await t.setActiveProfile(1);
+    vi.spyOn(t, 'getKeymapRow').mockImplementationOnce(async () => { t.unplug(); throw new Error('gone'); });
+    await sync.flush().catch(() => undefined);
+    expect(device.connected).toBe(false);
+    expect(sync.pendingCount()).toBe(0);
+    await device.connectDemo('max');
+    await sync.retry();
+    expect(setting).toBe(1);
+    expect(sync.pendingCount()).toBe(0);
+  });
+
+  it('R7: a batch without profile jobs sends no 02 03 01 (before or after)', async () => {
+    const { t, sync } = await boot();
+    const read = vi.spyOn(t, 'getActiveProfile');
+    let n = 0;
+    sync.enqueue({ key: 'macro:1', label: 'macro', write: async () => { n++; } });
+    sync.enqueue({ key: 'global:x', label: 'setting', write: async () => { n++; } });
+    await sync.flush();
+    expect(n).toBe(2);
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('a batch of profile jobs reads 02 03 01 twice: before the first and after the last', async () => {
+    const { device, t, sync } = await boot();
+    const perf = usePerformanceStore();
+    await perf.load();
+    const read = vi.spyOn(t, 'getActiveProfile');
+    perf.apply([device.keys[3].id, device.keys[4].id], () => ({ rtPress: 0.4 }), 'RT press');
+    await sync.flush();
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(toasts()).toEqual([]);
+    expect(device.activeProfile).toBe(0);
+  });
+});
+
+describe('WX1 fix: a batch lost with the connection', () => {
+  it('R2: its unfinished jobs get onDrop(sync.lost)', async () => {
+    const { t, sync } = await boot();
+    let finish: (() => void) | null = null;
+    const onDrop = vi.fn();
+    // Unfinished: its write fails once the keyboard is gone.
+    sync.enqueue({ key: 'slow', label: 'slow', write: () => new Promise<void>((_, no) => { finish = () => no(new Error('gone')); }), onDrop });
+    const flushing = sync.flush().catch(() => undefined);
+    await vi.waitFor(() => expect(finish).not.toBeNull());
+    t.unplug();
+    finish!();
+    await flushing;
+    expect(onDrop).toHaveBeenCalledWith(tr('sync.lost'));
+  });
+
+  it('R3: a written job without verify is not counted as lost', async () => {
+    const { device, t, sync } = await boot();
+    let cut: (() => void) | null = null;
+    sync.enqueue({ key: 'a', label: 'a', write: async () => undefined }); // no verify: settled once committed
+    sync.enqueue({ key: 'b', label: 'b', write: async () => undefined, verify: () => new Promise<boolean>((r) => { cut = () => r(false); }) });
+    const flushing = sync.flush().catch(() => undefined);
+    await vi.waitFor(() => expect(cut).not.toBeNull());
+    t.unplug();
+    cut!();
+    await flushing;
+    expect(toasts()).toEqual([`error: ${tr('device.unsavedLost', { n: 1 })}`]);
+    expect(device.connected).toBe(false);
+  });
+});
+
+describe('WX1 fix: load() and performanceOf() across a switch', () => {
+  /** Paints LED 5 of area 0 in `profile` (custom) with a colour of its own. */
+  async function paint(t: MockTransport, profile: number, c: number) {
+    await t.setActiveProfile(profile);
+    const leds = await t.readLedMatrix(0);
+    leds[5] = { r: c, g: c, b: c, custom: true };
+    await t.writeLedMatrix(0, leds);
+    await t.commit(SAVE_GROUP.LIGHTING);
+  }
+
+  it('WX1-TEST-4 (L2 / L3): A loaded, load(B) loses a switch to C after its reads: still A\'s; back on B, B\'s own', async () => {
+    const { device, t } = await boot();
+    for (const [p, c] of [[0, 10], [1, 20], [2, 30]]) await paint(t, p, c);
+    await t.setActiveProfile(0);
+    const light = useLightingStore();
+    await light.load();
+    const a = customs(light.area0Matrix);
+    expect(a).toContain('[5,10,10,10]');
+    await device.switchProfile(1); // no page mounted: nothing reloads on its own
+    const orig = t.readLedMatrix.bind(t);
+    vi.spyOn(t, 'readLedMatrix').mockImplementationOnce(async (area) => {
+      const r = await orig(area);
+      await device.switchProfile(2); // the sidebar, while B's reads are out
+      return r;
+    });
+    await light.load();
+    expect(device.activeProfile).toBe(2);
+    expect(light.loadedProfile === 0 || light.loadedProfile === null).toBe(true);
+    expect(customs(light.area0Matrix)).toBe(a); // not B's, not C's
+    vi.mocked(t.readLedMatrix).mockRestore();
+    await device.switchProfile(1);
+    await light.load();
+    expect(light.loadedProfile).toBe(1);
+    expect(customs(light.area0Matrix)).toContain('[5,20,20,20]');
+  });
+
+  it('WX1-TEST-5 (A1): a switch after the 3rd getAdvanced: no partial list; back on that profile, all 64', async () => {
+    const { device, t } = await boot();
+    const adv = useAdvancedStore();
+    const orig = t.getAdvanced.bind(t);
+    let n = 0;
+    vi.spyOn(t, 'getAdvanced').mockImplementation(async (k) => {
+      const r = await orig(k);
+      if (++n === 3) await device.switchProfile(1);
+      return r;
+    });
+    await adv.load();
+    vi.mocked(t.getAdvanced).mockRestore();
+    expect(device.activeProfile).toBe(1);
+    expect(adv.loadedProfile).not.toBe(0);
+    expect(Object.keys(adv.records)).toHaveLength(0);
+    await device.switchProfile(0);
+    await adv.load();
+    expect(adv.loadedProfile).toBe(0);
+    expect(Object.keys(adv.records)).toHaveLength(64);
+  });
+
+  it('WX1-TEST-6 (A2): performanceOf caches nothing when the profile switched during its read', async () => {
+    const { device, t } = await boot();
+    const adv = useAdvancedStore();
+    const id = device.keys[9].id;
+    const orig = t.getPerformance.bind(t);
+    const read = vi.spyOn(t, 'getPerformance').mockImplementationOnce(async (k) => {
+      const r = await orig(k);
+      await device.switchProfile(1);
+      return r;
+    });
+    await adv.performanceOf(id);
+    expect(device.activeProfile).toBe(1);
+    await device.switchProfile(0);
+    await adv.performanceOf(id);
+    expect(read).toHaveBeenCalledTimes(2); // read again: the first answer may have come from profile 1
+  });
+});
+
+describe('WX1 fix: the poll, the switch and the busy text', () => {
+  it('WX1-TEST-7 (D1): the poll\'s read answers after a batch began: one toast, with the batch\'s count', async () => {
+    const { device, t, sync } = await boot();
+    const perf = usePerformanceStore();
+    await perf.load();
+    await t.setActiveProfile(1);
+    const orig = t.getActiveProfile.bind(t);
+    let flushing: Promise<unknown> | null = null;
+    let open: (() => void) | null = null;
+    vi.spyOn(t, 'getActiveProfile').mockImplementationOnce(async () => {
+      // The batch starts while the poll's read is out, and is still on its first job (a setting) when that read answers.
+      sync.enqueue({ key: 'global:slow', label: 'setting', write: () => new Promise<void>((r) => { open = r; }) });
+      perf.apply([device.keys[3].id], () => ({ rtPress: 0.4 }), 'RT press');
+      flushing = sync.flush().catch(() => undefined);
+      return orig();
+    });
+    vi.advanceTimersByTime(PROFILE_POLL_MS);
+    await vi.waitFor(() => expect(open).not.toBeNull());
+    await settle();
+    expect(device.activeProfile).toBe(0); // the poll left it to the batch
+    open!();
+    await flushing;
+    await settle();
+    expect(device.activeProfile).toBe(1);
+    expect(toasts()).toEqual([followed(2, 1, 1)]);
+  });
+
+  it('WX1-TEST-8 (D2): an exclusive job that starts during the switch\'s flush: refused after it, no 02 03 02', async () => {
+    const { device, t, sync } = await boot();
+    let finish: (() => void) | null = null;
+    sync.enqueue({ key: 'slow', label: 'slow', write: () => new Promise<void>((r) => { finish = r; }) });
+    const set = vi.spyOn(t, 'setActiveProfile');
+    const switching = device.switchProfile(1).then(() => 'ok', (e: Error) => e.message);
+    await vi.waitFor(() => expect(finish).not.toBeNull());
+    const release = device.holdExclusive(); // a gamepad write, a backup from another page …
+    finish!();
+    expect(await switching).toBe(tr('device.busy'));
+    expect(set).not.toHaveBeenCalled();
+    expect(device.activeProfile).toBe(0);
+    release();
+  });
+
+  it('WX1-TEST-9 (D3): after a backup, an unnamed job\'s refusal is the generic text', async () => {
+    const { device } = await boot();
+    await useDiagnosticsStore().generateBackup();
+    const release = device.holdExclusive();
+    try {
+      expect(await device.switchProfile(1).then(() => 'ok', (e: Error) => e.message)).toBe(tr('device.busy'));
+    } finally {
+      release();
+    }
+  });
+
+  it('WX1-TEST-9 (D4): after a reset mid-backup, an unnamed job\'s refusal is the generic text', async () => {
+    const { device, t } = await boot();
+    const pending = useDiagnosticsStore().generateBackup().catch(() => undefined);
+    await sleep(30);
+    t.unplug();
+    await pending;
+    await device.connectDemo('max');
+    const release = device.holdExclusive();
+    try {
+      expect(await device.switchProfile(1).then(() => 'ok', (e: Error) => e.message)).toBe(tr('device.busy'));
+    } finally {
+      release();
+    }
+  });
+});
+
+describe('N-WX1-2: the keyboard switches during a batch\'s writes', () => {
+  it('R8b: the connection is lost during that handler\'s layer-0 read: nothing is kept for the next keyboard', async () => {
+    const { device, t, sync } = await boot();
+    const perf = usePerformanceStore();
+    await perf.load();
+    let setting = 0;
+    sync.enqueue({ key: 'global:test', label: 'setting', write: async () => { setting++; throw new Error('usb hiccup'); } });
+    const orig = t.setPerformance.bind(t);
+    vi.spyOn(t, 'setPerformance').mockImplementationOnce(async (...a: Parameters<typeof t.setPerformance>) => {
+      await orig(...a);
+      await t.setActiveProfile(1);
+    });
+    perf.apply([device.keys[3].id, device.keys[4].id], () => ({ rtPress: 0.4 }), 'RT press');
+    vi.spyOn(t, 'getKeymapRow').mockImplementationOnce(async () => { t.unplug(); throw new Error('gone'); });
+    await sync.flush().catch(() => undefined);
+    expect(device.connected).toBe(false);
+    expect(sync.pendingCount()).toBe(0);
+    await device.connectDemo('max');
+    await sync.retry();
+    expect(setting).toBe(1);
+    expect(sync.pendingCount()).toBe(0);
+  });
+
+  it('a switch after the first of 3 jobs: one warning, the app follows, nothing more is written', async () => {
+    const { device, t, sync, history } = await boot();
+    const perf = usePerformanceStore();
+    await perf.load();
+    const orig = t.setPerformance.bind(t);
+    const set = vi.spyOn(t, 'setPerformance').mockImplementationOnce(async (...a: Parameters<typeof t.setPerformance>) => {
+      await orig(...a);
+      await t.setActiveProfile(1); // the P2 key, between the first and the second write
+    });
+    const ids = [device.keys[3].id, device.keys[4].id, device.keys[5].id];
+    expect(perf.apply(ids, () => ({ rtPress: 0.4 }), 'RT press')).toBe(3);
+    await sync.flush().catch(() => undefined);
+    expect(set).toHaveBeenCalledTimes(3);
+    expect(device.activeProfile).toBe(1);
+    expect(toasts()).toEqual([`warn: ${tr('sync.switchedWhileSaving', { n: 2, k: 3 })}`]);
+    expect(history.canUndo).toBe(false);
+    expect(sync.pendingCount()).toBe(0);
+    await sync.retry();
+    vi.advanceTimersByTime(PROFILE_POLL_MS);
+    await settle();
+    expect(set).toHaveBeenCalledTimes(3); // nothing written back, nothing retried
+    expect(toasts()).toHaveLength(1);
+  });
+
+  it('the warning in English, with the queued edits of the profile left', async () => {
+    const { device, t, sync } = await boot();
+    locale.value = 'en';
+    const perf = usePerformanceStore();
+    await perf.load();
+    const orig = t.setPerformance.bind(t);
+    vi.spyOn(t, 'setPerformance').mockImplementationOnce(async (...a: Parameters<typeof t.setPerformance>) => {
+      await orig(...a);
+      await t.setActiveProfile(2);
+      perf.apply([device.keys[6].id], () => ({ rtPress: 0.6 }), 'RT press'); // queued meanwhile, for the profile left
+    });
+    perf.apply([device.keys[3].id], () => ({ rtPress: 0.4 }), 'RT press');
+    await sync.flush().catch(() => undefined);
+    expect(device.activeProfile).toBe(2);
+    const text = `${tr('sync.switchedWhileSaving', { n: 3, k: 1 })} ${tr('device.keyboardSwitchedAlsoDropped', { m: 1, k: 1 })}`;
+    expect(text).toContain('The keyboard switched to profile 3 while saving');
+    expect(toasts()).toEqual([`warn: ${text}`]);
+    expect(sync.pendingCount()).toBe(0);
+  });
+});
+
+describe('N-WX1-1: the packet log while the Key test tab polls travel', () => {
+  it('60 s with no key pressed adds at most 2 rows', async () => {
+    const { device } = await boot();
+    await usePerformanceStore().load();
+    const { useLiveStore } = await import('../src/stores/live');
+    const live = useLiveStore();
+    live.start();
+    try {
+      await vi.waitFor(() => expect(device.packetEntries().at(-1)?.repeat).toBeGreaterThan(4));
+      const base = device.packetEntries().length;
+      for (let i = 0; i < 30; i++) { // 30 ticks of the idle profile poll = 60 s
+        vi.advanceTimersByTime(PROFILE_POLL_MS);
+        await sleep(3);
+      }
+      const rows = device.packetEntries();
+      expect(rows.length).toBeLessThanOrEqual(base + 2);
+      const profile = rows.filter((r) => r.bytes[0] === 0x02 && r.bytes[1] === 0x03 && r.bytes[2] === 0x01);
+      expect(profile.at(-1)?.repeat).toBeGreaterThanOrEqual(20); // the poll did run (request + reply per tick)
+    } finally {
+      live.stop();
+    }
   });
 });
