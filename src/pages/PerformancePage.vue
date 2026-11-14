@@ -85,7 +85,7 @@ onBeforeRouteUpdate((to) => {
   if (calBusy.value && tabOf(to) !== 'calibration') return false;
   return draftGuard(to);
 });
-// Leaving the page: CalibrationView keeps its own leave guard (calibration.confirmLeave).
+// Leaving the page: CalibrationView keeps its own leave guard (a Dialog, DESIGN L).
 onBeforeRouteLeave((to) => draftGuard(to));
 </script>
 

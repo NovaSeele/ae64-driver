@@ -78,7 +78,34 @@ const warnLeave = (e: BeforeUnloadEvent) => {
   e.preventDefault();
   e.returnValue = '';
 };
-onBeforeRouteLeave(() => !anyDirty.value || window.confirm(t('macro.leaveConfirm')));
+// Leaving with unsaved drafts asks first, in a Dialog (DESIGN L §3.3). The guard refuses the navigation and keeps its
+// target; "Bỏ thay đổi" pushes it again and lets it pass. The drafts go with the page (unmount), never before the push.
+/** Where a leave with unsaved drafts wanted to go; null = no question open. A second ask replaces it: the latest wins. */
+const leaveTo = ref<string | null>(null);
+const leaveOpen = computed({ get: () => leaveTo.value !== null, set: (v) => { if (!v) leaveTo.value = null; } });
+/** "Bỏ thay đổi" was pressed: that one navigation passes. */
+let leaving = false;
+/** "Macro 0, Macro 2": every unsaved slot, lowest id first (dirtyIds is in edit order). */
+const leaveNames = computed(() => [...dirtyIds.value].sort((a, b) => a - b).map((n) => t('macro.slotName', { n })).join(', '));
+onBeforeRouteLeave((to) => {
+  if (leaving) return true;
+  // A write is in flight (Save, Clear, discarding a waiting slot): a failure before any packet puts the slot back to the
+  // keyboard's copy, and only this page still holds the draft to save again. Also for a clean slot (§3.3 b).
+  if (saving.value) { toast.show(t('macro.leaveSaving'), 'warn'); return false; }
+  // The recorder swallows every key, Esc and Tab included: stop it (adding releases for held keys) before asking (§3.3 a).
+  stopRecording();
+  if (!anyDirty.value) return true;
+  if (confirmClear.value || confirmClearList.value) return false; // another dialog is open: answer it first
+  leaveTo.value = to.fullPath;
+  return false;
+});
+async function leaveNow() {
+  const to = leaveTo.value;
+  if (to === null) return;
+  leaving = true;
+  leaveTo.value = null;
+  try { await router.push(to); } finally { leaving = false; }
+}
 onMounted(() => window.addEventListener('beforeunload', warnLeave));
 
 // ----- slot list (tabs)
@@ -408,6 +435,14 @@ async function discard() {
       <template #footer>
         <Button variant="secondary" @click="confirmClear = false">{{ t('advanced.cancel') }}</Button>
         <Button variant="danger" :icon="IconEraser" @click="clearData">{{ t('macro.clearData') }}</Button>
+      </template>
+    </Dialog>
+
+    <Dialog v-model:open="leaveOpen" describe :title="t('macro.leaveTitle')">
+      <p>{{ t('macro.leaveBody', { names: leaveNames }) }}</p>
+      <template #footer>
+        <Button variant="secondary" @click="leaveOpen = false">{{ t('macro.leaveKeep') }}</Button>
+        <Button variant="danger" @click="leaveNow">{{ t('macro.discard') }}</Button>
       </template>
     </Dialog>
   </PageLayout>

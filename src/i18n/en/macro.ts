@@ -59,7 +59,10 @@ export const macroEn: Record<keyof typeof macroVi, string> = {
 
   'macro.capacityNote': 'The {total} actions of macro memory are shared by {slots} slots and each slot reserves 1, so up to {n} actions per macro.',
   'macro.readOnly': 'Board is not in write allowlist — view only, macros cannot be edited.',
-  'macro.leaveConfirm': 'The macro you are editing is not saved. Leave and discard the changes?',
+  'macro.leaveTitle': 'Discard unsaved changes?',
+  'macro.leaveBody': 'You edited {names} but did not save to the keyboard. Leaving now loses these changes.',
+  'macro.leaveKeep': 'Keep editing',
+  'macro.leaveSaving': 'The macro is being written to the keyboard. Wait until it finishes, then leave.',
   'macro.recordStop': 'Press Esc to stop (Esc is not recorded). Switching to another window also stops and releases every held key.',
   'macro.recStoppedBlur': 'Recording stopped because the window lost focus; held keys were released.',
   'macro.tabDirty': 'unsaved',

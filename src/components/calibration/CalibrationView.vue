@@ -261,7 +261,7 @@ async function commit() {
   }
 }
 
-/** Finish asks first (instead of window.confirm) when nothing is new or keys still need attention (DESIGN D §3.6). */
+/** Finish asks first in a Dialog when nothing is new or keys still need attention (DESIGN D §3.6). */
 const finishAsk = ref(false);
 const needAsk = () => cal.newCount === 0 || cal.shallowIds.length > 0 || cal.uncalibratedCount > 0;
 const finishBody = computed(() => {
@@ -284,7 +284,8 @@ async function saveAnyway() {
   savingFromDialog = false;
 }
 // The dialog is not modal in time: the session can end while it is open (a failed read, a lost connection). Close it then.
-watch(() => cal.phase, (p) => { if (p !== 'running') finishAsk.value = false; });
+// The leave question too (DESIGN L §3.2 d): stay on the page to see why the session ended; the next leave does not ask.
+watch(() => cal.phase, (p) => { if (p !== 'running') { finishAsk.value = false; leaveTo.value = null; } });
 // Closed without saving (Keep pressing, Esc, backdrop, or closed above): the Dialog gives focus back to Finish, where a
 // Space / Enter typed by the board would save. Move it on: the status line while running, Start once the session ended.
 watch(finishAsk, async (open, was) => {
@@ -315,8 +316,43 @@ function recheck() {
   void router.push(RECHECK_ROUTE);
 }
 
-// Leaving mid-session stops calibration without saving (onBeforeUnmount): ask first.
-onBeforeRouteLeave(() => (running.value ? window.confirm(t('calibration.confirmLeave')) : true));
+// ----- leaving mid-session (DESIGN L §3.2): unmounting stops calibration without saving (onBeforeUnmount), so ask first, in
+// a Dialog. The guard refuses the navigation and keeps its target; "Dừng và rời trang" pushes it again and lets it pass.
+/** Where a leave asked while calibrating wanted to go; null = no question open. A second ask replaces it: the latest wins. */
+const leaveTo = ref<string | null>(null);
+const leaveOpen = computed({ get: () => leaveTo.value !== null, set: (v) => { if (!v) leaveTo.value = null; } });
+/** "Dừng và rời trang" was pressed: that one navigation passes. */
+let leaving = false;
+onBeforeRouteLeave((to) => {
+  if (leaving) return true;
+  // Finish or Cancel is stopping the session: an error or "not stopped" must still have a page to show on (§3.2 b).
+  if (cal.phase === 'finishing') { toast.show(t('calibration.leaveFinishing'), 'warn'); return false; }
+  if (!running.value) return true; // idle / starting: as before (start() cancels itself when unmounted)
+  if (finishAsk.value || confirmOpen.value) return false; // another dialog of this view is open: answer it first (§3.2 c)
+  leaveTo.value = to.fullPath;
+  return false;
+});
+/** "Dừng và rời trang": no cal.cancel() here, the unmount stops the session; a refused push loses nothing (§3.2 f). */
+async function leaveNow() {
+  const to = leaveTo.value;
+  if (to === null) return;
+  leaving = true;
+  leaveTo.value = null;
+  let failed: unknown;
+  try { failed = await router.push(to); } finally { leaving = false; }
+  // Refused (another guard or the target): the session runs on, focus back on the status line. Only then: after a push
+  // that went through, App's out-in Transition keeps this page mounted and running until it has left, so a phase check
+  // alone would focus the leaving page and drop focus to body (review L-P1).
+  if (failed && !unmounted && cal.phase === 'running') runningEl.value?.focus({ preventScroll: true });
+}
+// Closed without leaving (stay, Esc, backdrop, X, or the session ended): as finishAsk, never back on the sidebar link the
+// Dialog would return to. The status line while running, Start once the session ended (§3.2 e, D §7).
+watch(leaveOpen, async (open, was) => {
+  if (open || !was || leaving) return;
+  await nextTick();
+  if (cal.phase === 'running') runningEl.value?.focus({ preventScroll: true });
+  else if (cal.phase === 'idle') focusStart();
+});
 
 // demo: PC keyboard presses bottom out the matching key
 let detachDemo: (() => void) | null = null;
@@ -494,6 +530,15 @@ onBeforeUnmount(() => {
     <template #footer>
       <Button variant="ghost" @click="finishAsk = false">{{ t('calibration.keepPressing') }}</Button>
       <Button variant="primary" :icon="IconCheck" @click="saveAnyway">{{ t('calibration.saveAnyway') }}</Button>
+    </template>
+  </Dialog>
+
+  <Dialog v-model:open="leaveOpen" describe :title="t('calibration.leaveTitle')">
+    <p class="dlg-body">{{ t('calibration.leaveBody') }}</p>
+    <p class="dlg-body">{{ t('calibration.leaveCount', { n: cal.newCount }) }}</p>
+    <template #footer>
+      <Button variant="secondary" @click="leaveOpen = false">{{ t('calibration.leaveStay') }}</Button>
+      <Button variant="danger" @click="leaveNow">{{ t('calibration.leaveGo') }}</Button>
     </template>
   </Dialog>
 </template>

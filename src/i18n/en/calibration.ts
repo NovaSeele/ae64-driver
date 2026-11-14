@@ -31,7 +31,12 @@ export const calibrationEn: Record<keyof typeof calibrationVi, string> = {
   'calibration.stopFailed': 'The stop command failed — the keyboard may still be in calibration mode. Reconnect the keyboard.',
   'calibration.cancelFailed': 'Could not cancel calibration: {error}',
   'calibration.confirmEmpty': 'No key has been calibrated yet. Save anyway?',
-  'calibration.confirmLeave': 'Calibration is running. Leaving stops it without saving. Leave?',
+  'calibration.leaveTitle': 'Stop calibrating and leave?',
+  'calibration.leaveBody': 'The calibration session is still running. Leaving stops it and saves nothing.',
+  'calibration.leaveCount': 'Keys calibrated in this session: {n}.',
+  'calibration.leaveStay': 'Keep calibrating',
+  'calibration.leaveGo': 'Stop and leave',
+  'calibration.leaveFinishing': 'The calibration session is ending. Wait until it finishes, then leave.',
   'calibration.allDone': 'All 64/64 keys are calibrated.',
   // Visual calibration (DESIGN D §14)
   'calibration.statPressed': 'Pressed',

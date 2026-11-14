@@ -29,7 +29,12 @@ export const calibrationVi = {
   'calibration.stopFailed': 'Lệnh dừng không gửi được — bàn phím có thể vẫn đang ở chế độ hiệu chuẩn. Hãy kết nối lại bàn phím.',
   'calibration.cancelFailed': 'Không huỷ được hiệu chuẩn: {error}',
   'calibration.confirmEmpty': 'Chưa có phím nào được hiệu chuẩn, vẫn lưu?',
-  'calibration.confirmLeave': 'Đang hiệu chuẩn. Rời trang sẽ dừng hiệu chuẩn và không lưu. Rời đi?',
+  'calibration.leaveTitle': 'Dừng hiệu chuẩn và rời trang?',
+  'calibration.leaveBody': 'Phiên hiệu chuẩn vẫn đang chạy. Rời trang sẽ dừng phiên này và không lưu gì.',
+  'calibration.leaveCount': 'Số phím đã hiệu chuẩn trong phiên này: {n}.',
+  'calibration.leaveStay': 'Tiếp tục hiệu chuẩn',
+  'calibration.leaveGo': 'Dừng và rời trang',
+  'calibration.leaveFinishing': 'Đang kết thúc phiên hiệu chuẩn. Chờ xong rồi hãy rời trang.',
   'calibration.allDone': 'Đã hiệu chuẩn đủ 64/64 phím.',
   // Visual calibration (DESIGN D §14)
   'calibration.statPressed': 'Đã nhấn',

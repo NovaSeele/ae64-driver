@@ -57,7 +57,10 @@ export const macroVi = {
 
   'macro.capacityNote': 'Bộ nhớ macro dùng chung {total} thao tác cho {slots} slot, mỗi slot giữ lại 1 → tối đa {n} thao tác mỗi macro.',
   'macro.readOnly': 'Bảng mạch không nằm trong danh sách được phép ghi — chỉ xem, không thể sửa macro.',
-  'macro.leaveConfirm': 'Macro đang sửa chưa được lưu. Rời trang và bỏ thay đổi?',
+  'macro.leaveTitle': 'Bỏ thay đổi chưa ghi?',
+  'macro.leaveBody': 'Bạn đã sửa {names} nhưng chưa lưu vào bàn phím. Rời trang bây giờ sẽ mất các thay đổi này.',
+  'macro.leaveKeep': 'Tiếp tục sửa',
+  'macro.leaveSaving': 'Đang ghi macro vào bàn phím. Chờ ghi xong rồi hãy rời trang.',
   'macro.recordStop': 'Bấm Esc để dừng (Esc không được ghi). Chuyển sang cửa sổ khác cũng sẽ dừng và nhả mọi phím đang giữ.',
   'macro.recStoppedBlur': 'Đã dừng ghi vì cửa sổ mất focus; các phím đang giữ đã được nhả.',
   'macro.tabDirty': 'chưa lưu',

@@ -8,10 +8,13 @@ import { t } from '../../i18n/vi';
 const open = defineModel<boolean>('open', { required: true });
 // A page or tab kept alive and hidden (KeepAlive) closes what it had open: no overlay of a hidden tab (DESIGN E §3.6).
 onDeactivated(() => { open.value = false; });
-withDefaults(defineProps<{ title: string; width?: number }>(), { width: 460 });
+/** `describe`: the body is the dialog's description (aria-describedby), so a screen reader reads it after the title; off
+ *  by default (a body with a form would be read whole on every open). DESIGN L §3.1. */
+withDefaults(defineProps<{ title: string; width?: number; describe?: boolean }>(), { width: 460, describe: false });
 
 const panel = ref<HTMLElement | null>(null);
 const titleId = useId();
+const bodyId = useId();
 let opener: HTMLElement | null = null;
 
 watch(open, async (v) => {
@@ -44,6 +47,7 @@ function trap(e: KeyboardEvent) {
           role="dialog"
           aria-modal="true"
           :aria-labelledby="titleId"
+          :aria-describedby="describe ? bodyId : undefined"
           tabindex="-1"
           :style="{ width: `${width}px` }"
           @keydown="trap"
@@ -52,7 +56,7 @@ function trap(e: KeyboardEvent) {
             <h2 :id="titleId" class="dlg__title">{{ title }}</h2>
             <IconButton class="dlg__close" :icon="IconX" :label="t('ui.close')" size="sm" @click="open = false" />
           </header>
-          <div class="dlg__body"><slot /></div>
+          <div :id="describe ? bodyId : undefined" class="dlg__body"><slot /></div>
           <footer v-if="$slots.footer" class="dlg__foot"><slot name="footer" /></footer>
         </div>
       </div>

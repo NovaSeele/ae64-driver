@@ -50,10 +50,20 @@ let pinia: Pinia;
 
 /** Mount the page at /cal. `shell`: another route component around it (KeepAlive); `scroller`: inside a .main__scroll, as
  *  in the app; `waitLoaded: false`: return before the first frame was read. */
-async function open(opts: { shell?: Component; scroller?: boolean; waitLoaded?: boolean } = {}) {
-  router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/cal', component: opts.shell ?? CalibrationView }, { path: '/performance', component: { template: '<i />' } }] });
+async function open(opts: { shell?: Component; scroller?: boolean; waitLoaded?: boolean; transition?: boolean } = {}) {
+  router = createRouter({ history: createMemoryHistory(), routes: [
+    { path: '/cal', component: opts.shell ?? CalibrationView },
+    { path: '/performance', component: { template: '<i />' } },
+    // DESIGN L: two more targets, and one that refuses every visit
+    { path: '/a', component: { template: '<i />' } }, { path: '/b', component: { template: '<i />' } },
+    { path: '/blocked', component: { template: '<i />' }, beforeEnter: () => false },
+  ] });
   await router.push('/cal');
-  w = mount({ template: opts.scroller ? '<div class="main__scroll"><RouterView /></div>' : '<RouterView />' }, { global: { plugins: [router, pinia] }, attachTo: document.body });
+  // `transition`: App's out-in page Transition (not stubbed), so a page that is left stays mounted until it has gone
+  const view = opts.transition
+    ? '<RouterView v-slot="{ Component, route }"><Transition name="page" mode="out-in"><component :is="Component" :key="route.path" /></Transition></RouterView>'
+    : '<RouterView />';
+  w = mount({ template: opts.scroller ? `<div class="main__scroll">${view}</div>` : view }, { global: { plugins: [router, pinia], stubs: opts.transition ? { transition: false } : {} }, attachTo: document.body });
   if (opts.waitLoaded === false) return;
   await until(() => cal.loaded && usePerformanceStore(pinia).loadedProfile !== null); // the page reads both on open
   await flushPromises();
@@ -701,5 +711,245 @@ describe('review D r108', () => {
     await nextTick();
     expect(chip().text()).toBe(t('calibration.chipShallow', p2));
     expect(chip().text()).not.toBe(inVi);
+  });
+});
+
+describe('leave dialog (DESIGN L)', () => {
+  const panelOf = (title: string) => [...document.body.querySelectorAll<HTMLElement>('.dlg__panel')].find((p) => p.querySelector('.dlg__title')?.textContent === title);
+  const leaveDlg = () => panelOf(t('calibration.leaveTitle'));
+  const dlgs = () => document.body.querySelectorAll('.dlg').length;
+  const route = () => router.currentRoute.value.fullPath;
+  const runningEl = () => w!.find('.running').element;
+  const stopSpy = () => vi.spyOn(mock, 'stopCalibration');
+  const writeSpy = () => vi.spyOn(mock as unknown as { write(p: number[]): Promise<unknown> }, 'write');
+  const keydown = (code: string, target: EventTarget = document.body) => {
+    const e = new KeyboardEvent('keydown', { code, key: code === 'Space' ? ' ' : code, bubbles: true, cancelable: true });
+    target.dispatchEvent(e);
+    return e.defaultPrevented;
+  };
+  /** Every Dialog root (`.dlg`) put into the page: one ask = one open. */
+  function countOpens() {
+    let n = 0;
+    const mo = new MutationObserver((recs) => {
+      for (const r of recs) for (const x of r.addedNodes) if (x instanceof HTMLElement && (x.matches('.dlg') || x.querySelector('.dlg'))) n++;
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+    return { get n() { return n; }, stop: () => mo.disconnect() };
+  }
+  async function ask(to: string) {
+    await router.push(to);
+    await flushPromises();
+  }
+  /** A stand-in sidebar link outside the view, focused before the push: the Dialog gives focus back to it (review L-P2). */
+  function fromLink() {
+    const a = document.createElement('a');
+    a.href = '#/performance';
+    a.textContent = 'Keymap';
+    document.body.appendChild(a);
+    a.focus();
+    return a;
+  }
+  async function running() {
+    await open();
+    await begin();
+    await tap(W.id, 3.31);
+    await until(() => cal.newCount === 1);
+  }
+  let confirm: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => { confirm = vi.spyOn(window, 'confirm').mockImplementation(() => true); });
+  afterEach(() => { expect(confirm).not.toHaveBeenCalled(); });
+
+  it('L1. running: a push opens one dialog and stays; title, body with the live count; focus on "Tiếp tục hiệu chuẩn"', async () => {
+    await running();
+    await ask('/performance');
+    expect(dlgs()).toBe(1);
+    expect(route()).toBe('/cal');
+    const body = leaveDlg()!.querySelector('.dlg__body')!.textContent!;
+    expect(body).toContain(t('calibration.leaveBody'));
+    expect(body).toContain(t('calibration.leaveCount', { n: 1 }));
+    expect(document.activeElement?.textContent?.trim()).toBe(t('calibration.leaveStay'));
+  });
+
+  it('L2. "Tiếp tục hiệu chuẩn": closed, still /cal and running, nothing stopped or saved, focus on the status line', async () => {
+    await running();
+    const link = fromLink();
+    await ask('/performance');
+    const stop = stopSpy();
+    const write = writeSpy();
+    bodyButton(t('calibration.leaveStay'))!.click();
+    await flushPromises();
+    expect(leaveDlg()).toBeUndefined();
+    expect([route(), cal.phase]).toEqual(['/cal', 'running']);
+    expect(stop).not.toHaveBeenCalled();
+    expect(commitsSent(write)).toBe(0);
+    expect(document.activeElement).toBe(runningEl());
+    expect(document.activeElement).not.toBe(link);
+  });
+
+  for (const [how, close] of [
+    ['Esc', () => { keydown('Escape', document.activeElement!); }],
+    ['the backdrop', () => { document.body.querySelector('.dlg')!.dispatchEvent(new Event('pointerdown', { bubbles: true })); }],
+    ['X', () => { document.body.querySelector<HTMLButtonElement>('.dlg__close')!.click(); }],
+  ] as const) {
+    it(`L3. ${how} is "stay": closed, running, focus on the status line`, async () => {
+      await running();
+      const link = fromLink();
+      await ask('/performance');
+      const stop = stopSpy();
+      close();
+      await flushPromises();
+      expect(leaveDlg()).toBeUndefined();
+      expect([route(), cal.phase]).toEqual(['/cal', 'running']);
+      expect(stop).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(runningEl());
+      expect(document.activeElement).not.toBe(link);
+    });
+  }
+
+  it('L4. "Dừng và rời trang": leaves, one stop (the cancel of the unmount), no commit, the dialog opened once', async () => {
+    await running();
+    const opens = countOpens();
+    const stop = stopSpy();
+    const write = writeSpy();
+    await ask('/performance');
+    bodyButton(t('calibration.leaveGo'))!.click();
+    await until(() => route() === '/performance' && cal.phase === 'idle');
+    await flushPromises();
+    opens.stop();
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(commitsSent(write)).toBe(0);
+    expect(opens.n).toBe(1);
+    expect(dlgs()).toBe(0);
+  });
+
+  it('L5. idle: a push leaves at once, no dialog', async () => {
+    await open();
+    await ask('/performance');
+    expect([route(), dlgs()]).toEqual(['/performance', 0]);
+  });
+
+  it('L5. finishing (the stop on its way): a push is refused with a toast and no dialog; once idle it leaves', async () => {
+    await open();
+    await begin();
+    let release!: () => void;
+    const stop = mock.stopCalibration.bind(mock);
+    vi.spyOn(mock, 'stopCalibration').mockImplementation(() => new Promise<void>((r) => { release = r; }).then(stop));
+    const ending = cal.cancel();
+    await until(() => cal.phase === 'finishing' && !!release);
+    await ask('/performance');
+    expect([route(), dlgs()]).toEqual(['/cal', 0]);
+    expect(toasts()).toContain(t('calibration.leaveFinishing'));
+    release();
+    await ending;
+    await ask('/performance');
+    expect([route(), dlgs()]).toEqual(['/performance', 0]);
+  });
+
+  it('L6. the session ends while the dialog is open (a failed read): closed, stays, focus on Start; the next push leaves', async () => {
+    await running();
+    await ask('/performance');
+    expect(leaveDlg()).toBeTruthy();
+    vi.spyOn(mock, 'getAxisData').mockRejectedValueOnce(new Error('poll failed'));
+    await until(() => cal.phase === 'idle');
+    await flushPromises();
+    expect(leaveDlg()).toBeUndefined();
+    expect(route()).toBe('/cal');
+    expect(document.activeElement?.textContent?.trim()).toBe(t('calibration.start'));
+    await ask('/performance');
+    expect([route(), dlgs()]).toEqual(['/performance', 0]);
+  });
+
+  it('L7. a second push while the dialog is open: still one dialog, the latest target wins', async () => {
+    await running();
+    await ask('/a');
+    await ask('/b');
+    expect(dlgs()).toBe(1);
+    bodyButton(t('calibration.leaveGo'))!.click();
+    await until(() => route() === '/b');
+  });
+
+  it('L8. "Lưu hiệu chuẩn?" is open: a push opens no second dialog and stays', async () => {
+    await open();
+    await begin();
+    await clickFinish(); // nothing new: the finish dialog
+    expect(dialogOpen()).toBe(true);
+    await ask('/performance');
+    expect(dlgs()).toBe(1);
+    expect(dialogOpen()).toBe(true);
+    expect(leaveDlg()).toBeUndefined();
+    expect(route()).toBe('/cal');
+    bodyButton(t('calibration.keepPressing'))!.click();
+    await flushPromises();
+  });
+
+  it('L9. the key lock lets the dialog work: Space and Enter on its buttons are not blocked', async () => {
+    await running();
+    await ask('/performance');
+    expect(keydown('Space')).toBe(true); // the lock is on outside the dialog
+    const stay = bodyButton(t('calibration.leaveStay'))!;
+    expect(keydown('Space', stay)).toBe(false);
+    expect(keydown('Enter', stay)).toBe(false);
+    expect(keydown('Space', bodyButton(t('calibration.leaveGo'))!)).toBe(false);
+  });
+
+  it('L10. the count is live: a key calibrated while the dialog is open shows in it', async () => {
+    await running();
+    await ask('/performance');
+    await tap(A.id, 3.31);
+    await until(() => cal.newCount === 2);
+    await flushPromises();
+    expect(leaveDlg()!.textContent).toContain(t('calibration.leaveCount', { n: 2 }));
+  });
+
+  it('L11. the body describes the dialog (aria-describedby), both paragraphs; a Dialog without `describe` has none', async () => {
+    await open();
+    await begin();
+    // control: "Lưu hiệu chuẩn?" (nothing new yet) has no `describe`
+    await clickFinish();
+    const finish = panelOf(t('calibration.finishTitle'))!;
+    expect(finish.hasAttribute('aria-describedby')).toBe(false);
+    expect(finish.querySelector('.dlg__body')!.hasAttribute('id')).toBe(false);
+    bodyButton(t('calibration.keepPressing'))!.click();
+    await flushPromises();
+    await ask('/performance');
+    const panel = leaveDlg()!;
+    const body = panel.querySelector('.dlg__body')!;
+    expect(body.id).not.toBe('');
+    expect(panel.getAttribute('aria-describedby')).toBe(body.id);
+    expect(body.querySelectorAll('p')).toHaveLength(2);
+  });
+
+  it('L12. "Dừng và rời trang" to a target that refuses: stays, still running, nothing stopped, focus on the status line; the next push asks again', async () => {
+    await running();
+    const stop = stopSpy();
+    const link = fromLink();
+    await ask('/blocked');
+    bodyButton(t('calibration.leaveGo'))!.click();
+    await flushPromises();
+    expect([route(), cal.phase]).toEqual(['/cal', 'running']);
+    expect(stop).not.toHaveBeenCalled();
+    expect(leaveDlg()).toBeUndefined();
+    expect(document.activeElement).toBe(runningEl());
+    expect(document.activeElement).not.toBe(link);
+    await ask('/performance');
+    expect(leaveDlg()).toBeTruthy();
+    expect(route()).toBe('/cal');
+  });
+
+  it('L13. "Dừng và rời trang" that goes through, under the out-in page Transition: the leaving page does not take focus', async () => {
+    await open({ transition: true });
+    await begin();
+    const el = runningEl();
+    const link = fromLink();
+    await ask('/performance');
+    // the leaving page is still mounted for a moment (out-in): it must not take focus then (it would drop to body after)
+    let focused = 0;
+    el.addEventListener('focus', () => { focused++; });
+    bodyButton(t('calibration.leaveGo'))!.click();
+    await until(() => route() === '/performance' && !el.isConnected);
+    await flushPromises();
+    expect(focused).toBe(0);
+    expect(document.activeElement).toBe(link); // where the Dialog gave it back, not body
+    await until(() => cal.phase === 'idle');
   });
 });
