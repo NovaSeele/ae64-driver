@@ -4,13 +4,11 @@
 // Arrow keys commit once, on key release, so holding a key is one edit and one recent colour.
 import { computed, ref, watch } from 'vue';
 import { t } from '../../i18n/vi';
+import { RECENT_KEY, RECENT_MAX, loadRecent } from './recentColors';
 
 const model = defineModel<string>({ required: true });
 const props = defineProps<{ disabled?: boolean }>();
 const emit = defineEmits<{ commit: [string] }>();
-
-const RECENT_KEY = 'ae64.recentColors';
-const RECENT_MAX = 12;
 
 interface Hsv { h: number; s: number; v: number }
 
@@ -47,14 +45,6 @@ watch(model, (v) => {
   if (rgbToHex(...hsvToRgb(hsv.value)) !== v) hsv.value = rgbToHsv(...hexToRgb(v));
 });
 
-function loadRecent(): string[] {
-  try {
-    const v = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]');
-    return Array.isArray(v) ? v.filter((x) => typeof x === 'string').slice(0, RECENT_MAX) : [];
-  } catch {
-    return [];
-  }
-}
 function remember(hex: string) {
   recent.value = [hex, ...recent.value.filter((c) => c !== hex)].slice(0, RECENT_MAX);
   try { localStorage.setItem(RECENT_KEY, JSON.stringify(recent.value)); } catch { /* storage unavailable */ }

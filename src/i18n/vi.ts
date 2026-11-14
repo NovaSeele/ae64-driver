@@ -74,6 +74,7 @@ export const base = {
 
   // sync / history
   'sync.saved': 'Đã lưu vào phím',
+  'sync.savedHelp': 'Mỗi thay đổi được ghi rồi đọc lại từ phím để kiểm tra; các cài đặt khác của phím được giữ nguyên.',
   'sync.writing': 'Đang ghi…',
   'sync.error': 'Lỗi — thử lại',
   'sync.retry': 'Thử lại',

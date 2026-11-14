@@ -118,6 +118,8 @@ const isWasd = (k: PhysicalKey) => ['W', 'A', 'S', 'D'].includes(k.name);
 
 /** Which keyboard the demo emulates. */
 export type DemoSeed = 'max' | 'pro' | 'pro-xinput';
+/** A stored demo model the app reads as itself (shared with the settings import, DESIGN H §3.5). */
+export const isDemoSeed = (v: unknown): v is DemoSeed => v === 'max' || v === 'pro' || v === 'pro-xinput';
 
 /** The demo's gamepad configuration: WASD left stick, Q / E triggers, Space A, Shift B, R X, F Y (geometry fits `travelUm`). */
 function demoGamepadBlock(travelUm: number): Uint8Array {

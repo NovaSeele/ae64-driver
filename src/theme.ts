@@ -13,9 +13,16 @@ const LIGHT_QUERY = '(prefers-color-scheme: light)';
 // Saved choices from before the rename.
 const LEGACY: Record<string, ThemeId> = { seele: 'indigo', 'seele-light': 'indigo-light' };
 
+/** A stored theme value the app reads as itself: 'auto', a theme id, or an old name. Shared with the settings import
+ *  (DESIGN H §3.5). `hasOwnProperty`, not `in`: "constructor", "toString" or "__proto__" must not pass. */
+export function isThemeChoice(v: unknown): v is string {
+  return typeof v === 'string'
+    && (v === 'auto' || (THEMES as readonly string[]).includes(v) || Object.prototype.hasOwnProperty.call(LEGACY, v));
+}
+
 export function parseThemeChoice(v: unknown): ThemeChoice {
-  if (typeof v === 'string' && Object.prototype.hasOwnProperty.call(LEGACY, v)) return LEGACY[v];
-  return THEMES.find((id) => id === v) ?? DEFAULT_CHOICE;
+  if (!isThemeChoice(v)) return DEFAULT_CHOICE;
+  return Object.prototype.hasOwnProperty.call(LEGACY, v) ? LEGACY[v] : (v as ThemeChoice);
 }
 
 function readStored(): ThemeChoice {

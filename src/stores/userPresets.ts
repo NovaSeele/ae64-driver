@@ -49,6 +49,29 @@ export function sanitizePreset(raw: unknown): UserPreset | null {
   return { id: r.id, name, mode: r.mode, continuous: r.continuous, actuation, rtPress, rtRelease, deadTop, deadBottom };
 }
 
+const PRESET_FIELDS = ['id', 'name', 'mode', 'continuous', 'actuation', 'rtPress', 'rtRelease', 'deadTop', 'deadBottom'] as const;
+
+/**
+ * A stored value the settings import may write (DESIGN H §3.5): a JSON array of at most USER_PRESET_MAX presets, each one
+ * exactly what `sanitizePreset` keeps (the same 9 fields, nothing clamped, trimmed or added) and no id twice. Stricter
+ * than read(), which silently fixes or drops entries: an import refuses the whole file instead.
+ */
+export function presetsValid(raw: string): boolean {
+  let v: unknown;
+  try { v = JSON.parse(raw); } catch { return false; }
+  if (!Array.isArray(v) || v.length > USER_PRESET_MAX) return false;
+  const ids = new Set<string>();
+  for (const e of v) {
+    const p = sanitizePreset(e);
+    if (!p || ids.has(p.id)) return false;
+    const r = e as Record<string, unknown>;
+    if (Object.keys(r).length !== PRESET_FIELDS.length) return false;
+    if (PRESET_FIELDS.some((f) => !Object.prototype.hasOwnProperty.call(r, f) || r[f] !== p[f])) return false;
+    ids.add(p.id);
+  }
+  return true;
+}
+
 function read(): UserPreset[] {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');

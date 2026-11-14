@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, useId } from 'vue';
+import { onBeforeUnmount, ref, useId, watch } from 'vue';
 
-withDefaults(defineProps<{ text: string; placement?: 'top' | 'bottom' }>(), { placement: 'top' });
+/** `disabled`: no bubble (one already open closes), so a wrapper can stay in place while its content changes state. */
+const props = withDefaults(defineProps<{ text: string; placement?: 'top' | 'bottom'; disabled?: boolean }>(), { placement: 'top', disabled: false });
 const open = ref(false);
 const id = useId();
 let timer: ReturnType<typeof setTimeout> | undefined;
+watch(() => props.disabled, (off) => { if (off) hide(); });
 
 function show() {
+  if (props.disabled) return;
   clearTimeout(timer);
   timer = setTimeout(() => (open.value = true), 350);
 }

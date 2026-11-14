@@ -30,6 +30,9 @@ const redoLabel = computed(() => histBlock.value
 const title = computed(() => (route.meta.title ? t(route.meta.title) : ''));
 const nav = computed(() => NAV.flatMap((g) => g.items).find((it) => it.path === route.path));
 const busy = computed(() => sync.state === 'pending' || sync.state === 'writing');
+// "Saved": the pill takes focus and has one bubble, the last save's problem if any, else the promise (DESIGN H §3.2).
+const saved = computed(() => sync.state === 'saved');
+const savedTip = computed(() => (sync.lastProblem ? t('sync.lastProblem', { msg: sync.lastProblem }) : t('sync.savedHelp')));
 </script>
 
 <template>
@@ -39,21 +42,29 @@ const busy = computed(() => sync.state === 'pending' || sync.state === 'writing'
       <h2 class="top__title">{{ title }}</h2>
     </div>
     <div class="top__right">
-      <div class="pill" :class="`pill--${sync.state}`" role="status" aria-live="polite">
-        <IconLoader2 v-if="busy" class="pill__spin" :size="15" stroke-width="1.5" aria-hidden="true" />
-        <IconAlertTriangle v-else-if="sync.state === 'error'" :size="15" stroke-width="1.5" aria-hidden="true" />
-        <IconCircleCheck v-else :size="15" stroke-width="1.5" aria-hidden="true" />
-        <Tooltip v-if="sync.state === 'error'" :text="sync.lastError ?? ''" placement="bottom">
-          <span>{{ t('sync.error') }}</span>
-        </Tooltip>
-        <Tooltip v-else-if="!busy && sync.lastProblem" :text="t('sync.lastProblem', { msg: sync.lastProblem })" placement="bottom">
-          <span>{{ t('sync.saved') }}</span>
-        </Tooltip>
-        <span v-else>{{ busy ? t('sync.writing') : t('sync.saved') }}</span>
-        <button v-if="sync.state === 'error'" type="button" class="pill__retry" :aria-label="t('sync.retry')" :title="t('sync.retry')" @click="sync.retry()">
-          <IconRefresh :size="14" stroke-width="1.5" />
-        </button>
-      </div>
+      <!-- Always wrapped (disabled when not saved): the live region is never re-created, so "Saved" is still announced. -->
+      <Tooltip :text="savedTip" placement="bottom" :disabled="!saved">
+        <div
+          class="pill"
+          :class="`pill--${sync.state}`"
+          role="status"
+          aria-live="polite"
+          :tabindex="saved ? 0 : undefined"
+          :aria-describedby="saved ? 'sync-saved-help' : undefined"
+        >
+          <IconLoader2 v-if="busy" class="pill__spin" :size="15" stroke-width="1.5" aria-hidden="true" />
+          <IconAlertTriangle v-else-if="sync.state === 'error'" :size="15" stroke-width="1.5" aria-hidden="true" />
+          <IconCircleCheck v-else :size="15" stroke-width="1.5" aria-hidden="true" />
+          <Tooltip v-if="sync.state === 'error'" :text="sync.lastError ?? ''" placement="bottom">
+            <span>{{ t('sync.error') }}</span>
+          </Tooltip>
+          <span v-else>{{ busy ? t('sync.writing') : t('sync.saved') }}</span>
+          <span v-if="saved" id="sync-saved-help" hidden>{{ savedTip }}</span>
+          <button v-if="sync.state === 'error'" type="button" class="pill__retry" :aria-label="t('sync.retry')" :title="t('sync.retry')" @click="sync.retry()">
+            <IconRefresh :size="14" stroke-width="1.5" />
+          </button>
+        </div>
+      </Tooltip>
       <div class="top__hist">
         <IconButton
           :icon="IconArrowBackUp"

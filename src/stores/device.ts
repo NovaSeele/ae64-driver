@@ -5,7 +5,7 @@ import {
   ALLOWED_BOARDS, FIRMWARE_ROWS, NoDeviceSelectedError, PHYSICAL_KEYS, VENDOR_ID, connectHid, createMockTransport, keycodeLabel, keysFromLayoutStyles,
   isAe64, modelName as modelLabel, modelOf, reconnectGrantedHid, rememberDevice, webHidAvailable,
 } from '../protocol';
-import type { DemoSeed } from '../protocol/mock';
+import { isDemoSeed, type DemoSeed } from '../protocol/mock';
 import type { Ae64Transport, DeviceInfo, FeatureBitmap, PacketLogEntry, PhysicalKey, ProtocolVersion } from '../protocol';
 import { t as tr } from '../i18n/vi';
 import { useToast } from '../components/ui/toast';
@@ -31,7 +31,7 @@ const DEMO_MODEL_KEY = 'ae64.demoModel';
 function readDemoModel(): DemoSeed {
   try {
     const v = localStorage.getItem(DEMO_MODEL_KEY);
-    return v === 'pro' || v === 'pro-xinput' ? v : 'max';
+    return isDemoSeed(v) ? v : 'max';
   } catch {
     return 'max';
   }

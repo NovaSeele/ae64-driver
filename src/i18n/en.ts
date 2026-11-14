@@ -71,6 +71,7 @@ const baseEn: Record<keyof typeof base, string> = {
 
   // sync / history
   'sync.saved': 'Saved to keyboard',
+  'sync.savedHelp': 'Every change is written, then read back from the keyboard to check it; the keyboard’s other settings stay as they are.',
   'sync.writing': 'Writing…',
   'sync.error': 'Error — retry',
   'sync.retry': 'Retry',

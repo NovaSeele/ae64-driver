@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Diagnostics page: device identity, protocol version, feature bitmap, transport latency stats, packet log, backup/restore JSON.
 // Note: per safety guidelines, NO raw write console is provided.
-import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import {
   IconCopy, IconCheck, IconDownload, IconUpload, IconPlayerPause, IconPlayerPlay,
 } from '@tabler/icons-vue';
@@ -10,6 +11,7 @@ import Card from '../components/ui/Card.vue';
 import Button from '../components/ui/Button.vue';
 import Dialog from '../components/ui/Dialog.vue';
 import Segmented from '../components/ui/Segmented.vue';
+import CopyInfo from '../components/settings/CopyInfo.vue';
 import { useToast } from '../components/ui/toast';
 import { useDeviceStore } from '../stores/device';
 import { formatBuildTime, useDiagnosticsStore } from '../stores/diagnostics';
@@ -19,6 +21,23 @@ import { t } from '../i18n/vi';
 
 const device = useDeviceStore();
 const diag = useDiagnosticsStore();
+
+// Settings' "Back up the keyboard configuration on the Diagnostics page" link (DESIGN H §3.3): ?focus=backup brings the
+// Backup card to the top of the scroller, focuses its title, then drops the query (hash history: no #anchor).
+const route = useRoute();
+const router = useRouter();
+onMounted(async () => {
+  if (route.query.focus !== 'backup') return;
+  await nextTick();
+  const title = document.getElementById('diag-backup-title');
+  if (title) {
+    const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    title.closest('.card')?.scrollIntoView?.({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+    title.focus({ preventScroll: true });
+  }
+  const { focus: _focus, ...query } = route.query;
+  void router.replace({ query });
+});
 const toast = useToast();
 // The store records packets for the whole connection; watching makes `packetSeq` tick while this page is open.
 onBeforeUnmount(device.watchPackets());
@@ -200,6 +219,7 @@ async function doRestore() {
     <div class="diag-container">
       <!-- 1. Device Info & Protocol Version -->
       <Card :title="t('diagnostics.deviceTitle')" :subtitle="t('diagnostics.deviceDesc')">
+        <template #actions><CopyInfo /></template>
         <dl class="diag-meta-grid">
           <div class="diag-meta-item">
             <dt class="micro">{{ t('settings.firmwareVersion') }}</dt>
@@ -330,7 +350,8 @@ async function doRestore() {
       </Card>
 
       <!-- 5. Backup & Restore (JSON) -->
-      <Card :title="t('diagnostics.backupTitle')" :subtitle="t('diagnostics.backupDesc')">
+      <Card :subtitle="t('diagnostics.backupDesc')">
+        <template #title><span id="diag-backup-title" tabindex="-1">{{ t('diagnostics.backupTitle') }}</span></template>
         <div class="diag-backup-actions">
           <Button
             variant="primary"

@@ -6,7 +6,8 @@ import TopBar from './components/shell/TopBar.vue';
 import ConnectScreen from './components/shell/ConnectScreen.vue';
 import ToastHost from './components/ui/Toast.vue';
 import { useRoute } from 'vue-router';
-import { createSafePad, toastSafeTarget } from './components/ui/toast';
+import { createSafePad, toastSafeTarget, useToast } from './components/ui/toast';
+import { takeAppcfgDone } from './data/appcfgDone';
 import { useDeviceStore } from './stores/device';
 import { useGamepadStore } from './stores/gamepad';
 import { useHistoryStore } from './stores/history';
@@ -48,6 +49,9 @@ function pageToTop(): void {
 
 let removeShortcuts: (() => void) | null = null;
 onMounted(() => {
+  // An app-settings import or reset just reloaded the page (DESIGN H §3.6): say it worked, once.
+  const done = takeAppcfgDone();
+  if (done) useToast().show(t(done === 'import' ? 'appcfg.doneImport' : 'appcfg.doneReset'), 'success');
   removeShortcuts = history.installShortcuts();
   if (typeof window.matchMedia === 'function') {
     narrowMql = window.matchMedia(NARROW_QUERY);

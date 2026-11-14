@@ -4,11 +4,16 @@ export type Locale = 'vi' | 'en';
 
 const STORAGE_KEY = 'ae64.locale';
 
+/** A stored locale the app reads as itself. Shared with the settings import (DESIGN H §3.5). */
+export function isLocale(v: unknown): v is Locale {
+  return v === 'vi' || v === 'en';
+}
+
 function getInitialLocale(): Locale {
   try {
     if (typeof localStorage !== 'undefined') {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved === 'vi' || saved === 'en') return saved;
+      if (isLocale(saved)) return saved;
     }
   } catch {
     // localStorage may be disabled or throw

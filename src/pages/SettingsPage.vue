@@ -10,6 +10,8 @@ import NumberField from '../components/ui/NumberField.vue';
 import Button from '../components/ui/Button.vue';
 import Dialog from '../components/ui/Dialog.vue';
 import ThemePicker from '../components/settings/ThemePicker.vue';
+import CopyInfo from '../components/settings/CopyInfo.vue';
+import DataLocation from '../components/settings/DataLocation.vue';
 import { POLLING_RATE_HZ } from '../protocol';
 import { useDeviceStore } from '../stores/device';
 import { useSettingsStore } from '../stores/settings';
@@ -87,9 +89,13 @@ const shakeModel = computed({
     </div>
 
     <!-- load error -->
-    <Card v-if="settings.loadError" :title="t('settings.loadFailed')" :subtitle="settings.loadError">
-      <div><Button :icon="IconRefresh" :loading="settings.loading" @click="settings.load()">{{ t('settings.reload') }}</Button></div>
-    </Card>
+    <template v-if="settings.loadError">
+      <Card :title="t('settings.loadFailed')" :subtitle="settings.loadError">
+        <div><Button :icon="IconRefresh" :loading="settings.loading" @click="settings.load()">{{ t('settings.reload') }}</Button></div>
+      </Card>
+      <!-- resetting the app settings is what helps most when something is broken (DESIGN H §3.3) -->
+      <div class="settings-grid settings-grid--after"><DataLocation /></div>
+    </template>
 
     <!-- loading skeleton -->
     <div v-else-if="!settings.loaded" class="settings-grid" aria-busy="true">
@@ -181,10 +187,18 @@ const shakeModel = computed({
         <template #actions>
           <Button to="/profiles" size="sm" variant="secondary" :icon="IconArrowRight">{{ t('settings.manageProfiles') }}</Button>
         </template>
+        <!-- read only (DESIGN H §3.7): renaming stays on the Profiles page; a Pro name keeps its trailing space -->
+        <ol class="pn" :aria-label="t('settings.profileNames')">
+          <li v-for="(n, i) in device.profileNames" :key="i" class="pn__row" :class="{ 'pn__row--on': i === device.activeProfile }">
+            <span class="pn__n num" aria-hidden="true">{{ i + 1 }}</span><span class="pn__name" :title="n">{{ n }}</span>
+            <span v-if="i === device.activeProfile" class="pn__on">{{ t('pf.active') }}</span>
+          </li>
+        </ol>
       </Card>
 
       <!-- Device Hardware Information (Read-only) -->
       <Card :title="t('settings.deviceInfo')" :subtitle="t('settings.deviceInfoDesc')">
+        <template #actions><CopyInfo /></template>
         <dl class="settings-info-grid">
           <div class="settings-info-item">
             <dt class="micro">{{ t('settings.firmwareVersion') }}</dt>
@@ -218,6 +232,9 @@ const shakeModel = computed({
           </div>
         </dl>
       </Card>
+
+      <!-- Where your data lives + app settings export / import / reset (DESIGN H §3.3) -->
+      <DataLocation />
     </div>
 
     <Dialog v-model:open="confirmOpen" :title="t('settings.pollingConfirmTitle', { rate: pendingRate === null ? '' : rateLabel(pendingRate) })" :width="440">
@@ -231,6 +248,25 @@ const shakeModel = computed({
 </template>
 
 <style scoped>
+.settings-grid--after { margin-top: var(--s-4); }
+.pn { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.pn__row { display: flex; align-items: center; gap: var(--s-2); min-width: 0; font-size: var(--fs-body); line-height: 22px; color: var(--fg-1); }
+.pn__n {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: var(--fs-label);
+  font-weight: 650;
+  line-height: 1;
+  background: var(--bg-4);
+  color: var(--fg-2);
+}
+.pn__row--on .pn__n { background: var(--acc); color: var(--on-acc); }
+.pn__name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pn__on { flex: none; margin-left: auto; font-size: var(--fs-label); font-weight: 600; color: var(--acc); }
 .settings-rate {
   display: flex;
   align-items: center;
