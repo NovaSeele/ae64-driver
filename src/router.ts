@@ -4,7 +4,7 @@ import type { Router, RouteRecordRaw } from 'vue-router';
 import type { Component } from 'vue';
 import {
   IconAdjustmentsHorizontal, IconBulb, IconDeviceGamepad2, IconKeyboard, IconLayoutDashboard, IconListDetails, IconSettings,
-  IconStethoscope,
+  IconStack2, IconStethoscope,
 } from '@tabler/icons-vue';
 import type { MessageKey } from './i18n/vi';
 import OverviewPage from './pages/OverviewPage.vue';
@@ -24,13 +24,14 @@ export interface NavItem {
 }
 
 // DESIGN E §3.8: Travel, Advanced keys, Switch, Calibration and Key test are the five tabs of the one Performance item.
-// DESIGN F §3.1: the Overview (start page) comes first.
+// DESIGN F §3.1: the Overview (start page) comes first. DESIGN G §3.1: Profiles after Performance.
 export const NAV: { group: MessageKey; items: NavItem[] }[] = [
   {
     group: 'nav.groupKeyboard',
     items: [
       { path: '/overview', title: 'page.overview', icon: IconLayoutDashboard, tone: 'var(--f-overview)' },
       { path: '/performance', title: 'page.performance', icon: IconAdjustmentsHorizontal, tone: 'var(--f-performance)' },
+      { path: '/profiles', title: 'page.profiles', icon: IconStack2, tone: 'var(--f-profiles)' },
     ],
   },
   {
@@ -70,6 +71,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/overview', name: 'overview', component: OverviewPage, meta: { title: 'page.overview' } },
   { path: '/keymap', component: () => import('./pages/KeymapPage.vue'), meta: { title: 'page.keymap' } },
   { path: '/performance', component: () => import('./pages/PerformancePage.vue'), meta: { title: 'page.performance' } },
+  // Named: the Overview shows its Profile button, tile link and 8th shortcut when this route exists (DESIGN F §3.1).
+  { path: '/profiles', name: 'profiles', component: () => import('./pages/ProfilesPage.vue'), meta: { title: 'page.profiles' } },
   // Old links and bookmarks land on the tab that replaced the page; ?key= and ?check= are kept (DESIGN E §3.1).
   { path: '/advanced', redirect: { path: '/performance', query: { tab: 'advanced' } } },
   { path: '/switch', redirect: (to) => ({ path: '/performance', query: { tab: to.query.tab === 'calibration' ? 'calibration' : 'switch' } }) },

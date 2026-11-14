@@ -9,12 +9,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { nextTick } from 'vue';
 import { RouterView, createMemoryHistory, createRouter } from 'vue-router';
-import type { Router, RouteRecordRaw } from 'vue-router';
+import type { Router } from 'vue-router';
 import { IconPencil } from '@tabler/icons-vue';
 import { MockTransport, PHYSICAL_KEYS, POLLING_RATE_HZ } from '../src/protocol';
 import type { Performance, PhysicalKey } from '../src/protocol';
 import type { DemoSeed } from '../src/protocol/mock';
-import { NAV, installPerfTabGuard, routes } from '../src/router';
+import { NAV, installPerfTabGuard, routes, saveTab } from '../src/router';
 import { mountAt } from './mountPerformance';
 import { useDeviceStore } from '../src/stores/device';
 import { rangeMm, usePerformanceStore } from '../src/stores/performance';
@@ -24,6 +24,7 @@ import { clearTuningSnapshots } from '../src/stores/tuning';
 import KeyboardView from '../src/components/keyboard/KeyboardView.vue';
 import SelectionLegend from '../src/components/keyboard/SelectionLegend.vue';
 import SelectionBar, { legendSentence } from '../src/components/keyboard/SelectionBar.vue';
+import { actuationLegend } from '../src/data/keycapActuation';
 import type { LegendItem } from '../src/components/keyboard/SelectionBar.vue';
 import Button from '../src/components/ui/Button.vue';
 import { overviewVi } from '../src/i18n/overview';
@@ -37,7 +38,6 @@ vi.setConfig({ testTimeout: 30000 });
 let pinia: Pinia;
 const mounted: VueWrapper[] = [];
 
-const PROFILES_ROUTE: RouteRecordRaw = { path: '/profiles', name: 'profiles', component: { template: '<p class="g">profiles</p>' } };
 const settle = async () => { for (let i = 0; i < 8; i++) await flushPromises(); };
 /** The page's reads are done (performance, then the device settings). */
 async function ready() {
@@ -47,9 +47,9 @@ async function ready() {
   }, { timeout: 15000, interval: 5 });
   await settle();
 }
-/** The app's routes and tab guard (+ part G's named route when `profiles`). */
+/** The app's routes and tab guard. `profiles` false: without part G's named route (the page still has that case). */
 function appRouter(profiles = false): Router {
-  const r = createRouter({ history: createMemoryHistory(), routes: profiles ? [...routes, PROFILES_ROUTE] : routes });
+  const r = createRouter({ history: createMemoryHistory(), routes: profiles ? routes : routes.filter((x) => x.name !== 'profiles') });
   installPerfTabGuard(r);
   return r;
 }
@@ -225,6 +225,15 @@ describe('Overview: tiles (DESIGN F §3.3, §3.4, §4)', () => {
     expect(tiles(w)[2].find('.ovs__value [aria-hidden="true"]').text()).toBe('0/64 phím');
   });
 
+  it('F-TEST-2: every known-mode key has one value and one key is in mode 3 → "Giống nhau trên cả 63 phím" (the count, not 64)', async () => {
+    const { w } = await mountOv();
+    const perf = usePerformanceStore();
+    perf.values = { ...perf.values, [keyId('Q')]: { ...perf.values[keyId('Q')], mode: odd(3), rtFirstTouch: 0.2, normalPress: 0.2 } };
+    await nextTick();
+    expect(value(w, 1)).toBe('1.0 mm');
+    expect(sub(w, 1)).toBe('Giống nhau trên cả 63 phím');
+  });
+
   it('a long profile name is cut in the tile (title = the whole name) and whole in the keyboard heading', async () => {
     const { w, device } = await mountOv();
     const long = 'Valorant ranked – Jett, RT 0.15 mm';
@@ -266,6 +275,17 @@ describe('Overview: the keyboard (DESIGN F §3.2, §3.5)', () => {
       await settle();
       expect(w.find('.ovk .kb').exists(), how).toBe(true);
     }
+  });
+
+  it('F-TEST-1: with Calibration as the last-used tab, a key click still opens /performance?tab=travel', async () => {
+    saveTab('calibration');
+    const { w, router } = await mountOv();
+    const W = keyId('W');
+    (w.find(`.ovk .kb__key[data-key="${W}"]`).element as HTMLElement).click();
+    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/performance'), { timeout: 15000 });
+    await settle();
+    expect(router.currentRoute.value.fullPath).toBe('/performance?tab=travel');
+    expect(useSelectionStore().ids).toEqual([W]);
   });
 
   it('"Sửa phím" opens the Travel tab and keeps the selection; "Chỉnh hiệu năng" opens /performance (last tab)', async () => {
@@ -636,4 +656,36 @@ describe('item 13: Overview keycaps = Travel keycaps (Actuation view, depth fill
       expect(ov.w.find('.ovk .kb__key[data-key="35"] .cap--flag').exists()).toBe(true);
     });
   }
+
+  it('F-TEST-3: in the Travel tab on another metric (RT, Deadzone) a mode-3 key keeps its lock and its reason', async () => {
+    await connect();
+    const tr = await mountAt({ path: '/performance', query: { tab: 'travel' } }, { plugins: [pinia] });
+    mounted.push(tr.w);
+    await ready();
+    const perf = usePerformanceStore();
+    perf.values = { ...perf.values, [keyId('Q')]: { ...perf.values[keyId('Q')], mode: odd(3) } };
+    await nextTick();
+    const chips = tr.w.findAll('.chips[role="radiogroup"] .chip');
+    expect(chips.map((c) => c.text())).toEqual([t('perf.metricActuation'), t('perf.metricRt'), t('perf.metricDeadzone')]);
+    for (const i of [1, 2]) {
+      await chips[i].trigger('click');
+      expect(chips[i].attributes('aria-checked')).toBe('true');
+      const lock = tr.w.find(`.kb__key[data-key="${keyId('Q')}"] .cap__badge--icon`);
+      expect(lock.exists(), chips[i].text()).toBe(true);
+      expect(lock.attributes('title')).toBe('Chế độ không hỗ trợ: chỉ đọc');
+      expect(lock.attributes('aria-label')).toBe('Chế độ không hỗ trợ: chỉ đọc');
+      expect(tr.w.find(`.kb__key[data-key="${keyId('W')}"] .cap__badge--icon`).exists()).toBe(false);
+    }
+  });
+
+  it('F-TEST-4: the lock item of the Actuation legend has the Actuation tone (= the Travel tab METRIC_TONE.actuation)', () => {
+    const base = PHYSICAL_KEYS.slice(0, 2).map(() => ({ mode: 1, rtFirstTouch: 1 }) as Performance);
+    const lock = actuationLegend([base[0], { ...base[1], mode: odd(3) }], 0).find((i) => 'sample' in i && i.sample === 'lock')!;
+    expect(lock).toBeDefined();
+    const travel = readFileSync(resolve('src/components/performance/TravelTab.vue'), 'utf8');
+    const tone = /actuation: '([^']+)',/.exec(travel)![1];
+    expect(tone).toBe('var(--m-actuation)');
+    expect(lock.tone).toBe(tone);
+    expect(actuationLegend([base[0], { ...base[1], mode: odd(3) }], 0, true).find((i) => 'sample' in i && i.sample === 'lock')!.tone).toBe(tone);
+  });
 });

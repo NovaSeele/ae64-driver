@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// Settings page: system mode, polling rate, RGB sleep, shake optimization, profile names, hardware info.
-import { computed, onMounted, reactive, ref } from 'vue';
-import { IconRefresh } from '@tabler/icons-vue';
+// Settings page: system mode, polling rate, RGB sleep, shake optimization, profile names (a link to the Profiles page), hardware info.
+import { computed, onMounted, ref } from 'vue';
+import { IconArrowRight, IconRefresh } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import Card from '../components/ui/Card.vue';
 import Segmented from '../components/ui/Segmented.vue';
@@ -12,7 +12,7 @@ import Dialog from '../components/ui/Dialog.vue';
 import ThemePicker from '../components/settings/ThemePicker.vue';
 import { POLLING_RATE_HZ } from '../protocol';
 import { useDeviceStore } from '../stores/device';
-import { PROFILE_NAME_MAX_BYTES, truncateUtf8, useSettingsStore, utf8Bytes } from '../stores/settings';
+import { useSettingsStore } from '../stores/settings';
 import { zoomModifier, currentPlatform } from '../components/ui/zoomHint';
 import { t } from '../i18n/vi';
 
@@ -72,36 +72,6 @@ const shakeModel = computed({
   get: () => settings.shakeOptimization,
   set: (v: boolean) => settings.setShakeOptimization(v),
 });
-
-// Name drafts only exist while the user is editing; otherwise the live device.profileNames show
-// (so a rename from the sidebar is picked up).
-const drafts = reactive<Record<number, string>>({});
-const nameErrors = reactive<Record<number, string>>({});
-const shownName = (i: number) => drafts[i] ?? device.profileNames[i] ?? '';
-
-function onNameInput(i: number, e: Event) {
-  const el = e.target as HTMLInputElement;
-  const v = truncateUtf8(el.value, PROFILE_NAME_MAX_BYTES);
-  if (v !== el.value) el.value = v;
-  drafts[i] = v;
-  delete nameErrors[i];
-}
-
-function canRename(i: number): boolean {
-  const d = drafts[i]?.trim();
-  return !locked.value && !!d && d !== device.profileNames[i];
-}
-
-async function saveProfileName(i: number) {
-  if (!canRename(i)) return;
-  try {
-    await device.renameProfile(i, drafts[i].trim());
-    delete drafts[i];
-    delete nameErrors[i];
-  } catch (err) {
-    nameErrors[i] = err instanceof Error ? err.message : String(err);
-  }
-}
 </script>
 
 <template>
@@ -206,32 +176,11 @@ async function saveProfileName(i: number) {
         </div>
       </Card>
 
-      <!-- Profile names -->
-      <Card :title="t('settings.profileNames')" :subtitle="t('settings.profileNamesDesc')">
-        <div class="settings-profiles">
-          <div v-for="(_n, i) in device.profileNames" :key="i">
-            <div class="settings-profile-row">
-              <span class="settings-profile-row__label micro">{{ t('settings.profileLabel', { n: i + 1 }) }}</span>
-              <input
-                :value="shownName(i)"
-                type="text"
-                class="settings-profile-row__input"
-                :aria-label="t('settings.profileInputLabel', { n: i + 1 })"
-                :placeholder="t('settings.profileLabel', { n: i + 1 })"
-                :disabled="locked"
-                @input="onNameInput(i, $event)"
-                @keydown.enter="saveProfileName(i)"
-              >
-              <span class="settings-profile-row__count num" :class="{ 'settings-profile-row__count--full': utf8Bytes(shownName(i)) >= PROFILE_NAME_MAX_BYTES }">
-                {{ t('settings.profileBytes', { used: utf8Bytes(shownName(i)), max: PROFILE_NAME_MAX_BYTES }) }}
-              </span>
-              <Button size="sm" variant="ghost" :disabled="!canRename(i)" @click="saveProfileName(i)">
-                {{ t('settings.profileRename') }}
-              </Button>
-            </div>
-            <p v-if="nameErrors[i]" class="settings-note settings-note--error" role="alert">{{ nameErrors[i] }}</p>
-          </div>
-        </div>
+      <!-- Profile names: switching, renaming and comparing moved to the Profiles page (DESIGN G §3.8) -->
+      <Card :title="t('settings.profileNames')" :subtitle="t('settings.profilesMoved')">
+        <template #actions>
+          <Button to="/profiles" size="sm" variant="secondary" :icon="IconArrowRight">{{ t('settings.manageProfiles') }}</Button>
+        </template>
       </Card>
 
       <!-- Device Hardware Information (Read-only) -->
@@ -355,44 +304,6 @@ async function saveProfileName(i: number) {
 .settings-shake__state {
   color: var(--fg-2);
   font-size: var(--fs-label);
-}
-.settings-profiles {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-3);
-}
-.settings-profile-row {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-}
-.settings-profile-row__label {
-  width: 70px;
-  flex: none;
-  color: var(--fg-3);
-}
-.settings-profile-row__input {
-  flex: 1;
-  min-width: 0;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-control);
-  background: var(--bg-1);
-  color: var(--fg-1);
-  font-size: var(--fs-body);
-}
-.settings-profile-row__input:disabled { opacity: 0.45; }
-.settings-profile-row__count {
-  flex: none;
-  color: var(--fg-3);
-  font-size: var(--fs-caption);
-}
-.settings-profile-row__count--full { color: var(--warn); }
-.settings-profile-row__input:focus {
-  border-color: var(--acc-line);
-  box-shadow: var(--focus-ring);
-  outline: none;
 }
 .settings-info-grid {
   display: grid;

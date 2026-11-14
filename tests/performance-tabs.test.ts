@@ -493,13 +493,13 @@ describe('Performance tabs: sidebar, titles, the tab row', () => {
   it('11. the sidebar has three groups with their items in order; Performance is the current page on every tab', async () => {
     expect(NAV.map((g) => g.group)).toEqual(['nav.groupKeyboard', 'nav.groupCustomize', 'nav.groupDevice']);
     expect(NAV.map((g) => g.items.map((i) => i.path))).toEqual([
-      ['/overview', '/performance'], ['/keymap', '/macro', '/lighting', '/gamepad'], ['/settings', '/diagnostics'], // F: Overview first
+      ['/overview', '/performance', '/profiles'], ['/keymap', '/macro', '/lighting', '/gamepad'], ['/settings', '/diagnostics'], // F: Overview first; G: Profiles
     ]);
     const r = perfRouter();
     const s = mount(Sidebar, { global: { plugins: [r, pinia], stubs: { teleport: true } } });
     expect(s.findAll('.side__label').map((x) => x.text())).toEqual([t('nav.groupKeyboard'), t('nav.groupCustomize'), t('nav.groupDevice')]);
     expect(s.findAll('.side__group').map((g) => g.findAll('.side__link').map((l) => l.text()))).toEqual([
-      [t('page.overview'), t('page.performance')], [t('page.keymap'), t('page.macro'), t('page.lighting'), t('page.gamepad')], [t('page.settings'), t('page.diagnostics')],
+      [t('page.overview'), t('page.performance'), t('page.profiles')], [t('page.keymap'), t('page.macro'), t('page.lighting'), t('page.gamepad')], [t('page.settings'), t('page.diagnostics')],
     ]);
     for (const tab of PERF_TABS) {
       await r.push({ path: '/performance', query: { tab } });

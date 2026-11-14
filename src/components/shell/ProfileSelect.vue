@@ -6,6 +6,7 @@ import { useRoute } from 'vue-router';
 import { IconChevronDown, IconPencil } from '@tabler/icons-vue';
 import { useCalibrationStore } from '../../stores/calibration';
 import { useDeviceStore } from '../../stores/device';
+import { PROFILE_NAME_MAX_BYTES, truncateUtf8 } from '../../stores/settings';
 import { useToast } from '../ui/toast';
 import { t } from '../../i18n/vi';
 
@@ -213,6 +214,8 @@ async function choose(i: number) {
 }
 
 async function startRename(i: number) {
+  // Pencil, double-click and F2 all land here: no rename (a write) while calibrating (DESIGN G §3.9).
+  if (calibrating.value) return;
   if (!device.boardAllowed) return;
   editing.value = i;
   draft.value = device.profileNames[i] ?? '';
@@ -228,12 +231,32 @@ async function endRename(i: number, save: boolean) {
   await done;
 }
 
+/** The name is cut at 32 bytes (UTF-8), never inside a character. While an IME composes, the input is left alone (writing
+ *  el.value, or a cut `draft` bound to it, would break the composition) and cut at compositionend; a save meanwhile
+ *  sends the cut value. */
+function onDraftInput(e: Event) {
+  const el = e.target as HTMLInputElement;
+  if ((e as InputEvent).isComposing) {
+    draft.value = el.value;
+    return;
+  }
+  const v = truncateUtf8(el.value, PROFILE_NAME_MAX_BYTES);
+  draft.value = v;
+  if (v !== el.value) el.value = v;
+}
+
+/** Enter / Esc that only pick or cancel an IME candidate do not save or close the rename. */
+function onRenameKey(e: KeyboardEvent, i: number, save: boolean) {
+  if (e.isComposing || e.keyCode === 229) return;
+  void endRename(i, save);
+}
+
 async function finishRename(save: boolean) {
   const i = editing.value;
   editing.value = null;
   if (!save || i === null) return;
   try {
-    await device.renameProfile(i, draft.value);
+    await device.renameProfile(i, truncateUtf8(draft.value, PROFILE_NAME_MAX_BYTES));
   } catch (err) {
     toast.show(err instanceof Error ? err.message : String(err), 'error');
   }
@@ -281,13 +304,14 @@ async function finishRename(save: boolean) {
           <input
             v-if="editing === i"
             ref="input"
-            v-model="draft"
+            :value="draft"
             class="ps__input"
-            maxlength="32"
             :aria-label="t('device.rename')"
             @click.stop
-            @keydown.enter.stop="endRename(i, true)"
-            @keydown.esc.stop="endRename(i, false)"
+            @input="onDraftInput"
+            @compositionend="onDraftInput"
+            @keydown.enter.stop="onRenameKey($event, i, true)"
+            @keydown.esc.stop="onRenameKey($event, i, false)"
             @blur="finishRename(true)"
           >
           <span v-else class="ps__name">{{ name }}</span>
@@ -296,7 +320,8 @@ async function finishRename(save: boolean) {
             type="button"
             class="ps__edit"
             :aria-label="`${t('device.rename')} ${name}`"
-            :title="t('device.rename')"
+            :title="calibrating ? t('device.calibrating') : t('device.rename')"
+            :disabled="calibrating"
             @click.stop="startRename(i)"
           >
             <IconPencil :size="13" stroke-width="1.5" />
@@ -415,4 +440,7 @@ async function finishRename(save: boolean) {
 }
 .ps__item:hover .ps__edit, .ps__edit:focus-visible { opacity: 1; }
 .ps__edit:hover { color: var(--fg-1); }
+/* locked while calibrating: still hidden until the row is hovered, then dimmed */
+.ps__edit:disabled { cursor: not-allowed; }
+.ps__item:hover .ps__edit:disabled { opacity: 0.45; }
 </style>

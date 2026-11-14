@@ -11,6 +11,7 @@ import { calibrationVi } from './calibration';
 import { performanceVi } from './performance';
 import { gamepadVi } from './gamepad';
 import { overviewVi } from './overview';
+import { profilesVi } from './profiles';
 import { applyPlurals, locale } from './locale';
 import { en } from './en';
 
@@ -270,6 +271,7 @@ export const vi = {
   ...performanceVi,
   ...gamepadVi,
   ...overviewVi,
+  ...profilesVi,
 } as const;
 
 export type MessageKey = keyof typeof vi;

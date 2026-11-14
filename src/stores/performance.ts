@@ -110,8 +110,21 @@ export const usePerformanceStore = defineStore('performance', () => {
   }
   /** Catalog for the connected board, or null (selector read-only). */
   const catalog = computed(() => switchCatalogFor(device.info?.boardIdHex));
+  /**
+   * The values of the profiles left this session (DESIGN G §3.7): taken when load() starts reading another profile, with
+   * the edits made after the last read. `at` = when the app left that profile. In memory only; not the active profile's
+   * live values (those are `values`). Named so, because "snapshot" here already means a tuning snapshot.
+   */
+  const profileSnapshots = shallowRef(new Map<number, { values: Record<number, Performance>; at: number }>());
+  /** When the app left the profile held in `values` (null while it is still the active one). */
+  let leftAt: number | null = null;
+  watch(() => device.activeProfile, (now, old) => {
+    leftAt = old === loadedProfile.value ? Date.now() : now === loadedProfile.value ? null : leftAt;
+  }, { flush: 'sync' });
   // Another keyboard (or the demo) was connected: nothing cached belongs to it.
   watch(() => device.connection, () => {
+    profileSnapshots.value = new Map();
+    leftAt = null;
     values.value = {};
     fresh.clear();
     switchKeys.clear();
@@ -138,6 +151,13 @@ export const usePerformanceStore = defineStore('performance', () => {
       loading.value = true;
       loadError.value = null;
       loadedCount.value = 0;
+      // Keep the profile being left (with its latest edits) before its values go.
+      if (loadedProfile.value !== null && Object.keys(values.value).length) {
+        const kept = new Map(profileSnapshots.value);
+        kept.set(loadedProfile.value, { values: values.value, at: leftAt ?? Date.now() });
+        profileSnapshots.value = kept;
+        leftAt = null;
+      }
       values.value = {};
       fresh.clear();
       const profile = device.activeProfile;
@@ -147,12 +167,16 @@ export const usePerformanceStore = defineStore('performance', () => {
           for (const key of device.keys) {
             const p = await t.getPerformance(key);
             if (gen !== device.connection) return;
+            // A read carries no profile number: it reads the keyboard's active profile. Switched mid-read: drop it all.
+            if (device.activeProfile !== profile) return;
             next[key.id] = p;
             noteFresh(key.id, p);
             loadedCount.value++;
           }
         });
         if (gen !== device.connection) return;
+        // Not an error: the read stops, `values` stays empty, and the new profile's load() reads it fresh.
+        if (device.activeProfile !== profile) return;
         values.value = next;
         loadedProfile.value = profile;
       } catch (err) {
@@ -363,5 +387,5 @@ export const usePerformanceStore = defineStore('performance', () => {
     });
   }
 
-  return { values, loading, loadedCount, loadError, loadedProfile, uncalibrated, load, apply, catalog, switchOf, planSwitch, applySwitch, switchNotices };
+  return { values, loading, loadedCount, loadError, loadedProfile, uncalibrated, profileSnapshots, load, apply, catalog, switchOf, planSwitch, applySwitch, switchNotices };
 });

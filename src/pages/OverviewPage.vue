@@ -24,7 +24,7 @@ import { useSettingsStore } from '../stores/settings';
 import { useSelectionStore } from '../stores/selection';
 import { POLLING_RATE_HZ } from '../protocol';
 import type { PhysicalKey } from '../protocol';
-import { actuationStats, rtCount } from '../data/overviewStats';
+import { actuationStats, actuationText, rtCount } from '../data/overviewStats';
 import {
   actBadge, actBadgeIcon, actBadgeTitle, actFill, actSublabel, actuationLegend, capDecimals, fmtMm, uncalFlagFor,
 } from '../data/keycapActuation';
@@ -60,13 +60,7 @@ const total = computed(() => device.keys.length);
 
 // ----- tiles (§3.3, §3.4)
 const stats = computed(() => (loaded.value ? actuationStats(perf.values, decimals.value) : null));
-const actValue = computed(() => {
-  const s = stats.value;
-  if (!s) return null;
-  return s.min === s.max
-    ? t('ov.actOne', { v: fmtMm(s.min, decimals.value) })
-    : t('ov.actRange', { min: fmtMm(s.min, decimals.value), max: fmtMm(s.max, decimals.value) });
-});
+const actValue = computed(() => (stats.value ? actuationText(stats.value, decimals.value) : null));
 const actSub = computed(() => {
   const s = stats.value;
   if (!s) return '';

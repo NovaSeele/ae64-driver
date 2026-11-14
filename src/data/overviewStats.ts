@@ -3,6 +3,8 @@
 import { isRtMode } from '../protocol';
 import type { Performance } from '../protocol';
 import { actuationOf, isKnownMode } from '../stores/performance';
+import { t } from '../i18n/vi';
+import { fmtMm } from './keycapActuation';
 
 export interface ActuationStats {
   min: number;
@@ -48,4 +50,11 @@ export function actuationStats(values: Record<number, Performance>, decimals: nu
 /** Keys in Rapid Trigger (mode 1 or 2). */
 export function rtCount(values: Record<number, Performance>): number {
   return Object.values(values).filter((p) => isRtMode(p.mode)).length;
+}
+
+/** The Actuation figure of a profile: "0.3–1.5 mm", or "1.0 mm" when every counted key is equal (Overview tile, profile card). */
+export function actuationText(s: ActuationStats, decimals: number): string {
+  return s.min === s.max
+    ? t('ov.actOne', { v: fmtMm(s.min, decimals) })
+    : t('ov.actRange', { min: fmtMm(s.min, decimals), max: fmtMm(s.max, decimals) });
 }

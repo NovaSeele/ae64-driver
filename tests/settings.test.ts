@@ -5,6 +5,8 @@ import { useDeviceStore } from '../src/stores/device';
 import { useSyncStore } from '../src/stores/sync';
 import { useHistoryStore } from '../src/stores/history';
 import { flushPromises, mount } from '@vue/test-utils';
+import { createMemoryHistory, createRouter } from 'vue-router';
+import { routes } from '../src/router';
 import SettingsPage from '../src/pages/SettingsPage.vue';
 import { t } from '../src/i18n/vi';
 import Segmented from '../src/components/ui/Segmented.vue';
@@ -215,7 +217,9 @@ describe('SettingsPage polling rate control', () => {
     await connectMock();
     const settings = useSettingsStore();
     await settings.load();
-    const w = mount(SettingsPage, { attachTo: document.body });
+    // the Profile names card links to /profiles (DESIGN G §3.8): the page needs a router
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    const w = mount(SettingsPage, { attachTo: document.body, global: { plugins: [router] } });
     await flushPromises();
     const group = w.findAll('[role="radiogroup"]').find((g) => g.attributes('aria-label') === t('settings.pollingRate'))!;
     const opts = group.findAll('[role="radio"]');
