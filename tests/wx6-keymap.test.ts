@@ -124,6 +124,40 @@ describe('WX6 U-08: the pick', () => {
   });
 });
 
+describe('WX7 0a: the Fn rule edges (KM2, KM7)', () => {
+  it('on the layer that holds the Fn switch, another code replaces it: "A" on the Fn key on Main is written', async () => {
+    const { mock, keymap, fnKey } = await withFnOnMain();
+    keymap.activeLayer = 0;
+    const plan = keymap.planKeycode([fnKey.id], A);
+    expect(plan.fnBlocked).toEqual([]);
+    const writes = writesOf(mock);
+    keymap.applyKeycode([fnKey.id], A);
+    await useSyncStore().flush();
+    expect(keymap.values[0][fnKey.id]).toBe(A);
+    expect(await mock.getKeycode(fnKey, 0)).toBe(A);
+    expect(writes.length).toBeGreaterThan(0);
+  });
+
+  it('one key selected, held by an Fn switch below, "A" picked: the note shows and nothing is written', async () => {
+    const { mock, keymap, fnKey } = await withFnOnMain();
+    const sel = useSelectionStore();
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i />' } }] });
+    w = mount(KeymapPage, { global: { plugins: [router], stubs: { KeyboardView: true } }, attachTo: document.body });
+    await flushPromises();
+    keymap.activeLayer = 1;
+    sel.select(fnKey.id);
+    await flushPromises();
+    const writes = writesOf(mock);
+    w.findComponent(KeyPicker).vm.$emit('pick', A);
+    await flushPromises();
+    await useSyncStore().flush();
+    await flushPromises();
+    expect(writes).toEqual([]);
+    expect(keymap.values[1][fnKey.id]).toBe(TRANS);
+    expect(w.find('[data-test="fn-rule-refused"]').text()).toBe(t('keymap.fnRuleRefused', { key: fnKey.name, fn: 'Fn1', layer: 'Main' }));
+  });
+});
+
 describe('WX6 U-08: Restore default layer', () => {
   it('applyDefault skips a key whose default would break the rule; computeDefaultDiff counts it', async () => {
     const { keymap, fnKey, key } = await withFnOnMain();

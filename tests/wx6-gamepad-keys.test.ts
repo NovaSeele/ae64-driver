@@ -77,6 +77,26 @@ describe('WX6: Gamepad page keys', () => {
     void device;
   });
 
+  it('WX7 0a (DP1): demo, reading on: a focused curve handle keeps its arrow keys (the demo takes no key)', async () => {
+    const { gp } = await open();
+    const W = useDeviceStore().keys.find((k) => k.name === 'W')!;
+    useSelectionStore().select(W.id);
+    await flushPromises();
+    const sw = w!.findAll('button[role="switch"]').find((b) => b.attributes('aria-label') === tr('gp.appRead'))!;
+    await sw.trigger('click');
+    await flushPromises();
+    const LY = controlIndex('LY+');
+    const handles = w!.findAll('.gpc__h');
+    expect(handles.length).toBe(2);
+    const endBefore = gp.config!.bindings[LY].endUm;
+    const el = handles[1].element as HTMLElement;
+    el.focus();
+    const e = new KeyboardEvent('keydown', { key: 'ArrowLeft', code: 'ArrowLeft', bubbles: true, cancelable: true });
+    el.dispatchEvent(e);
+    await flushPromises();
+    expect(gp.config!.bindings[LY].endUm).toBe(endBefore - 10);
+  });
+
   it('travel lock: a locked curve handle has no tab stop, takes no arrow key and writes nothing', async () => {
     const { gp } = await open((t) => {
       const cfg = decodeConfig(t.gamepadFirmware!.active);

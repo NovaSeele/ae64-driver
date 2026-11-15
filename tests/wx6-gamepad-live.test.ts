@@ -139,3 +139,57 @@ describe('WX6 U-15: a failed read', () => {
     expect(calls).toBe(4);
   });
 });
+
+describe('WX7 0a: read retry edges (GP1, GP3, GP5)', () => {
+  it('four failures, each followed by good reads: the switch stays on (a good read resets the count)', async () => {
+    const { device, live, sw } = await open();
+    const t = device.transport!;
+    const real = t.getAxisData.bind(t);
+    let failNext = false;
+    vi.spyOn(t, 'getAxisData').mockImplementation((type, row) => {
+      if (failNext) { failNext = false; return Promise.reject(new Error('timeout')); }
+      return real(type, row);
+    });
+    for (let i = 0; i < 4; i++) {
+      failNext = true;
+      await vi.waitFor(() => expect(live.running).toBe(false), { timeout: 5000 });
+      await vi.waitFor(() => expect(live.running).toBe(true), { timeout: 3000 });
+      await new Promise((r) => setTimeout(r, 80)); // good reads
+      expect(await frame()).toBe(true); // the page sees them
+    }
+    expect(sw().attributes('aria-checked')).toBe('true');
+    expect(w!.find('[data-test="gp-read-error"]').exists()).toBe(false);
+  });
+
+  it('stopped with the error, turned on again, then off by hand: no error text', async () => {
+    const { device, live, sw } = await open();
+    const t = device.transport!;
+    const spy = vi.spyOn(t, 'getAxisData').mockImplementation(() => Promise.reject(new Error('timeout')));
+    await vi.waitFor(() => expect(sw().attributes('aria-checked')).toBe('false'), { timeout: 8000 });
+    expect(w!.find('[data-test="gp-read-error"]').exists()).toBe(true);
+    spy.mockRestore();
+    await sw().trigger('click');
+    await flushPromises();
+    expect(live.running).toBe(true);
+    await sw().trigger('click');
+    await flushPromises();
+    expect(sw().attributes('aria-checked')).toBe('false');
+    expect(w!.find('[data-test="gp-read-error"]').exists()).toBe(false);
+  });
+
+  it('two failures, off and on: three retries are still available', async () => {
+    const { device, sw } = await open();
+    const t = device.transport!;
+    let calls = 0;
+    vi.spyOn(t, 'getAxisData').mockImplementation(() => { calls++; return Promise.reject(new Error('timeout')); });
+    await vi.waitFor(() => expect(calls).toBe(2), { timeout: 5000 });
+    await flushPromises();
+    await sw().trigger('click'); // off by hand
+    await flushPromises();
+    const from = calls;
+    await sw().trigger('click'); // on again
+    await flushPromises();
+    await vi.waitFor(() => expect(sw().attributes('aria-checked')).toBe('false'), { timeout: 8000 });
+    expect(calls - from).toBe(4); // the first read and three retries again
+  });
+});

@@ -82,6 +82,9 @@ export default defineConfig(({ mode }) => ({
   build: {
     outDir: mode === 'desktop' ? 'dist-desktop' : 'dist',
     target: 'es2022',
+    // The switch photos stay files (WX7 item 6): 15 of them are under the 4 kB default and were inlined as base64 into
+    // the main chunk (about 70 kB of it), although only the switch picker shows them. Other small assets inline as before.
+    assetsInlineLimit: (file: string) => (/[\\/]assets[\\/]switches[\\/]/.test(file) ? false : undefined),
     rolldownOptions: {
       output: {
         // Vendor split (Vite 8 / Rolldown replacement for manualChunks): framework code changes

@@ -115,7 +115,7 @@ function formatUpdateDate(iso: string): string {
           </div>
 
           <div v-else-if="update.state === 'error'" class="help__status-row help__status-row--err">
-            <span>{{ t('update.failed', { error: update.error || '' }) }}</span>
+            <span>{{ t(update.applyFailed ? 'update.applyFailed' : 'update.failed', { error: update.error || '' }) }}</span>
             <Button size="sm" @click="update.check()">
               {{ t('update.retry') }}
             </Button>

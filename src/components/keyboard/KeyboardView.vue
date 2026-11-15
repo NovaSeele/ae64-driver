@@ -334,7 +334,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
 .kb--selectable .kb__key,
 .kb--pick .kb__key { cursor: pointer; }
 .kb__key:focus-visible { box-shadow: none; }
-.kb__key:focus-visible :deep(.cap__face) { box-shadow: 0 0 0 2px var(--acc-line); }
+.kb__key:focus-visible :deep(.cap__face) { box-shadow: var(--focus-ring); }
 /* A glowing key keeps its glow under focus and gets an outer dashed --fg-1 outline, so focus never reads as the
    selection ring (solid --acc) or a glow edge; 5px out when the key is also selected (DESIGN A §5). Glow only. */
 .kb__key:focus-visible :deep(.cap.cap--glow .cap__face) {

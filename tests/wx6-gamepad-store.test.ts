@@ -79,6 +79,29 @@ describe('WX6 U-16: undo after a conflict', () => {
     expect(gp.conflict).toBeNull();
   });
 
+  it('WX7 0a (HS1): a gamepad edit undone, then "Use the keyboard\'s": Ctrl+Y writes nothing to the gamepad', async () => {
+    const { fw, gp, sync, history } = await setup();
+    const LT = controlIndex('LT');
+    const A = controlIndex('A');
+    gp.assign(LT, key('T'));
+    await sync.flush();
+    const other = emptyConfig();
+    other.bindings.forEach((b) => { b.key = null; });
+    other.bindings[A] = { ...other.bindings[A], key: key('Z'), declaredUm: 3400, endUm: 3400 };
+    fw.active = encodeConfig(other);
+    fw.revision = 20;
+    history.undo(); // the undo's write meets the other block
+    await expect(sync.flush()).rejects.toThrow();
+    expect(gp.conflict).not.toBeNull();
+    gp.keepKeyboard();
+    expect(history.canRedo).toBe(false);
+    history.redo();
+    await sync.flush();
+    expect(fw.revision).toBe(20);
+    expect(decodeConfig(fw.active).bindings[LT].key).toBeNull();
+    expect(decodeConfig(fw.active).bindings[A].key).toBe(key('Z'));
+  });
+
   it('an edit, saved and read back as is: its undo stays', async () => {
     const { gp, sync, history } = await setup();
     gp.assign(controlIndex('LT'), key('T'));

@@ -1,6 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { createPinia, setActivePinia } from 'pinia';
+import { flushPromises, mount } from '@vue/test-utils';
+import { createMemoryHistory, createRouter } from 'vue-router';
+import App from '../src/App.vue';
+import SidebarFooter from '../src/components/shell/SidebarFooter.vue';
+import { announceVersion, installChunkGuard, isChunkLoadError, useUpdateStore } from '../src/update';
+import { t as tr } from '../src/i18n/vi';
 
 class MockCache {
   map = new Map<string, Response>();
@@ -77,8 +84,11 @@ describe('Service Worker (public/sw.js)', () => {
   let mockCaches: MockCacheStorage;
   let listeners: Record<string, ((event: any) => void)[]>;
   let selfObj: any;
+  /** The ids of the windows the worker sees as open (clients.matchAll). */
+  let openWindows: string[];
 
   beforeEach(() => {
+    openWindows = [];
     mockCaches = new MockCacheStorage();
     listeners = {
       install: [],
@@ -97,6 +107,7 @@ describe('Service Worker (public/sw.js)', () => {
       skipWaiting: vi.fn().mockResolvedValue(undefined),
       clients: {
         claim: vi.fn().mockResolvedValue(undefined),
+        matchAll: vi.fn(async () => openWindows.map((id) => ({ id }))),
       },
     };
 
@@ -136,6 +147,30 @@ describe('Service Worker (public/sw.js)', () => {
         (promise as Promise<void>).catch(() => undefined);
       }
     });
+  }
+
+  /** A page says which release it runs (no port, no reply). */
+  async function hello(id: string, version: string): Promise<void> {
+    let promise: Promise<void> | null = null;
+    const event = { data: { type: 'hello', version }, ports: [], source: { id }, waitUntil: (p: Promise<void>) => { promise = p; } };
+    for (const fn of listeners.message) fn(event);
+    if (promise) await promise;
+  }
+
+  async function triggerActivate(): Promise<void> {
+    let promise: Promise<void> | null = null;
+    for (const fn of listeners.activate) fn({ waitUntil: (p: Promise<void>) => { promise = p; } });
+    if (promise) await promise;
+  }
+
+  /** release.json of `version` with `files`; each file's body from `bodies` (or 'x'). */
+  function serve(version: string, files: string[], bodies: Record<string, string> = {}) {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (req: any) => {
+      const url = typeof req === 'string' ? req : req.url;
+      const p = new URL(url, 'http://127.0.0.1:5173').pathname;
+      if (p === '/release.json') return { ok: true, status: 200, json: async () => ({ version, files }) };
+      return new Response(bodies[p] ?? 'x', { status: 200 });
+    }));
   }
 
   async function triggerFetch(request: Request): Promise<Response> {
@@ -399,6 +434,142 @@ describe('Service Worker (public/sw.js)', () => {
     });
   });
 
+  describe('WX7 4a: the release an open window runs keeps its cache', () => {
+    async function setup() {
+      for (const v of ['0.0.8', '0.0.9', '0.1.0']) await (await mockCaches.open(`ae64-app-${v}`)).put('/index.html', new Response(v));
+      await (await mockCaches.open('ae64-meta')).put('/__ae64_version__', new Response(JSON.stringify({ version: '0.1.0', previous: '0.0.9' })));
+    }
+    const windowsMap = async () => (await (await mockCaches.open('ae64-meta')).match('/__ae64_windows__'))!.json();
+
+    it('a window on the previous-but-one release keeps its cache through an apply; it goes once that window closed', async () => {
+      await setup();
+      openWindows = ['A', 'B'];
+      await hello('A', '0.0.8');
+      await hello('B', '0.1.0');
+      serve('0.2.0', ['index.html']);
+      expect((await triggerMessage({ type: 'apply', version: '0.2.0' })).ok).toBe(true);
+      expect([...mockCaches.caches.keys()].filter((k) => k.startsWith('ae64-app-')).sort())
+        .toEqual(['ae64-app-0.0.8', 'ae64-app-0.1.0', 'ae64-app-0.2.0']); // 0.0.9: no window runs it
+      // window A still loads its own lazy chunk
+      await (await mockCaches.open('ae64-app-0.0.8')).put('/assets/old-page.js', new Response('old page'));
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('gone', { status: 404 })));
+      expect(await (await triggerFetch(new Request('http://127.0.0.1:5173/assets/old-page.js'))).text()).toBe('old page');
+      // A closes; the next apply prunes 0.0.8 (and forgets A)
+      openWindows = ['B'];
+      serve('0.3.0', ['index.html']);
+      expect((await triggerMessage({ type: 'apply', version: '0.3.0' })).ok).toBe(true);
+      expect(mockCaches.caches.has('ae64-app-0.0.8')).toBe(false);
+      expect(await windowsMap()).toEqual({ B: '0.1.0' });
+      expect(mockCaches.caches.has('ae64-app-0.1.0')).toBe(true); // B's
+    });
+
+    it('activate keeps the caches of open windows too', async () => {
+      await setup();
+      openWindows = ['A'];
+      await hello('A', '0.0.8');
+      await triggerActivate();
+      expect(mockCaches.caches.has('ae64-app-0.0.8')).toBe(true);
+      openWindows = [];
+      await triggerActivate();
+      expect(mockCaches.caches.has('ae64-app-0.0.8')).toBe(false);
+      expect(mockCaches.caches.has('ae64-app-0.0.9')).toBe(true); // previous
+    });
+
+    it('hello messages from two windows at once are both kept', async () => {
+      openWindows = ['A', 'B'];
+      await Promise.all([hello('A', '0.0.8'), hello('B', '0.0.9')]);
+      expect(await windowsMap()).toEqual({ A: '0.0.8', B: '0.0.9' });
+    });
+  });
+
+  describe('WX7 4b: the new index.html is checked against the release before the switch', () => {
+    async function current() {
+      await (await mockCaches.open('ae64-app-0.1.0')).put('/index.html', new Response('<html>current</html>'));
+      await (await mockCaches.open('ae64-meta')).put('/__ae64_version__', new Response(JSON.stringify({ version: '0.1.0', previous: '0.0.9' })));
+    }
+    async function meta() {
+      return (await (await mockCaches.open('ae64-meta')).match('/__ae64_version__'))!.json();
+    }
+    const page = (js: string, css = '/assets/index-new.css', pre = '/assets/vue-new.js') =>
+      `<!doctype html><html><head><script type="module" crossorigin src="${js}"></script>` +
+      `<link rel="modulepreload" crossorigin href="${pre}"><link rel="stylesheet" crossorigin href="${css}"></head><body></body></html>`;
+    const FILES = ['./', 'index.html', 'assets/index-new.js', 'assets/index-new.css', 'assets/vue-new.js'];
+
+    it('an index.html that loads a script not in the release fails the apply; the current cache and version stay', async () => {
+      await current();
+      serve('0.2.0', FILES, { '/index.html': page('/assets/index-old.js') });
+      const reply = await triggerMessage({ type: 'apply', version: '0.2.0' });
+      expect(reply.ok).toBe(false);
+      expect(reply.error).toMatch(/index-old\.js/);
+      expect(mockCaches.caches.has('ae64-app-0.2.0')).toBe(false);
+      expect((await meta()).version).toBe('0.1.0');
+      expect(await (await (await mockCaches.open('ae64-app-0.1.0')).match('/index.html'))!.text()).toBe('<html>current</html>');
+    });
+
+    it('the stylesheet and the modulepreload are checked too', async () => {
+      await current();
+      serve('0.2.0', FILES, { '/index.html': page('/assets/index-new.js', '/assets/index-old.css') });
+      expect((await triggerMessage({ type: 'apply', version: '0.2.0' })).ok).toBe(false);
+      serve('0.2.0', FILES, { '/index.html': page('/assets/index-new.js', '/assets/index-new.css', '/assets/vue-old.js') });
+      expect((await triggerMessage({ type: 'apply', version: '0.2.0' })).ok).toBe(false);
+      expect((await meta()).version).toBe('0.1.0');
+    });
+
+    it('a listed file the cache does not hold fails it as well', async () => {
+      await current();
+      serve('0.2.0', FILES, { '/index.html': page('/assets/index-new.js') });
+      const realOpen = mockCaches.open.bind(mockCaches);
+      vi.spyOn(mockCaches, 'open').mockImplementation(async (name: string) => {
+        const c = await realOpen(name);
+        if (name === 'ae64-app-0.2.0') {
+          const put = MockCache.prototype.put.bind(c);
+          c.put = async (req: any, res: Response) => { if (!String(req.url ?? req).endsWith('/assets/vue-new.js')) await put(req, res); };
+        }
+        return c;
+      });
+      const reply = await triggerMessage({ type: 'apply', version: '0.2.0' });
+      expect(reply.ok).toBe(false);
+      expect(reply.error).toMatch(/vue-new\.js/);
+      expect((await meta()).version).toBe('0.1.0');
+    });
+
+    it('a file left in a stale cache of the same name does not pass: it must be in the release list', async () => {
+      await current();
+      // an earlier attempt left ae64-app-0.2.0 behind with a file the release does not list
+      await (await mockCaches.open('ae64-app-0.2.0')).put('/assets/index-old.js', new Response('old'));
+      serve('0.2.0', FILES, { '/index.html': page('/assets/index-old.js') });
+      const reply = await triggerMessage({ type: 'apply', version: '0.2.0' });
+      expect(reply.ok).toBe(false);
+      expect(reply.error).toMatch(/release list/);
+      expect((await meta()).version).toBe('0.1.0');
+    });
+
+    it('a release without index.html is refused', async () => {
+      await current();
+      serve('0.2.0', ['./', 'assets/index-new.js'], { '/': page('/assets/index-new.js') });
+      const reply = await triggerMessage({ type: 'apply', version: '0.2.0' });
+      expect(reply.ok).toBe(false);
+      expect(reply.error).toMatch(/no index\.html/);
+      expect((await meta()).version).toBe('0.1.0');
+      expect(mockCaches.caches.has('ae64-app-0.2.0')).toBe(false);
+    });
+
+    it('an index.html that matches its release applies (relative ./assets paths too)', async () => {
+      await current();
+      serve('0.2.0', FILES, { '/index.html': page('./assets/index-new.js') });
+      const reply = await triggerMessage({ type: 'apply', version: '0.2.0' });
+      expect(reply.ok).toBe(true);
+      expect((await meta()).version).toBe('0.2.0');
+    });
+
+    it('a first install with a mismatched index.html fails and leaves no cache or version', async () => {
+      serve('0.2.0', FILES, { '/index.html': page('/assets/index-old.js') });
+      await expect(triggerInstall()).rejects.toThrow(/index-old\.js/);
+      expect(mockCaches.caches.has('ae64-app-0.2.0')).toBe(false);
+      expect(await (await mockCaches.open('ae64-meta')).match('/__ae64_version__')).toBeUndefined();
+    });
+  });
+
   describe('fetch handler', () => {
     it('cache miss falls back to other ae64 caches', async () => {
       // Current cache 0.2.0
@@ -453,5 +624,120 @@ describe('Service Worker (public/sw.js)', () => {
       expect(networkFetch).toHaveBeenCalled();
       expect(await res.text()).toBe('first visit html');
     });
+  });
+});
+
+// WX7 4a, the page side: a lazy chunk that fails to load shows "a newer version is installed" with a reload button, and the
+// page never reloads by itself; a page tells the worker which release it runs.
+describe('WX7 4a: the page after a chunk fails to load', () => {
+  let restore: (() => void) | null = null;
+  let reload: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    reload = vi.fn();
+    const orig = window.location;
+    Object.defineProperty(window, 'location', { value: { ...orig, reload }, writable: true, configurable: true });
+    restore = () => Object.defineProperty(window, 'location', { value: orig, writable: true, configurable: true });
+  });
+  afterEach(() => {
+    restore?.();
+    document.body.innerHTML = '';
+    vi.unstubAllGlobals();
+  });
+
+  const failing = () => Promise.reject(new TypeError('Failed to fetch dynamically imported module: https://ae64.novaseele.com/assets/KeymapPage-old.js'));
+
+  it('a route whose chunk is gone: the note and its button show, the page stays and does not reload', async () => {
+    const router = createRouter({ history: createMemoryHistory(), routes: [
+      { path: '/', component: { template: '<p class="pg">overview</p>' } },
+      { path: '/keymap', component: failing },
+    ] });
+    const update = useUpdateStore();
+    const off = installChunkGuard(router, () => update.noteChunkFailed());
+    await router.push('/');
+    const w = mount(App, { global: { plugins: [router], stubs: { Sidebar: true, TopBar: true, ConnectScreen: true } }, attachTo: document.body });
+    await flushPromises();
+    expect(w.find('[data-test="chunk-failed"]').exists()).toBe(false);
+    await router.push('/keymap').catch(() => undefined);
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe('/'); // the navigation failed, the page stayed
+    const note = w.find('[data-test="chunk-failed"]');
+    expect(note.exists()).toBe(true);
+    expect(note.attributes('role')).toBe('alert');
+    expect(note.text()).toContain(tr('update.chunkFailed'));
+    expect(note.find('button').text()).toBe(tr('update.reloadNow'));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reload).not.toHaveBeenCalled(); // never by itself
+    await note.find('button').trigger('click'); // the user presses it
+    await flushPromises();
+    expect(reload).toHaveBeenCalledTimes(1);
+    w.unmount();
+    off();
+  });
+
+  it('vite:preloadError notes it too (and leaves the event alone); other router errors do not', async () => {
+    const update = useUpdateStore();
+    const handlers: ((e: unknown) => void)[] = [];
+    const off = installChunkGuard({ onError: (h: (e: unknown) => void) => { handlers.push(h); return () => undefined; } } as never, () => update.noteChunkFailed());
+    handlers[0](new Error('a guard threw'));
+    expect(update.chunkFailed).toBe(false);
+    const e = new Event('vite:preloadError', { cancelable: true });
+    window.dispatchEvent(e);
+    expect(update.chunkFailed).toBe(true);
+    expect(e.defaultPrevented).toBe(false);
+    expect(reload).not.toHaveBeenCalled();
+    off();
+    expect(isChunkLoadError(new TypeError('Importing a module script failed.'))).toBe(true); // Safari
+    expect(isChunkLoadError(new TypeError('error loading dynamically imported module: x'))).toBe(true); // Firefox
+    expect(isChunkLoadError(new Error('Unable to preload CSS for /assets/a.css'))).toBe(true);
+    expect(isChunkLoadError(new Error('Navigation cancelled'))).toBe(false);
+  });
+
+  it('a page tells the worker its release, now and when a worker takes control', () => {
+    const listeners: Record<string, () => void> = {};
+    const sw = { controller: { postMessage: vi.fn() }, addEventListener: (t: string, f: () => void) => { listeners[t] = f; } };
+    announceVersion(sw as never, '0.1.0+20261115');
+    expect(sw.controller.postMessage).toHaveBeenCalledWith({ type: 'hello', version: '0.1.0+20261115' });
+    listeners.controllerchange();
+    expect(sw.controller.postMessage).toHaveBeenCalledTimes(2);
+  });
+});
+
+// WX7 4b, the page side: the worker refused the new release (its index.html did not match): the page says the update
+// failed, keeps running, and does not reload.
+describe('WX7 4b: the page after a refused update', () => {
+  it('"Cập nhật thất bại" with the reason, the version unchanged, no reload', async () => {
+    setActivePinia(createPinia());
+    const reload = vi.fn();
+    const orig = window.location;
+    Object.defineProperty(window, 'location', { value: { ...orig, reload }, writable: true, configurable: true });
+    const why = 'index.html of the new release needs /assets/index-old.js, which its release list does not have';
+    const controller = { postMessage: vi.fn((msg: { type: string }, ports: MessagePort[]) => { if (msg.type === 'apply') ports[0].postMessage({ ok: false, error: why }); }) };
+    Object.defineProperty(navigator, 'serviceWorker', { value: { controller, ready: Promise.resolve({}) }, configurable: true });
+    try {
+      const update = useUpdateStore();
+      update.availableInfo = { version: '0.2.0', builtAt: '' };
+      update.state = 'available';
+      await update.apply();
+      expect(update.state).toBe('error');
+      expect(update.applyFailed).toBe(true);
+      expect(reload).not.toHaveBeenCalled();
+      const w = mount(SidebarFooter, { attachTo: document.body });
+      await w.find('.side-foot__btn').trigger('click');
+      await flushPromises();
+      expect(document.body.textContent).toContain(tr('update.applyFailed', { error: why }));
+      expect(document.body.textContent).not.toContain(tr('update.failed', { error: why }));
+      // a check afterwards is a check again
+      update.state = 'error';
+      update.applyFailed = false;
+      await flushPromises();
+      expect(document.body.textContent).toContain(tr('update.failed', { error: why }));
+      w.unmount();
+    } finally {
+      Reflect.deleteProperty(navigator, 'serviceWorker');
+      Object.defineProperty(window, 'location', { value: orig, writable: true, configurable: true });
+      document.body.innerHTML = '';
+    }
   });
 });

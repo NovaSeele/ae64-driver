@@ -238,6 +238,7 @@ export const base = {
   'update.busyCalibration': 'Không thể cập nhật khi đang hiệu chuẩn.',
   'update.deferred': 'Đã tải bản {version}. Sẽ áp dụng khi tải lại trang.',
   'update.reloadNow': 'Tải lại ngay',
+  'update.chunkFailed': 'Đã cài bản mới hơn của ứng dụng, nên trang này không mở được phần vừa chọn. Tải lại trang để dùng bản mới.',
 
   // protocol / hid / client / codec errors
   'error.byteRange': '{field} phải là số nguyên 0–255 (nhận {val}).',

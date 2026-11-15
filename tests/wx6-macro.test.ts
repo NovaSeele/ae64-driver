@@ -10,7 +10,7 @@ import App from '../src/App.vue';
 import MacroPage from '../src/pages/MacroPage.vue';
 import { useToast } from '../src/components/ui/toast';
 import { useDeviceStore } from '../src/stores/device';
-import { useMacroStore } from '../src/stores/macro';
+import { keyboardIdentity, useMacroStore } from '../src/stores/macro';
 import { useSyncStore } from '../src/stores/sync';
 import { locale } from '../src/i18n/locale';
 import { t } from '../src/i18n/vi';
@@ -224,5 +224,78 @@ describe('WX6 U-06: a lost cable', () => {
     expect(macro.carried).toBeNull();
     expect(w!.find('[data-test="macro-carried"]').exists()).toBe(false);
     expect(w!.find('.badge').exists()).toBe(false);
+  });
+});
+
+describe('WX7 0a: macro draft edges (MC1, MC2, MC3, MC5, MC9)', () => {
+  it('a route leave with "Bỏ thay đổi" while connected, then back to Macro: no draft and no note', async () => {
+    await mountApp();
+    await dirtySlot(1);
+    await router.push('/');
+    await flushPromises();
+    expect(dialogs()).toBe(1);
+    dialogButton(t('macro.discard')).click();
+    await until(() => router.currentRoute.value.path === '/');
+    await flushPromises();
+    expect(macro.carried).toBeNull();
+    await router.push('/macro');
+    await until(loadedAll);
+    await flushPromises();
+    await new Promise((r) => setTimeout(r, 50));
+    await flushPromises();
+    expect(w!.find('[data-test="macro-carried"]').exists()).toBe(false);
+    expect(w!.find('.badge').exists()).toBe(false);
+  });
+
+  it('the carried draft saved: the note goes', async () => {
+    await mountApp();
+    const device = useDeviceStore(pinia);
+    await dirtySlot(2);
+    (device.transport as unknown as { unplug(): void }).unplug();
+    await flushPromises();
+    await device.connectDemo('max');
+    await until(loadedAll);
+    await until(() => w!.find('[data-test="macro-carried"]').exists());
+    await pageButton(t('macro.save')).trigger('click');
+    await until(() => toasts().includes(t('macro.saved', { n: 2 })));
+    await flushPromises();
+    expect(w!.find('.badge').exists()).toBe(false);
+    expect(w!.find('[data-test="macro-carried"]').exists()).toBe(false);
+  });
+
+  it('the clear-list dialog open, then Disconnect: no second dialog, still connected', async () => {
+    await mountApp();
+    await dirtySlot(0);
+    await pageButton(t('macro.clearList')).trigger('click');
+    await flushPromises();
+    expect(dialogs()).toBe(1);
+    const device = useDeviceStore(pinia);
+    await device.disconnect({ user: true });
+    await flushPromises();
+    expect(dialogs()).toBe(1);
+    expect(device.connected).toBe(true);
+  });
+
+  it('a save in flight, then Disconnect: the "leave while saving" toast, still connected', async () => {
+    await mountApp();
+    await dirtySlot(0);
+    const device = useDeviceStore(pinia);
+    await pageButton(t('macro.save')).trigger('click');
+    await flushPromises();
+    expect((pageButton(t('macro.add')).element as HTMLButtonElement).disabled).toBe(true); // the save runs
+    await device.disconnect({ user: true });
+    await flushPromises();
+    expect(toasts()).toContain(t('macro.leaveSaving'));
+    expect(device.connected).toBe(true);
+    expect(dialogs()).toBe(0);
+    await until(() => toasts().includes(t('macro.saved', { n: 0 })));
+  });
+
+  it('keyboardIdentity: a real keyboard with an unreadable serial has none', () => {
+    const info = useDeviceStore(pinia).info!;
+    expect(keyboardIdentity({ ...info, serialHex: '00'.repeat(12) }, false)).toBeNull();
+    expect(keyboardIdentity({ ...info, serialHex: 'ff'.repeat(12) }, false)).toBeNull();
+    expect(keyboardIdentity({ ...info, serialHex: '' }, false)).toBeNull();
+    expect(keyboardIdentity({ ...info, serialHex: '0123456789abcdef01234567' }, false)).toBe(`hid:${info.boardIdHex}:0123456789abcdef01234567`);
   });
 });

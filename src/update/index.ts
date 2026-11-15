@@ -8,6 +8,7 @@ import { t as tr } from '../i18n/vi';
 import { isNewerVersion } from './version';
 
 export * from './version';
+export { installChunkGuard, isChunkLoadError } from './chunkGuard';
 
 export type UpdateState = 'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'deferred' | 'error';
 
@@ -33,6 +34,24 @@ export function registerServiceWorker(): void {
   };
   if (document.readyState === 'complete') whenIdle();
   else window.addEventListener('load', whenIdle, { once: true });
+  announceVersion(navigator.serviceWorker);
+}
+
+/**
+ * WX7 4a: tell the worker which release this window runs, now and whenever a worker takes control of it. The worker
+ * keeps that release's cache while the window is open, so its lazy chunks still load after a newer release is applied.
+ */
+export function announceVersion(sw: Pick<ServiceWorkerContainer, 'controller' | 'addEventListener'>, version: string = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : ''): void {
+  if (!version) return;
+  const hello = () => {
+    try {
+      sw.controller?.postMessage({ type: 'hello', version });
+    } catch {
+      // no worker to tell: nothing is pruned without it either
+    }
+  };
+  hello();
+  sw.addEventListener('controllerchange', hello);
 }
 
 export const useUpdateStore = defineStore('update', () => {
@@ -42,6 +61,13 @@ export const useUpdateStore = defineStore('update', () => {
   const error = ref<string | null>(null);
   /** Version downloaded but not yet applied (state 'deferred'). */
   const deferredVersion = ref('');
+  /** The state 'error' came from Update (download), not from a check. */
+  const applyFailed = ref(false);
+  /** WX7 4a: a part of the app did not load (a newer release replaced this one): the page says so, the user reloads. */
+  const chunkFailed = ref(false);
+  function noteChunkFailed(): void {
+    chunkFailed.value = true;
+  }
 
   /** Why the page must not reload now (a reload mid-write or mid-calibration can leave the keyboard half-written). */
   const busyReason = computed<string | null>(() => {
@@ -94,6 +120,7 @@ export const useUpdateStore = defineStore('update', () => {
     if (DESKTOP) return;
     state.value = 'checking';
     error.value = null;
+    applyFailed.value = false;
 
     try {
       const hasSw =
@@ -209,11 +236,13 @@ export const useUpdateStore = defineStore('update', () => {
 
     state.value = 'downloading';
     error.value = null;
+    applyFailed.value = false;
 
     try {
       await sync.flush();
     } catch (err) {
       state.value = 'error';
+      applyFailed.value = true;
       error.value = err instanceof Error ? err.message : String(err);
       return;
     }
@@ -249,7 +278,9 @@ export const useUpdateStore = defineStore('update', () => {
         }
       }
     } catch (err) {
+      // The worker kept the release this page runs (and its version): nothing switched.
       state.value = 'error';
+      applyFailed.value = true;
       error.value = err instanceof Error ? err.message : String(err);
     }
   }
@@ -259,6 +290,9 @@ export const useUpdateStore = defineStore('update', () => {
     state,
     availableInfo,
     deferredVersion,
+    applyFailed,
+    chunkFailed,
+    noteChunkFailed,
     error,
     busyReason,
     check,

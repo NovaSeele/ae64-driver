@@ -1171,6 +1171,8 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
 .quick__chip { height: 20px; min-width: 0; padding: 0; border-radius: 4px; border: 1px solid var(--line-2); cursor: pointer; }
 .quick__chip:disabled { cursor: not-allowed; }
 .quick__chip--on { box-shadow: 0 0 0 2px var(--bg-2), 0 0 0 4px var(--acc); }
+/* the chosen chip already wears an accent ring: focus is a further one, as on the palette swatches */
+.quick__chip:focus-visible { outline: 2px solid var(--fg-1); outline-offset: 4px; }
 .own-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .col .own-actions__all {
   flex-basis: 100%;

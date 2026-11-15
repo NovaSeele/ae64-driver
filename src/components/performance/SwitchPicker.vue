@@ -206,6 +206,7 @@ function apply() {
 .sw-opt:hover { background: var(--bg-4); border-color: var(--line-3); }
 .sw-opt:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
 .sw-opt[aria-checked='true'] { background: var(--sel-bg); border-color: var(--acc); box-shadow: inset 0 0 0 1px var(--acc); }
+.sw-opt[aria-checked='true']:focus-visible { box-shadow: var(--focus-ring), inset 0 0 0 1px var(--acc); }
 .sw-opt__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
 /* maker eyebrow: only when the tab does not already name the maker, never "Unknown" */
 .sw-opt__brand { display: block; font-size: var(--fs-caption); font-weight: 600; line-height: 14px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

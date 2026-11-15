@@ -58,7 +58,7 @@ async function arm(index: number) {
   expect(w!.find('.gp-armed').exists()).toBe(true);
 }
 /** A plain click / tap on a key of the picture (pointerdown on the key, pointerup on the board, no movement). */
-async function clickKey(name: string, mods: { ctrlKey?: boolean } = {}) {
+async function clickKey(name: string, mods: { ctrlKey?: boolean; shiftKey?: boolean } = {}) {
   const el = w!.find(`[data-key="${keyOf(name).id}"]`).element;
   el.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: 5, clientY: 5, ...mods }));
   w!.find('.kb').element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, cancelable: true, button: 0, clientX: 5, clientY: 5, ...mods }));
@@ -143,6 +143,71 @@ describe('WX6 U-04: an armed output takes only a picked key', () => {
     await el.trigger('keydown', { key: 'Enter' });
     await flushPromises();
     expect(nameOfIdx(gp.config!.bindings[Y].key)).toBe('J');
+    expect(w!.find('.gp-armed').exists()).toBe(false);
+  });
+});
+
+describe('WX7 0a: arming edges (GP4, KV1, KV2, KV3)', () => {
+  it('Ctrl-click that adds a key while armed: assigned, and the selection is that key alone', async () => {
+    const { gp, sel } = await open();
+    const Y = controlIndex('Y');
+    sel.selectMany([keyOf('G').id, keyOf('H').id], 'replace'); // two keys: the tile arms (one key would take it at once)
+    await flushPromises();
+    await arm(Y);
+    await clickKey('K', { ctrlKey: true }); // toggles K on
+    expect(nameOfIdx(gp.config!.bindings[Y].key)).toBe('K');
+    expect(sel.ids).toEqual([keyOf('K').id]);
+    expect(w!.find('.gp-armed').exists()).toBe(false);
+  });
+
+  it('Shift+Enter (a range) while armed: nothing assigned, disarmed', async () => {
+    const { gp, sel, history } = await open();
+    const Y = controlIndex('Y');
+    sel.selectMany([keyOf('G').id, keyOf('H').id], 'replace'); // two keys: the tile arms (one key would take it at once)
+    await flushPromises();
+    await arm(Y);
+    const before = JSON.stringify(gp.config!.bindings);
+    const undoBefore = history.undoId;
+    await w!.find(`[data-key="${keyOf('J').id}"]`).trigger('keydown', { key: 'Enter', shiftKey: true });
+    await flushPromises();
+    expect(sel.ids.length).toBeGreaterThan(2); // a range
+    expect(JSON.stringify(gp.config!.bindings)).toBe(before);
+    expect(history.undoId).toBe(undoBefore);
+    expect(w!.find('.gp-armed').exists()).toBe(false);
+  });
+
+  it('Shift-click (a range) while armed: nothing assigned, disarmed', async () => {
+    const { gp, sel, history } = await open();
+    const Y = controlIndex('Y');
+    sel.selectMany([keyOf('G').id, keyOf('H').id], 'replace'); // two keys: the tile arms (one key would take it at once)
+    await flushPromises();
+    await arm(Y);
+    const before = JSON.stringify(gp.config!.bindings);
+    const undoBefore = history.undoId;
+    await clickKey('K', { shiftKey: true });
+    expect(sel.ids.length).toBeGreaterThan(2);
+    expect(JSON.stringify(gp.config!.bindings)).toBe(before);
+    expect(history.undoId).toBe(undoBefore);
+    expect(w!.find('.gp-armed').exists()).toBe(false);
+  });
+
+  it('a drag box over keys while armed: nothing assigned, disarmed', async () => {
+    const { gp, sel, history } = await open();
+    const Y = controlIndex('Y');
+    await arm(Y);
+    const before = JSON.stringify(gp.config!.bindings);
+    const undoBefore = history.undoId;
+    const kb = w!.find('.kb').element;
+    const fire = async (type: string, x: number, y: number) => {
+      kb.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }));
+      await flushPromises();
+    };
+    await fire('pointerdown', 1, 1);
+    await fire('pointermove', 200, 100);
+    await fire('pointerup', 200, 100);
+    expect(sel.ids.length).toBeGreaterThan(0); // the box took keys
+    expect(JSON.stringify(gp.config!.bindings)).toBe(before);
+    expect(history.undoId).toBe(undoBefore);
     expect(w!.find('.gp-armed').exists()).toBe(false);
   });
 });

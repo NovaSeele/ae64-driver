@@ -129,6 +129,7 @@ const hex = (c: number) => `0x${c.toString(16).padStart(4, '0').toUpperCase()}`;
   box-shadow: inset 0 1px 0 var(--cap-hi), inset 0 -2px 0 var(--cap-shade);
   transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
 }
+.op__key:focus-visible { box-shadow: var(--focus-ring), inset 0 1px 0 var(--cap-hi), inset 0 -2px 0 var(--cap-shade); }
 .op__key:hover:not(:disabled) { background: var(--bg-4); border-color: var(--line-3); }
 .op__key:active:not(:disabled) { transform: translateY(1px); }
 .op__key:disabled { opacity: 0.3; cursor: not-allowed; }

@@ -43,6 +43,7 @@ const label = computed(() => (props.code ? keycodeLabel(props.code) : null));
   box-shadow: inset 0 1px 0 var(--cap-hi), inset 0 -2px 0 var(--cap-shade);
   transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
 }
+.os:focus-visible { box-shadow: var(--focus-ring), inset 0 1px 0 var(--cap-hi), inset 0 -2px 0 var(--cap-shade); }
 .os:hover:not(:disabled) { background: var(--bg-4); border-color: var(--line-3); border-left-color: var(--os-acc); }
 .os:active:not(:disabled) { transform: translateY(1px); }
 .os:disabled { opacity: 0.45; cursor: not-allowed; }

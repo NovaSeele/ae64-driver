@@ -215,5 +215,5 @@ function onKey(e: KeyboardEvent) {
 .sl--v .sl__thumb { left: 50%; margin: -8px 0 0 -8px; }
 .sl:not(.sl--drag) .sl__thumb { transition: transform var(--t-fast) var(--ease), top var(--t-fast) var(--ease), left var(--t-fast) var(--ease); }
 .sl:hover .sl__thumb, .sl--drag .sl__thumb { transform: scale(1.12); }
-.sl__thumb:focus-visible { box-shadow: 0 0 0 4px var(--acc-line); }
+.sl__thumb:focus-visible { box-shadow: var(--focus-ring); }
 </style>

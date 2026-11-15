@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { installDropGuard } from './composables/dropGuard';
 import { IconLoader2 } from '@tabler/icons-vue';
 import Sidebar from './components/shell/Sidebar.vue';
 import TopBar from './components/shell/TopBar.vue';
@@ -7,6 +8,8 @@ import ConnectScreen from './components/shell/ConnectScreen.vue';
 import Wallpaper from './components/shell/Wallpaper.vue';
 import { startWallpaper } from './data/wallpaperState';
 import ToastHost from './components/ui/Toast.vue';
+import Button from './components/ui/Button.vue';
+import { useUpdateStore } from './update';
 import { useRoute, useRouter } from 'vue-router';
 import { createSafePad, toastSafeTarget, useToast } from './components/ui/toast';
 import { takeAppcfgDone } from './data/appcfgDone';
@@ -29,6 +32,7 @@ const gamepad = useGamepadStore();
 const firmware = useFirmwareStore();
 const keepPage = computed(() => usbRestarting.value || gamepad.usbBusy || firmware.active);
 const router = useRouter();
+const update = useUpdateStore();
 // A keyboard found in its bootloader (at connect, or after a lost write) opens the firmware page in rescue mode.
 watch(() => firmware.rescue, (on) => {
   if (on) void router.push({ path: '/firmware', query: { rescue: '1' } });
@@ -72,7 +76,10 @@ function pageToTop(): void {
 }
 
 let removeShortcuts: (() => void) | null = null;
+let removeDropGuard: (() => void) | null = null;
 onMounted(() => {
+  // A file dropped outside a drop zone must not open in this tab (it would end the keyboard session).
+  removeDropGuard = installDropGuard();
   // An app-settings import or reset just reloaded the page (DESIGN H §3.6): say it worked, once.
   const done = takeAppcfgDone();
   if (done) useToast().show(t(done === 'import' ? 'appcfg.doneImport' : 'appcfg.doneReset'), 'success');
@@ -88,6 +95,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   removeShortcuts?.();
+  removeDropGuard?.();
   pad.stop();
   narrowMql?.removeEventListener('change', onNarrow);
 });
@@ -98,6 +106,12 @@ onBeforeUnmount(() => {
     <Sidebar v-model:compact="collapsed" />
     <main class="main">
       <Wallpaper />
+      <div v-if="update.chunkFailed" class="main__stale" role="alert" data-test="chunk-failed">
+        <span>{{ t('update.chunkFailed') }}</span>
+        <Button size="sm" variant="primary" :disabled="update.busyReason !== null" :title="update.busyReason ?? undefined" @click="update.reloadNow()">
+          {{ t('update.reloadNow') }}
+        </Button>
+      </div>
       <template v-if="device.connected || keepPage">
         <TopBar />
         <div ref="scroller" class="main__scroll" :style="{ paddingBottom: `${safePad}px`, scrollPaddingBottom: `${toastSafeTarget}px` }">
@@ -154,6 +168,17 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(2px);
   color: var(--fg-1);
   font-size: var(--fs-card);
+}
+.main__stale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-4);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--acc);
+  color: var(--fg-1);
+  font-size: var(--fs-body);
 }
 .main__spin { color: var(--acc); animation: main-spin 0.9s linear infinite; }
 @keyframes main-spin { to { transform: rotate(360deg); } }

@@ -9,15 +9,56 @@ export interface ToastItem { id: number; text: string; kind: ToastKind; action?:
 const items = shallowRef<ToastItem[]>([]);
 let nextId = 1;
 
+/**
+ * Each toast's timer. It is held (cleared, with the time left kept) while the pointer is on the toast or focus is inside
+ * it, so a toast with "Hoàn tác" cannot go away under the hand that reaches for it; it runs on with the time that was
+ * left once both hold reasons are gone.
+ */
+interface Timer { left: number; until: number; handle: ReturnType<typeof setTimeout> | null; holds: Set<'hover' | 'focus'> }
+const timers = new Map<number, Timer>();
+
 function dismiss(id: number): void {
+  const tm = timers.get(id);
+  if (tm?.handle) clearTimeout(tm.handle);
+  timers.delete(id);
   items.value = items.value.filter((x) => x.id !== id);
+}
+
+function run(id: number, tm: Timer): void {
+  tm.until = Date.now() + tm.left;
+  tm.handle = setTimeout(() => dismiss(id), tm.left);
 }
 
 function show(text: string, kind: ToastKind = 'info', ms = kind === 'error' ? 6000 : 3200, action?: ToastAction, title?: string): number {
   const id = nextId++;
-  items.value = [...items.value.filter((x) => x.text !== text), { id, text, kind, action, title }].slice(-4);
-  setTimeout(() => dismiss(id), ms);
+  const next = [...items.value.filter((x) => x.text !== text), { id, text, kind, action, title }].slice(-4);
+  // the toasts that went (same text replaced, or over four): their timers go too
+  for (const old of items.value) if (!next.includes(old)) dismiss(old.id);
+  items.value = next;
+  const tm: Timer = { left: ms, until: 0, handle: null, holds: new Set() };
+  timers.set(id, tm);
+  run(id, tm);
   return id;
+}
+
+/** The pointer is on the toast, or focus is inside it: its timer stops, keeping the time left. */
+function hold(id: number, why: 'hover' | 'focus'): void {
+  const tm = timers.get(id);
+  if (!tm) return;
+  tm.holds.add(why);
+  if (!tm.handle) return;
+  clearTimeout(tm.handle);
+  tm.handle = null;
+  tm.left = Math.max(0, tm.until - Date.now());
+}
+
+/** One hold reason gone; with none left the timer runs on with the time that was left. */
+function release(id: number, why: 'hover' | 'focus'): void {
+  const tm = timers.get(id);
+  if (!tm) return;
+  tm.holds.delete(why);
+  if (tm.holds.size || tm.handle) return;
+  run(id, tm);
 }
 
 /** Bottom padding the page scroller needs while toasts are open (stack height + its 20 px bottom offset + 16 px; 0 when none). Published by Toast.vue. */
@@ -86,5 +127,5 @@ export async function revealAboveToast(target: Target | (() => Target)): Promise
 }
 
 export function useToast() {
-  return { items, show, dismiss };
+  return { items, show, dismiss, hold, release };
 }

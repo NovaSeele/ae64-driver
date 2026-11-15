@@ -235,6 +235,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'update.busyCalibration': 'Cannot update while calibration is running.',
   'update.deferred': 'Downloaded {version}. It applies when the page reloads.',
   'update.reloadNow': 'Reload now',
+  'update.chunkFailed': 'A newer version of the app is installed, so this page could not open what you chose. Reload the page to use the new version.',
 
   // protocol / hid / client / codec errors
   'error.byteRange': '{field} must be an integer 0–255 (got {val}).',

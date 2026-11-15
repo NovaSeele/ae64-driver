@@ -9,7 +9,7 @@ import { installFirmwareGuard, router } from './router';
 import { useFirmwareStore } from './stores/firmware';
 import { locale } from './i18n/locale';
 import './theme';
-import { registerServiceWorker } from './update';
+import { installChunkGuard, registerServiceWorker, useUpdateStore } from './update';
 import { CLOSE_BLOCKED_EVENT, installDesktopCloseGuard } from './data/desktopClose';
 import { useCalibrationStore } from './stores/calibration';
 
@@ -21,6 +21,8 @@ registerServiceWorker();
 
 const pinia = createPinia();
 const app = createApp(App).use(pinia);
+// WX7 4a: a lazy chunk that fails to load shows "a newer version is installed" with a reload button; never a reload.
+installChunkGuard(router, () => useUpdateStore(pinia).noteChunkFailed());
 installFirmwareGuard(router, () => {
   const fw = useFirmwareStore(pinia);
   return { enabled: fw.enabled, active: fw.active, rescue: fw.rescue };

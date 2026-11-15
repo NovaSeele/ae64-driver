@@ -64,6 +64,14 @@ a {
   box-shadow: var(--focus-ring);
 }
 
+/* Windows high contrast / forced colours drop box shadows: draw the ring as an outline in the system colour. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 2px;
+  }
+}
+
 ::selection {
   background: var(--acc-soft);
 }

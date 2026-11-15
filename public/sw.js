@@ -4,6 +4,8 @@
 
 const META_CACHE = 'ae64-meta';
 const META_KEY = '/__ae64_version__';
+/** { [clientId]: version } of the open windows: each page says which release it runs (message 'hello'). */
+const WINDOWS_KEY = '/__ae64_windows__';
 
 function parseVersion(v) {
   if (!v || typeof v !== 'string') return null;
@@ -120,6 +122,87 @@ function normalizePath(p) {
   return p.startsWith('/') ? p : `/${p}`;
 }
 
+/**
+ * WX7 4a: the windows that are open, each with the release it runs. A window keeps loading lazy chunks of its own
+ * release, so that release's cache stays while the window does, even after newer releases were applied.
+ */
+let windowsChain = Promise.resolve();
+function withWindows(fn) {
+  const run = windowsChain.then(fn);
+  windowsChain = run.catch(() => undefined);
+  return run;
+}
+
+async function openWindowIds() {
+  try {
+    if (!self.clients || typeof self.clients.matchAll !== 'function') return null;
+    const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    return new Set(list.map((c) => c.id));
+  } catch {
+    return null;
+  }
+}
+
+async function readWindows() {
+  try {
+    const cache = await caches.open(META_CACHE);
+    const res = await cache.match(WINDOWS_KEY);
+    const data = res ? await res.json() : null;
+    return data && typeof data === 'object' ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeWindows(map) {
+  const cache = await caches.open(META_CACHE);
+  await cache.put(WINDOWS_KEY, new Response(JSON.stringify(map), { headers: { 'Content-Type': 'application/json' } }));
+}
+
+/** The versions the open windows run; windows that closed are forgotten on the way. */
+function liveWindowVersions() {
+  return withWindows(async () => {
+    const map = await readWindows();
+    const open = await openWindowIds();
+    if (!open) return new Set(Object.values(map)); // cannot tell which are open: keep them all
+    const next = {};
+    for (const [id, v] of Object.entries(map)) if (open.has(id)) next[id] = v;
+    if (Object.keys(next).length !== Object.keys(map).length) {
+      try { await writeWindows(next); } catch {}
+    }
+    return new Set(Object.values(next));
+  });
+}
+
+function rememberWindow(id, version) {
+  return withWindows(async () => {
+    const map = await readWindows();
+    if (map[id] === version) return;
+    map[id] = version;
+    await writeWindows(map);
+  });
+}
+
+/**
+ * WX7 4b: the cached index.html must point only at files of the same release. A CDN edge that still served the old
+ * index.html (or a new one with an asset missing) would otherwise switch the app to a page that cannot start.
+ * Throws when the page is missing, or one of its /assets/ files is not in the release list or not in the cache.
+ */
+async function checkCachedIndex(cache, files) {
+  const listed = new Set(files.map(normalizePath));
+  const res = await cache.match('/index.html');
+  if (!res) throw new Error('The new release has no index.html in its cache');
+  const html = await res.text();
+  const refs = new Set();
+  const re = /(?:src|href)\s*=\s*["']?((?:\/|\.\/)?assets\/[^"'\s>?#]+)/gi;
+  let m;
+  while ((m = re.exec(html))) refs.add(normalizePath(m[1].replace(/^\.\//, '')));
+  for (const ref of refs) {
+    if (!listed.has(ref)) throw new Error(`index.html of the new release needs ${ref}, which its release list does not have`);
+    if (!(await cache.match(ref))) throw new Error(`index.html of the new release needs ${ref}, which did not download`);
+  }
+}
+
 async function matchInCache(cache, request, url) {
   if (request.mode === 'navigate') {
     return (
@@ -145,8 +228,15 @@ self.addEventListener('install', (event) => {
         if (!release || !release.version || !Array.isArray(release.files)) {
           throw new Error('Invalid release.json manifest');
         }
-        const appCache = await caches.open(`ae64-app-${release.version}`);
-        await appCache.addAll(freshRequests(release.files));
+        const name = `ae64-app-${release.version}`;
+        const appCache = await caches.open(name);
+        try {
+          await appCache.addAll(freshRequests(release.files));
+          await checkCachedIndex(appCache, release.files);
+        } catch (err) {
+          await caches.delete(name).catch(() => undefined);
+          throw err; // the worker does not install; the page keeps running from the network
+        }
         await setCurrentVersion(release.version);
       }
       await self.skipWaiting();
@@ -177,6 +267,7 @@ self.addEventListener('activate', (event) => {
       const keep = new Set([META_CACHE]);
       if (current) keep.add(`ae64-app-${current}`);
       if (previous) keep.add(`ae64-app-${previous}`);
+      for (const v of await liveWindowVersions()) keep.add(`ae64-app-${v}`);
 
       await Promise.all(
         keys.map((k) => {
@@ -247,10 +338,19 @@ self.addEventListener('fetch', (event) => {
 });
 
 self.addEventListener('message', (event) => {
-  const port = event.ports && event.ports[0];
-  if (!port || !event.data || typeof event.data !== 'object') return;
-
+  if (!event.data || typeof event.data !== 'object') return;
   const { type } = event.data;
+
+  // A page says which release it runs (no reply).
+  if (type === 'hello') {
+    const id = event.source && event.source.id;
+    const version = event.data.version;
+    if (id && typeof version === 'string' && version) event.waitUntil(rememberWindow(id, version).catch(() => undefined));
+    return;
+  }
+
+  const port = event.ports && event.ports[0];
+  if (!port) return;
 
   if (type === 'check') {
     event.waitUntil(
@@ -312,15 +412,18 @@ self.addEventListener('message', (event) => {
           const newCache = await caches.open(newCacheName);
           newCacheCreated = true;
           await newCache.addAll(freshRequests(release.files));
+          // The new index.html must start: every file it loads is in this release and in the new cache.
+          await checkCachedIndex(newCache, release.files);
 
           // Switch current version and record previous
           await setCurrentVersion(latest, current);
 
-          // Prune caches: keep current + previous, prune older ones
+          // Prune caches: keep the new one, the one before it, and every release an open window still runs
           const keepCaches = new Set([META_CACHE, newCacheName]);
           if (current) {
             keepCaches.add(`ae64-app-${current}`);
           }
+          for (const v of await liveWindowVersions()) keepCaches.add(`ae64-app-${v}`);
           const keys = await caches.keys();
           for (const k of keys) {
             if (k.startsWith('ae64-app-') && !keepCaches.has(k)) {

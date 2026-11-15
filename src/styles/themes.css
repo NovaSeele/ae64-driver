@@ -711,7 +711,9 @@
   --glass: color-mix(in srgb, var(--bg-0) 82%, transparent);
   /* cards and page-level panels (DESIGN J §6): bg-2, or bg-2 at --panel-pct over a wallpaper (below) */
   --panel: var(--bg-2);
-  --focus-ring: 0 0 0 2px var(--acc-line);
+  /* the keyboard focus ring: the opaque accent (>= 3:1 on every surface and keycap of every theme, tests/wx7-focus.test.ts;
+     a custom accent is kept at >= 4.5:1 on bg-0..bg-2 by accent.ts) */
+  --focus-ring: 0 0 0 2px var(--acc);
 
   /* feature identity (sidebar tiles, rail, page title icon) */
   --f-overview: var(--fg-3);

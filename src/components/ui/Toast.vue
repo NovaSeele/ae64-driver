@@ -1,11 +1,21 @@
 <script setup lang="ts">
 // Toast host — mount once (App.vue). Show toasts with useToast().show(text, kind).
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { IconAlertTriangle, IconCircleCheck, IconInfoCircle, IconX } from '@tabler/icons-vue';
 import { toastSafeTarget, toastSafeVersion, useToast } from './toast';
 import { t } from '../../i18n/vi';
 
-const { items, dismiss } = useToast();
+const { items, dismiss, hold, release } = useToast();
+// One polite and one assertive live region, present from mount: a region created together with its text is often not
+// read at all. Each toast's text is added to the right one; the visible toasts carry no role of their own.
+const polite = computed(() => items.value.filter((x) => x.kind !== 'error'));
+const assertive = computed(() => items.value.filter((x) => x.kind === 'error'));
+/** Focus left the toast (not just moved between its buttons). */
+function focusOut(id: number, e: FocusEvent): void {
+  const to = e.relatedTarget as Node | null;
+  if (to && (e.currentTarget as HTMLElement).contains(to)) return;
+  release(id, 'focus');
+}
 // While a toast is open, App.vue pads the page scroller by the stack height + 20 + 16 px (toastSafeTarget) so nothing stays under it.
 const stack = ref<HTMLElement | null>(null);
 let ro: ResizeObserver | null = null;
@@ -29,9 +39,24 @@ const ICONS = { info: IconInfoCircle, success: IconCircleCheck, warn: IconAlertT
 </script>
 
 <template>
+  <div class="sr-only" role="status" aria-live="polite" data-test="toast-live">
+    <p v-for="it in polite" :key="it.id">{{ it.text }}</p>
+  </div>
+  <div class="sr-only" aria-live="assertive" data-test="toast-alert">
+    <p v-for="it in assertive" :key="it.id">{{ it.text }}</p>
+  </div>
   <div ref="stack" class="toasts">
     <TransitionGroup name="toast">
-      <div v-for="it in items" :key="it.id" class="toast" :class="`toast--${it.kind}`" :role="it.kind === 'error' ? 'alert' : 'status'">
+      <div
+        v-for="it in items"
+        :key="it.id"
+        class="toast"
+        :class="`toast--${it.kind}`"
+        @mouseenter="hold(it.id, 'hover')"
+        @mouseleave="release(it.id, 'hover')"
+        @focusin="hold(it.id, 'focus')"
+        @focusout="focusOut(it.id, $event)"
+      >
         <component :is="ICONS[it.kind]" class="toast__icon" :size="18" stroke-width="1.5" aria-hidden="true" />
         <span class="toast__text" :class="{ 'toast__text--clip': it.title }" :title="it.title">{{ it.text }}</span>
         <button v-if="it.action" type="button" class="toast__act" :aria-label="it.action.ariaLabel" @click="it.action.run(); dismiss(it.id)">{{ it.action.label }}</button>

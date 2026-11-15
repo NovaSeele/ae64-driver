@@ -1,7 +1,7 @@
 # Architecture
 
 AE64 Control is a Vite + Vue 3 + TypeScript + Pinia app that talks to a keyboard of the Everglide AE64 family (AE64 Max, board 0030000d, and AE64 Pro, board 0030000a) over WebHID. `src/protocol/model.ts` is the one place that tells the two apart; switch catalogs are per board (`src/data/switches-<board>.json`, `switchCatalogFor(board)`).
-Everything runs locally; there are no network calls besides the app's own origin.
+Everything runs locally. The app itself makes no network calls besides its own origin. One third-party script does run on the hosted site: Cloudflare Web Analytics, which Cloudflare injects into the page at its edge (not part of this repo). Its beacon loads from `https://static.cloudflareinsights.com` (`/beacon.min.js/v<hash>`) and reports page-view and timing statistics to `/cdn-cgi/rum` on this origin (see the Content-Security-Policy notes below). The desktop build and a local `vite preview` have no beacon. Whether to keep it is the owner's decision; it is turned off in the Cloudflare dashboard, not in this repo.
 
 ## Folder map
 
