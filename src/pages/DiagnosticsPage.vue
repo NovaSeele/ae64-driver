@@ -18,6 +18,7 @@ import { formatBuildTime, useDiagnosticsStore } from '../stores/diagnostics';
 import type { ImportDiff, RestoreKey } from '../stores/diagnostics';
 import { LAYER_NAMES } from '../stores/keymap';
 import { keycodeLabel } from '../protocol';
+import { locksAvailable } from '../protocol/tabLock';
 import type { PacketLogEntry } from '../protocol';
 import { t } from '../i18n/vi';
 
@@ -85,6 +86,8 @@ const stats = computed(() => {
   return { lastLatencyMs: 0, avgLatencyMs: 0, requests: 0, timeouts: 0, ...device.transport?.stats };
 });
 const readOnly = computed(() => !device.boardAllowed);
+/** W-11: without Web Locks the page cannot tell whether the keyboard is also open in another tab (said once, here). */
+const noTabCheck = !locksAvailable();
 
 // Feature chips
 const features = computed(() => {
@@ -279,6 +282,7 @@ async function doRestore() {
             <dd class="num">{{ device.info ? `${device.info.type} / ${device.info.subType}` : '—' }}</dd>
           </div>
         </dl>
+        <p v-if="noTabCheck && !device.demo" class="diag-warn" data-test="no-tab-lock">{{ t('diagnostics.noTabLock') }}</p>
       </Card>
 
       <!-- 2. Feature Bitmap -->

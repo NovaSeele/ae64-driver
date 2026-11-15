@@ -113,6 +113,8 @@ const firmware = computed(() => (inBoot.value ? '—' : device.info?.firmware ??
 const closeAsk = ref(false);
 const onCloseBlocked = (): void => { closeAsk.value = fw.active; };
 onMounted(() => window.addEventListener(CLOSE_BLOCKED_EVENT, onCloseBlocked));
+// W-11: another window running a firmware session or rescue mode: this page offers no write.
+onMounted(() => { if (!fw.active) void fw.checkOtherWindow(); });
 onBeforeUnmount(() => window.removeEventListener(CLOSE_BLOCKED_EVENT, onCloseBlocked));
 watch(() => fw.active, (on) => { if (!on) closeAsk.value = false; });
 function closeAnyway(): void {

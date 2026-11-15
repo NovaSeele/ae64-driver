@@ -4,6 +4,7 @@ import type { Ae64Transport, Bytes } from './types';
 import { CONFIG_USAGE, CONFIG_USAGE_PAGE, FW_PROBE_FILTER, HID_FILTERS, REPORT_ID, VENDOR_ID } from './constants';
 import { BaseTransport, TransportTimeoutError, replyMatches } from './client';
 import type { FwPort } from './fwPort';
+import { TabLockedError, deviceLockName, takeLock } from './tabLock';
 import { t as tr } from '../i18n/vi';
 
 /** Quiet period after a timeout: late replies to the timed-out request are dropped before the next one. */
@@ -55,11 +56,14 @@ export class HidTransport extends BaseTransport {
   private quietUntil = 0;
   /** close() was called: this connection is over, whoever owns the device (W-13). */
   private closed = false;
+  /** This connection's share of the page's lock on the device (W-11): released when it closes or the device leaves. */
+  private unlock: (() => void) | null = null;
   private readonly onReport = (e: HIDInputReportEvent) => this.handleReport(e);
   private readonly onHidDisconnect = (e: HIDConnectionEvent) => {
     if (e.device !== this.device) return;
     this.failPending(new Error(tr('error.disconnected')));
     this.teardown();
+    this.dropLock();
     this.emitDisconnect();
   };
 
@@ -112,6 +116,26 @@ export class HidTransport extends BaseTransport {
    * when this connection owns it and no other open connection of this page uses it (that one becomes the owner).
    */
   async close(): Promise<void> {
+    try {
+      await this.closeDevice();
+    } finally {
+      this.dropLock(); // after the device is closed: another page never opens it while this one still has it open
+    }
+  }
+
+  /** Keeps the device lock share taken before open() (W-11). */
+  holdLock(unlock: () => void): void {
+    this.dropLock();
+    this.unlock = unlock;
+  }
+
+  private dropLock(): void {
+    const u = this.unlock;
+    this.unlock = null;
+    u?.();
+  }
+
+  private async closeDevice(): Promise<void> {
     this.closed = true;
     this.failPending(new Error(tr('error.connectionClosed')));
     this.teardown();
@@ -179,15 +203,20 @@ export class HidTransport extends BaseTransport {
 }
 
 async function openDevice(device: HIDDevice, opts: { probeOnly?: boolean } = {}): Promise<HidTransport> {
+  // W-11: the page's lock on this USB product first; held by another tab or window, the device is not opened and nothing is sent.
+  const unlock = await takeLock(deviceLockName(device.vendorId, device.productId));
+  if (!unlock) throw new TabLockedError(device.productId);
   const t = new HidTransport(device, opts);
   try {
     await t.open();
   } catch (err) {
+    unlock();
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(/open|access|denied/i.test(msg)
       ? tr('error.openFailedOtherApp')
       : msg);
   }
+  t.holdLock(unlock);
   return t;
 }
 
@@ -303,8 +332,15 @@ export class HidFwPort implements FwPort {
     const d = t.hidDevice;
     this.mine.delete(t);
     if (this.open.get(d) === t) this.open.delete(d);
-    await t.close().catch(() => undefined);
-    const fresh = await openDevice(d, { probeOnly: t.probeOnly });
+    // The page keeps its lock on the device between the close and the new open (W-11).
+    const bridge = await takeLock(deviceLockName(d.vendorId, d.productId));
+    let fresh: HidTransport;
+    try {
+      await t.close().catch(() => undefined);
+      fresh = await openDevice(d, { probeOnly: t.probeOnly });
+    } finally {
+      bridge?.();
+    }
     // The app's connection from now on: list() returns it (no second transport on the device), release() never closes it.
     this.open.set(d, fresh);
     fresh.onDisconnect(() => { if (this.open.get(d) === fresh) this.open.delete(d); });

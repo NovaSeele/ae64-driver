@@ -52,8 +52,11 @@ export const APP_SETTINGS: readonly AppSetting[] = [
   { key: 'ae64.sidebarCollapsed', group: 'sidebar', valid: isFlag01 },
   { key: 'ae64.demoModel', group: 'demo', valid: isDemoSeed },
 ];
-/** localStorage, never exported, imported or reset: which keyboard this browser connected last (auto-reconnect). */
-export const NOT_EXPORTED = ['ae64.lastDevice'] as const;
+/**
+ * localStorage, never exported, imported or reset: which keyboard this browser connected last (auto-reconnect), and the keyboard
+ * this app put into calibration with no stop answered yet (W-12: the next connection stops it; a reset must not forget it).
+ */
+export const NOT_EXPORTED = ['ae64.lastDevice', 'ae64.calibrating'] as const;
 /**
  * localStorage caches derived from a key of the table (DESIGN J §3.8): never exported (not in APP_SETTINGS), refused in an
  * imported file (an unknown key), removed by an import (with the keys it writes) and by a reset.

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { IconArrowsExchange, IconPlugConnectedX } from '@tabler/icons-vue';
+import Button from '../ui/Button.vue';
 import IconButton from '../ui/IconButton.vue';
 import Segmented from '../ui/Segmented.vue';
 import { useCalibrationStore } from '../../stores/calibration';
@@ -57,6 +58,10 @@ const fwStatus = computed(() => (firmware.active ? t(firmware.rescue ? 'fw.cardR
       <IconButton v-if="device.connected && !compact" :icon="IconPlugConnectedX" :label="t('device.disconnect')" size="sm" :disabled="locked" :title="calibratingTitle ?? t('device.disconnect')" @click="device.disconnect({ user: true })" />
     </div>
     <Segmented v-if="device.connected && device.demo && !compact" v-model="demoModel" :options="demoModels" :label="t('device.demoModel')" size="sm" :disabled="locked" :title="calibratingTitle" />
+    <div v-if="device.staleCalibration && !compact" class="dc__stale" role="alert" data-test="stale-calibration">
+      <p>{{ t('calibration.leftStopFailedShort') }}</p>
+      <Button size="sm" @click="device.retryLeftCalibration()">{{ t('calibration.leftRetry') }}</Button>
+    </div>
     <dl v-if="device.info && !compact && !fwStatus" class="dc__meta">
       <div><dt class="micro">{{ t('device.firmware') }}</dt><dd class="num">{{ device.info.firmware }}</dd></div>
       <div><dt class="micro">{{ t('device.board') }}</dt><dd class="num">{{ device.info.boardIdHex.toUpperCase() }}</dd></div>
@@ -74,6 +79,8 @@ const fwStatus = computed(() => (firmware.active ? t(firmware.rescue ? 'fw.cardR
   border-radius: var(--r-card);
   background: var(--bg-2);
 }
+.dc__stale { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-2); }
+.dc__stale p { margin: 0; font-size: var(--fs-label); line-height: 18px; color: var(--danger); }
 .dc--compact {
   padding: 0;
   border: 0;

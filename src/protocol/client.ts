@@ -285,6 +285,14 @@ export abstract class BaseTransport implements Ae64Transport {
     return this.calibrationLock;
   }
 
+  /**
+   * W-12: the keyboard may be calibrating from an earlier page. Writes are refused (but "stop calibration") until a stop is
+   * answered, as after `02 06 00`. Sends nothing.
+   */
+  lockCalibration(): void {
+    this.calibrationLock = true;
+  }
+
   async getLightingAreas(): Promise<LightingAreas> {
     return c.decodeLightingAreas(await this.request([FAMILY.GLOBAL, 0x08, 0x00]));
   }

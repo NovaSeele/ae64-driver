@@ -33,8 +33,22 @@ const router = useRouter();
 watch(() => firmware.rescue, (on) => {
   if (on) void router.push({ path: '/firmware', query: { rescue: '1' } });
 });
-const collapsed = ref(localStorage.getItem(SIDEBAR_KEY) === '1');
-watch(collapsed, (v) => localStorage.setItem(SIDEBAR_KEY, v ? '1' : '0'));
+// Storage may throw (blocked site data, some private windows): the sidebar then opens expanded and is not remembered (W-14).
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+const collapsed = ref(readCollapsed());
+watch(collapsed, (v) => {
+  try {
+    localStorage.setItem(SIDEBAR_KEY, v ? '1' : '0');
+  } catch {
+    // not remembered
+  }
+});
 
 // Below this width the sidebar folds into the rail so the page keeps its room.
 const NARROW_QUERY = '(max-width: 1249px)';

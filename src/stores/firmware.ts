@@ -13,6 +13,7 @@ import { FW_BOARD_PRO, FW_MAX_FILE, checkFile, serialReadable } from '../protoco
 import type { FwCheck, KnownFw } from '../protocol/firmware';
 import type { FwPort } from '../protocol/fwPort';
 import { HidFwPort } from '../protocol/hid';
+import { FIRMWARE_LOCK, heldElsewhere, takeLock } from '../protocol/tabLock';
 import { MockTransport } from '../protocol/mock';
 import { MockBootloader } from '../protocol/mockFirmware';
 import type { DemoSeed } from '../protocol/mock';
@@ -96,6 +97,13 @@ export const useFirmwareStore = defineStore('firmware', () => {
    * "Search again", on the next "Allow…", when the session attaches, and wherever wrongDevice is cleared.
    */
   const notAnswered = ref(false);
+  /**
+   * W-11: another tab or window of the app holds the firmware lock (it runs a session or rescue mode): this page offers no write
+   * ("Start", "Write firmware") until "Try again" finds the lock free.
+   */
+  const otherWindow = ref(false);
+  /** > 0 while the firmware lock is being asked for: no write meanwhile. */
+  const lockAsking = ref(0);
   /** "Allow…" (or the search) found an AE64 Pro bootloader with another serial: the page offers rescue mode on it (W-06). */
   const otherSerial = ref(false);
   /** The step the session was in when the keyboard was lost (to mark that row failed). */
@@ -128,6 +136,8 @@ export const useFirmwareStore = defineStore('firmware', () => {
   /** The first run-mode-0 answer of the enter check (ms). */
   let zeroAt: number | null = null;
   let wakeLock: { release(): Promise<void>; released?: boolean } | null = null;
+  /** This page's firmware lock (W-11): from start() to the end of the session, and while rescue mode is open (real keyboards). */
+  let fwUnlock: (() => void) | null = null;
   /** Bumped whenever a session ends or restarts: callbacks of an older one do nothing. */
   let epoch = 0;
   /** Bumped by every start and rescue write, at the press: a file read that was out meanwhile is dropped (W-13). */
@@ -141,6 +151,40 @@ export const useFirmwareStore = defineStore('firmware', () => {
     } catch {
       // storage unavailable: on for this page only
     }
+  }
+
+  /** Takes the firmware lock for this page (true when held, or when the browser has no Web Locks). */
+  async function takeFwLock(): Promise<boolean> {
+    if (fwUnlock) return true;
+    lockAsking.value++;
+    const u = await takeLock(FIRMWARE_LOCK).finally(() => { lockAsking.value--; });
+    if (!u) {
+      otherWindow.value = true;
+      return false;
+    }
+    fwUnlock = u;
+    otherWindow.value = false;
+    return true;
+  }
+
+  function dropFwLock(): void {
+    const u = fwUnlock;
+    fwUnlock = null;
+    u?.();
+  }
+
+  /** The page opens, or "Try again": is another window updating firmware now? */
+  async function checkOtherWindow(): Promise<void> {
+    if (fwUnlock) {
+      otherWindow.value = false;
+      return;
+    }
+    // rescue mode open without the lock: take it now (no write until it is held)
+    if (rescue.value && !isDemo) {
+      await takeFwLock();
+      return;
+    }
+    otherWindow.value = await heldElsewhere(FIRMWARE_LOCK);
   }
 
   const known = computed<KnownFw | null>(() => file.value?.check?.known ?? null);
@@ -164,11 +208,11 @@ export const useFirmwareStore = defineStore('firmware', () => {
   const deviceBoard = computed<number | null>(() => (rescue.value ? rescueBoard.value : useDeviceStore().info?.boardId ?? null));
   const isPro = computed(() => deviceBoard.value === FW_BOARD_PRO);
   const canStart = computed(() => !active.value && isPro.value && fileOk.value && typedOk(typed.value)
-    && (!needsRisk.value || riskOk.value) && !busy.value && useDeviceStore().connected);
+    && (!needsRisk.value || riskOk.value) && !busy.value && useDeviceStore().connected && !otherWindow.value);
   // bootTick is read first: `boot` is not reactive, so the computed must depend on the tick whatever it short-circuits on
   // (after the rescue bootloader left and another opened, the button stayed off).
   const canRescueWrite = computed(() => bootTick.value >= 0 && rescue.value && phase.value === 'rescue' && !!boot && boot.connected
-    && rescueBoard.value === FW_BOARD_PRO && fileOk.value && !rescueRefused.value && (!needsRisk.value || riskOk.value));
+    && rescueBoard.value === FW_BOARD_PRO && fileOk.value && !rescueRefused.value && (!needsRisk.value || riskOk.value) && !otherWindow.value && lockAsking.value === 0);
   /** Bumped when the rescue bootloader comes or goes (canRescueWrite reads `boot`, which is not reactive). */
   const bootTick = ref(0);
   /** The session's bootloader connection is there (packetFail / verifyFail: "Write again" needs it). */
@@ -269,6 +313,8 @@ export const useFirmwareStore = defineStore('firmware', () => {
     notAnswered.value = false;
     sent.value = 0;
     lostIn.value = null;
+    // 0. one window at a time (W-11): the firmware lock, for a real keyboard
+    if (!device.demo && !(await takeFwLock())) return preflightFail({ key: 'fw.err.otherWindow' });
     // 1. the typed name and the risk box, again at the press
     if (!typedOk(typed.value) || (needsRisk.value && !riskOk.value)) return preflightFail(null);
     // 2. nothing to write, pending or running
@@ -320,6 +366,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
 
   function preflightFail(msg: FwMessage | null): void {
     stopTimers();
+    dropFwLock();
     releaseExclusive?.();
     releaseExclusive = null;
     ticket = null;
@@ -609,7 +656,10 @@ export const useFirmwareStore = defineStore('firmware', () => {
       // set before the unlock, so the page never shows the other message
       if (!ok && mine === epoch) onNotAdopted?.();
     } finally {
-      if (mine === epoch) active.value = false; // (init found a bootloader: openRescue took over)
+      if (mine === epoch) {
+        active.value = false; // (init found a bootloader: openRescue took over)
+        dropFwLock();
+      }
     }
     return ok;
   }
@@ -706,11 +756,16 @@ export const useFirmwareStore = defineStore('firmware', () => {
     sent.value = 0;
     lostIn.value = null;
     watchBoot(t);
+    // W-11: rescue mode holds the firmware lock (a session's own rescue already has it); no write until it is held. Without it
+    // the page shows rescue mode with no write, and says another window is updating firmware.
+    if (!isDemo && !fwUnlock) void takeFwLock();
   }
 
   /** "Write firmware" in rescue mode: a session on the bootloader (its own `01 02`), then the same steps. */
   async function rescueWrite(): Promise<void> {
     if (!canRescueWrite.value || !boot || !file.value?.bytes) return;
+    // the lock was taken when rescue mode opened; a backstop only (no await when held: the press stays synchronous, W-13)
+    if (!isDemo && !fwUnlock && (!(await takeFwLock()) || !canRescueWrite.value || !boot || !file.value?.bytes)) return;
     starts++;
     const t = boot;
     error.value = null;
@@ -802,7 +857,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
       releaseHistory = null;
     }
     if (typeof window === 'undefined') return;
-    holdWindowClose(on); // the desktop app: a window close asks first (no-op on the web)
+    holdWindowClose(on || useCalibrationStore().holdsWindow); // the desktop app: a window close asks first (no-op on the web)
     if (on) {
       window.addEventListener('beforeunload', onBeforeUnload);
       document.addEventListener('visibilitychange', onVisible);
@@ -853,7 +908,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
   }
 
   return {
-    enabled, active, rescue, phase, file, typed, riskOk, sent, total, error, wrongDevice, notAnswered, otherSerial, rescueBoard, doneVersion, port,
+    enabled, active, rescue, phase, file, typed, riskOk, sent, total, error, wrongDevice, notAnswered, otherWindow, checkOtherWindow, otherSerial, rescueBoard, doneVersion, port,
     rows, known, fileOk, needsRisk, officialOnly, rescueRefused, busy, isPro, canStart, canRescueWrite, deviceBoard, bootLive,
     canChoose, setEnabled, chooseFile, start, allow, continueRescue, retry, findAgain, rescueWrite, openRescue, clear,
     /** Test hook: wait for queued microtasks of the store. */

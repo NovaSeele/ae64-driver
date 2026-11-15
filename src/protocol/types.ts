@@ -111,6 +111,8 @@ export interface Ae64Transport {
   getSystemMode(): Promise<number>; setSystemMode(mode: number): Promise<void>;
   getPollingRates(): Promise<number[]>; getPollingRate(): Promise<number>; setPollingRate(value: number): Promise<void>;
   startCalibration(): Promise<void>; stopCalibration(): Promise<void>;
+  /** W-12: refuse writes (but "stop calibration") as while calibrating, until a stop is answered. Sends nothing. */
+  lockCalibration(): void;
   getLightingAreas(): Promise<LightingAreas>;
   getRtPrecision(): Promise<number>;               // mm, e.g. 0.001
   getRgbSleep(): Promise<number>; setRgbSleep(minutes: number): Promise<void>;

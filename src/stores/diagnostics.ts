@@ -6,7 +6,7 @@ import {
 } from '../protocol';
 import type {
   AdvancedRecord, KeyPos, LedRecord, LightingBase, MacroAction, MacroMeta,
-  PaletteEntry, Performance,
+  PaletteEntry, Performance, SaveGroup,
 } from '../protocol';
 import { BLOCKED_KEYCODES, UnsafeCommandError, checkFrame, checkPerformanceWrite, isWritableKeycode } from '../protocol/safety';
 import { restoreFrames } from '../protocol/client';
@@ -500,7 +500,9 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
           let putBack: (() => Promise<void>)[] = [];
           /** Factory keys this section wrote over: never written back (the guard refuses their codes). */
           let factoryHit: FactoryOverwrite[] = [];
-          const begin = (s: Section) => { section = s; putBack = []; factoryHit = []; };
+          /** The section's commit (save group) once it was sent: a failure there may come after the keyboard saved. */
+          let committing: number | null = null;
+          const begin = (s: Section) => { section = s; putBack = []; factoryHit = []; committing = null; };
           try {
             // 1. Keymap (only changed keys)
             if (plan.keys.length) {
@@ -513,6 +515,7 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
                 else if (was !== undefined) putBack.push(() => t.setKeycode(key, was, k.layer));
                 await t.setKeycode(key, k.code, k.layer);
               }
+              committing = SAVE_GROUP.LAYOUT;
               await t.commit(SAVE_GROUP.LAYOUT);
               done.push('keymap');
             }
@@ -526,6 +529,7 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
                 putBack.push(() => t.setPerformance(key, fresh));
                 await t.setPerformance(key, mergePerf(fresh, p.next));
               }
+              committing = SAVE_GROUP.PERFORMANCE;
               await t.commit(SAVE_GROUP.PERFORMANCE);
               done.push('performance');
             }
@@ -562,7 +566,14 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
             const msg = err instanceof Error ? err.message : String(err);
             const parts: string[] = [];
             if (done.length) parts.push(tr('diagnostics.restoreDoneList', { list: done.map(name).join(', ') }));
-            parts.push(tr(back ? 'diagnostics.restoreFailedBack' : 'diagnostics.restoreFailedUnsaved', { section: name(section), msg }));
+            // N-WX3-1: the step that failed was the commit, which may have reached the keyboard (its reply lost): with the
+            // records put back, that commit is sent once more, so flash holds the values from before the restore too.
+            let saved = true;
+            if (back && committing !== null) {
+              try { await t.commit(committing as SaveGroup); } catch { saved = false; }
+            }
+            const said = !back ? 'diagnostics.restoreFailedUnsaved' : saved ? 'diagnostics.restoreFailedBack' : 'diagnostics.restoreFailedMayReturn';
+            parts.push(tr(said, { section: name(section), msg }));
             if (factoryHit.length) {
               const keys = factoryHit.map((f) => `${LAYER_NAMES[f.layer]} · ${device.keys[f.id]?.name ?? f.id}`).join(', ');
               parts.push(tr('diagnostics.restoreFactoryLost', { n: factoryHit.length, keys }));

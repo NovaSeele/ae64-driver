@@ -15,6 +15,8 @@ import { useSettingsStore } from './settings';
 import { useSyncStore } from './sync';
 import { useFirmwareStore } from './firmware';
 import { BaseTransport } from '../protocol/client';
+import { TabLockedError } from '../protocol/tabLock';
+import { clearCalibrationFlag, readCalibrationFlag } from '../data/calibrationFlag';
 
 export type DeviceStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
@@ -68,6 +70,13 @@ export const useDeviceStore = defineStore('device', () => {
   const features = ref<FeatureBitmap | null>(null);
   const boardAllowed = ref(false);
   const demo = ref(false);
+  /** W-11: the last real connection was refused because the keyboard is open in another tab or window of the app. */
+  const otherTab = ref(false);
+  /**
+   * W-12: the previous page left this keyboard calibrating and the stop sent at connect failed: writes stay refused (the
+   * transport's calibration lock) until "Try again" gets a stop answered.
+   */
+  const staleCalibration = ref(false);
   /** The keyboard the demo emulates ('pro-xinput': a Pro with the experimental gamepad firmware); null when not a demo. */
   const demoSeed = ref<DemoSeed | null>(null);
   const keys = shallowRef<PhysicalKey[]>(PHYSICAL_KEYS.map((k) => ({ ...k })));
@@ -257,6 +266,7 @@ export const useDeviceStore = defineStore('device', () => {
     boardAllowed.value = false;
     demo.value = false;
     demoSeed.value = null;
+    staleCalibration.value = false;
     layer0.value = [];
     profileNames.value = [];
     exclusiveCount.value = 0;
@@ -267,6 +277,7 @@ export const useDeviceStore = defineStore('device', () => {
 
   async function init(t: Ae64Transport, isDemo: boolean): Promise<void> {
     disarmReplug();
+    otherTab.value = false;
     // Another keyboard replaces an open one: drop its queue, history and transport before anything of the new one is read.
     const prev = transport.value;
     if (prev && prev !== t) {
@@ -294,6 +305,10 @@ export const useDeviceStore = defineStore('device', () => {
         return;
       }
       info.value = first;
+      // W-12: this app put this keyboard into calibration and no stop was answered (a reload, a crash, a closed tab): `02 06 01`
+      // before anything else is written, nothing committed. A flag naming another keyboard is left alone.
+      const left = readCalibrationFlag();
+      if (left && first.serialHex && left.serial === first.serialHex) await stopLeftCalibration(t, true);
       version.value = await t.getProtocolVersion();
       boardAllowed.value = ALLOWED_BOARDS.includes(info.value.boardIdHex);
       features.value = await t.getFeatures();
@@ -319,6 +334,34 @@ export const useDeviceStore = defineStore('device', () => {
       error.value = message(err);
       throw err;
     }
+  }
+
+  /**
+   * W-12: `02 06 01` (no commit) to a keyboard the previous page left calibrating. Writes are refused until it is answered (the
+   * transport's calibration lock, as after `02 06 00`); a failed stop keeps the flag and the lock, and says so with "Try again".
+   */
+  async function stopLeftCalibration(t: Ae64Transport, atConnect: boolean): Promise<boolean> {
+    const serial = info.value?.serialHex ?? null;
+    t.lockCalibration();
+    try {
+      await t.stopCalibration();
+    } catch {
+      if (transport.value !== t) return false;
+      staleCalibration.value = true;
+      useToast().show(tr('calibration.leftStopFailed'), 'error', 20000, { label: tr('calibration.leftRetry'), run: () => void retryLeftCalibration() });
+      return false;
+    }
+    clearCalibrationFlag(serial);
+    staleCalibration.value = false;
+    useToast().show(tr(atConnect ? 'calibration.leftStopped' : 'calibration.leftStoppedRetry'), atConnect ? 'warn' : 'success', 8000);
+    return true;
+  }
+
+  /** "Try again" after the stop at connect failed (W-12). */
+  async function retryLeftCalibration(): Promise<boolean> {
+    const t = transport.value;
+    if (!t || !staleCalibration.value) return false;
+    return withTransport((tt) => stopLeftCalibration(tt, false), { exclusive: true }).catch(() => false);
   }
 
   /**
@@ -403,9 +446,13 @@ export const useDeviceStore = defineStore('device', () => {
       return;
     }
     const lostProductId = demo.value ? undefined : transport.value?.productId;
+    // W-14: a polling-rate change restarts the keyboard's USB interface, which may beat the reply to `02 05 02`: that is the
+    // restart the page already shows, not a lost keyboard.
+    const restarting = usbRestarting();
     const lost = reset();
     status.value = 'idle';
     if (lostProductId !== undefined) armReplug(lostProductId);
+    if (restarting && lost === 0) return;
     useToast().show(lost > 0 ? tr('device.unsavedLost', { n: lost }) : tr('device.lost'), 'error');
   }
 
@@ -414,10 +461,12 @@ export const useDeviceStore = defineStore('device', () => {
     disarmReplug();
     status.value = 'connecting';
     error.value = null;
+    otherTab.value = false;
     let t: Ae64Transport;
     try {
       t = await connectHid();
     } catch (err) {
+      if (err instanceof TabLockedError) return lockedByOtherTab(err);
       // Closing the chooser without picking a device is not an error worth showing.
       const cancelled = err instanceof NoDeviceSelectedError
         || (err instanceof DOMException && (err.name === 'NotFoundError' || (opts.afterChange && err.name === 'SecurityError')));
@@ -443,14 +492,33 @@ export const useDeviceStore = defineStore('device', () => {
       const t = await reconnectGrantedHid();
       if (!t) {
         status.value = 'idle';
+        otherTab.value = false;
         return false;
       }
       await init(t, false);
       return true;
-    } catch {
+    } catch (err) {
+      if (err instanceof TabLockedError) {
+        lockedByOtherTab(err);
+        return false;
+      }
       if (status.value === 'connecting') status.value = 'idle';
       return false;
     }
+  }
+
+  /** W-11: the keyboard is open in another tab or window: nothing was opened or sent; "Try again" reconnects to it. */
+  function lockedByOtherTab(err: TabLockedError): void {
+    rememberDevice(err.productId); // "Try again" (tryAutoReconnect) takes this keyboard first
+    status.value = 'error';
+    error.value = tr('device.otherTab');
+    otherTab.value = true;
+  }
+
+  /** "Try again" after the other tab was closed (W-11): the granted keyboard, no chooser. */
+  async function retryOtherTab(): Promise<boolean> {
+    if (transport.value) return false;
+    return tryAutoReconnect();
   }
 
   /** `user`: the Disconnect button; refused while calibrating. Internal callers (polling-rate reconnect) omit it. */
@@ -614,7 +682,7 @@ export const useDeviceStore = defineStore('device', () => {
   }
 
   return {
-    transport, status, error, info, version, features, boardAllowed, demo, demoSeed, keys, profileCount, activeProfile,
+    transport, status, error, info, version, features, boardAllowed, demo, otherTab, retryOtherTab, staleCalibration, retryLeftCalibration, demoSeed, keys, profileCount, activeProfile,
     profileNames, rtPrecision, layer0, latencyMs, connection, packetSeq, statsTick, exclusiveActive, connected, hidAvailable, model, modelName, packetEntries, activeProfileName,
     legend, withTransport, calibrationLocked, watchPackets, onProfileChanged, refreshLayer0, connect, connectDemo,
     tryAutoReconnect, disconnect, changeKeyboard, switchDemoModel, switchProfile, renameProfile, holdExclusive, adoptFromFirmware,

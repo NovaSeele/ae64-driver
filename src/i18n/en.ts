@@ -55,6 +55,8 @@ const baseEn: Record<keyof typeof base, string> = {
   'device.changeKeyboard': 'Change keyboard',
   'device.changeBlocked': 'Keyboard not changed: some edits could not be saved to it yet. Try again or check the save status.',
   'device.lost': 'Connection to keyboard lost.',
+  'device.otherTab': 'The keyboard is open in another tab or window of AE64 Control. Close it there, then press "Try again". (Two keyboards of the same model cannot be open in two tabs at once either.)',
+  'device.otherTabRetry': 'Try again',
   'device.unsavedLost': 'Connection lost: {n|# change was|# changes were} not saved to the keyboard.',
   'device.demoModel': 'Demo model',
   'device.calibrating': 'The keyboard is calibrating: finish calibration first.',

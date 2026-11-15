@@ -367,12 +367,33 @@ function warnLeave(e: BeforeUnloadEvent) {
   if (cal.phase !== 'idle') e.preventDefault();
 }
 
+/**
+ * Finishing or cancelling without the mouse (P3). The key lock keeps Enter and Space from pressing the focused Finish or Cancel
+ * (the board being calibrated has those keys, and every key is pressed), so they have chords instead: Ctrl+Enter finishes,
+ * Ctrl+Backspace cancels. Shortcuts pass the lock (useKeyLock lets Ctrl through); a key the demo keyboard simulated is not one.
+ */
+function onShortcut(e: KeyboardEvent): void {
+  if (e.type !== 'keydown' || e.defaultPrevented || e.repeat || cal.phase !== 'running') return;
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+  if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return; // the finish / leave question is open
+  if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+    e.preventDefault();
+    e.stopPropagation();
+    onFinish();
+  } else if (e.code === 'Backspace') {
+    e.preventDefault();
+    e.stopPropagation();
+    void cancel();
+  }
+}
+
 let offProfile: (() => void) | null = null;
 onMounted(() => {
   void perf.load();
   void cal.refresh();
   offProfile = device.onProfileChanged(() => void cal.refresh());
   window.addEventListener('beforeunload', warnLeave);
+  document.addEventListener('keydown', onShortcut, true);
 });
 onDeactivated(() => { pinId.value = null; });
 onBeforeUnmount(() => {
@@ -382,6 +403,7 @@ onBeforeUnmount(() => {
   offProfile?.();
   detachDemo?.();
   window.removeEventListener('beforeunload', warnLeave);
+  document.removeEventListener('keydown', onShortcut, true);
   if (announceTimer) clearTimeout(announceTimer);
 });
 </script>
@@ -440,8 +462,8 @@ onBeforeUnmount(() => {
       </div>
       <div ref="actionsEl" class="actions">
         <template v-if="inSession">
-          <Button variant="primary" :icon="IconCheck" :loading="cal.phase === 'finishing'" @click="onFinish">{{ t('calibration.finish') }}</Button>
-          <Button variant="ghost" :icon="IconX" :disabled="busy" @click="cancel">{{ t('calibration.cancel') }}</Button>
+          <Button variant="primary" :icon="IconCheck" :loading="cal.phase === 'finishing'" aria-keyshortcuts="Control+Enter" @click="onFinish">{{ t('calibration.finish') }}</Button>
+          <Button variant="ghost" :icon="IconX" :disabled="busy" aria-keyshortcuts="Control+Backspace" @click="cancel">{{ t('calibration.cancel') }}</Button>
         </template>
         <Button
           v-else
@@ -454,6 +476,7 @@ onBeforeUnmount(() => {
           {{ t('calibration.start') }}
         </Button>
       </div>
+      <p v-if="inSession" class="keys" data-test="cal-shortcuts">{{ t('calibration.shortcuts') }}</p>
     </div>
 
     <div class="ses__body" :class="{ 'ses__body--two': right !== null }">
@@ -579,6 +602,7 @@ onBeforeUnmount(() => {
 .aside__adc { flex: none; margin-top: 1px; white-space: nowrap; }
 
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
+.keys { flex-basis: 100%; margin: 0; color: var(--fg-3); font-size: var(--fs-label); }
 .warn { color: var(--warn); font-size: var(--fs-label); }
 .alert {
   display: flex;

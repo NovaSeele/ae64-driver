@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { IconAlertTriangle, IconPlayerPlay, IconUsb } from '@tabler/icons-vue';
+import { IconAlertTriangle, IconPlayerPlay, IconRefresh, IconUsb } from '@tabler/icons-vue';
 import Button from '../ui/Button.vue';
 import { useDeviceStore } from '../../stores/device';
 import { useSettingsStore } from '../../stores/settings';
@@ -54,7 +54,15 @@ const usbRestarting = computed(() => settings.pollingState === 'applying' || set
       <p v-if="!device.hidAvailable" class="cs__note cs__note--warn">
         <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />{{ t('connect.noHid') }}
       </p>
-      <p v-if="device.status === 'error' && device.error" class="cs__note cs__note--error" role="alert">
+      <div v-if="device.otherTab && device.status !== 'connecting'" class="cs__other" role="alert" data-test="other-tab">
+        <p class="cs__note cs__note--error">
+          <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />{{ t('device.otherTab') }}
+        </p>
+        <Button size="sm" :icon="IconRefresh" :disabled="usbRestarting" data-test="other-tab-retry" @click="device.retryOtherTab()">
+          {{ t('device.otherTabRetry') }}
+        </Button>
+      </div>
+      <p v-else-if="device.status === 'error' && device.error" class="cs__note cs__note--error" role="alert">
         <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />{{ t('connect.failed') }}: {{ device.error }}
       </p>
       <p v-if="settings.pollingState === 'error' && settings.pollingError" class="cs__note cs__note--error" role="alert">
@@ -96,6 +104,7 @@ const usbRestarting = computed(() => settings.pollingState === 'applying' || set
   text-align: left;
 }
 .cs__note svg { flex: none; margin-top: 1px; }
+.cs__other { display: flex; flex-direction: column; align-items: center; gap: var(--s-2); }
 .cs__note--warn { color: var(--warn); }
 .cs__note--error { color: var(--danger); }
 </style>

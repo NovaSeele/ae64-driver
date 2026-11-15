@@ -6,8 +6,9 @@ import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref }
 import { useRouter } from 'vue-router';
 import KeyboardView from '../keyboard/KeyboardView.vue';
 import TabKeyboard from '../keyboard/TabKeyboard.vue';
+import Button from '../ui/Button.vue';
 import Card from '../ui/Card.vue';
-import { IconAlertTriangle } from '@tabler/icons-vue';
+import { IconAlertTriangle, IconRefresh } from '@tabler/icons-vue';
 import { formatMm } from '../ui/NumberField.vue';
 import SwitchCard from '../performance/SwitchCard.vue';
 import SwitchSwatch from '../performance/SwitchSwatch.vue';
@@ -111,7 +112,11 @@ const uncalKeys = computed(() => {
         <template #cap="{ key }"><SwitchSwatch :color="perf.switchOf(key.id)?.color ?? ''" :id="perf.switchOf(key.id)?.id" size="sm" /></template>
       </KeyboardView>
     </TabKeyboard>
-    <div class="swp-wrap">
+    <!-- the read failed (P3): the same card and "Try again" as the Travel tab, not an empty map -->
+    <Card v-if="perf.loadError" :title="t('perf.loadFailed')" :subtitle="perf.loadError" data-test="switch-load-error">
+      <div><Button :icon="IconRefresh" :loading="perf.loading" @click="perf.load(true)">{{ t('perf.reload') }}</Button></div>
+    </Card>
+    <div v-else class="swp-wrap">
       <div class="swp">
         <Card :title="t('swp.mapTitle')" :subtitle="t('swp.mapSub', { n: device.activeProfile + 1, name: device.profileNames[device.activeProfile] })">
           <div v-if="perf.uncalibrated.length" class="swp__recal" role="status">

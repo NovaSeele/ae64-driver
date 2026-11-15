@@ -52,7 +52,11 @@ watch(() => fw.phase, (p) => { if (p === 'writing' && fw.sent === 0) said.value 
         <input v-model="fw.riskOk" type="checkbox" aria-describedby="fw-risk-line" />
         <span>{{ t('fw.risk') }}</span>
       </label>
-      <div>
+      <div v-if="fw.otherWindow" class="fw-other" role="alert" data-test="fw-other-window">
+        <p class="fw-err"><IconAlertCircle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.otherWindow') }}</span></p>
+        <Button size="sm" @click="fw.checkOtherWindow()">{{ t('fw.otherWindowRetry') }}</Button>
+      </div>
+      <div v-else>
         <Button variant="danger" :icon="IconDeviceFloppy" :disabled="!fw.canRescueWrite" @click="fw.rescueWrite()">{{ t('fw.rescue.write') }}</Button>
       </div>
       <p class="fw-dont"><IconAlertTriangle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.s3.dont') }}</span></p>
@@ -112,6 +116,7 @@ watch(() => fw.phase, (p) => { if (p === 'writing' && fw.sent === 0) said.value 
   background: var(--danger-soft); color: var(--danger); font-size: var(--fs-label); line-height: 18px;
 }
 .fw-err svg { flex: none; margin-top: 1px; }
+.fw-other { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-2); }
 .fw-err span { min-width: 0; overflow-wrap: anywhere; }
 .fw-retry { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
 .fw-retry .fws__p { flex: 1 1 240px; }

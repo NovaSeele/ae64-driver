@@ -41,7 +41,8 @@ const KEPT = ['TravelTab', 'AdvancedTab', 'SwitchTab'];
 const tab = computed<PerfTab>(() => asPerfTab(route.query.tab) ?? storedTab() ?? 'travel');
 // Opened through a link or an old bookmark also counts as the last-used tab.
 watch(tab, saveTab, { immediate: true });
-const calBusy = computed(() => cal.phase !== 'idle');
+// A session, or the transport still refusing writes after a failed stop (W-12, reader A): the other tabs stay locked.
+const calBusy = computed(() => cal.holdsWindow);
 
 type Scope = 'profile' | 'board' | 'read';
 const TABS: { id: PerfTab; title: MessageKey; sub: MessageKey; icon: Component; tone: string; scope: Scope }[] = [

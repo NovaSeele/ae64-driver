@@ -75,8 +75,8 @@ describe('item 1: the key table is complete', () => {
       }
     }
     // 14 in the table (J: ae64.accent, ae64.wallpaper; FW: ae64.labs.firmware, export: false) + ae64.lastDevice +
-    // ae64.accentVars + ae64.appcfg.done; ae64.switchTab is gone (E)
-    expect(found.size).toBe(17);
+    // ae64.accentVars + ae64.appcfg.done + ae64.calibrating (WX4, W-12); ae64.switchTab is gone (E)
+    expect(found.size).toBe(18);
     expect(TABLE).toHaveLength(14);
     expect(APP_SETTINGS.filter((s) => s.export === false).map((s) => s.key)).toEqual(['ae64.labs.firmware']);
     expect([...DERIVED_KEYS]).toEqual(['ae64.accentVars']);

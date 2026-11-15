@@ -519,7 +519,7 @@ describe('14. the UI during a session', { timeout: 60_000 }, () => {
 
   it('desktop (FW review FW-2): main.ts installs the guard on the firmware session; the shell drops its hold on every page load', () => {
     const main = readFileSync('src/main.ts', 'utf8');
-    expect(main).toContain('installDesktopCloseGuard(() => useFirmwareStore(pinia).active);');
+    expect(main).toContain('installDesktopCloseGuard(() => useFirmwareStore(pinia).active || useCalibrationStore(pinia).holdsWindow);');
     const rust = readFileSync('src-tauri/src/main.rs', 'utf8');
     const load = rust.slice(rust.indexOf('.on_page_load('), rust.indexOf('.on_page_load(') + 300);
     expect(load).toContain('if payload.event() == tauri::webview::PageLoadEvent::Started {');

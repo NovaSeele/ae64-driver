@@ -58,6 +58,8 @@ export const base = {
   'device.changeKeyboard': 'Đổi bàn phím',
   'device.changeBlocked': 'Chưa đổi bàn phím: còn thay đổi chưa lưu được vào phím. Hãy thử lại hoặc xem trạng thái lưu.',
   'device.lost': 'Mất kết nối với bàn phím.',
+  'device.otherTab': 'Bàn phím đang mở ở một tab hoặc cửa sổ AE64 Control khác. Đóng nó ở đó, rồi bấm "Thử lại". (Hai bàn phím cùng mẫu cũng không mở được ở hai tab cùng lúc.)',
+  'device.otherTabRetry': 'Thử lại',
   'device.unsavedLost': 'Mất kết nối: {n} thay đổi chưa lưu vào phím.',
   'device.demoModel': 'Mẫu demo',
   'device.calibrating': 'Bàn phím đang hiệu chuẩn: hãy kết thúc hiệu chuẩn trước.',

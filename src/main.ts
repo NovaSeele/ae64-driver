@@ -10,7 +10,8 @@ import { useFirmwareStore } from './stores/firmware';
 import { locale } from './i18n/locale';
 import './theme';
 import { registerServiceWorker } from './update';
-import { installDesktopCloseGuard } from './data/desktopClose';
+import { CLOSE_BLOCKED_EVENT, installDesktopCloseGuard } from './data/desktopClose';
+import { useCalibrationStore } from './stores/calibration';
 
 if (typeof document !== 'undefined') {
   document.documentElement.lang = locale.value;
@@ -24,5 +25,11 @@ installFirmwareGuard(router, () => {
   const fw = useFirmwareStore(pinia);
   return { enabled: fw.enabled, active: fw.active, rescue: fw.rescue };
 });
-installDesktopCloseGuard(() => useFirmwareStore(pinia).active);
+// The desktop window also holds its close while the keyboard may be calibrating (W-12, reader A).
+installDesktopCloseGuard(() => useFirmwareStore(pinia).active || useCalibrationStore(pinia).holdsWindow);
+if (typeof window !== 'undefined') {
+  window.addEventListener(CLOSE_BLOCKED_EVENT, () => useCalibrationStore(pinia).onCloseBlocked());
+  // W-12: a last `02 06 01` while calibrating when the page goes away (the flag covers a stop that never gets out).
+  window.addEventListener('pagehide', () => useCalibrationStore(pinia).onPageHide());
+}
 app.use(router).mount('#app');

@@ -13,6 +13,11 @@ import { useDeviceStore } from './device';
 import { DEFAULT_RANGE_MM, usePerformanceStore } from './performance';
 import { useSyncStore } from './sync';
 import { FULL_TRAVEL, PRESSED_MM, useLiveStore } from './live';
+import { useFirmwareStore } from './firmware';
+import { useToast } from '../components/ui/toast';
+import { t as tr } from '../i18n/vi';
+import { clearCalibrationFlag, writeCalibrationFlag } from '../data/calibrationFlag';
+import { holdWindowClose } from '../data/desktopClose';
 
 export type CalibrationPhase = 'idle' | 'starting' | 'running' | 'finishing';
 
@@ -147,9 +152,37 @@ export const useCalibrationStore = defineStore('calibration', () => {
     }
   }
 
+  /** The keyboard of this connection (its serial names the W-12 flag). */
+  const serial = (): string | null => device.info?.serialHex ?? null;
+
   /** Best-effort 02 06 01 without committing; false when the keyboard may still be calibrating. */
   async function tryStop(): Promise<boolean> {
-    return device.withTransport((t) => t.stopCalibration()).then(() => true, () => false);
+    const s = serial();
+    return device.withTransport((t) => t.stopCalibration()).then(() => { clearCalibrationFlag(s); return true; }, () => false);
+  }
+
+  /**
+   * The keyboard may be calibrating (a session, a failed stop, or a stop left over from the previous page): the desktop window
+   * holds its close (reader A's point), and the Performance tabs stay locked.
+   */
+  const holdsWindow = computed(() => phase.value !== 'idle' || stopFailed.value || device.staleCalibration || device.calibrationLocked());
+  watch(holdsWindow, (on) => {
+    if (typeof window === 'undefined') return;
+    holdWindowClose(on || useFirmwareStore().active); // no-op on the web
+  });
+
+  /** The desktop shell refused a window close while calibrating: say why (the firmware page asks for its own session). */
+  function onCloseBlocked(): void {
+    if (holdsWindow.value && !useFirmwareStore().active) useToast().show(tr('calibration.closeBlocked'), 'warn');
+  }
+
+  /**
+   * `pagehide` (W-12): a last try at `02 06 01` while calibrating, nothing committed. It may not get out before the page is gone;
+   * the flag covers that (the next connection stops it).
+   */
+  function onPageHide(): void {
+    if (phase.value === 'running') void end(false);
+    else if (phase.value === 'starting' || (phase.value === 'idle' && device.calibrationLocked())) void tryStop();
   }
 
   async function poll(gen: number): Promise<void> {
@@ -181,14 +214,21 @@ export const useCalibrationStore = defineStore('calibration', () => {
     phase.value = 'starting';
     error.value = null;
     stopFailed.value = false;
+    let sent = false;
     try {
       useLiveStore().stop();
       await useSyncStore().flush();
-      await device.withTransport((t) => t.startCalibration());
+      await device.withTransport((t) => {
+        // W-12: noted before it is sent (a reload may come before its reply); cleared when a stop is answered.
+        writeCalibrationFlag(serial());
+        sent = true;
+        return t.startCalibration();
+      });
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err);
-      // The start reply may be lost while the keyboard did enter calibration: always try to stop.
-      stopFailed.value = !(await tryStop());
+      // The start reply may be lost while the keyboard did enter calibration: then try to stop. Not when `02 06 00` was never
+      // sent (the flush before it failed, W-14).
+      if (sent) stopFailed.value = !(await tryStop());
       phase.value = 'idle';
       return;
     }
@@ -207,9 +247,11 @@ export const useCalibrationStore = defineStore('calibration', () => {
     await loopDone;
     let stopped = false;
     try {
+      const s = serial();
       await device.withTransport(async (t) => {
         await t.stopCalibration();
         stopped = true;
+        clearCalibrationFlag(s);
         if (save) await t.commit(SAVE_GROUP.CALIBRATION);
       });
       stopFailed.value = false;
@@ -241,7 +283,7 @@ export const useCalibrationStore = defineStore('calibration', () => {
   }
 
   return {
-    phase, frame, error, loaded, stopFailed, newCount, calibratedCount, uncalibratedCount, refresh, start, finish, cancel,
+    phase, frame, error, loaded, stopFailed, holdsWindow, onCloseBlocked, onPageHide, newCount, calibratedCount, uncalibratedCount, refresh, start, finish, cancel,
     peakRoute, lastSaved, hasSession, isNew, rangeUm, trustPeaks, peakTrusted, pressedIds, shallowIds, waitIds, sessionNewCount,
   };
 });
