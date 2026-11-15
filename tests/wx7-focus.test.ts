@@ -69,6 +69,19 @@ describe('WX7 item 1: every control shows the ring', () => {
     for (const [file, re] of cases) expect(src(file), file).toMatch(re);
   });
 
+  // WX7 tail (reviewer FC1): the chosen colour chip's own box-shadow would hide the base ring, and an accent ring can vanish
+  // on a chip of the accent's hue: the chip draws an outline in the text colour, outside its "--on" ring.
+  it('the Lighting quick chip has a focus outline of its own, outside its chosen ring', () => {
+    const css = src('src/pages/LightingPage.vue');
+    const rule = css.match(/\.quick__chip:focus-visible\s*\{([^}]*)\}/);
+    expect(rule, 'a .quick__chip:focus-visible rule').not.toBeNull();
+    expect(rule![1]).toMatch(/outline:\s*2px solid var\(--fg-1\)/);
+    const offset = Number((rule![1].match(/outline-offset:\s*(\d+)px/) ?? [])[1]);
+    const on = css.match(/\.quick__chip--on\s*\{[^}]*0 0 0 (\d+)px var\(--acc\)/);
+    expect(on, 'the chosen chip ring').not.toBeNull();
+    expect(offset).toBeGreaterThanOrEqual(Number(on![1])); // drawn beyond the chosen ring, not under it
+  });
+
   it('no focus style draws its ring in the 45 % accent', () => {
     const files = ['src/components/keyboard/KeyboardView.vue', 'src/components/ui/Slider.vue', 'src/styles/base.css'];
     for (const f of files) expect(src(f), f).not.toMatch(/:focus-visible[^{]*\{[^}]*box-shadow:[^;}]*var\(--acc-line\)/);

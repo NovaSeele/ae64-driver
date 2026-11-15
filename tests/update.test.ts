@@ -5,6 +5,9 @@ import { compareVersions, isNewerVersion, useUpdateStore } from '../src/update';
 import { useDeviceStore } from '../src/stores/device';
 import { useCalibrationStore } from '../src/stores/calibration';
 import { useSyncStore } from '../src/stores/sync';
+import { flushPromises, mount } from '@vue/test-utils';
+import SidebarFooter from '../src/components/shell/SidebarFooter.vue';
+import { t as tr } from '../src/i18n/vi';
 
 describe('update', () => {
   describe('computeReleaseFileList', () => {
@@ -342,6 +345,62 @@ describe('update', () => {
       expect(store.state).toBe('error');
       expect(store.error).toBe('Unsaved device edits');
       expect(reloadMock).not.toHaveBeenCalled();
+    });
+
+    // WX7 tail (reviewer U2): a flush that fails before Update is an apply failure: nothing goes to the worker.
+    it('a failed flush before Update: an apply failure, the reason kept, no apply message, no reload', async () => {
+      const store = useUpdateStore();
+      store.availableInfo = { version: '0.2.0', builtAt: '' };
+      store.state = 'available';
+      vi.spyOn(useSyncStore(), 'flush').mockRejectedValue(new Error('Unsaved device edits'));
+      const controller = { postMessage: vi.fn() };
+      Object.defineProperty(navigator, 'serviceWorker', { value: { controller, ready: Promise.resolve({}) }, configurable: true });
+      const reloadMock = vi.fn();
+      Object.defineProperty(window, 'location', { value: { reload: reloadMock }, writable: true, configurable: true });
+      try {
+        await store.apply();
+        expect(store.state).toBe('error');
+        expect(store.applyFailed).toBe(true);
+        expect(store.error).toBe('Unsaved device edits');
+        expect(controller.postMessage).not.toHaveBeenCalled();
+        expect(reloadMock).not.toHaveBeenCalled();
+      } finally {
+        Reflect.deleteProperty(navigator, 'serviceWorker');
+      }
+    });
+
+    // WX7 tail (reviewer U1): after a refused Update, a check that fails is a failed check again.
+    it('a refused Update, then a failed check: applyFailed is cleared and the footer says the check failed', async () => {
+      const store = useUpdateStore();
+      store.availableInfo = { version: '0.2.0', builtAt: '' };
+      store.state = 'available';
+      const controller = {
+        postMessage: vi.fn((msg: { type: string }, ports: MessagePort[]) => {
+          if (msg.type === 'apply') ports[0].postMessage({ ok: false, error: 'index.html does not match' });
+          if (msg.type === 'check') ports[0].postMessage({ ok: false, error: 'HTTP 503 fetching release.json' });
+        }),
+      };
+      Object.defineProperty(navigator, 'serviceWorker', { value: { controller, ready: Promise.resolve({}) }, configurable: true });
+      const reloadMock = vi.fn();
+      Object.defineProperty(window, 'location', { value: { reload: reloadMock }, writable: true, configurable: true });
+      const w = mount(SidebarFooter, { attachTo: document.body });
+      try {
+        await store.apply();
+        expect(store.applyFailed).toBe(true);
+        await store.check();
+        expect(store.state).toBe('error');
+        expect(store.applyFailed).toBe(false);
+        expect(store.error).toBe('HTTP 503 fetching release.json');
+        await w.find('.side-foot__btn').trigger('click');
+        await flushPromises();
+        expect(document.body.textContent).toContain(tr('update.failed', { error: 'HTTP 503 fetching release.json' }));
+        expect(document.body.textContent).not.toContain(tr('update.applyFailed', { error: 'HTTP 503 fetching release.json' }));
+        expect(reloadMock).not.toHaveBeenCalled();
+      } finally {
+        w.unmount();
+        document.body.innerHTML = '';
+        Reflect.deleteProperty(navigator, 'serviceWorker');
+      }
     });
 
     it('busy after the download: deferred (not an error), reload only on a user click', async () => {
