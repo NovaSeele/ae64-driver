@@ -3,7 +3,7 @@
 // unknown file, then "Bắt đầu cập nhật". While waiting for the bootloader: a spinner, and the "Allow…" button when the browser
 // has no permission for it yet (a real click: requestDevice cannot run by itself).
 import { computed } from 'vue';
-import { IconAlertCircle, IconLifebuoy, IconPlayerPlay, IconRefresh, IconUsb } from '@tabler/icons-vue';
+import { IconAlertCircle, IconInfoCircle, IconLifebuoy, IconPlayerPlay, IconRefresh, IconUsb } from '@tabler/icons-vue';
 import Button from '../ui/Button.vue';
 import { typedOk, useFirmwareStore } from '../../stores/firmware';
 import { t } from '../../i18n/vi';
@@ -56,6 +56,9 @@ const err = computed(() => (fw.phase === 'preflightFail' || fw.phase === 'enterF
         <Button variant="primary" :icon="IconUsb" @click="fw.allow()">{{ t('fw.s2.permBtn') }}</Button>
         <Button variant="secondary" :icon="IconRefresh" @click="fw.findAgain()">{{ t('fw.findAgain') }}</Button>
       </div>
+      <p v-if="fw.notAnswered" class="fw-note" role="status" data-test="not-answered">
+        <IconInfoCircle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.s2.notAnswered') }}</span>
+      </p>
       <p v-if="fw.wrongDevice" class="fw-err" role="alert">
         <IconAlertCircle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.s2.wrongDevice') }}</span>
       </p>
@@ -88,6 +91,8 @@ const err = computed(() => (fw.phase === 'preflightFail' || fw.phase === 'enterF
 .fw-input--ok { border-color: var(--ok); }
 .fw-risk { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-label); color: var(--fg-1); cursor: pointer; }
 .fw-risk input { width: 16px; height: 16px; margin: 0; accent-color: var(--acc); }
+.fw-note { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-size: var(--fs-label); line-height: 18px; color: var(--fg-1); }
+.fw-note svg { flex: none; margin-top: 2px; color: var(--fg-2); }
 .fw-busy { margin: 0; font-size: var(--fs-label); line-height: 18px; color: var(--warn); }
 .fw-wait { display: flex; gap: 10px; align-items: center; margin: 0; font-size: var(--fs-label); color: var(--fg-1); }
 .fw-spin { flex: none; width: 16px; height: 16px; border: 2px solid var(--line-3); border-top-color: var(--acc); border-radius: 50%; animation: fw-spin 0.9s linear infinite; }

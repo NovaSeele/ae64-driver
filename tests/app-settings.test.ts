@@ -493,8 +493,8 @@ describe('item 14: strings', () => {
     const viKeys = Object.keys(viDict).filter((k) => H_KEY.test(k));
     const enKeys = Object.keys(en).filter((k) => H_KEY.test(k));
     expect(viKeys.sort()).toEqual(enKeys.sort());
-    // 63 of H + data.c.accent, data.c.wallpaper and appcfg.errWallpaper of J
-    expect(viKeys.length).toBe(66);
+    // 63 of H + data.c.accent, data.c.wallpaper and appcfg.errWallpaper of J + appcfg.resetWallpaper (WX3)
+    expect(viKeys.length).toBe(67);
     for (const k of viKeys) {
       const v = (viDict as Record<string, string>)[k];
       const e = (en as Record<string, string>)[k];

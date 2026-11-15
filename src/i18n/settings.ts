@@ -119,6 +119,7 @@ export const settingsVi = {
   'appcfg.resetTitle': 'Đặt lại cài đặt ứng dụng?',
   'appcfg.resetBody': 'Xoá mọi cài đặt của AE64 Control trên máy này về mặc định, rồi tải lại trang.',
   'appcfg.resetPresets': '{n} mẫu cài đặt riêng của bạn sẽ bị xoá. Xuất file trước nếu muốn giữ.',
+  'appcfg.resetWallpaper': 'Ảnh nền của bạn cũng sẽ bị xoá. File xuất ra không chứa ảnh này: hãy tự giữ một bản của ảnh.',
   'appcfg.importPresets': 'Mẫu cài đặt riêng trên máy này ({n}) sẽ được thay bằng mẫu trong file ({m}). Xuất file trước nếu muốn giữ.',
   'appcfg.resetConfirm': 'Đặt lại và tải lại',
   'appcfg.cancel': 'Huỷ',

@@ -91,6 +91,11 @@ export const useFirmwareStore = defineStore('firmware', () => {
   const total = ref(0);
   const error = shallowRef<FwMessage | null>(null);
   const wrongDevice = ref(false);
+  /**
+   * "Allow…" returned a device that has not answered its `01 02` yet (N-WX2-4): a neutral note, not an error. Gone on
+   * "Search again", on the next "Allow…", when the session attaches, and wherever wrongDevice is cleared.
+   */
+  const notAnswered = ref(false);
   /** "Allow…" (or the search) found an AE64 Pro bootloader with another serial: the page offers rescue mode on it (W-06). */
   const otherSerial = ref(false);
   /** The step the session was in when the keyboard was lost (to mark that row failed). */
@@ -195,6 +200,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
       stopTimers();
       phase.value = 'idle';
       wrongDevice.value = false;
+      notAnswered.value = false;
       otherSerial.value = false;
       sent.value = 0;
     }
@@ -260,6 +266,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     phase.value = 'preflight';
     error.value = null;
     wrongDevice.value = false;
+    notAnswered.value = false;
     sent.value = 0;
     lostIn.value = null;
     // 1. the typed name and the risk box, again at the press
@@ -390,14 +397,17 @@ export const useFirmwareStore = defineStore('firmware', () => {
     if (phase.value !== 'needPermission' || !ticket || !port.value) return;
     const mine = epoch;
     wrongDevice.value = false;
+    notAnswered.value = false;
     const chosen = await port.value.request();
     if (mine !== epoch || !chosen.length) return;
     const r = await fwAttach(ticket, chosen).catch(() => null);
     if (mine !== epoch || !r) return;
     if (r.ok) return void attached(r.transport);
     if (r.why === 'many') return fail('manyBoot', { key: 'fw.err.manyBoot' });
-    // 'none': the device chosen has not answered yet (busy); the search goes on and asks it again (N-WX2-2)
-    if (r.why === 'wrong' && !offerOther()) wrongDevice.value = true;
+    // 'none': the device chosen has not answered yet (busy); the search goes on and asks it again (N-WX2-2), and the page
+    // says so (N-WX2-4) until it answers, "Search again", the next "Allow…" or the session attaches
+    if (r.why === 'none') notAnswered.value = true;
+    else if (r.why === 'wrong' && !offerOther()) wrongDevice.value = true;
   }
 
   /** W-06: the device found is an AE64 Pro bootloader with another serial: say so, and offer rescue mode on it (never by itself). */
@@ -405,7 +415,10 @@ export const useFirmwareStore = defineStore('firmware', () => {
     const o = ticket ? fwOtherBoot(ticket) : null;
     other = o;
     otherSerial.value = !!o;
-    if (o) wrongDevice.value = false;
+    if (o) {
+      wrongDevice.value = false;
+      notAnswered.value = false;
+    }
     return !!o;
   }
 
@@ -447,6 +460,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     stopTimers();
     boot = t;
     wrongDevice.value = false;
+    notAnswered.value = false;
     otherSerial.value = false;
     other = null;
     void runWrite();
@@ -686,6 +700,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     phase.value = 'rescue';
     error.value = null;
     wrongDevice.value = false;
+    notAnswered.value = false;
     otherSerial.value = false;
     other = null;
     sent.value = 0;
@@ -733,6 +748,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     if (phase.value === 'needPermission') {
       // the look loop of start() still runs: it asks every device again from now on (W-05)
       wrongDevice.value = false;
+      notAnswered.value = false;
       otherSerial.value = false;
       void look();
     } else if (phase.value === 'manyBoot') {
@@ -830,13 +846,14 @@ export const useFirmwareStore = defineStore('firmware', () => {
     phase.value = 'idle';
     error.value = null;
     wrongDevice.value = false;
+    notAnswered.value = false;
     otherSerial.value = false;
     sent.value = 0;
     probedHere = new WeakMap();
   }
 
   return {
-    enabled, active, rescue, phase, file, typed, riskOk, sent, total, error, wrongDevice, otherSerial, rescueBoard, doneVersion, port,
+    enabled, active, rescue, phase, file, typed, riskOk, sent, total, error, wrongDevice, notAnswered, otherSerial, rescueBoard, doneVersion, port,
     rows, known, fileOk, needsRisk, officialOnly, rescueRefused, busy, isPro, canStart, canRescueWrite, deviceBoard, bootLive,
     canChoose, setEnabled, chooseFile, start, allow, continueRescue, retry, findAgain, rescueWrite, openRescue, clear,
     /** Test hook: wait for queued microtasks of the store. */

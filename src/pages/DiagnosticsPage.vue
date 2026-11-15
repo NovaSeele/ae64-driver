@@ -15,7 +15,9 @@ import CopyInfo from '../components/settings/CopyInfo.vue';
 import { useToast } from '../components/ui/toast';
 import { pollKind, useDeviceStore } from '../stores/device';
 import { formatBuildTime, useDiagnosticsStore } from '../stores/diagnostics';
-import type { ImportDiff } from '../stores/diagnostics';
+import type { ImportDiff, RestoreKey } from '../stores/diagnostics';
+import { LAYER_NAMES } from '../stores/keymap';
+import { keycodeLabel } from '../protocol';
 import type { PacketLogEntry } from '../protocol';
 import { t } from '../i18n/vi';
 
@@ -56,6 +58,18 @@ function togglePause() {
 
 const importDialogOpen = ref(false);
 const activeDiff = ref<ImportDiff | null>(null);
+/** U-07: the user confirmed overwriting the factory keys the dialog lists ("Apply" stays off until then). */
+const factoryOk = ref(false);
+/** One key as the Keymap page names it: layer · key: code. */
+function keyItem(k: RestoreKey): string {
+  const label = keycodeLabel(k.code).label;
+  const hex = `0x${k.code.toString(16).padStart(4, '0').toUpperCase()}`;
+  return t('keymap.factoryItem', {
+    layer: LAYER_NAMES[k.layer], key: device.keys[k.id]?.name ?? String(k.id), code: label === hex ? hex : `${label} (${hex})`,
+  });
+}
+const factoryKeys = computed(() => (activeDiff.value?.factory ?? []).map((f) => keyItem({ ...f, code: f.factory })));
+const unrestorableKeys = computed(() => (activeDiff.value?.unrestorable ?? []).map(keyItem));
 const fileInput = ref<HTMLInputElement | null>(null);
 
 const filterOptions = computed(() => [
@@ -170,11 +184,18 @@ async function onFileSelected(e: Event) {
   try {
     const text = await file.text();
     const diff = await diag.parseAndDiffBackup(text);
+    // W-08: a file the restore would refuse is refused now, with the reason (nothing written).
+    if (diff.refused) {
+      toast.show(diff.refused, 'error');
+      return;
+    }
     if (diff.keymapDiffCount + diff.perfDiffCount + diff.settingsDiffCount === 0) {
-      toast.show(t('diagnostics.importNoChanges'), 'info');
+      if (diff.unrestorable.length) toast.show(t('diagnostics.importUnrestorableOnly', { n: diff.unrestorable.length }), 'warn');
+      else toast.show(t('diagnostics.importNoChanges'), 'info');
       return;
     }
     activeDiff.value = diff;
+    factoryOk.value = false;
     importDialogOpen.value = true;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -205,7 +226,8 @@ function onImportOpen(v: boolean) {
 async function doRestore() {
   if (!activeDiff.value || readOnly.value) return;
   try {
-    const { skipped } = await diag.applyRestore(activeDiff.value);
+    if (activeDiff.value.factory.length && !factoryOk.value) return;
+    const { skipped } = await diag.applyRestore(activeDiff.value, { factoryOk: factoryOk.value });
     importDialogOpen.value = false;
     toast.show(t('diagnostics.importSuccess'), 'success');
     if (skipped > 0) toast.show(t('diagnostics.importSkipped', { n: skipped }), 'warn');
@@ -411,6 +433,18 @@ async function doRestore() {
             {{ t('diagnostics.importDiffSettings', { n: activeDiff.settingsDiffCount }) }}
           </div>
         </div>
+        <p class="diag-diff-scope" data-test="restore-scope">{{ t('diagnostics.importScope') }}</p>
+        <div v-if="unrestorableKeys.length" class="diag-diff-keys" data-test="restore-unrestorable">
+          <p>{{ t('diagnostics.importUnrestorable', { n: unrestorableKeys.length }) }}</p>
+          <ul><li v-for="k in unrestorableKeys" :key="k" class="num">{{ k }}</li></ul>
+        </div>
+        <div v-if="factoryKeys.length" class="diag-diff-keys diag-diff-keys--warn" data-test="restore-factory">
+          <p>{{ t('keymap.assignFactory', { n: factoryKeys.length, keys: factoryKeys.join(', ') }) }}</p>
+          <label class="diag-diff-confirm">
+            <input v-model="factoryOk" type="checkbox" :disabled="diag.isRestoring" />
+            <span>{{ t('diagnostics.importFactoryConfirm') }}</span>
+          </label>
+        </div>
         <div class="diag-diff-notice">
           {{ t('diagnostics.importUnsupportedNotice') }}
         </div>
@@ -421,7 +455,7 @@ async function doRestore() {
           <Button
             variant="danger"
             :loading="diag.isRestoring"
-            :disabled="readOnly"
+            :disabled="readOnly || (activeDiff.factory.length > 0 && !factoryOk)"
             @click="doRestore"
           >
             {{ diag.isRestoring ? t('diagnostics.importRestoring') : t('diagnostics.importConfirm') }}
@@ -633,6 +667,31 @@ async function doRestore() {
   font-size: var(--fs-body);
   color: var(--fg-1);
 }
+.diag-diff-scope {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--fg-2);
+  line-height: 1.4;
+}
+.diag-diff-keys {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  font-size: var(--fs-label);
+  color: var(--fg-2);
+  line-height: 1.4;
+}
+.diag-diff-keys p { margin: 0; }
+.diag-diff-keys ul { margin: 0; padding-left: 18px; }
+.diag-diff-keys--warn { color: var(--warn); }
+.diag-diff-confirm {
+  display: flex;
+  gap: var(--s-2);
+  align-items: flex-start;
+  color: var(--fg-1);
+  cursor: pointer;
+}
+.diag-diff-confirm input { margin-top: 2px; accent-color: var(--accent); }
 .diag-diff-notice {
   font-size: var(--fs-label);
   color: var(--fg-3);

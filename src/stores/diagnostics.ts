@@ -5,14 +5,15 @@ import {
   ALLOWED_BOARDS, FIRMWARE_ROWS, KEYCODE_GROUPS, LAYER_COUNT, MACRO_SLOTS, SAVE_GROUP, decodeCombo, supportsIntervalRt,
 } from '../protocol';
 import type {
-  AdvancedRecord, LedRecord, LightingBase, MacroAction, MacroMeta,
+  AdvancedRecord, KeyPos, LedRecord, LightingBase, MacroAction, MacroMeta,
   PaletteEntry, Performance,
 } from '../protocol';
-import { BLOCKED_KEYCODES, isWritableKeycode } from '../protocol/safety';
+import { BLOCKED_KEYCODES, UnsafeCommandError, checkFrame, checkPerformanceWrite, isWritableKeycode } from '../protocol/safety';
+import { restoreFrames } from '../protocol/client';
 import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
 import { useHistoryStore } from './history';
-import { useKeymapStore } from './keymap';
+import { LAYER_NAMES, useKeymapStore } from './keymap';
 import { isKnownMode, rangeMm, usePerformanceStore } from './performance';
 import { useSettingsStore } from './settings';
 import { useSyncStore } from './sync';
@@ -24,14 +25,76 @@ for (const g of KEYCODE_GROUPS) {
   }
 }
 
-function validateBackupPayload(
+const hex4 = (code: number) => `0x${code.toString(16).padStart(4, '0').toUpperCase()}`;
+const whyOf = (err: unknown) => (err instanceof UnsafeCommandError ? err.reason : err instanceof Error ? err.message : String(err));
+
+/** A refusal before the first write: the restore writes nothing (WX3 W-08). */
+export class RestoreRefusedError extends Error {}
+const refuse = (msg: string): never => { throw new RestoreRefusedError(tr('diagnostics.vRefused', { msg })); };
+
+/** One key of one layer, and the keycode the file has there. */
+export interface RestoreKey { layer: number; id: number; code: number }
+/** A key the restore writes over a factory keycode (`factory`) the keyboard holds: only after the user confirmed (U-07). */
+export interface FactoryOverwrite extends RestoreKey { factory: number }
+
+/** What a restore writes, worked out from the file and the keyboard's values before anything is written. */
+export interface RestorePlan {
+  /** Keymap writes, in write order (layer 0–3, then key order). */
+  keys: RestoreKey[];
+  /** Of `keys`: the ones over a factory key (U-07). */
+  factory: FactoryOverwrite[];
+  /** Factory keycodes in the file where the keyboard has another code: left as they are on the keyboard, listed (U-01). */
+  unrestorable: RestoreKey[];
+  /** Travel writes, in key order (the file's record; the loop merges it into the key's record read just before). */
+  perf: { id: number; next: Performance }[];
+  /** Keys whose travel the file has but the app leaves alone (not read, or a mode the app does not know). */
+  perfSkipped: number;
+  /** Device-wide settings that differ from the keyboard's. */
+  settings: { systemMode?: number; rgbSleep?: number; shakeOptimization?: boolean };
+}
+
+/** A travel record from the file merged into the key's record: the sensor and switch fields stay the key's own. */
+export function mergePerf(base: Performance, next: Performance): Performance {
+  return {
+    ...base,
+    ...next,
+    axis: base.axis,
+    calibrate: base.calibrate,
+    axisV2Id: base.axisV2Id,
+    axisRangeMax: base.axisRangeMax,
+    axisCoefficient: base.axisCoefficient,
+  };
+}
+
+function perfChanged(cur: Performance, next: Performance): boolean {
+  return cur.mode !== next.mode
+    || Math.abs(cur.normalPress - next.normalPress) > 0.001
+    || Math.abs(cur.rtFirstTouch - next.rtFirstTouch) > 0.001
+    || Math.abs(cur.rtPress - next.rtPress) > 0.001
+    || Math.abs(cur.rtRelease - next.rtRelease) > 0.001
+    || Math.abs(cur.pressDeadStroke - next.pressDeadStroke) > 0.001
+    || Math.abs(cur.releaseDeadStroke - next.releaseDeadStroke) > 0.001;
+}
+
+type PlanKey = KeyPos & { id: number; name?: string };
+const keyName = (keys: readonly PlanKey[], id: number) => keys[id]?.name ?? String(id);
+
+/**
+ * Checks the file against the keyboard's values and returns what a restore would write; throws RestoreRefusedError (with
+ * the reason) when anything would be refused. Every write is checked by the transport's own guards here (checkFrame on the
+ * exact frame, the travel guard on the exact merged record), so a restore never stops half-way on a refusal (W-08).
+ */
+export function planRestore(
   payload: BackupPayload,
-  deviceKeys: readonly { id: number }[],
+  deviceKeys: readonly PlanKey[],
   currentKeymap: Record<number, Record<number, number>>,
   currentPerf: Record<number, Performance>,
-  intervalRt: boolean,
-): void {
-  // 1. Keymap validation
+  currentSettings: { systemMode: number; rgbSleep: number; shakeOptimization: boolean },
+  opts: { intervalRt: boolean; boardIdHex?: string },
+): RestorePlan {
+  const plan: RestorePlan = { keys: [], factory: [], unrestorable: [], perf: [], perfSkipped: 0, settings: {} };
+
+  // 1. Keymap
   if (payload.keymap) {
     for (const [lStr, layerMap] of Object.entries(payload.keymap)) {
       const layer = Number(lStr);
@@ -39,27 +102,39 @@ function validateBackupPayload(
       for (const [idStr, code] of Object.entries(layerMap)) {
         const id = Number(idStr);
         if (!deviceKeys[id]) continue;
+        const where = { layer: LAYER_NAMES[layer], key: keyName(deviceKeys, id) };
         if (typeof code !== 'number' || !Number.isInteger(code) || code < 0 || code > 0xffff) {
-          throw new Error(`Invalid keycode ${code} at layer ${layer}, key ${id}`);
+          refuse(tr('diagnostics.vBadKeycode', { code: String(code), ...where }));
         }
-        if (BLOCKED_KEYCODES.has(code)) {
-          throw new Error(`Blocked keycode 0x${code.toString(16).padStart(4, '0')} at layer ${layer}, key ${id}`);
-        }
+        // A code the keyboard already has is left alone, whatever it is (U-01).
         const cur = currentKeymap[layer]?.[id];
-        const isCurrent = cur !== undefined && cur === code;
-        const isAssignable = ASSIGNABLE_KEYCODES.has(code) || decodeCombo(code) !== null;
-        if (!isCurrent && !isAssignable) {
-          throw new Error(`Unassignable keycode 0x${code.toString(16).padStart(4, '0')} at layer ${layer}, key ${id}`);
+        if (cur !== undefined && cur === code) continue;
+        // A factory code the keyboard does not have there: this app never writes it; the key stays as it is, listed (U-01).
+        if (BLOCKED_KEYCODES.has(code)) {
+          plan.unrestorable.push({ layer, id, code });
+          continue;
         }
-        // A code the keyboard already has is left alone (the write loop skips it); a different one must be writable.
-        if (!isCurrent && !isWritableKeycode(code)) {
-          throw new Error(`Unwritable keycode 0x${code.toString(16).padStart(4, '0')} at layer ${layer}, key ${id}`);
+        if (!ASSIGNABLE_KEYCODES.has(code) && decodeCombo(code) === null) {
+          refuse(tr('diagnostics.vUnassignable', { code: hex4(code), ...where }));
         }
+        if (!isWritableKeycode(code)) refuse(tr('diagnostics.vUnwritable', { code: hex4(code), ...where }));
+        try {
+          checkFrame(restoreFrames.keycode(deviceKeys[id], code, layer));
+        } catch (err) {
+          refuse(tr('diagnostics.vGuardKey', { ...where, why: whyOf(err) }));
+        }
+        plan.keys.push({ layer, id, code });
+        if (cur !== undefined && BLOCKED_KEYCODES.has(cur)) plan.factory.push({ layer, id, code, factory: cur });
       }
     }
+    // the write order of the loop: layer, then key
+    const order = (a: RestoreKey, b: RestoreKey) => a.layer - b.layer || a.id - b.id;
+    plan.keys.sort(order);
+    plan.factory.sort(order);
+    plan.unrestorable.sort(order);
   }
 
-  // 2. Performance validation
+  // 2. Performance
   if (payload.performance) {
     const distFields = [
       'normalPress', 'normalRelease', 'rtFirstTouch', 'rtPress', 'rtRelease', 'pressDeadStroke', 'releaseDeadStroke',
@@ -67,41 +142,82 @@ function validateBackupPayload(
     for (const [idStr, perf] of Object.entries(payload.performance)) {
       const id = Number(idStr);
       if (!deviceKeys[id] || !perf) continue;
+      const key = keyName(deviceKeys, id);
       if (perf.mode !== 0 && perf.mode !== 1 && perf.mode !== 2) {
-        throw new Error(`Invalid performance mode ${perf.mode} at key ${id}`);
+        refuse(tr('diagnostics.vBadMode', { mode: String(perf.mode), key }));
       }
       const cur = currentPerf[id];
-      // Same rule as the transport guard, checked up front so a restore never stops half-way.
-      if (perf.mode === 2 && !intervalRt && cur?.mode !== 2) {
-        throw new Error(`Performance mode 2 at key ${id} needs firmware protocol 1.3.0.0 or newer`);
-      }
+      if (perf.mode === 2 && !opts.intervalRt && cur?.mode !== 2) refuse(tr('diagnostics.vMode2', { key }));
       const max = cur ? rangeMm(cur) : 4;
       for (const field of distFields) {
         const val = perf[field];
         if (typeof val !== 'number' || !Number.isFinite(val) || val < 0 || val > max + 0.0005) {
-          throw new Error(`Invalid performance distance ${field}=${val} at key ${id} (key travel ${max} mm)`);
+          refuse(tr('diagnostics.vBadDistance', { field, value: String(val), key, max: String(max) }));
         }
       }
     }
+    for (const k of deviceKeys) {
+      const next = payload.performance[k.id];
+      const cur = currentPerf[k.id];
+      if (!next) continue;
+      // Keys reporting a mode this app does not know are left alone (as in the Performance page).
+      if (!cur || !isKnownMode(cur.mode)) {
+        plan.perfSkipped++;
+        continue;
+      }
+      if (!perfChanged(cur, next)) continue;
+      // The record the loop writes (merged into the key's record), through the transport's own checks.
+      const merged = mergePerf(cur, next);
+      const key = keyName(deviceKeys, k.id);
+      const why = checkPerformanceWrite(merged, [cur], { intervalRt: opts.intervalRt, boardIdHex: opts.boardIdHex });
+      if (why) refuse(tr('diagnostics.vGuardPerf', { key, why }));
+      try {
+        checkFrame(restoreFrames.performance(k, merged));
+      } catch (err) {
+        refuse(tr('diagnostics.vGuardPerf', { key, why: whyOf(err) }));
+      }
+      plan.perf.push({ id: k.id, next });
+    }
   }
 
-  // 3. Global settings validation
+  // 3. Global settings (device-wide)
   if (payload.globalSettings) {
     const s = payload.globalSettings;
+    const bad = (name: string, value: unknown) => refuse(tr('diagnostics.vBadSetting', { name, value: String(value) }));
     if (s.systemMode !== undefined && (typeof s.systemMode !== 'number' || !Number.isInteger(s.systemMode) || s.systemMode < 0)) {
-      throw new Error(`Invalid systemMode ${s.systemMode}`);
+      bad('systemMode', s.systemMode);
     }
     if (s.rgbSleep !== undefined && (typeof s.rgbSleep !== 'number' || !Number.isInteger(s.rgbSleep) || s.rgbSleep < 0)) {
-      throw new Error(`Invalid rgbSleep ${s.rgbSleep}`);
+      bad('rgbSleep', s.rgbSleep);
     }
     if (s.shakeOptimization !== undefined) {
       const isBool = typeof s.shakeOptimization === 'boolean';
       const isInt = typeof s.shakeOptimization === 'number' && Number.isInteger(s.shakeOptimization) && s.shakeOptimization >= 0;
-      if (!isBool && !isInt) {
-        throw new Error(`Invalid shakeOptimization ${s.shakeOptimization}`);
+      if (!isBool && !isInt) bad('shakeOptimization', s.shakeOptimization);
+    }
+    const guard = (name: string, value: number | boolean, frame: () => number[]) => {
+      try {
+        checkFrame(frame());
+      } catch (err) {
+        refuse(tr('diagnostics.vGuardSetting', { name, value: String(value), why: whyOf(err) }));
       }
+    };
+    if (s.systemMode !== undefined && s.systemMode !== currentSettings.systemMode) {
+      guard('systemMode', s.systemMode, () => restoreFrames.systemMode(s.systemMode));
+      plan.settings.systemMode = s.systemMode;
+    }
+    if (s.rgbSleep !== undefined && s.rgbSleep !== currentSettings.rgbSleep) {
+      guard('rgbSleep', s.rgbSleep, () => restoreFrames.rgbSleep(s.rgbSleep));
+      plan.settings.rgbSleep = s.rgbSleep;
+    }
+    // compared as a boolean: a file holding 0 / 1 is the same setting as false / true
+    if (s.shakeOptimization !== undefined && Boolean(s.shakeOptimization) !== currentSettings.shakeOptimization) {
+      const on = Boolean(s.shakeOptimization);
+      guard('shakeOptimization', on, () => restoreFrames.shakeOptimization(on));
+      plan.settings.shakeOptimization = on;
     }
   }
+  return plan;
 }
 
 /** Build time as reported by the board ("YYYYMMDDHH:MM:SS") → "YYYY-MM-DD HH:MM:SS"; anything else is shown as is. */
@@ -140,9 +256,16 @@ export interface BackupPayload {
 
 export interface ImportDiff {
   payload: BackupPayload;
+  /** Keys that change (factory keycodes the file has but this app cannot write are not counted: see unrestorable). */
   keymapDiffCount: number;
   perfDiffCount: number;
   settingsDiffCount: number;
+  /** U-01: factory keycodes in the file where the keyboard has another code; left as they are, listed in the dialog. */
+  unrestorable: RestoreKey[];
+  /** U-07: factory keys on the keyboard the restore would write over; the dialog asks first. */
+  factory: FactoryOverwrite[];
+  /** W-08: why a restore of this file would be refused (nothing would be written), or null. */
+  refused?: string | null;
 }
 
 export const useDiagnosticsStore = defineStore('diagnostics', () => {
@@ -248,8 +371,18 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     }
   }
 
+  /** The plan against the stores' values (loaded just before). */
+  function planNow(payload: BackupPayload): RestorePlan {
+    return planRestore(
+      payload, device.keys, keymapStore.values, perfStore.values,
+      { systemMode: settingsStore.systemMode, rgbSleep: settingsStore.rgbSleep, shakeOptimization: settingsStore.shakeOptimization },
+      { intervalRt: supportsIntervalRt(device.version), boardIdHex: device.info?.boardIdHex },
+    );
+  }
+
   /**
-   * Validate JSON text and calculate diff against current device state.
+   * Validate JSON text and calculate diff against current device state. A file the restore would refuse comes back with
+   * `refused` (the reason) and no counts: the page says so instead of opening the dialog; applyRestore refuses it too.
    */
   async function parseAndDiffBackup(jsonText: string): Promise<ImportDiff> {
     let parsed: unknown;
@@ -279,58 +412,22 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     await perfStore.load();
     await settingsStore.load();
 
-    // Keymap diff count
-    let keymapDiffCount = 0;
-    for (let layer = 0; layer < LAYER_COUNT; layer++) {
-      const layerMap = payload.keymap?.[layer] ?? {};
-      for (const key of device.keys) {
-        const cur = keymapStore.values[layer]?.[key.id];
-        const next = layerMap[key.id];
-        if (next !== undefined && cur !== next) {
-          keymapDiffCount++;
-        }
-      }
+    let plan: RestorePlan | null = null;
+    let refused: string | null = null;
+    try {
+      plan = planNow(payload);
+    } catch (err) {
+      if (!(err instanceof RestoreRefusedError)) throw err;
+      refused = err.message;
     }
-
-    // Performance diff count
-    let perfDiffCount = 0;
-    for (const key of device.keys) {
-      const cur = perfStore.values[key.id];
-      const next = payload.performance?.[key.id];
-      if (cur && next) {
-        if (
-          cur.mode !== next.mode
-          || Math.abs(cur.normalPress - next.normalPress) > 0.001
-          || Math.abs(cur.rtFirstTouch - next.rtFirstTouch) > 0.001
-          || Math.abs(cur.rtPress - next.rtPress) > 0.001
-          || Math.abs(cur.rtRelease - next.rtRelease) > 0.001
-          || Math.abs(cur.pressDeadStroke - next.pressDeadStroke) > 0.001
-          || Math.abs(cur.releaseDeadStroke - next.releaseDeadStroke) > 0.001
-        ) {
-          perfDiffCount++;
-        }
-      }
-    }
-
-    // Settings diff count
-    let settingsDiffCount = 0;
-    if (payload.globalSettings) {
-      if (payload.globalSettings.systemMode !== undefined && payload.globalSettings.systemMode !== settingsStore.systemMode) {
-        settingsDiffCount++;
-      }
-      if (payload.globalSettings.rgbSleep !== undefined && payload.globalSettings.rgbSleep !== settingsStore.rgbSleep) {
-        settingsDiffCount++;
-      }
-      if (payload.globalSettings.shakeOptimization !== undefined && payload.globalSettings.shakeOptimization !== settingsStore.shakeOptimization) {
-        settingsDiffCount++;
-      }
-    }
-
     const diff: ImportDiff = {
       payload,
-      keymapDiffCount,
-      perfDiffCount,
-      settingsDiffCount,
+      keymapDiffCount: plan?.keys.length ?? 0,
+      perfDiffCount: plan?.perf.length ?? 0,
+      settingsDiffCount: plan ? Object.keys(plan.settings).length : 0,
+      unrestorable: plan?.unrestorable ?? [],
+      factory: plan?.factory ?? [],
+      refused,
     };
     importDiff.value = diff;
     return diff;
@@ -338,9 +435,11 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
 
   /**
    * Apply restore: writes keymap, performance and global settings through standard transport calls.
-   * Only changed records are written to minimize bus traffic and wear.
+   * Only changed records are written to minimize bus traffic and wear. Every write is checked before the first one (W-08);
+   * a section that fails half-way (a lost reply or keyboard) gets the records it wrote put back, and no commit.
+   * `factoryOk`: the user confirmed overwriting the factory keys listed in `diff.factory` (U-07).
    */
-  async function applyRestore(diff: ImportDiff): Promise<{ skipped: number }> {
+  async function applyRestore(diff: ImportDiff, opts: { factoryOk?: boolean } = {}): Promise<{ skipped: number }> {
     const { payload } = diff;
     if (payload.boardIdHex?.toLowerCase() !== device.info?.boardIdHex?.toLowerCase()) {
       throw new Error(`invalid_board_mismatch:${String(payload.boardIdHex).toUpperCase()}:${(device.info?.boardIdHex ?? '').toUpperCase()}`);
@@ -357,28 +456,36 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
       const resume = history.suspend();
       const release = () => { holdRelease(); resume(); };
 
+      let plan: RestorePlan;
       try {
         // Always re-read: the stores only follow a profile switch while their own page is open.
         await keymapStore.load(true);
         await perfStore.load(true);
+        await settingsStore.load();
         if (
-          keymapStore.loadError || perfStore.loadError
+          keymapStore.loadError || perfStore.loadError || settingsStore.loadError || !settingsStore.loaded
           || keymapStore.loadedProfile !== device.activeProfile || perfStore.loadedProfile !== device.activeProfile
         ) {
           throw new Error(tr('diagnostics.importUnreadable'));
         }
-        validateBackupPayload(payload, device.keys, keymapStore.values, perfStore.values, supportsIntervalRt(device.version));
+        plan = planNow(payload);
+        // Factory keys are written over only when the user confirmed exactly these (the keyboard may have changed since).
+        const shown = new Set((diff.factory ?? []).map((f) => `${f.layer}:${f.id}`));
+        if (plan.factory.length && (!opts.factoryOk || plan.factory.some((f) => !shown.has(`${f.layer}:${f.id}`)))) {
+          throw new RestoreRefusedError(tr('diagnostics.restoreFactoryUnconfirmed'));
+        }
       } catch (err) {
         release();
         throw err;
       }
 
-      const writtenSections: string[] = [];
-      let skipped = 0;
-      let currentSection = '';
+      type Section = 'keymap' | 'performance' | 'settings';
+      const done: Section[] = [];
       let restoreError: Error | null = null;
       /** The keyboard's own active profile when it is not the one the baseline was read from (nothing is written then). */
       let moved = null as number | null;
+      const baseline = keymapStore.values;
+      const old = { systemMode: settingsStore.systemMode, rgbSleep: settingsStore.rgbSleep, shakeOptimization: settingsStore.shakeOptimization };
 
       try {
         await device.withTransport(async (t) => {
@@ -388,92 +495,83 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
             moved = real;
             throw new Error(tr('diagnostics.restoreProfileChanged', { n: real + 1 }));
           }
-          // 1. Keymap restore (only changed keys)
-          if (payload.keymap) {
-            currentSection = 'keymap';
-            let layoutCommitted = false;
-            for (let layer = 0; layer < LAYER_COUNT; layer++) {
-              const layerMap = payload.keymap[layer];
-              if (!layerMap) continue;
-              for (const key of device.keys) {
-                const code = layerMap[key.id];
-                if (code !== undefined && keymapStore.values[layer]?.[key.id] !== code && isWritableKeycode(code)) {
-                  await t.setKeycode(key, code, layer);
-                  layoutCommitted = true;
-                }
+          /** The section running, and how to put back each record it wrote or tried to write (the failing one too). */
+          let section: Section | null = null;
+          let putBack: (() => Promise<void>)[] = [];
+          /** Factory keys this section wrote over: never written back (the guard refuses their codes). */
+          let factoryHit: FactoryOverwrite[] = [];
+          const begin = (s: Section) => { section = s; putBack = []; factoryHit = []; };
+          try {
+            // 1. Keymap (only changed keys)
+            if (plan.keys.length) {
+              begin('keymap');
+              for (const k of plan.keys) {
+                const key = device.keys[k.id];
+                const was = baseline[k.layer]?.[k.id];
+                const f = plan.factory.find((x) => x.layer === k.layer && x.id === k.id);
+                if (f) factoryHit.push(f);
+                else if (was !== undefined) putBack.push(() => t.setKeycode(key, was, k.layer));
+                await t.setKeycode(key, k.code, k.layer);
               }
-            }
-            if (layoutCommitted) {
               await t.commit(SAVE_GROUP.LAYOUT);
+              done.push('keymap');
             }
-            writtenSections.push('keymap');
-          }
 
-          // 2. Performance restore (only changed keys, preserving hardware-owned fields)
-          if (payload.performance) {
-            currentSection = 'performance';
-            let perfCommitted = false;
-            for (const key of device.keys) {
-              const next = payload.performance[key.id];
-              const cur = perfStore.values[key.id];
-              // Keys reporting a mode this app does not know are left alone (as in the Performance page).
-              if (next && (!cur || !isKnownMode(cur.mode))) skipped++;
-              if (next && cur && isKnownMode(cur.mode)) {
-                const changed = cur.mode !== next.mode
-                  || Math.abs(cur.normalPress - next.normalPress) > 0.001
-                  || Math.abs(cur.rtFirstTouch - next.rtFirstTouch) > 0.001
-                  || Math.abs(cur.rtPress - next.rtPress) > 0.001
-                  || Math.abs(cur.rtRelease - next.rtRelease) > 0.001
-                  || Math.abs(cur.pressDeadStroke - next.pressDeadStroke) > 0.001
-                  || Math.abs(cur.releaseDeadStroke - next.releaseDeadStroke) > 0.001;
-                if (changed) {
-                  const fresh = await t.getPerformance(key);
-                  await t.setPerformance(key, {
-                    ...fresh,
-                    ...next,
-                    axis: fresh.axis,
-                    calibrate: fresh.calibrate,
-                    axisV2Id: fresh.axisV2Id,
-                    axisRangeMax: fresh.axisRangeMax,
-                    axisCoefficient: fresh.axisCoefficient,
-                  });
-                  perfCommitted = true;
-                }
+            // 2. Performance (only changed keys, the key's sensor fields as read just before)
+            if (plan.perf.length) {
+              begin('performance');
+              for (const p of plan.perf) {
+                const key = device.keys[p.id];
+                const fresh = await t.getPerformance(key);
+                putBack.push(() => t.setPerformance(key, fresh));
+                await t.setPerformance(key, mergePerf(fresh, p.next));
               }
-            }
-            if (perfCommitted) {
               await t.commit(SAVE_GROUP.PERFORMANCE);
+              done.push('performance');
             }
-            writtenSections.push('performance');
-          }
 
-          // 3. Global settings restore
-          if (payload.globalSettings) {
-            currentSection = 'settings';
-            const s = payload.globalSettings;
-            let settingsCommitted = false;
-            if (s.systemMode !== undefined && s.systemMode !== settingsStore.systemMode) {
-              await t.setSystemMode(s.systemMode);
-              settingsCommitted = true;
+            // 3. Global settings (device-wide; they need no commit)
+            const st = plan.settings;
+            if (st.systemMode !== undefined || st.rgbSleep !== undefined || st.shakeOptimization !== undefined) {
+              begin('settings');
+              if (st.systemMode !== undefined) {
+                putBack.push(() => t.setSystemMode(old.systemMode));
+                await t.setSystemMode(st.systemMode);
+              }
+              if (st.rgbSleep !== undefined) {
+                putBack.push(() => t.setRgbSleep(old.rgbSleep));
+                await t.setRgbSleep(st.rgbSleep);
+              }
+              if (st.shakeOptimization !== undefined) {
+                putBack.push(() => t.setShakeOptimization(old.shakeOptimization));
+                await t.setShakeOptimization(st.shakeOptimization);
+              }
+              // Polling rate is not restored here: changing it restarts the keyboard's USB interface, so it
+              // must be the last command of a session (Settings page).
+              done.push('settings');
             }
-            if (s.rgbSleep !== undefined && s.rgbSleep !== settingsStore.rgbSleep) {
-              await t.setRgbSleep(s.rgbSleep);
-              settingsCommitted = true;
+          } catch (err) {
+            if (section === null) throw err;
+            // WX3: the records this section wrote get their old values back (last first), and its commit is never sent.
+            let back = true;
+            for (const undo of putBack.reverse()) {
+              if (!t.connected) { back = false; break; }
+              try { await undo(); } catch { back = false; }
             }
-            if (s.shakeOptimization !== undefined && Boolean(s.shakeOptimization) !== settingsStore.shakeOptimization) {
-              await t.setShakeOptimization(Boolean(s.shakeOptimization));
-              settingsCommitted = true;
+            const name = (s: Section) => tr(s === 'keymap' ? 'diagnostics.secKeymap' : s === 'performance' ? 'diagnostics.secPerformance' : 'diagnostics.secSettings');
+            const msg = err instanceof Error ? err.message : String(err);
+            const parts: string[] = [];
+            if (done.length) parts.push(tr('diagnostics.restoreDoneList', { list: done.map(name).join(', ') }));
+            parts.push(tr(back ? 'diagnostics.restoreFailedBack' : 'diagnostics.restoreFailedUnsaved', { section: name(section), msg }));
+            if (factoryHit.length) {
+              const keys = factoryHit.map((f) => `${LAYER_NAMES[f.layer]} · ${device.keys[f.id]?.name ?? f.id}`).join(', ');
+              parts.push(tr('diagnostics.restoreFactoryLost', { n: factoryHit.length, keys }));
             }
-            // Polling rate is not restored here: changing it restarts the keyboard's USB interface, so it
-            // must be the last command of a session (Settings page). Global settings need no commit.
-            void settingsCommitted;
-            writtenSections.push('settings');
+            throw new Error(parts.join(' '));
           }
         }, { exclusive: true, what: tr('diagnostics.whatRestore') });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const prefix = writtenSections.length > 0 ? `${writtenSections.join(', ')} written; ` : '';
-        restoreError = moved !== null ? new Error(msg) : new Error(`${prefix}${currentSection} failed: ${msg}`);
+        restoreError = err instanceof Error ? err : new Error(String(err));
         // Follow the keyboard (one toast; the reloads below then read the profile it is on).
         if (moved !== null) await device.profileChangedOnKeyboard(moved);
       } finally {
@@ -494,7 +592,7 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
         release();
         if (restoreError) throw restoreError;
       }
-      return { skipped };
+      return { skipped: plan.perfSkipped };
     } finally {
       isRestoring.value = false;
     }

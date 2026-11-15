@@ -121,6 +121,7 @@ export const settingsEn: Record<keyof typeof settingsVi, string> = {
   'appcfg.resetTitle': 'Reset app settings?',
   'appcfg.resetBody': 'Puts every AE64 Control setting on this computer back to its default, then reloads the page.',
   'appcfg.resetPresets': 'Your own presets ({n}) will be deleted. Export a file first to keep them.',
+  'appcfg.resetWallpaper': 'Your wallpaper image will be deleted too. An exported file does not hold it: keep your own copy of the image.',
   'appcfg.importPresets': 'Your own presets on this computer ({n}) are replaced by the ones in the file ({m}). Export a file first to keep them.',
   'appcfg.resetConfirm': 'Reset and reload',
   'appcfg.cancel': 'Cancel',

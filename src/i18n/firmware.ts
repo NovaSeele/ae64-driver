@@ -49,6 +49,7 @@ export const firmwareVi = {
   'fw.s2.wait': 'Đang chờ bàn phím ở chế độ cập nhật…',
   'fw.s2.perm': 'Trình duyệt chưa cho app dùng bàn phím ở chế độ cập nhật. Bấm nút dưới đây rồi chọn bàn phím trong hộp thoại.',
   'fw.s2.permBtn': 'Cho phép bàn phím ở chế độ cập nhật',
+  'fw.s2.notAnswered': 'Thiết bị vừa chọn chưa trả lời. App sẽ hỏi lại nó vài lần nữa; nếu nó vẫn im lặng, hãy rút cáp bàn phím, cắm lại rồi bấm "Tìm lại".',
   'fw.s2.wrongDevice': 'Thiết bị vừa chọn không phải AE64 Pro ở chế độ cập nhật. App chỉ đọc thông tin của nó, không gửi gì khác. Bấm nút lần nữa và chọn đúng bàn phím.',
   'fw.s2.otherSerial': 'Thiết bị này là một AE64 Pro ở chế độ cập nhật, nhưng serial của nó khác bàn phím vừa bắt đầu cập nhật, nên app không ghi vào nó. Nếu đó đúng là bàn phím của bạn, có thể tiếp tục ở chế độ cứu trên nó: trang đọc lại thông tin, kiểm file và chỉ ghi khi bạn bấm Ghi firmware.',
   'fw.s2.otherSerialBtn': 'Tiếp tục ở chế độ cứu',

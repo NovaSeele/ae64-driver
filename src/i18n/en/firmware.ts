@@ -51,6 +51,7 @@ export const firmwareEn: Record<keyof typeof firmwareVi, string> = {
   'fw.s2.wait': 'Waiting for the keyboard in update mode…',
   'fw.s2.perm': 'The browser has not let the app use the keyboard in update mode yet. Press the button below, then choose the keyboard in the dialog.',
   'fw.s2.permBtn': 'Allow the keyboard in update mode',
+  'fw.s2.notAnswered': 'The device you chose has not answered yet. The app asks it again a few times; if it stays silent, unplug the keyboard, plug it in again and press "Search again".',
   'fw.s2.wrongDevice': 'The device you chose is not an AE64 Pro in update mode. The app only read its info and sent nothing else. Press the button again and choose the right keyboard.',
   'fw.s2.otherSerial': 'This device is an AE64 Pro in update mode, but its serial differs from the keyboard that started the update, so the app does not write to it. If it is your keyboard, you can continue in rescue mode on it: the page reads its info again, checks the file and writes only when you press Write firmware.',
   'fw.s2.otherSerialBtn': 'Continue in rescue mode',

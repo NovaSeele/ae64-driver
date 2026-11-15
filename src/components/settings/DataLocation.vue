@@ -116,8 +116,18 @@ watch(importOpen, async (v) => {
 
 // ---- Reset (Dialog focuses Cancel, the first button)
 const resetOpen = ref(false);
+// Whether a wallpaper image is stored (IndexedDB), asked again each time the dialog opens: the reset deletes it too, and
+// the exported file never holds it (WX3 item 5). Unknown until the store answers; an unreadable store counts as none.
+const resetWallpaper = ref(false);
+let resetAsk = 0;
 function askReset(): void {
   err.value = null;
+  resetWallpaper.value = false;
+  const n = ++resetAsk;
+  void import('../../data/wallpaperStore')
+    .then(({ getWallpaperStore }) => getWallpaperStore().get())
+    .then((r) => { if (n === resetAsk) resetWallpaper.value = !!r; })
+    .catch(() => { /* no image known */ });
   resetOpen.value = true;
 }
 
@@ -233,6 +243,9 @@ async function run(kind: 'import' | 'reset'): Promise<void> {
       <p>{{ t('appcfg.resetBody') }}</p>
       <p v-if="userPresets.presets.length" class="ac__warn">
         <IconAlertTriangle :size="16" stroke-width="1.75" aria-hidden="true" /><span>{{ t('appcfg.resetPresets', { n: userPresets.presets.length }) }}</span>
+      </p>
+      <p v-if="resetWallpaper" class="ac__warn" data-test="reset-wallpaper">
+        <IconAlertTriangle :size="16" stroke-width="1.75" aria-hidden="true" /><span>{{ t('appcfg.resetWallpaper') }}</span>
       </p>
       <p class="ac__safe"><IconCircleCheck :size="16" stroke-width="2" aria-hidden="true" /><span>{{ t('appcfg.keyboardSafe') }}</span></p>
     </div>

@@ -22,6 +22,20 @@ import { t } from '../i18n/vi';
 
 type RawPacketListener = (dir: 'out' | 'in', bytes: Uint8Array, note?: string) => void;
 
+/**
+ * The payloads of the writes a backup restore sends, built here only: the setters below send exactly these, and the restore
+ * checks each one with checkFrame (and the travel guard) before its first write (WX3 W-08). Building one throws when a value
+ * does not fit its field (e.g. rgbSleep above 65535).
+ */
+export const restoreFrames = {
+  keycode: (pos: KeyPos, keycode: number, layer: number): number[] =>
+    [FAMILY.LAYOUT, 0x04, layer, pos.row, pos.col, ...c.le16(keycode, 'keycode')],
+  performance: (pos: KeyPos, p: Performance): number[] => c.encodePerformance(pos, p),
+  systemMode: (mode: number): number[] => [FAMILY.GLOBAL, 0x04, 0x02, mode],
+  rgbSleep: (minutes: number): number[] => [FAMILY.GLOBAL, 0x0d, 0x00, ...c.le16(minutes, 'minutes')],
+  shakeOptimization: (on: boolean): number[] => [FAMILY.GLOBAL, 0x10, 0x00, on ? 1 : 0],
+} as const;
+
 export class TransportTimeoutError extends Error {
   constructor(command: number[]) {
     super(t('error.transportTimeout', { cmd: command.slice(0, 2).map((b) => b.toString(16).padStart(2, '0')).join(':') }));
@@ -240,7 +254,7 @@ export abstract class BaseTransport implements Ae64Transport {
   }
 
   async setSystemMode(mode: number): Promise<void> {
-    await this.write([FAMILY.GLOBAL, 0x04, 0x02, mode]);
+    await this.write(restoreFrames.systemMode(mode));
   }
 
   async getPollingRates(): Promise<number[]> {
@@ -284,7 +298,7 @@ export abstract class BaseTransport implements Ae64Transport {
   }
 
   async setRgbSleep(minutes: number): Promise<void> {
-    await this.write([FAMILY.GLOBAL, 0x0d, 0x00, ...c.le16(minutes, 'minutes')]);
+    await this.write(restoreFrames.rgbSleep(minutes));
   }
 
   async getMacroSpace(): Promise<{ count: number; capacity: number }> {
@@ -297,7 +311,7 @@ export abstract class BaseTransport implements Ae64Transport {
   }
 
   async setShakeOptimization(on: boolean): Promise<void> {
-    await this.write([FAMILY.GLOBAL, 0x10, 0x00, on ? 1 : 0]);
+    await this.write(restoreFrames.shakeOptimization(on));
   }
 
   // ------------------------------------------------------------------ 03 layout
@@ -315,7 +329,7 @@ export abstract class BaseTransport implements Ae64Transport {
   }
 
   async setKeycode(pos: KeyPos, keycode: number, layer: number): Promise<void> {
-    await this.write([FAMILY.LAYOUT, 0x04, layer, pos.row, pos.col, ...c.le16(keycode, 'keycode')]);
+    await this.write(restoreFrames.keycode(pos, keycode, layer));
   }
 
   async getDefaultKeymapRow(system: number, layer: number, row: number): Promise<number[]> {
@@ -344,7 +358,7 @@ export abstract class BaseTransport implements Ae64Transport {
 
   /** Refused unless the key was read first and the sensor fields stay as the device reported them. */
   async setPerformance(pos: KeyPos, p: Performance): Promise<void> {
-    const payload = c.encodePerformance(pos, p);
+    const payload = restoreFrames.performance(pos, p);
     const why = checkPerformanceWrite(p, this.perfSeen.get(`${pos.row}:${pos.col}`) ?? [], {
       intervalRt: c.supportsIntervalRt(this.protocol),
       boardIdHex: this.boardIdHex,

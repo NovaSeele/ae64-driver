@@ -7,7 +7,8 @@ import { usePerformanceStore } from '../src/stores/performance';
 import { useSettingsStore } from '../src/stores/settings';
 import { useSyncStore } from '../src/stores/sync';
 import { useHistoryStore } from '../src/stores/history';
-import { formatBuildTime, useDiagnosticsStore } from '../src/stores/diagnostics';
+import { RestoreRefusedError, formatBuildTime, useDiagnosticsStore } from '../src/stores/diagnostics';
+import { t as tr } from '../src/i18n/vi';
 
 // Backups are thousands of exchanges. The demo answers each one after a timer (>= 1 ms in Node), which
 // made this file take ~77 s and pushed some tests near the 5 s default timeout under full-suite load.
@@ -132,7 +133,7 @@ describe('diagnostics store', () => {
     expect(await mock.getRgbSleep()).toBe(5);
   }, 15000);
 
-  it('rejects backup payload with blocked keycode (0xF200) without writing to transport', async () => {
+  it('a blocked keycode (0xF200) the keyboard does not have is listed and left alone, never written (WX3 U-01)', async () => {
     const mock = await connectMock();
     const diag = useDiagnosticsStore();
     const backup = await diag.generateBackup();
@@ -143,7 +144,10 @@ describe('diagnostics store', () => {
     const setPerformance = vi.spyOn(mock, 'setPerformance');
 
     const diff = await diag.parseAndDiffBackup(JSON.stringify(backup));
-    await expect(diag.applyRestore(diff)).rejects.toThrow(/Blocked keycode/);
+    expect(diff.unrestorable).toEqual([{ layer: 0, id: esc.id, code: 0xf200 }]);
+    expect(diff.keymapDiffCount).toBe(0);
+    await expect(diag.applyRestore(diff)).resolves.toEqual({ skipped: 0 });
+    expect(await mock.getKeycode(esc, 0)).not.toBe(0xf200);
 
     expect(setKeycode).not.toHaveBeenCalled();
     expect(setPerformance).not.toHaveBeenCalled();
@@ -160,7 +164,10 @@ describe('diagnostics store', () => {
     const setPerformance = vi.spyOn(mock, 'setPerformance');
 
     const diff = await diag.parseAndDiffBackup(JSON.stringify(backup));
-    await expect(diag.applyRestore(diff)).rejects.toThrow(/Unassignable keycode/);
+    expect(diff.refused).toBe(tr('diagnostics.vRefused', {
+      msg: tr('diagnostics.vUnassignable', { code: '0xF204', layer: 'Main', key: esc.name }),
+    }));
+    await expect(diag.applyRestore(diff)).rejects.toThrow(diff.refused!);
 
     expect(setKeycode).not.toHaveBeenCalled();
     expect(setPerformance).not.toHaveBeenCalled();
@@ -228,7 +235,10 @@ describe('diagnostics store', () => {
     history.push({ label: 'test', undo: () => {}, redo: () => {} });
     expect(history.canUndo).toBe(true);
 
-    await expect(diag.applyRestore(diff)).rejects.toThrow(/keymap written; performance failed: simulated perf bus error/);
+    // WX3: the keymap section is done (committed); the travel section that failed is put back, and not committed. The
+    // put-back is setPerformance too, which this test makes fail: "unsaved until unplugged".
+    await expect(diag.applyRestore(diff)).rejects.toThrow(`${tr('diagnostics.restoreDoneList', { list: tr('diagnostics.secKeymap') })} `
+      + tr('diagnostics.restoreFailedUnsaved', { section: tr('diagnostics.secPerformance'), msg: 'simulated perf bus error' }));
 
     expect(history.canUndo).toBe(false);
   }, 15000);
@@ -267,9 +277,9 @@ describe('diagnostics store', () => {
     const history = useHistoryStore();
     const sync = useSyncStore();
     const backup = await diag.generateBackup();
-    backup.keymap[0][PHYSICAL_KEYS[0].id] = 0xf200;
+    backup.keymap[0][PHYSICAL_KEYS[0].id] = 0xf204; // unassignable (a blocked one is now left alone, WX3 U-01)
     const diff = await diag.parseAndDiffBackup(JSON.stringify(backup));
-    await expect(diag.applyRestore(diff)).rejects.toThrow(/Blocked keycode/);
+    await expect(diag.applyRestore(diff)).rejects.toThrow(RestoreRefusedError);
 
     expect(history.suspended).toBe(false);
     const write = vi.fn(async () => undefined);
@@ -287,7 +297,7 @@ describe('diagnostics store', () => {
     backup.boardIdHex = '0030000A'; // Pro backup, Max connected
 
     await expect(diag.parseAndDiffBackup(JSON.stringify(backup))).rejects.toThrow('invalid_board_mismatch:0030000A:0030000D');
-    await expect(diag.applyRestore({ payload: backup, keymapDiffCount: 1, perfDiffCount: 0, settingsDiffCount: 0 }))
+    await expect(diag.applyRestore({ payload: backup, keymapDiffCount: 1, perfDiffCount: 0, settingsDiffCount: 0, unrestorable: [], factory: [] }))
       .rejects.toThrow('invalid_board_mismatch');
 
     backup.boardIdHex = '0030000D'; // same board, other case: accepted
