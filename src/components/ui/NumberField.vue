@@ -93,6 +93,9 @@ function nudge(dir: 1 | -1, fine = false) {
     emit('step', Number(delta.toFixed(props.decimals + 1)));
     return;
   }
+  // N-WX5-1: from a value outside min / max (the keyboard holds it), a step further out does nothing; a step toward the
+  // range lands on the bound. Never "increase" to a lower value.
+  if ((base > props.max && delta > 0) || (base < props.min && delta < 0)) return;
   const c = clamp(base + delta);
   if (c !== props.modelValue) emit('update:modelValue', c);
   text.value = formatMm(c, props.decimals);

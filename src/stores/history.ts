@@ -16,6 +16,8 @@ export interface HistoryEntry {
    * other keys than the step before; their values from before the gesture must be in the undo too).
    */
   absorb?: (older: HistoryEntry) => HistoryEntry;
+  /** Whose state the entry changes (e.g. 'gamepad'): `dropOwned` removes that owner's entries only (U-16). */
+  owner?: string;
 }
 
 const MAX_ENTRIES = 200;
@@ -92,6 +94,12 @@ export const useHistoryStore = defineStore('history', () => {
     redoStack.value = [];
   }
 
+  /** Forget one owner's undo and redo entries (its state was replaced from elsewhere); every other entry stays. */
+  function dropOwned(owner: string): void {
+    undoStack.value = undoStack.value.filter((e) => e.owner !== owner);
+    redoStack.value = redoStack.value.filter((e) => e.owner !== owner);
+  }
+
   // Another keyboard (or the demo) was connected: an entry made on the old one must never be undone onto this one.
   watch(() => useDeviceStore().connection, clear, { flush: 'sync' });
 
@@ -109,5 +117,5 @@ export const useHistoryStore = defineStore('history', () => {
     return () => target.removeEventListener('keydown', onKey);
   }
 
-  return { canUndo, canRedo, undoLabel, undoId, redoLabel, suspended, push, undo, redo, clear, suspend, installShortcuts };
+  return { canUndo, canRedo, undoLabel, undoId, redoLabel, suspended, push, undo, redo, clear, dropOwned, suspend, installShortcuts };
 });

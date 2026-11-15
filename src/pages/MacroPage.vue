@@ -17,8 +17,9 @@ import { useDeviceStore } from '../stores/device';
 import { LAYER_NAMES, useKeymapStore } from '../stores/keymap';
 import { useHistoryStore } from '../stores/history';
 import {
-  MACRO_CLICK_REPEAT_MAX, MACRO_DELAY_MIN, MACRO_MODES, balanceWarnings, isHoldMode, useMacroStore, validateDraft,
+  MACRO_CLICK_REPEAT_MAX, MACRO_DELAY_MIN, MACRO_MODES, balanceWarnings, isHoldMode, keyboardIdentity, useMacroStore, validateDraft,
 } from '../stores/macro';
+import { registerLeaveGate } from '../composables/leaveGate';
 import type { MacroDraft, MacroMode } from '../stores/macro';
 import { MACRO_ACTIONS_PER_PAGE, keycodeLabel } from '../protocol';
 import type { MacroAction } from '../protocol';
@@ -43,7 +44,7 @@ const readOnly = computed(() => !device.boardAllowed);
 
 let offProfile: (() => void) | null = null;
 onMounted(() => {
-  void macro.load();
+  void macro.load().then(restoreCarried, () => undefined);
   void keymap.load(); // "Đang gán" looks at every layer
   // The Fn layers are per profile: read the new one's (layer 0 comes with the switch itself).
   offProfile = device.onProfileChanged(() => void keymap.load(true));
@@ -56,7 +57,8 @@ function fromSlot(): MacroDraft {
 }
 const draft = computed<MacroDraft | null>(() => (slot.value ? drafts.get(current.value) ?? fromSlot() : null));
 function setDraft(patch: Partial<MacroDraft>) {
-  if (!draft.value) return;
+  // U-06: while a write runs the editor is read-only (its controls are off); this is the backstop.
+  if (!draft.value || saving.value) return;
   drafts.set(current.value, { ...draft.value, ...patch });
 }
 function sameDraft(a: MacroDraft, b: MacroDraft): boolean {
@@ -100,9 +102,20 @@ onBeforeRouteLeave((to) => {
   if (!anyDirty.value) return true;
   if (confirmClear.value || confirmClearList.value) return false; // another dialog is open: answer it first
   leaveTo.value = to.fullPath;
+  leaveGo = null; // the latest ask wins
   return false;
 });
 async function leaveNow() {
+  const go = leaveGo;
+  if (go) {
+    // Disconnect / Change keyboard / demo-model switch (U-06): the drafts are dropped here, then the action runs.
+    leaveGo = null;
+    leaveTo.value = null;
+    drafts.clear();
+    removed.value = null;
+    go();
+    return;
+  }
   const to = leaveTo.value;
   if (to === null) return;
   leaving = true;
@@ -110,6 +123,45 @@ async function leaveNow() {
   try { await router.push(to); } finally { leaving = false; }
 }
 onMounted(() => window.addEventListener('beforeunload', warnLeave));
+
+// U-06: Disconnect, Change keyboard and the demo-model switch unmount the page with no route change: they ask the same
+// question through the leave gate. "Ở lại" (closing the dialog) keeps everything; "Bỏ thay đổi" drops the drafts and goes.
+/** The action a gate question waits for; the dialog shows while it is set (leaveTo holds '' then). */
+let leaveGo: (() => void) | null = null;
+watch(leaveTo, (to) => { if (to === null) leaveGo = null; });
+const offGate = registerLeaveGate((go) => {
+  if (saving.value) { toast.show(t('macro.leaveSaving'), 'warn'); return true; }
+  stopRecording();
+  if (!anyDirty.value) return false;
+  if (confirmClear.value || confirmClearList.value) return true; // another dialog is open: answer it first
+  leaveTo.value = '';
+  leaveGo = go;
+  return true;
+});
+
+// U-06: a lost cable cannot be asked. The dirty drafts stay in the macro store with the keyboard and profile they
+// belong to; the same keyboard and profile back in this browser page get them back here, still dirty, with a note.
+/** The keyboard and profile the drafts were made on (read while connected: at unmount after a lost cable both are gone). */
+let owner: { keyboard: string | null; profile: number } | null = null;
+watch(() => [device.connected, device.info, device.activeProfile] as const, ([on]) => {
+  if (on) owner = { keyboard: keyboardIdentity(device.info, device.demo), profile: device.activeProfile };
+}, { immediate: true });
+/** Slots whose draft came back from the last connection: the note shows on them while they stay dirty. */
+const carriedIds = ref(new Set<number>());
+function restoreCarried() {
+  if (!device.connected) return;
+  const c = macro.takeCarried(keyboardIdentity(device.info, device.demo), device.activeProfile);
+  if (!c) return;
+  const ids = new Set<number>();
+  for (const [id, d] of c.drafts) {
+    if (!macro.slots.some((s) => s.id === id)) continue;
+    drafts.set(id, d);
+    ids.add(id);
+  }
+  carriedIds.value = ids;
+  if (ids.has(c.current)) current.value = c.current;
+  else if (ids.size) current.value = Math.min(...ids);
+}
 
 // ----- slot list (tabs)
 const slotRefs = ref<HTMLButtonElement[]>([]);
@@ -206,7 +258,17 @@ function stopRecording() {
 onBeforeUnmount(() => {
   offProfile?.();
   offProfile = null;
+  offGate();
   stopRecording();
+  // The page goes because the keyboard went (not a route change, not an answered question): keep the drafts.
+  if (!device.connected && owner?.keyboard && dirtyIds.value.size) {
+    macro.carry({
+      keyboard: owner.keyboard,
+      profile: owner.profile,
+      current: current.value,
+      drafts: [...dirtyIds.value].map((id) => [id, drafts.get(id)!] as [number, MacroDraft]),
+    });
+  }
   releaseHistory?.();
   releaseHistory = null;
   window.removeEventListener('beforeunload', warnLeave);
@@ -246,7 +308,9 @@ async function save() {
   saving.value = true;
   try {
     await macro.save(id, d);
-    drafts.delete(id);
+    // the draft goes only if it is still what was sent (the editor is read-only while saving; this is the backstop)
+    const now = drafts.get(id);
+    if (now && sameDraft(now, d)) drafts.delete(id);
     removed.value = null;
     toast.show(t('macro.saved', { n: id }), 'success');
   } catch (err) {
@@ -348,6 +412,7 @@ async function discard() {
               <span v-else-if="macro.waiting.has(current)" class="badge">{{ t('macro.waiting') }}</span>
             </h2>
             <p v-if="macro.waiting.has(current)" class="head__hint" role="status">{{ t('macro.waitingHint', { n: current }) }}</p>
+            <p v-if="dirty && carriedIds.has(current)" class="head__hint" role="status" data-test="macro-carried">{{ t('macro.carried') }}</p>
             <p class="head__hint">
               <IconKeyboard :size="14" stroke-width="1.6" aria-hidden="true" />
               <span v-if="assignedKeys.length">{{ t('macro.assignedTo', { keys: assignedKeys.join(', ') }) }} · </span>
@@ -367,8 +432,8 @@ async function discard() {
           <template #actions>
             <Button v-if="!recording" variant="secondary" size="sm" :icon="IconPlayerRecordFilled" class="rec" :disabled="full || readOnly || saving" @click="startRecording">{{ t('macro.record') }}</Button>
             <Button v-else variant="danger" size="sm" :icon="IconPlayerStopFilled" @click="stopRecording">{{ t('macro.stop') }}</Button>
-            <Button variant="ghost" size="sm" :icon="IconPlus" :disabled="recording || full || readOnly" @click="addAction">{{ t('macro.add') }}</Button>
-            <Button variant="ghost" size="sm" :disabled="recording || readOnly || !draft.actions.length" @click="confirmClearList = true">{{ t('macro.clearList') }}</Button>
+            <Button variant="ghost" size="sm" :icon="IconPlus" :disabled="recording || full || readOnly || saving" @click="addAction">{{ t('macro.add') }}</Button>
+            <Button variant="ghost" size="sm" :disabled="recording || readOnly || saving || !draft.actions.length" @click="confirmClearList = true">{{ t('macro.clearList') }}</Button>
           </template>
 
           <div v-if="recording" class="recbar" role="status">
@@ -380,7 +445,7 @@ async function discard() {
           <ActionTable
             v-if="draft.actions.length"
             :actions="draft.actions"
-            :disabled="recording || readOnly"
+            :disabled="recording || readOnly || saving"
             :can-insert="!full"
             :warnings="warnRows"
             @update="onActions"
@@ -392,7 +457,7 @@ async function discard() {
             <span v-if="warn.early.length" class="warn"><IconAlertTriangle :size="14" />{{ t('macro.warnRelease', { i: warn.early[0] + 1 }) }}</span>
             <span v-else-if="warn.stuck.length" class="warn"><IconAlertTriangle :size="14" />{{ t('macro.warnStuck', { keys: warn.stuck.map((c) => keycodeLabel(c).label).join(', ') }) }}</span>
             <span v-if="problem && draft.actions.length" class="err">{{ problem }}</span>
-            <button v-if="removed?.id === current && !recording && !readOnly" type="button" class="link" @click="undoRemove">{{ t('macro.undoRemove') }}</button>
+            <button v-if="removed?.id === current && !recording && !readOnly && !saving" type="button" class="link" @click="undoRemove">{{ t('macro.undoRemove') }}</button>
           </footer>
         </Card>
 
@@ -402,7 +467,7 @@ async function discard() {
             <div v-for="grp in [{ id: 'click', list: clickModes }, { id: 'hold', list: holdModes }]" :key="grp.id" class="modes__grp">
               <span class="micro muted">{{ grp.id === 'click' ? t('macro.click') : t('macro.hold') }}</span>
               <div class="modes__list" role="radiogroup" :aria-label="grp.id === 'click' ? t('macro.groupClick') : t('macro.groupHold')">
-                <button v-for="m in grp.list" :key="m" type="button" role="radio" class="mode" :aria-checked="draft.mode === m" :disabled="readOnly" @click="setMode(m)">
+                <button v-for="m in grp.list" :key="m" type="button" role="radio" class="mode" :aria-checked="draft.mode === m" :disabled="readOnly || saving" @click="setMode(m)">
                   <span class="mode__radio" />
                   {{ t(MODE_TEXT[m]) }}
                 </button>
@@ -421,7 +486,7 @@ async function discard() {
               :decimals="0"
               unit="×"
               :label="t('macro.repeat')"
-              :disabled="readOnly"
+              :disabled="readOnly || saving"
               @update:model-value="setDraft({ repeatCount: Math.round($event) })"
             />
           </div>

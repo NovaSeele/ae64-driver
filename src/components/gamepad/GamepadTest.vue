@@ -18,7 +18,7 @@ import { t } from '../../i18n/vi';
 import GamepadViz from './GamepadViz.vue';
 import type { VizState } from './GamepadViz.vue';
 
-const props = defineProps<{ appState: VizState | null; modeOff: boolean }>();
+const props = defineProps<{ appState: VizState | null; modeOff: boolean; readError?: string | null }>();
 const reading = defineModel<boolean>('reading', { required: true });
 
 const gp = useGamepadStore();
@@ -34,7 +34,9 @@ const hasApi = typeof navigator !== 'undefined' && typeof navigator.getGamepads 
 interface Pad { index: number; id: string; state: VizState }
 const pads = shallowRef<Pad[]>([]);
 const picked = ref<number | null>(null);
-const pad = computed(() => pads.value.find((p) => p.index === picked.value) ?? pads.value[0] ?? null);
+/** The pad picked in the list, while it is still there (U-15). */
+const chosen = computed(() => pads.value.find((p) => p.index === picked.value) ?? null);
+const pad = computed(() => chosen.value ?? pads.value[0] ?? null);
 const padOptions = computed(() => pads.value.map((p) => ({ value: p.index, label: `${p.index + 1}`, title: p.id })));
 
 const STD = ['A', 'B', 'X', 'Y', 'LB', 'RB', null, null, 'Back', 'Start', 'L3', 'R3', 'D↑', 'D↓', 'D←', 'D→'] as const;
@@ -122,8 +124,10 @@ const showFailure = computed(() => !!gp.usbError && device.connected && !gp.usbB
 // an idle controller for a while although the travel the app reads gives output. Not in the demo (no real Gamepad API).
 const router = useRouter();
 const neutral = (s: VizState) => !s.lx && !s.ly && !s.rx && !s.ry && !s.lt && !s.rt && !s.buttons.length;
+// U-15: judged on the chosen pad; with none picked, only when no pad moves (another controller may be first in the list).
+const padsIdle = computed(() => (chosen.value ? neutral(chosen.value.state) : pads.value.every((p) => neutral(p.state))));
 const mismatch = computed(() => !device.demo && reading.value && !props.modeOff && !!props.appState && !neutral(props.appState)
-  && (!pad.value || neutral(pad.value.state)) && !(gp.usb && !gp.usb.enabled) && !gp.usbBusy);
+  && padsIdle.value && !(gp.usb && !gp.usb.enabled) && !gp.usbBusy);
 const CAL_HINT_MS = 1500;
 const calHint = ref(false);
 let calTimer: ReturnType<typeof setTimeout> | null = null;
@@ -133,8 +137,14 @@ watch(mismatch, (on) => {
   if (!on) return;
   calTimer = setTimeout(() => { calTimer = null; calHint.value = true; }, CAL_HINT_MS);
 });
-// Shown once it held for CAL_HINT_MS; it stays until reading stops (it would blink with every release otherwise).
+// Shown once it held for CAL_HINT_MS; it stays until reading stops (it would blink with every release otherwise), or
+// another pad is picked: then it is judged again on that pad.
 watch(() => reading.value && !device.demo, (on) => { if (!on) calHint.value = false; });
+watch(picked, () => {
+  calHint.value = false;
+  if (calTimer) clearTimeout(calTimer);
+  calTimer = mismatch.value ? setTimeout(() => { calTimer = null; calHint.value = true; }, CAL_HINT_MS) : null;
+});
 onBeforeUnmount(() => { if (calTimer) clearTimeout(calTimer); });
 </script>
 
@@ -178,6 +188,7 @@ onBeforeUnmount(() => { if (calTimer) clearTimeout(calTimer); });
         <div class="gpt__xbox">
           <Switch v-model="reading" :label="t('gp.appRead')" describedby="gp-read-d" />
           <p id="gp-read-d" class="gps__desc">{{ t('gp.appReadDesc') }}</p>
+          <p v-if="readError && !reading" class="gps__desc gps__desc--warn" role="alert" data-test="gp-read-error">{{ readError }}</p>
         </div>
       </div>
     </div>

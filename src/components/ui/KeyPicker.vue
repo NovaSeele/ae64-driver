@@ -8,7 +8,8 @@ import { COMBO_MODIFIERS, KEYCODE_GROUPS, comboKeycode, decodeCombo, isComboTrig
 import type { KeycodeEntry } from '../../protocol';
 import { t } from '../../i18n/vi';
 
-const props = defineProps<{ current?: number | null }>();
+/** `target`: what the picker edits (the Keymap page: layer and selected keys); a change loads that key's own modifiers. */
+const props = defineProps<{ current?: number | null; target?: string | number | null }>();
 const emit = defineEmits<{ pick: [code: number] }>();
 
 const groupOf = (code: number) => KEYCODE_GROUPS.find((g) => g.codes.some((e) => e.code === code))?.id;
@@ -28,12 +29,22 @@ onMounted(() => {
   if (document.activeElement?.closest('[data-keep-focus]')) return;
   searchInput.value?.focus();
 });
-// A different key was selected (not the echo of our own pick): load its combo again.
-watch(() => props.current, (code) => {
-  if (code === lastPicked) return;
+/** The modifiers are the edited key's own: its combo's, or none (a mask set and not used is dropped). */
+function loadFrom(code: number | null | undefined) {
   const c = comboOf(code);
   mask.value = c?.mask ?? 0;
   group.value = groupOf(c ? c.trigger : code ?? -1) ?? group.value;
+}
+// A different key was selected: load its combo again. The echo of our own pick is skipped once only; a later key that
+// happens to hold the same code is another key (WX6: it no longer keeps the modifiers of a key visited in between).
+watch(() => props.current, (code) => {
+  const echo = code === lastPicked;
+  lastPicked = null;
+  if (!echo) loadFrom(code);
+});
+watch(() => props.target, () => {
+  lastPicked = null;
+  loadFrom(props.current);
 });
 
 const searching = computed(() => query.value.trim() !== '');

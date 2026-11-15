@@ -34,6 +34,8 @@ export const keymapVi = {
   'keymap.emptyHintShort': '— Trống: phím không làm gì.',
   'keymap.restoreDefaultSkipped': '{n} phím giữ nguyên vì mặc định của chúng là phím nhà máy (Reset/Link/không dây) — ứng dụng không bao giờ ghi các phím này.',
   'keymap.restoreDefaultSuccessSkipped': 'Đã khôi phục {n} phím về mặc định; {skipped} phím giữ nguyên vì là phím nhà máy.',
+  'keymap.restoreDefaultFnSkipped': '{n} phím giữ nguyên để Fn nhả được (lớp dưới đang giữ Fn hoặc lớp trên không phải Transparent): {keys}.',
+  'keymap.fnRuleRefused': 'Phím {key} đang giữ {fn} ở lớp {layer}. Ở lớp này nó phải để Transparent để nhả được Fn.',
   'keymap.restoreDefaultNothingWritten': 'Không có phím nào được ghi.',
   'keymap.assignTitle': 'Xác nhận gán phím',
   'keymap.assignBulk': 'Sẽ ghi {code} vào {n} phím (kể cả layer cao hơn theo quy tắc Fn) trên bàn phím.',

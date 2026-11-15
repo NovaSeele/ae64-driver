@@ -3,7 +3,7 @@
 // phím) over one keyboard frame. The tab is ?tab= (normalised by the router's beforeEach) plus one localStorage key;
 // opening a tab is a history entry and sends nothing to the keyboard. Travel, Advanced and Switch are kept alive (their
 // data is read once per profile); Calibration and Key test start over each time, as their pages did.
-import { computed, defineAsyncComponent, provide, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onBeforeUnmount, provide, ref, watch } from 'vue';
 import type { Component } from 'vue';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import type { RouteLocationNormalized } from 'vue-router';
@@ -18,6 +18,7 @@ import type { PerfTab } from '../router';
 import { useDeviceStore } from '../stores/device';
 import { useCalibrationStore } from '../stores/calibration';
 import { useToast } from '../components/ui/toast';
+import { registerLeaveGate } from '../composables/leaveGate';
 import { t } from '../i18n/vi';
 import type { MessageKey } from '../i18n/vi';
 
@@ -94,6 +95,13 @@ onBeforeRouteUpdate((to) => {
 });
 // Leaving the page: CalibrationView keeps its own leave guard (a Dialog, DESIGN L).
 onBeforeRouteLeave((to) => draftGuard(to));
+// U-06: Disconnect, Change keyboard and the demo-model switch ask the Advanced tab's question too (no route change).
+const offGate = registerLeaveGate((go) => {
+  if (tab.value !== 'advanced' || !cur.value?.dirty || !cur.value.askDiscard) return false;
+  cur.value.askDiscard(go);
+  return true;
+});
+onBeforeUnmount(offGate);
 </script>
 
 <template>

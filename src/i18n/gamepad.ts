@@ -191,6 +191,7 @@ export const gamepadVi = {
   'gp.osDemo': 'tay cầm giả lập của demo',
   'gp.appPane': 'App tính từ hành trình',
   'gp.appSource': 'Theo cấu hình đang sửa, kể cả phần chưa ghi',
+  'gp.readStopped': 'Đã tắt đọc hành trình vì đọc phím lỗi 4 lần liền: {msg}',
   'gp.appReadDesc': 'Khi bật, app đọc độ sâu phím; không ghi gì vào phím.',
   'gp.appRead': 'Đọc hành trình phím',
   'gp.appOff': 'Bật để app đọc độ sâu phím và tính ra tay cầm theo cấu hình đang sửa.',

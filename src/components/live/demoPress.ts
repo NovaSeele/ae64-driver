@@ -22,6 +22,8 @@ export function keyIdForCode(code: string): number | undefined {
 
 /** Keys a focused radio group (Auto/Pinned) moves its selection with. */
 const NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End']);
+/** A focused control (the Gamepad page's `spareControls`): its keys are its own. */
+const CONTROL = 'button, input, select, textarea, [role="button"], [role="slider"], [role="radio"], [role="tab"], [role="switch"], [role="checkbox"]';
 /** Keys the focused travel graph uses to pan. */
 const GRAPH_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape']);
 
@@ -46,7 +48,11 @@ interface Anim {
  * Listens to window key events while attached. Every tap is one full stroke (300 ms down, 60 ms at the bottom or
  * until keyup, 320 ms up); taps arriving while the key still moves are queued (at most 2) and run one after another.
  */
-export function attachDemoPress(mock: MockTransport): () => void {
+/**
+ * `spareControls` (the Gamepad page, WX6): no key whose target is a control (a button, an input, a slider, a radio, a tab…)
+ * drives the demo, so its tiles and curve handles keep their arrow keys while the page reads travel.
+ */
+export function attachDemoPress(mock: MockTransport, opts: { spareControls?: boolean } = {}): () => void {
   const anims = new Map<number, Anim>();
   let raf = 0;
 
@@ -122,6 +128,7 @@ export function attachDemoPress(mock: MockTransport): () => void {
     const el = e.target as HTMLElement | null;
     const inTest = !!el?.closest?.('[data-keytest]');
     if (!inTest && typing(e)) return;
+    if (opts.spareControls && el?.closest?.(CONTROL)) return;
     // The focused travel graph pans with these keys (←/→/Esc are AE64 keys too); letters still simulate.
     if (GRAPH_KEYS.has(e.code) && el?.closest?.('canvas.graph')) return;
     // Tab on a focused control moves focus (the AE64 has a Tab key too); only Tab on the bare page simulates.

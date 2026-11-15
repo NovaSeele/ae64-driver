@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Keymap page: layer tabs Main/Fn1/Fn2/Fn3, RAKKA-style layout, KeyPicker, Fn release guard rule.
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { IconAlertTriangle, IconInfoCircle, IconRefresh, IconRotateDot } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import type { LegendItem } from '../components/keyboard/SelectionBar.vue';
@@ -14,7 +14,7 @@ import { useToast } from '../components/ui/toast';
 import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
 import { BULK_CONFIRM_KEYS, LAYER_NAMES, isFnSwitch, needsAssignConfirm, useKeymapStore } from '../stores/keymap';
-import type { DefaultDiff, FactoryKey, LayerIndex } from '../stores/keymap';
+import type { DefaultDiff, FactoryKey, KeycodePlan, LayerIndex } from '../stores/keymap';
 import { FIRMWARE_ROWS, LAYER_COUNT, keycodeLabel } from '../protocol';
 import { t } from '../i18n/vi';
 
@@ -110,8 +110,22 @@ const factorySelected = computed(() => {
   return keymap.factoryKeys.some((k) => k.layer === keymap.activeLayer && ids.has(k.id));
 });
 
+/** U-08: keys a pick left out because a lower layer holds an Fn switch there; one sentence per key. */
+const fnRefused = ref<string | null>(null);
+function fnRefusedText(list: KeycodePlan['fnBlocked']): string | null {
+  if (!list.length) return null;
+  return list.map((b) => t('keymap.fnRuleRefused', {
+    key: device.keys[b.id]?.name ?? String(b.id),
+    fn: keycodeLabel(b.code).label,
+    layer: LAYER_NAMES[b.layer],
+  })).join(' ');
+}
+// the note is about the last pick: another selection or layer starts over
+watch(() => [sel.selected, keymap.activeLayer], () => { fnRefused.value = null; });
+
 function assign(ids: number[], code: number) {
-  const { fnGuarded } = keymap.applyKeycode(ids, code);
+  const { fnGuarded, fnBlocked } = keymap.applyKeycode(ids, code);
+  fnRefused.value = fnRefusedText(fnBlocked);
   if (fnGuarded) {
     toast.show(t('keymap.fnGuardedApplied'), 'info');
   }
@@ -121,6 +135,7 @@ function onPickKeycode(code: number) {
   if (!ready.value || readOnly.value || !sel.ids.length) return;
   const ids = [...sel.ids];
   const plan = keymap.planKeycode(ids, code);
+  fnRefused.value = fnRefusedText(plan.fnBlocked);
   const changed = Object.keys(plan.after).length;
   if (!changed) return;
   if (needsAssignConfirm(changed, plan.factoryLost)) {
@@ -144,7 +159,9 @@ async function checkRestoreDefault() {
   try {
     const diff = await keymap.computeDefaultDiff(layer);
     if (diff.diffCount === 0) {
-      toast.show(diff.skipped ? t('keymap.restoreDefaultSkipped', { n: diff.skipped }) : t('keymap.restoreDefaultNone'), 'info');
+      const fnKeys = diff.fnBlocked.map((id) => device.keys[id]?.name ?? id).join(', ');
+      toast.show(diff.fnBlocked.length ? t('keymap.restoreDefaultFnSkipped', { n: diff.fnBlocked.length, keys: fnKeys })
+        : diff.skipped ? t('keymap.restoreDefaultSkipped', { n: diff.skipped }) : t('keymap.restoreDefaultNone'), 'info');
       return;
     }
     restoreLayer.value = layer;
@@ -235,6 +252,8 @@ function doRestoreDefault() {
           </div>
         </div>
 
+        <p v-if="fnRefused && sel.count > 0" class="km-warn" role="status" data-test="fn-rule-refused">{{ fnRefused }}</p>
+
         <Card v-if="sel.count > 0" class="km-picker-card">
           <fieldset class="km-fieldset" :disabled="readOnly">
             <div class="km-head">
@@ -250,7 +269,7 @@ function doRestoreDefault() {
               </Button>
               <span class="km-quick__hint">{{ t('keymap.transparentHintShort') }} {{ t('keymap.emptyHintShort') }}</span>
             </div>
-            <KeyPicker :current="selectedCurrentCode" @pick="onPickKeycode" />
+            <KeyPicker :current="selectedCurrentCode" :target="`${keymap.activeLayer}:${sel.ids.join(',')}`" @pick="onPickKeycode" />
           </fieldset>
         </Card>
         <Card v-else class="km-empty-card">
@@ -267,6 +286,12 @@ function doRestoreDefault() {
       <div v-if="restoreDiff" class="km-dlg-body">
         <p>{{ t('keymap.restoreDefaultBody', { n: restoreDiff.diffCount, layer: LAYER_NAMES[restoreLayer] }) }}</p>
         <p v-if="restoreDiff.skipped">{{ t('keymap.restoreDefaultSkipped', { n: restoreDiff.skipped }) }}</p>
+        <p v-if="restoreDiff.fnBlocked.length" data-test="restore-fn-skipped">
+          {{ t('keymap.restoreDefaultFnSkipped', {
+            n: restoreDiff.fnBlocked.length,
+            keys: restoreDiff.fnBlocked.map((id) => device.keys[id]?.name ?? id).join(', '),
+          }) }}
+        </p>
         <p v-if="restoreDiff.factoryLost.length" class="km-warn">
           {{ t('keymap.assignFactory', {
             n: restoreDiff.factoryLost.length,

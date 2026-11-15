@@ -17,6 +17,7 @@ import { useFirmwareStore } from './firmware';
 import { BaseTransport } from '../protocol/client';
 import { TabLockedError } from '../protocol/tabLock';
 import { clearCalibrationFlag, readCalibrationFlag } from '../data/calibrationFlag';
+import { leaveTakenOver } from '../composables/leaveGate';
 
 export type DeviceStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
@@ -521,8 +522,11 @@ export const useDeviceStore = defineStore('device', () => {
     return tryAutoReconnect();
   }
 
-  /** `user`: the Disconnect button; refused while calibrating. Internal callers (polling-rate reconnect) omit it. */
-  async function disconnect(opts: { flush?: boolean; user?: boolean } = {}): Promise<void> {
+  /**
+   * `user`: the Disconnect button; refused while calibrating, and a page with an unsaved draft asks first (U-06; `asked`
+   * marks the call its "Bỏ thay đổi" makes). Internal callers (polling-rate reconnect) omit it.
+   */
+  async function disconnect(opts: { flush?: boolean; user?: boolean; asked?: boolean } = {}): Promise<void> {
     const t = transport.value;
     if (!t) return;
     // The firmware page owns the connections while it runs (DESIGN FW §3.4): the sidebar buttons are off, this is the backstop.
@@ -531,6 +535,7 @@ export const useDeviceStore = defineStore('device', () => {
       useToast().show(tr('device.calibrating'), 'warn');
       return;
     }
+    if (opts.user && !opts.asked && leaveTakenOver(() => void disconnect({ ...opts, asked: true }))) return;
     disarmReplug();
     if (opts.flush !== false) await useSyncStore().flush().catch(() => undefined);
     reset();
@@ -563,16 +568,20 @@ export const useDeviceStore = defineStore('device', () => {
    * Back to the connect screen to pick another keyboard (a real one opens the chooser at once). Unsaved edits are
    * flushed first; if they cannot be saved the connection stays, so none is lost or sent to the other keyboard.
    */
-  async function changeKeyboard(): Promise<void> {
-    if (!transport.value || !(await readyToLeave())) return;
+  async function changeKeyboard(opts: { asked?: boolean } = {}): Promise<void> {
+    if (!transport.value) return;
+    if (!opts.asked && leaveTakenOver(() => void changeKeyboard({ asked: true }))) return;
+    if (!(await readyToLeave())) return;
     const wasDemo = demo.value;
     await disconnect({ flush: false });
     if (!wasDemo) await connect({ afterChange: true });
   }
 
   /** The demo keyboard becomes the other model: the same gates as changeKeyboard, then a fresh init resets every per-connection store. */
-  async function switchDemoModel(m: DemoSeed): Promise<void> {
-    if (!demo.value || !transport.value || m === (demoSeed.value ?? model.value) || !(await readyToLeave())) return;
+  async function switchDemoModel(m: DemoSeed, opts: { asked?: boolean } = {}): Promise<void> {
+    if (!demo.value || !transport.value || m === (demoSeed.value ?? model.value)) return;
+    if (!opts.asked && leaveTakenOver(() => void switchDemoModel(m, { asked: true }))) return;
+    if (!(await readyToLeave())) return;
     await init(createMockTransport({ seed: m }), true).then(() => { demoSeed.value = m; writeDemoModel(m); }, () => undefined);
   }
 

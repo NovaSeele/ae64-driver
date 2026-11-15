@@ -48,6 +48,7 @@ export const macroVi = {
   'macro.clearData': 'Xoá dữ liệu',
   'macro.clearConfirm': 'Xoá chuỗi thao tác của Macro {n}? Slot vẫn hợp lệ với 0 thao tác; phím đang gán macro này không bị đổi.',
   'macro.cleared': 'Đã xoá dữ liệu Macro {n}.',
+  'macro.carried': 'Bản nháp chưa lưu từ lần kết nối trước.',
   'macro.dirty': 'Chưa lưu',
   'macro.histSave': 'Macro {n}',
   'macro.histClear': 'Xoá dữ liệu Macro {n}',

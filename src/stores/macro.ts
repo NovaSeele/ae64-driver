@@ -6,7 +6,8 @@
 import { defineStore } from 'pinia';
 import { computed, reactive, ref, shallowRef, watch } from 'vue';
 import { MACRO_ACTIONS_PER_PAGE, MACRO_MAX_DELAY_MS, MACRO_SLOTS, SAVE_GROUP, UnsafeCommandError, WriteNotAllowedError } from '../protocol';
-import type { Ae64Transport, MacroAction, MacroMeta } from '../protocol';
+import type { Ae64Transport, DeviceInfo, MacroAction, MacroMeta } from '../protocol';
+import { serialReadable } from '../protocol/firmware';
 import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
 import { useHistoryStore } from './history';
@@ -30,6 +31,15 @@ export function isHoldMode(mode: number): boolean {
 
 export interface MacroSlot { id: number; valid: boolean; mode: MacroMode; repeatCount: number; actions: MacroAction[] }
 export interface MacroDraft { valid?: boolean; mode: MacroMode; repeatCount: number; actions: MacroAction[] }
+/** U-06: the Macro page's unsaved drafts when the cable was lost, for the same keyboard and profile only. */
+export interface CarriedDrafts { keyboard: string; profile: number; current: number; drafts: [number, MacroDraft][] }
+
+/** Which keyboard: the demo, or a real one by board and serial; null when a real keyboard's serial cannot tell it apart. */
+export function keyboardIdentity(info: DeviceInfo | null, demo: boolean): string | null {
+  if (!info) return null;
+  if (demo) return `demo:${info.boardIdHex}:${info.serialHex}`;
+  return serialReadable(info.serialHex) ? `hid:${info.boardIdHex}:${info.serialHex}` : null;
+}
 
 export function storedRepeat(d: { mode: number; repeatCount: number }): number {
   return isHoldMode(d.mode) ? MACRO_HOLD_REPEAT : Math.round(Math.min(MACRO_CLICK_REPEAT_MAX, Math.max(1, d.repeatCount || 1)));
@@ -263,5 +273,25 @@ export const useMacroStore = defineStore('macro', () => {
     await flushOrRestore(id);
   }
 
-  return { space, slots, slotCount, limit, loading, loadedCount, loadError, loaded, waiting, load, save, clearData, discardWaiting };
+  // ----- U-06: drafts carried over a lost cable (memory only: a page reload drops them; nothing is written on its own)
+  const carried = shallowRef<CarriedDrafts | null>(null);
+  function carry(c: CarriedDrafts): void {
+    carried.value = c;
+  }
+  /** The carried drafts when they belong to this keyboard and profile (handed over once); any other keyboard drops them. */
+  function takeCarried(keyboard: string | null, profile: number): CarriedDrafts | null {
+    const c = carried.value;
+    carried.value = null;
+    return c && keyboard !== null && c.keyboard === keyboard && c.profile === profile ? c : null;
+  }
+  // Another keyboard connected: the carried drafts are not its own.
+  watch(() => device.info, (info) => {
+    if (!info || !carried.value) return;
+    if (keyboardIdentity(info, device.demo) !== carried.value.keyboard) carried.value = null;
+  });
+
+  return {
+    space, slots, slotCount, limit, loading, loadedCount, loadError, loaded, waiting, load, save, clearData, discardWaiting,
+    carried, carry, takeCarried,
+  };
 });

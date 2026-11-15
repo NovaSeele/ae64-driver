@@ -362,6 +362,10 @@ const tuneValue = (field: TuneField) => drafts[draftKey(field)] ?? base.value[fi
 function onTuneDrag(field: TuneField, value: number) {
   drafts[draftKey(field)] = value;
 }
+/** The dock went away mid-drag (WX6 item 10): the draft goes, the next arrow steps from the stored value. */
+function onTuneCancel(field: TuneField) {
+  delete drafts[draftKey(field)];
+}
 function onTuneCommit(field: TuneField, value: number) {
   delete drafts[draftKey(field)];
   lighting.applyBase(area.value, { [field]: value }, baseLabel(), field);
@@ -661,6 +665,7 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
                   :disabled="tuneLocked"
                   @update:model-value="onTuneDrag(field.id, $event)"
                   @commit="onTuneCommit(field.id, $event)"
+                  @cancel="onTuneCancel(field.id)"
                 />
               </div>
               <div class="field-inline">

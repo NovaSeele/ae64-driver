@@ -76,18 +76,21 @@ watch(() => gp.travelIssues[0]?.key, (key) => {
 // ------------------------------------------------------------------ arming: output first, then a key (§5.1)
 
 const armed = ref<number | null>(null);
-watch(() => sel.selected, (now) => {
+// U-04: only a key picked on the keyboard picture (one click / tap, or Enter / Space on a key) takes the armed output.
+// The keyboard emits the pick before the selection watcher below runs, so the arm is used up here first.
+function onPicked(id: number): void {
   const index = armed.value;
   if (index === null) return;
   armed.value = null;
-  if (!now.size) return; // Esc on the keyboard, a click on the case: cancelled
-  const id = sel.focused !== null && now.has(sel.focused) ? sel.focused : [...now].at(-1)!;
   const k = keyById(id);
   const key = k ? indexOfKey(k) : null;
   if (key === null) return;
   actions.assign(index, key);
-  if (now.size !== 1) sel.select(id);
-});
+  if (sel.selected.size !== 1 || !sel.selected.has(id)) sel.select(id);
+}
+// Any other change of the selection (the bar's All / Letters / WASD / Invert, a box, a range, deselect, Esc, a click on
+// the case) only disarms: nothing is assigned to a key the user did not pick.
+watch(() => sel.selected, () => { armed.value = null; });
 // Leaving: an arm never outlives the page state it was made in.
 watch(() => [gp.support, device.connection], () => { armed.value = null; });
 
@@ -127,12 +130,16 @@ let liveAllKeys: boolean | null = null;
 let detachDemo: (() => void) | null = null;
 let raf = 0;
 let seen = -1;
+/** U-17: the keycaps and panes take new values at most this often, and only when one changed (as the Key test's heat). */
+const RENDER_MS = 33;
+let lastRender = -Infinity;
 
-function sample(): void {
+function sample(now: number): void {
   raf = requestAnimationFrame(sample);
   const d = live.data;
-  if (d.version === seen) return;
+  if (d.version === seen || now - lastRender < RENDER_MS) return;
   seen = d.version;
+  retries = 0; // a good read (U-15)
   const depth = new Float64Array(GP_KEY_COUNT);
   const down = Array<boolean>(GP_KEY_COUNT).fill(false);
   for (const k of device.keys) {
@@ -142,21 +149,49 @@ function sample(): void {
     const st = d.status[k.id];
     down[i] = st === 1 || st === 2; // 11 is the release edge
   }
-  depthUm.value = depth;
-  pressed.value = down;
+  let changed = false;
+  if (depth.some((v, i) => v !== depthUm.value[i])) { depthUm.value = depth; changed = true; }
+  if (down.some((v, i) => v !== pressed.value[i])) { pressed.value = down; changed = true; }
+  if (changed) lastRender = now;
 }
 
+// U-15: a failed 04 03 read stops the poller. While the switch is on it starts again after 1 s, up to 3 times running;
+// then the switch turns off and says why.
+const READ_RETRIES = 3;
+const RETRY_MS = 1000;
+const readError = ref<string | null>(null);
+let retries = 0;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+watch(() => live.running, (on) => {
+  if (on || !raf || !device.connected || retryTimer) return; // the page stopped it, or the keyboard went
+  if (retries < READ_RETRIES) {
+    retries++;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (raf && !live.running && device.connected) live.start();
+    }, RETRY_MS);
+    return;
+  }
+  readError.value = t('gp.readStopped', { msg: live.lastError ?? t('live.stopped') });
+  reading.value = false;
+});
+
 function startReading(): void {
+  readError.value = null;
   if (liveAllKeys === null) liveAllKeys = live.allKeys;
   live.allKeys = true;
   live.start();
-  if (device.demo && device.transport?.kind === 'mock' && !detachDemo) detachDemo = attachDemoPress(device.transport as MockTransport);
+  if (device.demo && device.transport?.kind === 'mock' && !detachDemo) detachDemo = attachDemoPress(device.transport as MockTransport, { spareControls: true });
   if (!raf) raf = requestAnimationFrame(sample);
 }
 function stopReading(): void {
   if (raf) cancelAnimationFrame(raf);
   raf = 0;
   seen = -1;
+  lastRender = -Infinity;
+  retries = 0;
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = null;
   detachDemo?.();
   detachDemo = null;
   if (liveAllKeys !== null) {
@@ -236,6 +271,7 @@ const keyState = (k: PhysicalKey): 'pressed' | undefined => {
         <KeyboardView
           :keys="device.keys" :legend="device.legend" :sublabel="ready ? sublabel : undefined" :fill="ready ? fill : undefined"
           :tone="ready ? tone : undefined" :status="ready ? status : undefined" :state="keyState" :loading="loading" selectable
+          @picked="onPicked"
         />
       </div>
     </template>
@@ -249,7 +285,7 @@ const keyState = (k: PhysicalKey): 'pressed' | undefined => {
       <GamepadOutputs v-model:armed="armed" :current="current" :selected-keys="selectedKeys" :inert="gp.usbBusy || gp.locked || undefined" @armed-by-keyboard="toKeyboard" />
       <GamepadDetail :current="current" :selected-keys="selectedKeys" :depth-um="liveDepth" :inert="gp.usbBusy || undefined" />
       <GamepadSticks :positions="stickPositions" :inert="gp.usbBusy || gp.locked || undefined" />
-      <GamepadTest v-model:reading="reading" :app-state="appState" :mode-off="modeOff" />
+      <GamepadTest v-model:reading="reading" :app-state="appState" :mode-off="modeOff" :read-error="readError" />
     </div>
   </PageLayout>
 </template>

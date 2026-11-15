@@ -4,7 +4,7 @@
 // Emits `update:modelValue` continuously and `commit` when a gesture/keystroke finishes.
 // U-12: on a mixed selection (`range`) with `relative`, the arrow keys and PageUp / PageDown emit `step` with the signed delta
 // and the parent moves each item from its own value (as the number field beside it does); Home / End still set every item.
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import { t } from '../../i18n/vi';
 
 const props = withDefaults(defineProps<{
@@ -31,7 +31,8 @@ const props = withDefaults(defineProps<{
   relative?: boolean;
 }>(), { step: 0.01, orientation: 'horizontal', range: null });
 
-const emit = defineEmits<{ 'update:modelValue': [number]; commit: [number]; step: [number] }>();
+/** `cancel`: the slider went away mid-drag (no commit): a parent's draft of the drag is dropped, nothing is written. */
+const emit = defineEmits<{ 'update:modelValue': [number]; commit: [number]; step: [number]; cancel: [] }>();
 /** "Mixed: 0.05–0.60" while the values differ; else the formatted value. */
 const valueText = computed(() => {
   const f = props.format ?? ((v: number) => String(v));
@@ -99,6 +100,13 @@ function finish() {
   set(v);
   emit('commit', v);
 }
+
+onBeforeUnmount(() => {
+  if (!dragging.value) return;
+  dragging.value = false;
+  last = null;
+  emit('cancel');
+});
 
 function onKey(e: KeyboardEvent) {
   if (props.disabled) return;

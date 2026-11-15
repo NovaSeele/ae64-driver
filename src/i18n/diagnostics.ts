@@ -80,6 +80,7 @@ export const diagnosticsVi = {
   'diagnostics.vBadKeycode': 'mã phím {code} không hợp lệ ở {layer}, phím {key}',
   'diagnostics.vUnassignable': 'mã phím {code} ở {layer}, phím {key} không phải mã ứng dụng gán được',
   'diagnostics.vUnwritable': 'mã phím {code} ở {layer}, phím {key} không ghi được bằng ứng dụng này',
+  'diagnostics.vFnRule': 'phím {keys} sẽ có Fn ở lớp dưới mà lớp trên không phải Transparent, nên Fn có thể không nhả được',
   'diagnostics.vBadMode': 'chế độ hành trình {mode} không hợp lệ ở phím {key}',
   'diagnostics.vMode2': 'chế độ hành trình 2 ở phím {key} cần firmware giao thức 1.3.0.0 trở lên',
   'diagnostics.vBadDistance': 'giá trị hành trình {field} = {value} không hợp lệ ở phím {key} (hành trình phím {max} mm)',

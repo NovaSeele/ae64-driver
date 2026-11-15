@@ -81,6 +81,9 @@ export class MockGamepadFirmware {
   private lastActivity = 0;
   /** Test hook: the next install fails (status 8, nothing changes). */
   failInstall = false;
+  /** The firmware keeps one block and one revision per onboard profile; `active` / `revision` are the current profile's. */
+  private stored: { block: Uint8Array; revision: number }[];
+  private profile = 0;
   usb: { enabled: boolean; target: boolean; phase: number; revision: number; queuedAt: number };
 
   constructor(o: MockGamepadOptions) {
@@ -91,6 +94,20 @@ export class MockGamepadFirmware {
     this.maxTravelUm = o.maxTravelUm;
     const en = o.usbEnabled ?? true;
     this.usb = { enabled: en, target: en, phase: 0, revision: 1, queuedAt: 0 };
+    this.stored = Array.from({ length: 4 }, () => ({ block: Uint8Array.from(this.active), revision: this.revision }));
+  }
+
+  /**
+   * The keyboard switched onboard profile: the current block is kept as that profile's, the new profile's block is
+   * loaded and its revision bumped (the firmware bumps it when it loads a block), and an upload in progress is dropped.
+   */
+  selectProfile(i: number): void {
+    if (i === this.profile || !this.stored[i]) return;
+    this.stored[this.profile] = { block: this.active, revision: this.revision };
+    this.profile = i;
+    this.active = Uint8Array.from(this.stored[i].block);
+    this.revision = (this.stored[i].revision + 1) >>> 0;
+    this.stagingActive = false;
   }
 
   /** Whether an upload is staged (tests). */

@@ -57,6 +57,10 @@ const props = defineProps<{
   /** Shows skeleton value lines while page data loads. */
   loading?: boolean;
 }>();
+/** U-04: a key the user picked on a selectable board: exactly one key added to the selection by a click / tap on it, or
+ *  Enter / Space on it (not a box, a range, the selection bar or a toggle-off). Pages that wait for "a key" listen here
+ *  instead of guessing from the selection's size. */
+const emit = defineEmits<{ picked: [id: number] }>();
 
 const MAX_UNIT = 72;
 const DRAG_THRESHOLD = 5;
@@ -140,6 +144,7 @@ function onPointerUp(e: PointerEvent) {
   }
   sel.select(s.id, s.mods);
   focusId.value = s.id;
+  if (s.mods !== 'range' && sel.selected.has(s.id)) emit('picked', s.id);
 }
 
 function focusKey(id: number, preventScroll = false) {
@@ -171,7 +176,9 @@ function onKeyDown(e: KeyboardEvent, key: PhysicalKey) {
     }
   } else if ((e.key === ' ' || e.key === 'Enter') && props.selectable) {
     e.preventDefault();
-    sel.select(key.id, modeOf(e));
+    const mode = modeOf(e);
+    sel.select(key.id, mode);
+    if (mode !== 'range' && sel.selected.has(key.id)) emit('picked', key.id);
   }
 }
 

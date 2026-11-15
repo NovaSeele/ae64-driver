@@ -82,6 +82,7 @@ export const diagnosticsEn: Record<keyof typeof diagnosticsVi, string> = {
   'diagnostics.vBadKeycode': 'invalid keycode {code} at {layer}, key {key}',
   'diagnostics.vUnassignable': 'keycode {code} at {layer}, key {key} is not one this app can assign',
   'diagnostics.vUnwritable': 'keycode {code} at {layer}, key {key} cannot be written by this app',
+  'diagnostics.vFnRule': 'key(s) {keys} would hold Fn on a lower layer with a higher layer that is not Transparent, so Fn might not release',
   'diagnostics.vBadMode': 'invalid travel mode {mode} at key {key}',
   'diagnostics.vMode2': 'travel mode 2 at key {key} needs firmware protocol 1.3.0.0 or newer',
   'diagnostics.vBadDistance': 'invalid travel value {field} = {value} at key {key} (key travel {max} mm)',

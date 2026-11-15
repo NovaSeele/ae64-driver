@@ -359,6 +359,8 @@ export const useLiveStore = defineStore('live', () => {
   /** Pinned mode: also poll the other rows for the keyboard heat view. */
   const allKeys = ref(true);
   const running = ref(false);
+  /** Why the poller stopped on its own (a failed read); null while it runs or after a stop() by a page. */
+  const lastError = ref<string | null>(null);
   /** Polling is held while a write job runs, the tab is hidden or the device is busy. */
   const paused = ref(false);
 
@@ -731,8 +733,11 @@ export const useLiveStore = defineStore('live', () => {
             ingest(type, row, r.values, performance.now());
           }
         });
-      } catch {
-        if (gen === generation) stop();
+      } catch (err) {
+        if (gen === generation) {
+          stop();
+          lastError.value = err instanceof Error ? err.message : String(err);
+        }
         return;
       }
     }
@@ -742,6 +747,7 @@ export const useLiveStore = defineStore('live', () => {
   function start(): void {
     if (running.value || !device.connected) return;
     running.value = true;
+    lastError.value = null;
     paused.value = false;
     const gen = ++generation;
     rateCount = 0;
@@ -861,7 +867,7 @@ export const useLiveStore = defineStore('live', () => {
   }, { flush: 'sync' });
 
   return {
-    data, focusId, follow, allKeys, running, paused, start, stop, reset, clear: clearByUser, pin, setFocus, setFollow,
+    data, focusId, follow, allKeys, running, lastError, paused, start, stop, reset, clear: clearByUser, pin, setFocus, setFollow,
     suspendFollow, ingest, undoAutoFollow, keysForCodes, markUiPressed, resetPeaks, drainReleased,
   };
 });

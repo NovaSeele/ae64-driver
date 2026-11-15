@@ -28,6 +28,7 @@
 .gps__meta > .gp-ok, .gps__meta > .gp-warn { font-weight: 600; }
 .gpt__xbox { display: flex; flex-direction: column; gap: 4px; margin-top: auto; padding-top: var(--s-3); border-top: 1px solid var(--line-1); }
 .gps__desc--busy { display: flex; align-items: center; gap: var(--s-2); color: var(--fg-2); }
+.gps__desc--warn { color: var(--warn); }
 .gps__fail { display: flex; flex-direction: column; gap: var(--s-2); }
 .gps__fail p { margin: 0; display: flex; gap: 6px; align-items: flex-start; font-size: var(--fs-label); color: var(--danger); }
 .gps__fail svg { flex: none; margin-top: 1px; }

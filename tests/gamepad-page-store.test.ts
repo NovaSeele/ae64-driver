@@ -229,10 +229,11 @@ describe('onboard profiles (one block per profile in the firmware)', () => {
     other.bindings.forEach((b) => { b.key = null; });
     other.mode = 'mixed';
     expect(gp.config!.mode).toBe('controller');
-    fw.active = encodeConfig(other);
-    fw.revision += 1; // the firmware bumps the revision when it loads a profile
+    // WX6: the demo keeps one block and revision per profile (as the firmware): profile 1's own block, at revision 7
+    (fw as unknown as { stored: { block: Uint8Array; revision: number }[] }).stored[1] = { block: encodeConfig(other), revision: 7 };
     frames.length = 0;
     await device.switchProfile(1);
+    expect(fw.revision).toBe(8); // the firmware bumps the revision when it loads a profile's block
     await vi.waitFor(() => expect(gp.revision).toBe(fw.revision));
     expect(block(gp.config!)).toEqual(block(other));
     expect(agp(frames)).toContain(GP_CMD.READ);

@@ -65,6 +65,8 @@ export function fitBinding(b: GpBinding, travelUm: number): void {
 }
 
 export const GAMEPAD_JOB_KEY = 'gamepad:blob';
+/** The owner mark on the gamepad's history entries (U-16: dropped when another block replaces the draft). */
+const GP_HISTORY = 'gamepad';
 /** After USB_SET: reconnect attempts for this long (the keyboard re-enumerates). */
 export const USB_RECONNECT_TIMEOUT_MS = 15_000;
 const USB_RECONNECT_STEP_MS = 250;
@@ -145,6 +147,7 @@ export const useGamepadStore = defineStore('gamepad', () => {
   // Another keyboard (or the demo) was connected: nothing cached belongs to it.
   watch(() => device.connection, () => {
     support.value = 'unknown';
+    usbError.value = null; // U-15: the old keyboard's switch failure is not this one's
     info.value = null;
     config.value = null;
     saved.value = null;
@@ -201,6 +204,9 @@ export const useGamepadStore = defineStore('gamepad', () => {
 
   /** The keyboard's block became the truth (read or verified): draft follows it. */
   function adopt(cfg: GamepadConfig, rev: number, gpInfo: GamepadInfo): void {
+    // U-16: another block replaces a different draft: an undo / redo of ours would write our old block over it. Only the
+    // gamepad's own entries go (found by their owner mark); every other edit of the app keeps its undo.
+    if (config.value && !sameConfig(config.value, cfg)) history.dropOwned(GP_HISTORY);
     saved.value = cfg;
     revision.value = rev;
     info.value = { ...gpInfo, revision: rev };
@@ -424,6 +430,7 @@ export const useGamepadStore = defineStore('gamepad', () => {
       undo: () => commit(before),
       redo: () => commit(after),
       coalesce: coalesce ? `gamepad:${coalesce}` : undefined,
+      owner: GP_HISTORY,
     });
     return true;
   }
@@ -595,6 +602,8 @@ export const useGamepadStore = defineStore('gamepad', () => {
       const gpInfo = await t.gamepadInfo();
       if (!gpInfo?.usbSwitch) throw new Error(tr('gp.usbUnsupported'));
       usb.value = await t.gamepadUsbStatus();
+      // U-15: a good read of a settled switch takes the old failure away (the card's "Read the state again")
+      if (usb.value?.phase === 0) usbError.value = null;
       return usb.value;
     }, { exclusive: true }));
   }

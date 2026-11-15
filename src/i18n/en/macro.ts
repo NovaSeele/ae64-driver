@@ -50,6 +50,7 @@ export const macroEn: Record<keyof typeof macroVi, string> = {
   'macro.clearData': 'Clear data',
   'macro.clearConfirm': 'Clear action sequence for Macro {n}? Slot remains valid with 0 actions; key assignments are unchanged.',
   'macro.cleared': 'Cleared data for Macro {n}.',
+  'macro.carried': 'Unsaved draft from the previous connection.',
   'macro.dirty': 'Unsaved',
   'macro.histSave': 'Macro {n}',
   'macro.histClear': 'Clear data Macro {n}',

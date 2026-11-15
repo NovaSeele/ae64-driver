@@ -260,6 +260,8 @@ describe('W-11: one page per keyboard (Web Locks)', () => {
     await flushPromises();
     expect(w.findAll('button').map((b) => b.text())).not.toContain(tr('fw.rescue.write'));
     expect(w.find('[data-test="fw-other-window"]').text()).toContain(tr('fw.otherWindow'));
+    // WX6 0a.8 (FP1): in rescue mode the rescue view's own note is the only one, not the page's too
+    expect(w.findAll('[data-test="fw-other-window"]').length).toBe(1);
     const boot = hid.find('boot') as FakeHidDevice;
     const sent = boot.sends.length;
     await fw.rescueWrite();

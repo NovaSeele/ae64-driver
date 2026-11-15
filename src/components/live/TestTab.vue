@@ -33,6 +33,7 @@ import { isRtMode } from '../../protocol';
 import type { MockTransport, PhysicalKey } from '../../protocol';
 import type { LedGlow } from '../../ledGlow';
 import { t } from '../../i18n/vi';
+import type { MessageKey } from '../../i18n/vi';
 
 const device = useDeviceStore();
 const sel = useSelectionStore();
@@ -210,8 +211,12 @@ watch(keyLock, (on) => writeFlag(LOCK_KEY, on));
 watch(colorByResult, (on) => writeFlag(COLOR_KEY, on));
 
 const checkView = shallowRef<CheckView>(emptyCheckView(device.keys.length));
-/** By key id: "deepest 3.31 mm" for the keycap's accessible name; rebuilt only with checkView. */
-let peakText: (string | undefined)[] = [];
+/** By key id: "deepest 3.31 mm" for the keycap's accessible name; rebuilt only with checkView or the language. */
+const peakText = computed(() => {
+  const out: (string | undefined)[] = [];
+  for (const r of checkView.value.rows) out[r.id] = t('live.keyPeak', { mm: r.mm.toFixed(2) });
+  return out;
+});
 let seenCheck = -1;
 let seenValues: unknown = null;
 let seenKeys: unknown = null;
@@ -231,11 +236,7 @@ function refreshCheck(now = false) {
   seenValues = perf.values;
   seenKeys = device.keys;
   const v = summarizeCheck(d, device.keys, perf.values, device.legend, checkView.value);
-  if (v !== checkView.value) {
-    peakText = [];
-    for (const r of v.rows) peakText[r.id] = t('live.keyPeak', { mm: r.mm.toFixed(2) });
-    checkView.value = v;
-  }
+  if (v !== checkView.value) checkView.value = v;
   if (now) cardView.value = v;
 }
 
@@ -262,20 +263,21 @@ function pinKey(id: number) {
 const partialKey = computed(() => (!live.follow && !live.allKeys && focusKey.value ? keyName.value : null));
 const pinnedId = computed(() => (live.follow ? null : live.focusId));
 
-const RESULT: Record<CheckKind, { glow: LedGlow; icon: Component; title: string }> = {
-  ok: { glow: { led: 'var(--ok)', level: 1 }, icon: IconCheck, title: t('live.cFull') },
-  short: { glow: { led: 'var(--warn)', level: 1 }, icon: IconArrowBarToDown, title: t('live.cShort') },
-  stuck: { glow: { led: 'var(--danger)', level: 1 }, icon: IconArrowBarToUp, title: t('live.cStuck') },
+// The title is a message key, read at render: a language switch reaches the keycaps at once (WX6 item 9).
+const RESULT: Record<CheckKind, { glow: LedGlow; icon: Component; title: MessageKey }> = {
+  ok: { glow: { led: 'var(--ok)', level: 1 }, icon: IconCheck, title: 'live.cFull' },
+  short: { glow: { led: 'var(--warn)', level: 1 }, icon: IconArrowBarToDown, title: 'live.cShort' },
+  stuck: { glow: { led: 'var(--danger)', level: 1 }, icon: IconArrowBarToUp, title: 'live.cStuck' },
 };
 const resultOf = (k: PhysicalKey) => (colorByResult.value ? checkView.value.kinds[k.id] : undefined);
 /** A key with a result glows in its colour (part A glow); the others keep the bar, so the followed key keeps its accent. */
 const capLed = (k: PhysicalKey) => (resultOf(k) ? 'glow' as const : 'bar' as const);
 const capGlow = (k: PhysicalKey) => { const r = resultOf(k); return r && RESULT[r].glow; };
 const capIcon = (k: PhysicalKey) => { const r = resultOf(k); return r && RESULT[r].icon; };
-const capTitle = (k: PhysicalKey) => { const r = resultOf(k); return r && RESULT[r].title; };
+const capTitle = (k: PhysicalKey) => { const r = resultOf(k); return r && t(RESULT[r].title); };
 /** The deepest-reading line, only on keys pressed past PRESSED_MM (noise draws no line at the top of every key). */
 const capMark = (k: PhysicalKey) => checkView.value.marks[k.id];
-const capStatus = (k: PhysicalKey) => (checkView.value.kinds[k.id] ? peakText[k.id] : undefined);
+const capStatus = (k: PhysicalKey) => (checkView.value.kinds[k.id] ? peakText.value[k.id] : undefined);
 
 // Key lock. It listens on document, so every window capture listener runs first: the demo keyboard (attachDemoPress,
 // attached above) handles its keys before the lock sees them, whichever of the two was switched on first.
@@ -406,6 +408,7 @@ onMounted(() => {
     live.stop();
     live.reset();
     await perf.load(true);
+    if (unmounted) return; // U-14: the tab went while the new profile was read: the poller stays off
     live.start();
   });
   raf = requestAnimationFrame(frame);

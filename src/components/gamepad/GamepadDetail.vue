@@ -102,12 +102,13 @@ const chartLabel = computed(() => (chart.value && focus.value !== null
 
 let dragSeq = 0;
 function setPoint(which: 'start' | 'end', um: number, coalesce?: string): void {
+  if (gp.locked) return; // a drag that began before the lock writes nothing either
   gp.setCurve(analog.value, which === 'start' ? { startUm: um } : { endUm: um }, coalesce);
 }
 
 /** Pointer drag on a handle: capture, one undo step per drag. */
 function onDown(which: 'start' | 'end', e: PointerEvent): void {
-  if (e.button !== 0) return;
+  if (e.button !== 0 || gp.locked) return;
   const el = e.currentTarget as SVGGElement;
   el.setPointerCapture(e.pointerId);
   el.focus();
@@ -133,7 +134,7 @@ function onDown(which: 'start' | 'end', e: PointerEvent): void {
 /** Arrows ±0.01 mm, Shift ±0.1 mm, PageUp/Down ±0.5 mm, Home/End to the limits (§7). */
 function onHandleKey(which: 'start' | 'end', e: KeyboardEvent): void {
   const b = binding.value;
-  if (!b) return;
+  if (!b || gp.locked) return; // travel lock: a locked handle takes no key and writes nothing (only the banner's fix)
   const cur = which === 'start' ? b.startUm : b.endUm;
   const step = e.shiftKey ? 100 : 10;
   const lo = which === 'start' ? 0 : b.startUm + GP_MIN_GAP_UM;
@@ -217,7 +218,7 @@ const unassignedKey = computed(() => props.selectedKeys.map((k) => keyLegend(dev
             </template>
           </g>
           <g
-            class="gpc__h" role="slider" tabindex="0" :aria-label="t('gp.handleStart')"
+            class="gpc__h" role="slider" :tabindex="gp.locked ? -1 : 0" :aria-disabled="gp.locked || undefined" :aria-label="t('gp.handleStart')"
             :aria-valuemin="0" :aria-valuemax="mm(chart.b.endUm - GP_MIN_GAP_UM)" :aria-valuenow="mm(chart.b.startUm)" :aria-valuetext="`${mm(chart.b.startUm)} mm`"
             @pointerdown="onDown('start', $event)" @keydown="onHandleKey('start', $event)"
           >
@@ -225,7 +226,7 @@ const unassignedKey = computed(() => props.selectedKeys.map((k) => keyLegend(dev
             <circle :cx="X(chart.b.startUm)" :cy="Y(0)" r="6.5" class="gpc__knob" />
           </g>
           <g
-            class="gpc__h" role="slider" tabindex="0" :aria-label="t('gp.handleFull')"
+            class="gpc__h" role="slider" :tabindex="gp.locked ? -1 : 0" :aria-disabled="gp.locked || undefined" :aria-label="t('gp.handleFull')"
             :aria-valuemin="mm(chart.b.startUm + GP_MIN_GAP_UM)" :aria-valuemax="mm(travel)" :aria-valuenow="mm(chart.b.endUm)" :aria-valuetext="`${mm(chart.b.endUm)} mm`"
             @pointerdown="onDown('end', $event)" @keydown="onHandleKey('end', $event)"
           >

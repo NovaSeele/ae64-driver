@@ -193,6 +193,7 @@ export const gamepadEn: Record<keyof typeof gamepadVi, string> = {
   'gp.osDemo': 'the demo’s simulated controller',
   'gp.appPane': 'Computed from key travel',
   'gp.appSource': 'From the settings you are editing, including unwritten changes',
+  'gp.readStopped': 'Key travel reading was turned off after 4 failed reads in a row: {msg}',
   'gp.appReadDesc': 'While on, the app reads key depth; nothing is written to the keyboard.',
   'gp.appRead': 'Read key travel',
   'gp.appOff': 'Turn on to read key depth and compute the controller from the settings you are editing.',

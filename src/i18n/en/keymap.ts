@@ -36,6 +36,8 @@ export const keymapEn: Record<keyof typeof keymapVi, string> = {
   'keymap.emptyHintShort': '— Empty: the key does nothing.',
   'keymap.restoreDefaultSkipped': '{n} key(s) are left as they are because their default is a factory key (Reset/Link/wireless) — this app never writes those.',
   'keymap.restoreDefaultSuccessSkipped': 'Restored {n} key(s) to default; {skipped} left as they are because they are factory keys.',
+  'keymap.restoreDefaultFnSkipped': '{n} key(s) are left as they are so Fn can release (a lower layer holds Fn, or a higher layer is not Transparent): {keys}.',
+  'keymap.fnRuleRefused': 'Key {key} holds {fn} on the {layer} layer. On this layer it must stay Transparent so Fn can release.',
   'keymap.restoreDefaultNothingWritten': 'No key was written.',
   'keymap.assignTitle': 'Confirm assignment',
   'keymap.assignBulk': 'This writes {code} to {n} keys (including higher layers under the Fn rule) on the keyboard.',

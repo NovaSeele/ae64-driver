@@ -412,7 +412,10 @@ export class MockTransport extends BaseTransport {
           case 0x03:
             if (a === 0) return set([2, 3, 0, this.profiles.length]);
             if (a === 1) return set([2, 3, 1, this.active]);
-            if (a === 2) { if (b < this.profiles.length) { this.active = b; this.live.clear(); } return set([2, 3, 2, this.active]); }
+            if (a === 2) {
+              if (b < this.profiles.length) { this.active = b; this.live.clear(); this.gamepadFirmware?.selectProfile(b); }
+              return set([2, 3, 2, this.active]);
+            }
             if (a === 3) return set([2, 3, 3, b, ...new TextEncoder().encode(this.profiles[b]?.name ?? '')]);
             if (a === 4 && this.profiles[b]) {
               const bytes = req.slice(4, 36);

@@ -13,7 +13,7 @@ import { restoreFrames } from '../protocol/client';
 import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
 import { useHistoryStore } from './history';
-import { LAYER_NAMES, useKeymapStore } from './keymap';
+import { LAYER_NAMES, breaksFnRule, useKeymapStore } from './keymap';
 import { isKnownMode, rangeMm, usePerformanceStore } from './performance';
 import { useSettingsStore } from './settings';
 import { useSyncStore } from './sync';
@@ -127,6 +127,13 @@ export function planRestore(
         if (cur !== undefined && BLOCKED_KEYCODES.has(cur)) plan.factory.push({ layer, id, code, factory: cur });
       }
     }
+    // U-08, the Fn release rule on the keymap the restore would leave: a written key on a layer above an Fn switch must be
+    // Transparent, and a written Fn switch needs Transparent above it. Keys the file does not write stay as they are.
+    const after: Record<number, Record<number, number>> = {};
+    for (let l = 0; l < LAYER_COUNT; l++) after[l] = { ...currentKeymap[l] };
+    for (const k of plan.keys) after[k.layer][k.id] = k.code;
+    const fnBroken = [...new Set(plan.keys.filter((k) => breaksFnRule(after, k.layer, k.id, k.code)).map((k) => k.id))];
+    if (fnBroken.length) refuse(tr('diagnostics.vFnRule', { keys: fnBroken.sort((a, b) => a - b).map((id) => keyName(deviceKeys, id)).join(', ') }));
     // the write order of the loop: layer, then key
     const order = (a: RestoreKey, b: RestoreKey) => a.layer - b.layer || a.id - b.id;
     plan.keys.sort(order);

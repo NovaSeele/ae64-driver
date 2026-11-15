@@ -29,6 +29,8 @@ export interface DefaultDiff {
   defaultCodes: Record<number, number>;
   /** Keys whose factory default is a blocked keycode: left as they are. */
   skipped: number;
+  /** U-08: key ids whose default would break the Fn release rule: left as they are (not in `defaultCodes`). */
+  fnBlocked: number[];
   /** Key ids holding a factory keycode now that the restore would overwrite for good. */
   factoryLost: number[];
 }
@@ -40,10 +42,39 @@ export interface KeycodePlan {
   fnGuarded: boolean;
   /** Keys holding a factory keycode (Reset/Link/wireless) that the assignment would overwrite for good. */
   factoryLost: FactoryKey[];
+  /** U-08: keys left out because a lower layer holds an Fn switch there (`layer` / `code`: that switch). */
+  fnBlocked: { id: number; layer: number; code: number }[];
 }
 
 /** Moved to protocol/keycodes (the selection's key groups use it too); kept here for the existing imports. */
 export { isFnSwitch } from '../protocol/keycodes';
+
+/** Transparent: the key falls through to the layer below. */
+export const TRANSPARENT = 0x0001;
+type LayerValues = Record<number, Record<number, number> | undefined>;
+/**
+ * U-08, the Fn release rule: at a key where a layer holds an Fn switch (F101–F103), every higher layer holds Transparent,
+ * or the Fn layer may never release. The lowest layer below `layer` holding an Fn switch at key `id`, or null.
+ */
+export function fnHolderBelow(values: LayerValues, layer: number, id: number): { layer: number; code: number } | null {
+  for (let l = 0; l < layer; l++) {
+    const code = values[l]?.[id];
+    if (code !== undefined && isFnSwitch(code)) return { layer: l, code };
+  }
+  return null;
+}
+/** Would `code` on `layer` at key `id` break the rule, given the other layers in `values`? Transparent never does. */
+export function breaksFnRule(values: LayerValues, layer: number, id: number, code: number): boolean {
+  if (code === TRANSPARENT) return false;
+  if (fnHolderBelow(values, layer, id)) return true;
+  if (isFnSwitch(code)) {
+    for (let l = layer + 1; l < LAYER_COUNT; l++) {
+      const above = values[l]?.[id];
+      if (above !== undefined && above !== TRANSPARENT) return true;
+    }
+  }
+  return false;
+}
 
 export const useKeymapStore = defineStore('keymap', () => {
   const device = useDeviceStore();
@@ -235,7 +266,7 @@ export const useKeymapStore = defineStore('keymap', () => {
    * automatically receive Transparent (0x0001) per reference rule.
    */
   function planKeycode(ids: number[], keycode: number): KeycodePlan {
-    const plan: KeycodePlan = { before: {}, after: {}, fnGuarded: false, factoryLost: [] };
+    const plan: KeycodePlan = { before: {}, after: {}, fnGuarded: false, factoryLost: [], fnBlocked: [] };
     if (!isWritableKeycode(keycode)) return plan;
     if (loadedProfile.value !== device.activeProfile || !ids.length) return plan;
     const currentL = activeLayer.value;
@@ -245,6 +276,12 @@ export const useKeymapStore = defineStore('keymap', () => {
       if (BLOCKED_KEYCODES.has(prev)) plan.factoryLost.push({ layer, id, code: prev });
     };
     for (const id of ids) {
+      // U-08: a lower layer holds an Fn switch here: only Transparent may go on this layer (the key is left out).
+      const holder = keycode === TRANSPARENT ? null : fnHolderBelow(values.value, currentL, id);
+      if (holder) {
+        plan.fnBlocked.push({ id, ...holder });
+        continue;
+      }
       const prev = values.value[currentL]?.[id] ?? 0;
       if (prev !== keycode) note(currentL, id, prev, keycode);
 
@@ -263,9 +300,9 @@ export const useKeymapStore = defineStore('keymap', () => {
   }
 
   /** Assign a keycode to multiple keys on the active layer (see planKeycode). */
-  function applyKeycode(ids: number[], keycode: number): { fnGuarded: boolean } {
-    const { before, after, fnGuarded } = planKeycode(ids, keycode);
-    if (!Object.keys(after).length) return { fnGuarded: false };
+  function applyKeycode(ids: number[], keycode: number): { fnGuarded: boolean; fnBlocked: KeycodePlan['fnBlocked'] } {
+    const { before, after, fnGuarded, fnBlocked } = planKeycode(ids, keycode);
+    if (!Object.keys(after).length) return { fnGuarded: false, fnBlocked };
 
     commit(after);
     history.push({
@@ -274,7 +311,7 @@ export const useKeymapStore = defineStore('keymap', () => {
       redo: () => commit(after),
     });
 
-    return { fnGuarded };
+    return { fnGuarded, fnBlocked };
   }
 
   /**
@@ -286,6 +323,7 @@ export const useKeymapStore = defineStore('keymap', () => {
     let diffCount = 0;
     let skipped = 0;
     const factoryLost: number[] = [];
+    const fnBlocked: number[] = [];
     await device.withTransport(async (t) => {
       const sys = await t.getSystemMode();
       for (const row of FIRMWARE_ROWS) {
@@ -298,8 +336,13 @@ export const useKeymapStore = defineStore('keymap', () => {
               skipped++;
               continue;
             }
-            defaultCodes[key.id] = defCode;
             const cur = values.value[layer]?.[key.id];
+            // U-08: a default that would break the Fn release rule is left out, and said in the dialog.
+            if (cur !== defCode && breaksFnRule(values.value, layer, key.id, defCode)) {
+              fnBlocked.push(key.id);
+              continue;
+            }
+            defaultCodes[key.id] = defCode;
             if (cur !== defCode) {
               diffCount++;
               if (cur !== undefined && BLOCKED_KEYCODES.has(cur)) factoryLost.push(key.id);
@@ -308,7 +351,7 @@ export const useKeymapStore = defineStore('keymap', () => {
         }
       }
     });
-    return { diffCount, defaultCodes, skipped, factoryLost };
+    return { diffCount, defaultCodes, skipped, factoryLost, fnBlocked };
   }
 
   /** Apply default keymap to the layer. Returns how many keys were really queued for writing. */
@@ -319,7 +362,8 @@ export const useKeymapStore = defineStore('keymap', () => {
     for (const [idStr, defCode] of Object.entries(defaultCodes)) {
       const id = Number(idStr);
       const cur = values.value[layer]?.[id] ?? 0;
-      if (cur !== defCode && isWritableKeycode(defCode)) {
+      // the rule again: the other layers may have changed since the dialog opened (U-08)
+      if (cur !== defCode && isWritableKeycode(defCode) && !breaksFnRule(values.value, layer, id, defCode)) {
         before[token(layer, id)] = cur;
         after[token(layer, id)] = defCode;
       }
