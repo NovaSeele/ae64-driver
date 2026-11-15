@@ -10,6 +10,7 @@ import { switchName } from '../data/switchDisplay';
 import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
 import { useHistoryStore } from './history';
+import type { HistoryEntry } from './history';
 import { useSyncStore } from './sync';
 import { deleteTuningSnapshot } from './tuning';
 
@@ -318,13 +319,29 @@ export const usePerformanceStore = defineStore('performance', () => {
     const n = Object.keys(after).length;
     if (!n) return 0;
     commit(after);
-    history.push({
-      label: tr('perf.editLabel', { what, n }),
+    history.push(editEntry(before, after, what, coalesce ? `${coalesce}:${ids.join(',')}` : undefined));
+    return n;
+  }
+
+  /**
+   * One history entry for an edit. Steps of one gesture (same `coalesce`) merge (U-02): per key the value from before the
+   * gesture wins (the first step that changed it), the last value goes to redo. A step may change keys the step before left
+   * alone (a mixed field clamped at a bound, a drag that starts on one key's value): one undo puts every key back.
+   */
+  type EditMaps = { before: Record<number, PerfEdit>; after: Record<number, PerfEdit> };
+  function editEntry(before: Record<number, PerfEdit>, after: Record<number, PerfEdit>, what: string, coalesce?: string): HistoryEntry & { edit: EditMaps } {
+    return {
+      label: tr('perf.editLabel', { what, n: Object.keys(after).length }),
       undo: () => commit(before),
       redo: () => commit(after),
-      coalesce: coalesce ? `${coalesce}:${ids.join(',')}` : undefined,
-    });
-    return n;
+      coalesce,
+      edit: { before, after },
+      absorb: (older) => {
+        const o = (older as { edit?: EditMaps }).edit;
+        if (!o) return { ...older, redo: () => commit(after) };
+        return editEntry({ ...before, ...o.before }, { ...o.after, ...after }, what, coalesce);
+      },
+    };
   }
 
   /** The switch each loaded key reports (undefined = not in the catalog; the UI shows the raw axisV2Id). */

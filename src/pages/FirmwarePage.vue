@@ -4,7 +4,7 @@
 // except rescue mode. Opening the page, choosing a file and typing the confirmation send nothing to the keyboard.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
-  IconAlertTriangle, IconCircleCheck, IconCircleX, IconCheck, IconDatabaseExport, IconLifebuoy, IconPlugConnected, IconTarget,
+  IconAlertTriangle, IconRefresh, IconCircleCheck, IconCircleX, IconCheck, IconDatabaseExport, IconLifebuoy, IconPlugConnected, IconTarget,
 } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import Card from '../components/ui/Card.vue';
@@ -136,6 +136,11 @@ function closeAnyway(): void {
           </div>
         </div>
         <FwBanner v-if="bannerKind" ref="banner" :kind="bannerKind" />
+        <!-- W-11 / N-WX4-2: from the first step, before a file is picked (rescue mode says it on its own step) -->
+        <div v-if="fw.otherWindow && !fw.rescue" class="fw-other" role="alert" data-test="fw-other-window">
+          <p class="fw-other__t"><IconAlertTriangle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.otherWindow') }}</span></p>
+          <Button size="sm" :icon="IconRefresh" @click="fw.checkOtherWindow()">{{ t('fw.otherWindowRetry') }}</Button>
+        </div>
         <ol v-if="!isMax" class="fw-steps">
           <li v-for="s in steps" :key="s.n" :ref="(el) => { stepEls[s.n] = el as HTMLElement | null }">
             <Card class="fws" :class="`fws--${s.state}`" :aria-labelledby="`fws-${s.n}`">
@@ -216,6 +221,12 @@ function closeAnyway(): void {
   background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--fg-1); font-size: var(--fs-label); line-height: 18px;
 }
 .fw-untested svg { flex: none; margin-top: 1px; color: var(--warn); }
+.fw-other {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-control); background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+.fw-other__t { display: flex; gap: 8px; align-items: flex-start; flex: 1 1 260px; margin: 0; color: var(--fg-1); font-size: var(--fs-label); line-height: 18px; }
+.fw-other__t svg { flex: none; margin-top: 1px; color: var(--warn); }
 .fw-lab {
   display: inline-flex; align-items: center; height: 20px; padding: 0 8px; margin-left: 4px; vertical-align: 2px;
   border: 1px solid var(--line-3); border-radius: 999px; font-size: var(--fs-caption); font-weight: 600; color: var(--fg-2);

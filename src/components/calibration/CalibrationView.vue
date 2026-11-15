@@ -276,6 +276,9 @@ function onFinish() {
   if (needAsk()) finishAsk.value = true;
   else void commit();
 }
+// The question stays open while keys are pressed: when its reason goes away (the last shallow / uncalibrated key done), it
+// would read "Cần chú ý: ." with an empty list (N-WX4-3). Close it then; the session goes on and Finish saves at once.
+watch(() => finishAsk.value && !needAsk(), (gone) => { if (gone) finishAsk.value = false; });
 let savingFromDialog = false;
 async function saveAnyway() {
   savingFromDialog = true;

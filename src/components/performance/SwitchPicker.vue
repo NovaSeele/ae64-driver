@@ -106,7 +106,7 @@ function apply() {
   const entry = chosen.value;
   const keys = plan.value?.keys ?? [];
   const n = keys.length;
-  if (!entry || !n) return;
+  if (!entry || !n || !device.boardAllowed) return; // a read-only board (WHOLE P3): the card's button is off too
   // The toast shows before the write lands, so predict the board: the firmware clears a key's calibrate flag when its
   // travel triple changes, and a key that already reads uncalibrated stays so.
   const uncal = keys.some((id) => {

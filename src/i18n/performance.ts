@@ -25,6 +25,7 @@ export const performanceVi = {
   'ptab.locked': 'Đang hiệu chuẩn: hoàn tất hoặc huỷ để mở các tab khác',
   'ptab.lockedFinishing': 'Đang kết thúc phiên hiệu chuẩn. Chờ xong rồi hãy mở tab khác.',
   'swp.tabSwitch': 'Switch',
+  'swp.readOnly': 'Bảng mạch không nằm trong danh sách được phép ghi — chỉ xem, không thể đổi switch.',
   'swp.tabCalibration': 'Hiệu chuẩn',
   'swp.tabSwitchSub': 'Xem và đổi switch của từng phím',
   'swp.tabCalibrationSub': 'Đo đỉnh và đáy hành trình của từng phím',

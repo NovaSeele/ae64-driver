@@ -628,8 +628,10 @@ export const useAdvancedStore = defineStore('advanced', () => {
       const id = next.keys.find((k) => conflict.keys.includes(k))!;
       throw new AdvancedConflictError(conflict, device.legend(device.keys[id]));
     }
-    const before = editing ?? next.keys.map((id) => byKey.value.get(id)).find((a) => a && sameSlot(a, next)) ?? null;
-    if (before && before.type !== 'READONLY' && sameRecord(before, next)) {
+    // What the keyboard holds in that slot now (U-11): the editor's `editing` may be stale (an undo, a read-back changed it).
+    const current = next.keys.map((id) => byKey.value.get(id)).find((a) => a && sameSlot(a, next)) ?? null;
+    const before = editing ?? current;
+    if (current && current.type !== 'READONLY' && sameRecord(current, next)) {
       // Already shown, but maybe only optimistically (a queued or failed write): report success only once it is written.
       if (sync.state !== 'saved') await sync.flush();
       return;

@@ -321,7 +321,7 @@ describe('Performance tabs: kept-alive tabs', () => {
     }
   });
 
-  it('7. a clean Advanced draft does not take the selection of the other tabs, keeps undo on, and is gone on return', async () => {
+  it('7. a clean Advanced draft does not take the selection of the other tabs, turns undo off only while open, and is gone on return', async () => {
     await at('/performance?tab=advanced');
     await settle();
     const sel = useSelectionStore();
@@ -330,7 +330,7 @@ describe('Performance tabs: kept-alive tabs', () => {
     sel.selectMany([keyId('W')]);
     await settle();
     expect(w!.find('.ed__host b').text()).toBe('W'); // W picked: still a clean draft
-    expect(useHistoryStore().suspended).toBe(false);
+    expect(useHistoryStore().suspended).toBe(true); // U-11 (WX5): no app undo under an open editor, clean or dirty
     await click('travel');
     expect(dialogs()).toBe(0);
     expect(selected()).toEqual(['travel']);
@@ -377,7 +377,7 @@ describe('Performance tabs: kept-alive tabs', () => {
       {
         tab: 'advanced', what: 'the delete dialog', before: 'travel',
         open: async () => {
-          w!.find(`.item button[aria-label="${t('advanced.delete')}"]`).element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          w!.find(`.item button[aria-label^="${t('advanced.delete')} "]`).element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         },
       },
       {

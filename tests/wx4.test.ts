@@ -34,44 +34,11 @@ import { t as tr } from '../src/i18n/vi';
 import { CRC, fileOf, makeFw } from './fw-helpers';
 import { installFakeHid, removeFakeHid } from './fw-hid';
 import type { FakeHidDevice } from './fw-hid';
+import { installLocks, removeLocks } from './fake-locks';
 
 const FLAG_KEY = 'ae64.calibrating';
 let wrappers: VueWrapper[] = [];
 const keep = <T extends VueWrapper>(w: T): T => { wrappers.push(w); return w; };
-
-/** navigator.locks in memory. `other(name)` is another page holding `name` until its release. */
-class FakeLocks {
-  readonly held = new Map<string, 'page' | 'other'>();
-  readonly asked: string[] = [];
-  constructor(private readonly order: string[] = []) {}
-  async request(name: string, opts: { ifAvailable?: boolean }, cb: (lock: unknown) => unknown): Promise<unknown> {
-    this.asked.push(name);
-    this.order.push(`lock ${name}`);
-    if (!opts.ifAvailable) throw new Error('the app always asks ifAvailable');
-    if (this.held.has(name)) return cb(null);
-    this.held.set(name, 'page');
-    try {
-      return await cb({ name, mode: 'exclusive' });
-    } finally {
-      this.held.delete(name);
-    }
-  }
-  async query() {
-    return { held: [...this.held.keys()].map((name) => ({ name, mode: 'exclusive' })), pending: [] };
-  }
-  other(name: string): () => void {
-    this.held.set(name, 'other');
-    return () => { if (this.held.get(name) === 'other') this.held.delete(name); };
-  }
-}
-function installLocks(order: string[] = []): FakeLocks {
-  const locks = new FakeLocks(order);
-  Object.defineProperty(navigator, 'locks', { value: locks, configurable: true, writable: true });
-  return locks;
-}
-function removeLocks(): void {
-  delete (navigator as unknown as { locks?: unknown }).locks;
-}
 
 const toasts = () => useToast().items.value;
 /** Every frame sent by any transport from now on, as "ff cc xx" (read with `()`; `.mark()` starts again from now). */
@@ -140,16 +107,17 @@ describe('W-11: one page per keyboard (Web Locks)', () => {
     expect(s.device.error).toBe(tr('device.otherTab'));
     expect(s.dev.opens).toBe(0);
     expect(s.dev.sends).toEqual([]);
-    expect(s.order).toEqual([`lock ${s.name}`]);
+    // refused, asked once more after a macrotask (N-WX4-1), refused again: another page
+    expect(s.order).toEqual([`lock ${s.name}`, `lock ${s.name}`]);
     const w = keep(mount(ConnectScreen, { attachTo: document.body }));
     await flushPromises();
     const box = w.find('[data-test="other-tab"]');
     expect(box.exists()).toBe(true);
     expect(box.text()).toContain(tr('device.otherTab'));
     expect(box.attributes('role')).toBe('alert');
-    // still held there: "Try again" opens nothing
+    // still held there: "Try again" opens nothing (refused twice: the message is back)
     await w.find('[data-test="other-tab-retry"]').trigger('click');
-    await flushPromises();
+    await vi.waitFor(() => expect(w.find('[data-test="other-tab-retry"]').exists()).toBe(true));
     expect(s.device.connected).toBe(false);
     expect(s.dev.opens).toBe(0);
     expect(s.dev.sends).toEqual([]);
@@ -183,15 +151,14 @@ describe('W-11: one page per keyboard (Web Locks)', () => {
     expect(s.order.slice(0, 3)).toEqual([`lock ${s.name}`, 'open', 'send 1 2']);
     expect(s.locks.held.get(s.name)).toBe('page');
     await s.device.disconnect();
-    await flushPromises();
-    expect(s.locks.held.has(s.name)).toBe(false);
+    await vi.waitFor(() => expect(s.locks.held.has(s.name)).toBe(false)); // Chrome: free a macrotask later
+    expect(s.order).toContain(`free ${s.name}`);
     // again, then pulled out
     await s.device.tryAutoReconnect();
     expect(s.device.connected).toBe(true);
     expect(s.locks.held.get(s.name)).toBe('page');
     s.dev.gone();
-    await flushPromises();
-    expect(s.locks.held.has(s.name)).toBe(false);
+    await vi.waitFor(() => expect(s.locks.held.has(s.name)).toBe(false));
   });
 
   it('a Max and a Pro have their own locks (two models may be open in two tabs)', () => {
@@ -283,7 +250,7 @@ describe('W-11: one page per keyboard (Web Locks)', () => {
     await device.connect();
     await flushPromises();
     expect(fw.rescue).toBe(true);
-    expect(fw.otherWindow).toBe(true);
+    await vi.waitFor(() => expect(fw.otherWindow).toBe(true)); // refused twice (the retry is a macrotask later)
     await fw.chooseFile(fileOf(makeFw({ crc: CRC.v0100 })));
     await flushPromises();
     expect(fw.canRescueWrite).toBe(false);
@@ -300,8 +267,7 @@ describe('W-11: one page per keyboard (Web Locks)', () => {
     // the other window is done: "Thử lại" takes the lock, the write is offered
     release();
     await w.find('[data-test="fw-other-window"] button').trigger('click');
-    await flushPromises();
-    expect(fw.otherWindow).toBe(false);
+    await vi.waitFor(() => expect(fw.otherWindow).toBe(false));
     expect(locks.held.get(FIRMWARE_LOCK)).toBe('page');
     expect(fw.canRescueWrite).toBe(true);
     expect(w.findAll('button').map((b) => b.text())).toContain(tr('fw.rescue.write'));

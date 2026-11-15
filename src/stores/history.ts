@@ -10,6 +10,12 @@ export interface HistoryEntry {
   redo: () => void;
   /** Consecutive pushes with the same key within COALESCE_MS merge into one entry (slider drags, typing). */
   coalesce?: string;
+  /**
+   * Merging into the gesture's entry (`older`, same `coalesce`): the merged entry. Without it the older undo is kept and the
+   * newer redo taken, which is right only when every step of the gesture changes the same state (U-02: a step may change
+   * other keys than the step before; their values from before the gesture must be in the undo too).
+   */
+  absorb?: (older: HistoryEntry) => HistoryEntry;
 }
 
 const MAX_ENTRIES = 200;
@@ -39,8 +45,9 @@ export const useHistoryStore = defineStore('history', () => {
     const top = undoStack.value.at(-1);
     redoStack.value = [];
     if (entry.coalesce && top?.coalesce === entry.coalesce && now - top.at < COALESCE_MS) {
-      // Keep the oldest undo (state before the gesture), take the newest redo.
-      undoStack.value = [...undoStack.value.slice(0, -1), { ...top, redo: entry.redo, at: now }];
+      // Keep the oldest undo (state before the gesture), take the newest redo; or the entry's own merge (first value wins).
+      const merged = entry.absorb ? entry.absorb(top) : { ...top, redo: entry.redo };
+      undoStack.value = [...undoStack.value.slice(0, -1), { ...merged, coalesce: top.coalesce, at: now, id: top.id }];
       return;
     }
     undoStack.value = [...undoStack.value, { ...entry, at: now, id: nextId++ }].slice(-MAX_ENTRIES);

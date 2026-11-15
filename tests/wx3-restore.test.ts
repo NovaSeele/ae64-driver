@@ -449,6 +449,28 @@ describe('WX4 item 0a: the section commit sent, its reply lost', () => {
     expect(writes.filter((x) => x === `02 02 0${SAVE_GROUP.PERFORMANCE}`).length).toBe(1);
   });
 
+  it('WX5 0b G3: keymap committed, then a travel write fails before its commit → one LAYOUT commit, no PERFORMANCE commit', async () => {
+    const { device, mock, key, diag } = await demoWith('max');
+    const payload = await diag.generateBackup();
+    await mock.setKeycode(key('Q'), 0x0004, 0);
+    for (const k of [device.keys[10], device.keys[11]]) {
+      payload.performance[k.id].normalPress = Math.round((payload.performance[k.id].normalPress + 0.3) * 1000) / 1000;
+    }
+    const diff = await diag.parseAndDiffBackup(JSON.stringify(payload));
+    const orig = MockTransport.prototype.setPerformance;
+    let n = 0;
+    vi.spyOn(mock, 'setPerformance').mockImplementation(async function (this: MockTransport, pos, p) {
+      if (++n === 2) throw new Error('lost reply'); // the second travel record, before the travel commit
+      return orig.call(mock, pos, p);
+    });
+    const writes = writesOf(mock);
+    const msg = await diag.applyRestore(diff).then(() => 'ok', (e: Error) => e.message);
+    expect(msg).toContain(t('diagnostics.secPerformance'));
+    // the keymap commit is not sent again for the travel section's failure (a marker left from the section before)
+    expect(writes.filter((x) => x === `02 02 0${SAVE_GROUP.LAYOUT}`).length).toBe(1);
+    expect(writes).not.toContain(`02 02 0${SAVE_GROUP.PERFORMANCE}`);
+  });
+
   it('a write that fails before the commit sends no commit (unchanged)', async () => {
     const s = await travelTwo();
     const orig = MockTransport.prototype.setPerformance;

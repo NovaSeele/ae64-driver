@@ -25,7 +25,7 @@ import { useDeviceStore } from '../../stores/device';
 import { useSelectionStore } from '../../stores/selection';
 import { useHistoryStore } from '../../stores/history';
 import {
-  AdvancedConflictError, DKS_DEFAULT_DBS, MPT_BASIC_CODES, MPT_EXTENDED_CODES, dksHostEligible, mptHostEligible, mptLimit,
+  AdvancedConflictError, DKS_DEFAULT_DBS, MPT_BASIC_CODES, MPT_EXTENDED_CODES, dksHostEligible, fixUnusedStage3, mptHostEligible, mptLimit,
   normalizeMptDepths, pickPairKey, sameSlot, useAdvancedStore, validateAssignment,
 } from '../../stores/advanced';
 import type { Assignment, DksAssignment, MptAssignment, RsAssignment, SocdAssignment, WritableAssignment, WritableType } from '../../stores/advanced';
@@ -56,6 +56,8 @@ const ICONS: Record<string, Component> = {
 
 const draft = ref<WritableAssignment | null>(null);
 const editing = ref<Assignment | null>(null);
+/** A board outside the write allow-list (WHOLE P3): the tab says so and opens no editor, as Keymap and Lighting do. */
+const ro = computed(() => !device.boardAllowed);
 const pairSlot = ref<0 | 1>(0);
 const mptMax = ref(3.3);
 const saving = ref(false);
@@ -100,11 +102,12 @@ function askDiscard(then: () => void) {
 }
 defineExpose({ dirty, askDiscard });
 
-// Ctrl+Z would write an older saved change to the keyboard instead of undoing the draft: off while dirty.
+// Ctrl+Z would write an older saved change to the keyboard under the open editor (and a clean editor would then save what the
+// undo removed and say "Saved", U-11): the app's undo / redo is off while an editor is open. Text fields keep their own undo.
 let releaseHistory: (() => void) | null = null;
-watch(dirty, (d) => {
-  if (d && !releaseHistory) releaseHistory = history.suspend();
-  else if (!d) { releaseHistory?.(); releaseHistory = null; }
+watch(() => !!draft.value, (open) => {
+  if (open && !releaseHistory) releaseHistory = history.suspend();
+  else if (!open) { releaseHistory?.(); releaseHistory = null; }
 });
 const warnLeave = (e: BeforeUnloadEvent) => {
   if (!dirty.value) return;
@@ -307,6 +310,7 @@ function focusSoon(selector: string) {
 }
 
 function start(type: WritableType, opts?: { fromKey?: boolean }) {
+  if (ro.value) return;
   const picked = sel.ids;
   const opened = !!draft.value;
   editing.value = null;
@@ -349,7 +353,7 @@ async function loadMptMax(id: number) {
 }
 
 function edit(a: Assignment) {
-  if (a.type === 'READONLY') return;
+  if (a.type === 'READONLY' || ro.value) return;
   const opened = !!draft.value;
   editing.value = a;
   draft.value = structuredClone({ ...a, keys: [...a.keys] }) as WritableAssignment;
@@ -419,11 +423,15 @@ watch(() => sel.selected, (now) => {
 }, { flush: 'sync' });
 
 const keysChosen = computed(() => !!draft.value && draft.value.keys.every((k) => k >= 0));
+/** The editor's settings wait for the key (one-key types): shown dimmed, not reachable (WHOLE P3). */
+const bodyOff = computed(() => !keysChosen.value && !!draft.value && draft.value.keys.length === 1);
 const conflict = computed(() => (draft.value && keysChosen.value ? adv.conflictFor(draft.value, editing.value) : null));
 const problem = computed(() => {
   const d = draft.value;
   if (!d || !keysChosen.value) return null;
-  return validateAssignment(d, { firmware: device.info?.firmware, layer0: (id) => device.layer0[id], mptMax: mptMax.value });
+  // U-03 backstop: checked as save() writes it (an unused stage 3 moved past stage 2)
+  const checked = d.type === 'MPT' ? fixUnusedStage3(d, mptMax.value) : d;
+  return validateAssignment(checked, { firmware: device.info?.firmware, layer0: (id) => device.layer0[id], mptMax: mptMax.value });
 });
 const shownProblem = computed(() => (attempted.value ? problem.value : null));
 const pickHint = computed(() => {
@@ -496,10 +504,14 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
       <template v-if="summary" #detail>
         <span class="sum">
           <span class="sum__text" :title="summary.text">{{ summary.text }}</span>
-          <Button v-if="!summary.ro" size="sm" variant="ghost" :aria-label="t('advanced.editEntry', { type: shortOf(summary.a), keys: keysOf(summary.a) })" @click="edit(summary.a)">{{ t('advanced.edit') }}</Button>
+          <Button v-if="!summary.ro" size="sm" variant="ghost" :disabled="ro" :aria-label="t('advanced.editEntry', { type: shortOf(summary.a), keys: keysOf(summary.a) })" @click="edit(summary.a)">{{ t('advanced.edit') }}</Button>
         </span>
       </template>
     </TabKeyboard>
+
+    <p v-if="ro" class="ro-note" role="note">
+      <IconLock :size="16" stroke-width="1.75" aria-hidden="true" /><span>{{ t('advanced.boardReadOnly') }}</span>
+    </p>
 
     <Card v-if="adv.loadError" :title="t('advanced.loadFailed')" :subtitle="adv.loadError">
       <div><Button :icon="IconRefresh" @click="adv.load(true)">{{ t('advanced.reload') }}</Button></div>
@@ -543,7 +555,8 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
         <Button variant="danger" size="sm" :icon="IconTrash" @click="confirmDel = conflict">{{ t('advanced.deleteConflict', { type: titleOf(conflict) }) }}</Button>
       </div>
 
-      <div class="ed__body" :class="{ 'ed__body--off': !keysChosen && draft.keys.length === 1 }">
+      <!-- off until the keys are chosen: dimmed and out of the Tab order and the accessibility tree (inert) -->
+      <div class="ed__body" :class="{ 'ed__body--off': bodyOff }" :inert="bodyOff || undefined">
         <DksEditor v-if="draft.type === 'DKS'" v-model="dks" :firmware="device.info?.firmware" />
         <MptEditor v-else-if="draft.type === 'MPT'" v-model="mpt" :max="mptMax" />
         <PairEditor v-else v-model="pair" v-model:slot="pairSlot" :key-name="keyName" />
@@ -564,7 +577,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
     <div v-else class="cols">
       <Card :title="t('advanced.types')" :subtitle="t('advanced.typesHint')">
         <div class="types">
-          <button v-for="x in TYPES" :key="x.type" type="button" class="type" :data-type="x.type" :style="kindStyle(x.type)" @click="start(x.type)">
+          <button v-for="x in TYPES" :key="x.type" type="button" class="type" :data-type="x.type" :style="kindStyle(x.type)" :disabled="ro" @click="start(x.type)">
             <span class="type__icon"><component :is="x.icon" :size="20" stroke-width="1.6" /></span>
             <span class="type__text">
               <span class="type__name">{{ t(`advanced.type${x.type}`) }}
@@ -582,7 +595,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
         <div v-if="addFor !== null" class="addkey">
           <p class="addkey__text">{{ t('advanced.addForKey', { key: keyName(addFor) }) }}</p>
           <div class="addkey__btns">
-            <button v-for="x in TYPES" :key="x.type" type="button" class="chip" :data-add="x.type" :style="kindStyle(x.type)" :disabled="!hostOk(x.type, addFor)" :title="hostOk(x.type, addFor) ? undefined : t('advanced.hostIneligible', { type: t(`advanced.type${x.type}`) })" :aria-describedby="hostOk(x.type, addFor) ? undefined : 'addkey-why'" :aria-label="t('advanced.addTypeForKey', { type: t(`advanced.short${x.type}`), key: keyName(addFor) })" @click="start(x.type, { fromKey: true })">+ {{ t(`advanced.short${x.type}`) }}</button>
+            <button v-for="x in TYPES" :key="x.type" type="button" class="chip" :data-add="x.type" :style="kindStyle(x.type)" :disabled="ro || !hostOk(x.type, addFor)" :title="hostOk(x.type, addFor) ? undefined : t('advanced.hostIneligible', { type: t(`advanced.type${x.type}`) })" :aria-describedby="hostOk(x.type, addFor) ? undefined : 'addkey-why'" :aria-label="t('advanced.addTypeForKey', { type: t(`advanced.short${x.type}`), key: keyName(addFor) })" @click="start(x.type, { fromKey: true })">+ {{ t(`advanced.short${x.type}`) }}</button>
           </div>
           <p v-if="cannotHostText" id="addkey-why" class="addkey__why">{{ cannotHostText }}</p>
         </div>
@@ -595,7 +608,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
         <ul v-else class="list">
           <li v-for="a in adv.assignments" :key="`${a.type}:${a.keys.join(',')}`" class="item" :data-item="`${a.type === 'READONLY' ? a.record.type : a.type}:${[...a.keys].sort((x, y) => x - y).join(',')}`" :class="{ 'item--hl': highlighted.has(a) }" :style="kindStyle(a.type === 'READONLY' ? a.record.type : a.type)">
             <span class="item__icon"><component :is="ICONS[a.type === 'READONLY' ? a.record.type : a.type] ?? IconTimeline" :size="18" stroke-width="1.6" /></span>
-            <button type="button" class="item__main" :disabled="a.type === 'READONLY'" @click="edit(a)">
+            <button type="button" class="item__main" :disabled="ro || a.type === 'READONLY'" @click="edit(a)">
               <span class="item__top">
                 <span class="item__type">{{ shortOf(a) }}</span>
                 <span class="item__keys">{{ keysOf(a) }}</span>
@@ -603,8 +616,8 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
               </span>
               <span class="item__detail">{{ detailOf(a) }}</span>
             </button>
-            <IconButton v-if="a.type !== 'READONLY'" :icon="IconPencil" :label="t('advanced.edit')" size="sm" @click="edit(a)" />
-            <IconButton :icon="IconTrash" :label="t('advanced.delete')" size="sm" @click="confirmDel = a" />
+            <IconButton v-if="a.type !== 'READONLY'" :icon="IconPencil" :label="t('advanced.editRow', { keys: keysOf(a), type: shortOf(a) })" size="sm" :disabled="ro" @click="edit(a)" />
+            <IconButton :icon="IconTrash" :label="t('advanced.deleteRow', { keys: keysOf(a), type: shortOf(a) })" size="sm" :disabled="ro" @click="confirmDel = a" />
           </li>
         </ul>
         <div v-if="adv.assignments.length" class="addslot"><IconArrowLeft :size="16" stroke-width="1.6" aria-hidden="true" />{{ t('advanced.noneHint') }}</div>
@@ -667,7 +680,14 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
   text-align: left;
   transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
 }
-.type:hover { background: var(--bg-4); border-color: var(--acc-line); }
+.type:hover:not(:disabled) { background: var(--bg-4); border-color: var(--acc-line); }
+.type:disabled { opacity: 0.45; cursor: not-allowed; }
+.ro-note {
+  display: flex; align-items: flex-start; gap: var(--s-2); margin: 0; padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-control); background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--fg-1); font-size: var(--fs-label); line-height: 18px;
+}
+.ro-note svg { flex: none; margin-top: 1px; color: var(--warn); }
 .type:active { transform: translateY(1px); }
 .type__icon {
   width: 36px;
@@ -684,7 +704,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
 .type__keys { font-size: var(--fs-caption); font-weight: 500; color: var(--fg-3); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line-2); }
 .type__desc { font-size: var(--fs-label); color: var(--fg-3); line-height: 1.35; }
 .type__go { color: var(--fg-3); }
-.type:hover .type__go { color: var(--acc); }
+.type:hover:not(:disabled) .type__go { color: var(--acc); }
 .types__note { display: flex; align-items: flex-start; gap: 6px; margin: var(--s-3) 0 0; margin-top: auto; font-size: var(--fs-label); color: var(--fg-3); }
 .types__note svg { flex: none; margin-top: 3px; }
 .item__ro {

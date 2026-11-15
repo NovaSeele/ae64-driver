@@ -26,6 +26,7 @@ export const performanceEn: Record<keyof typeof performanceVi, string> = {
   'ptab.locked': 'Calibrating: finish or cancel to open the other tabs',
   'ptab.lockedFinishing': 'The calibration session is ending. Wait until it finishes, then open the other tab.',
   'swp.tabSwitch': 'Switches',
+  'swp.readOnly': 'Board is not in write allowlist — view only, switches cannot be changed.',
   'swp.tabCalibration': 'Calibration',
   'swp.tabSwitchSub': "See and change each key's switch",
   'swp.tabCalibrationSub': "Measure each key's top and bottom of travel",

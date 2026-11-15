@@ -4,6 +4,7 @@
 import { computed, ref } from 'vue';
 import { IconSwitchHorizontal } from '@tabler/icons-vue';
 import NumberField from '../ui/NumberField.vue';
+import { onRadioGroupKey, radioTabindex } from '../../composables/radioGroup';
 import Dialog from '../ui/Dialog.vue';
 import OutputSlot from './OutputSlot.vue';
 import OutputPicker from './OutputPicker.vue';
@@ -23,6 +24,8 @@ const SOCD_MODES: { value: SocdMode; label: MessageKey; desc: MessageKey }[] = [
   { value: 3, label: 'advanced.socdNeutral', desc: 'advanced.socdNeutralDesc' },
 ];
 const groups = keyboardGroups();
+/** One SOCD mode is checked (the roving Tab stop is on it); else the first mode takes the stop. */
+const socdKnown = computed(() => props.modelValue.type === 'SOCD' && SOCD_MODES.some((m) => m.value === (props.modelValue as { mode?: number }).mode));
 const pickerSide = ref<number | null>(null);
 const pickerOpen = computed({ get: () => pickerSide.value !== null, set: (v) => { if (!v) pickerSide.value = null; } });
 
@@ -66,16 +69,17 @@ const sides = computed(() => [0, 1].map((i) => ({
       </template>
     </div>
 
-    <div v-if="modelValue.type === 'SOCD'" class="modes" role="radiogroup" :aria-label="t('advanced.socdMode')">
+    <div v-if="modelValue.type === 'SOCD'" class="modes" role="radiogroup" :aria-label="t('advanced.socdMode')" @keydown="onRadioGroupKey">
       <span class="micro modes__label">{{ t('advanced.socdMode') }}</span>
       <div class="modes__grid">
         <button
-          v-for="m in SOCD_MODES"
+          v-for="(m, i) in SOCD_MODES"
           :key="m.value"
           type="button"
           role="radio"
           class="mode"
           :aria-checked="modelValue.mode === m.value"
+          :tabindex="radioTabindex(modelValue.mode === m.value, i, socdKnown)"
           @click="update({ mode: m.value })"
         >
           <span class="mode__name">{{ t(m.label) }}</span>

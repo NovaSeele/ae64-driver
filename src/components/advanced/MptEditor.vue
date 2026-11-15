@@ -32,9 +32,12 @@ const cappedBy = (i: number) => (i < 2 && (i === 0 || stage3.value) && boundsOf(
 function setDepth(i: number, v: number) {
   if (i === 2 && !stage3.value) return;
   const b = boundsOf(i);
-  const depths = [...props.modelValue.depths] as MptAssignment['depths'];
+  let depths = [...props.modelValue.depths] as MptAssignment['depths'];
   depths[i] = Math.round(Math.min(b.max, Math.max(b.min, v)) * 10) / 10;
-  if (depths[i] !== props.modelValue.depths[i]) update({ depths });
+  if (depths[i] === props.modelValue.depths[i]) return;
+  // U-03: while stage 3 has no output its depth follows stage 2 (the draft never holds [0.5, 2.0, 1.5], which Save refused)
+  if (!stage3.value) depths = fixUnusedStage3({ ...props.modelValue, depths }, props.max).depths;
+  update({ depths });
 }
 function pick(code: number) {
   const keycodes = [...props.modelValue.keycodes] as MptAssignment['keycodes'];
@@ -44,7 +47,8 @@ function pick(code: number) {
   pickerStage.value = null;
 }
 function clearStage3() {
-  update({ keycodes: [props.modelValue.keycodes[0], props.modelValue.keycodes[1], 0] });
+  const keycodes: MptAssignment['keycodes'] = [props.modelValue.keycodes[0], props.modelValue.keycodes[1], 0];
+  update({ keycodes, depths: fixUnusedStage3({ ...props.modelValue, keycodes }, props.max).depths });
   pickerStage.value = null;
 }
 const used = computed(() => props.modelValue.keycodes.filter((c, i) => c && i !== pickerStage.value));

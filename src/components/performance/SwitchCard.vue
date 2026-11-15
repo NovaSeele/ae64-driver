@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Switch card of the Switch page: the switch fitted in the selected keys. Picking happens in SwitchPicker.
 import { computed, nextTick, ref } from 'vue';
-import { IconAlertTriangle, IconInfoCircle, IconReplace } from '@tabler/icons-vue';
+import { IconAlertTriangle, IconInfoCircle, IconLock, IconReplace } from '@tabler/icons-vue';
 import Card from '../ui/Card.vue';
 import Button from '../ui/Button.vue';
 import { formatMm } from '../ui/NumberField.vue';
@@ -20,6 +20,8 @@ const perf = usePerformanceStore();
 const device = useDeviceStore();
 
 const open = ref(false);
+/** A board outside the write allow-list (WHOLE P3): the map shows, the switch cannot be changed. */
+const ro = computed(() => !device.boardAllowed);
 const foot = ref<HTMLElement | null>(null);
 
 /** After Apply: keep focus on the trigger (the Dialog restores it on close) and scroll it clear of the toast. */
@@ -75,13 +77,16 @@ const rowName = (g: Group) => (g.entry ? switchName(g.entry) : t('sw.unknownRow'
         </ul>
         <span v-if="groups.length > 3" class="swc__more">{{ t('sw.more', { n: groups.length - 3 }) }}</span>
       </template>
+      <p v-if="ro" class="swc__note swc__note--warn" role="note" data-test="switch-read-only">
+        <IconLock :size="14" aria-hidden="true" />{{ t('swp.readOnly') }}
+      </p>
       <p v-if="!perf.catalog" class="swc__note"><IconInfoCircle :size="14" aria-hidden="true" />{{ unsupportedText }}</p>
       <p v-if="perf.switchNotices.length" class="swc__note swc__note--warn" role="status">
         <IconAlertTriangle :size="14" aria-hidden="true" />{{ t('sw.normalised', { n: normalisedN }) }}
       </p>
     </div>
     <div ref="foot" class="swc__foot">
-      <Button variant="secondary" size="sm" :icon="IconReplace" :disabled="!perf.catalog || !ids.length" :title="perf.catalog ? undefined : unsupportedText" @click="open = true">{{ t('sw.change') }}</Button>
+      <Button variant="secondary" size="sm" :icon="IconReplace" :disabled="ro || !perf.catalog || !ids.length" :title="perf.catalog ? undefined : unsupportedText" @click="open = true">{{ t('sw.change') }}</Button>
     </div>
     <SwitchPicker v-model:open="open" :ids="ids" @applied="onApplied" />
   </Card>

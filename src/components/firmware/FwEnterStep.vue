@@ -47,10 +47,6 @@ const err = computed(() => (fw.phase === 'preflightFail' || fw.phase === 'enterF
       <span>{{ t('fw.risk') }}</span>
     </label>
     <p v-if="busyText" class="fw-busy" role="status">{{ busyText }}</p>
-    <div v-if="fw.otherWindow" class="fw-other" role="alert" data-test="fw-other-window">
-      <p class="fw-busy">{{ t('fw.otherWindow') }}</p>
-      <Button size="sm" @click="fw.checkOtherWindow()">{{ t('fw.otherWindowRetry') }}</Button>
-    </div>
   </template>
   <template v-else-if="waiting">
     <p class="fw-wait" role="status"><span class="fw-spin" aria-hidden="true" />{{ t('fw.s2.wait') }}</p>
@@ -107,6 +103,5 @@ const err = computed(() => (fw.phase === 'preflightFail' || fw.phase === 'enterF
   background: var(--danger-soft); color: var(--danger); font-size: var(--fs-label); line-height: 18px;
 }
 .fw-err svg { flex: none; margin-top: 1px; }
-.fw-other { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-2); }
 .fw-err span { min-width: 0; overflow-wrap: anywhere; }
 </style>

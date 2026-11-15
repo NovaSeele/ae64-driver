@@ -2,7 +2,10 @@
 // Horizontal or vertical slider. Vertical sliders put `min` at the top (key-travel semantics:
 // deeper = further down), and ArrowDown increases. Shift = fine step for keys and drags.
 // Emits `update:modelValue` continuously and `commit` when a gesture/keystroke finishes.
+// U-12: on a mixed selection (`range`) with `relative`, the arrow keys and PageUp / PageDown emit `step` with the signed delta
+// and the parent moves each item from its own value (as the number field beside it does); Home / End still set every item.
 import { computed, ref } from 'vue';
+import { t } from '../../i18n/vi';
 
 const props = withDefaults(defineProps<{
   modelValue: number;
@@ -24,9 +27,16 @@ const props = withDefaults(defineProps<{
   floor?: number;
   /** id of a line that explains the value (aria-describedby on the thumb). */
   describedby?: string;
+  /** On a mixed selection the step keys emit `step` (each item moves from its own value) instead of one value for all. */
+  relative?: boolean;
 }>(), { step: 0.01, orientation: 'horizontal', range: null });
 
-const emit = defineEmits<{ 'update:modelValue': [number]; commit: [number] }>();
+const emit = defineEmits<{ 'update:modelValue': [number]; commit: [number]; step: [number] }>();
+/** "Mixed: 0.05–0.60" while the values differ; else the formatted value. */
+const valueText = computed(() => {
+  const f = props.format ?? ((v: number) => String(v));
+  return props.range ? `${t('perf.mixed')}: ${f(props.range[0])}–${f(props.range[1])}` : props.format ? f(props.modelValue) : undefined;
+});
 const track = ref<HTMLElement | null>(null);
 const dragging = ref(false);
 
@@ -95,6 +105,16 @@ function onKey(e: KeyboardEvent) {
   const step = e.shiftKey ? fine.value : props.step;
   const inc = vertical.value ? ['ArrowDown', 'ArrowRight'] : ['ArrowUp', 'ArrowRight'];
   const dec = vertical.value ? ['ArrowUp', 'ArrowLeft'] : ['ArrowDown', 'ArrowLeft'];
+  if (props.relative && props.range) {
+    const d = inc.includes(e.key) ? step : dec.includes(e.key) ? -step : e.key === 'PageUp' ? step * 10 : e.key === 'PageDown' ? -step * 10 : 0;
+    if (d) {
+      e.preventDefault();
+      const decimals = Math.max(0, -Math.floor(Math.log10(step)) + 1);
+      emit('step', Number(d.toFixed(decimals)));
+      emit('commit', props.modelValue);
+      return;
+    }
+  }
   let v: number | null = null;
   if (inc.includes(e.key)) v = props.modelValue + step;
   else if (dec.includes(e.key)) v = props.modelValue - step;
@@ -134,7 +154,7 @@ function onKey(e: KeyboardEvent) {
       :aria-describedby="describedby"
       :aria-valuemax="max"
       :aria-valuenow="modelValue"
-      :aria-valuetext="format ? format(modelValue) : undefined"
+      :aria-valuetext="valueText"
       :aria-orientation="orientation"
       :aria-disabled="disabled || undefined"
       :style="vertical ? { top: `${pct}%` } : { left: `${pct}%` }"

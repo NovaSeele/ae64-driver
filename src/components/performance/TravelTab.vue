@@ -14,7 +14,7 @@ export function deriveRtLinked(recs: PerformanceRec[], isRt: (mode: number) => b
 // its window listeners and the profile hook follow activation, and its view tools are shown only while it is open.
 import { computed, inject, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { IconAlertTriangle, IconFlask, IconLink, IconLinkOff, IconRefresh, IconX } from '@tabler/icons-vue';
+import { IconAlertTriangle, IconFlask, IconLink, IconLinkOff, IconLock, IconRefresh, IconX } from '@tabler/icons-vue';
 import KeyboardView from '../keyboard/KeyboardView.vue';
 import TabKeyboard from '../keyboard/TabKeyboard.vue';
 import type { LegendItem } from '../keyboard/SelectionBar.vue';
@@ -28,6 +28,7 @@ import Segmented from '../ui/Segmented.vue';
 import Slider from '../ui/Slider.vue';
 import Switch from '../ui/Switch.vue';
 import NumberField, { decimalsFor, formatMm } from '../ui/NumberField.vue';
+import { onRadioGroupKey, radioTabindex } from '../../composables/radioGroup';
 import AnimatedNumber from '../ui/AnimatedNumber.vue';
 import { useDeviceStore } from '../../stores/device';
 import { useSelectionStore } from '../../stores/selection';
@@ -264,6 +265,8 @@ function fill(k: PhysicalKey): number | undefined {
 
 // ----- scope: the selection, or every key of the connected keyboard when nothing is selected
 const scoped = computed(() => sel.count > 0);
+/** A board outside the write allow-list (WHOLE P3): the tab says so and offers no edit, as Keymap and Lighting do. */
+const ro = computed(() => !device.boardAllowed);
 /** Keys in scope that are loaded; keys in a firmware mode we do not know are shown but never edited (store.apply skips them). */
 const loadedIds = computed(() => (scoped.value ? sel.ids : device.keys.map((k) => k.id)).filter((id) => perf.values[id]));
 const hasKeys = computed(() => loadedIds.value.length > 0);
@@ -281,8 +284,8 @@ const rtLinkOverride = ref<boolean | null>(null);
 const rtLinked = computed(() => rtLinkOverride.value ?? deriveRtLinked(recs.value, isRtMode));
 watch(() => ids.value.join(','), () => { rtLinkOverride.value = null; });
 
-function summary(get: (p: Performance) => number): { value: number | null; range: [number, number] } {
-  const vs = recs.value.map(get);
+function summary(get: (p: Performance) => number, list: Performance[] = recs.value): { value: number | null; range: [number, number] } {
+  const vs = list.map(get);
   if (!vs.length) return { value: null, range: [0, 0] };
   const lo = Math.min(...vs);
   const hi = Math.max(...vs);
@@ -326,8 +329,10 @@ const growers = computed<Set<CardId>>(() => {
 const maxTravel = computed(() => (recs.value.length ? Math.min(...recs.value.map(rangeMm)) : 3.31));
 const act = computed(() => summary(actuationOf));
 const stdRelease = computed(() => summary((p) => releasePoint(settingsFrom(p))));
-const rtPress = computed(() => summary((p) => p.rtPress));
-const rtRelease = computed(() => summary((p) => p.rtRelease));
+// U-13: over the keys in an RT mode only (a Standard key's hidden RT values are not edited here, and would read "mixed")
+const rtRecs = computed(() => recs.value.filter((p) => isRtMode(p.mode)));
+const rtPress = computed(() => summary((p) => p.rtPress, rtRecs.value));
+const rtRelease = computed(() => summary((p) => p.rtRelease, rtRecs.value));
 const deadTop = computed(() => summary((p) => p.pressDeadStroke));
 const deadBottom = computed(() => summary((p) => p.releaseDeadStroke));
 const deadFields = computed(() => [
@@ -359,6 +364,7 @@ function showUndoToast(text: string, kind: 'success' | 'info' = 'success') {
 }
 /** Every edit of the page: perf.apply, then the all-keys toast. Slider gestures announce when they end. */
 function edit(targets: number[], patch: (p: Performance) => Partial<PerfEdit>, what: string, coalesce?: string, gesture = false) {
+  if (ro.value) return;
   const n = perf.apply(targets, patch, what, coalesce);
   if (!n || scoped.value) return;
   if (gesture) gestureKeys = n;
@@ -435,6 +441,7 @@ function presetApplied(name: string, n: number) {
   else toast.show(text, 'success');
 }
 function applyPreset(id: (typeof PRESETS)[number]['id']) {
+  if (ro.value) return;
   const preset = PRESETS.find((p) => p.id === id)!;
   const name = t(PRESET_TEXT[id][0]);
   // An RT preset keeps a key's Continuous RT setting (mode 2 stays 2).
@@ -443,6 +450,7 @@ function applyPreset(id: (typeof PRESETS)[number]['id']) {
 }
 /** A saved preset: its values are already validated; perf.apply clamps them again to each key's own range and the model's precision. */
 function applyUserPreset(p: UserPreset) {
+  if (ro.value) return;
   const n = perf.apply(
     ids.value,
     (cur) => {
@@ -586,15 +594,16 @@ const modeOptions = computed(() => [
     <Teleport v-if="active" defer :to="toolsEl" :disabled="!toolsEl">
       <div class="wb__bar">
         <div class="wb__group">
-          <div class="chips" role="radiogroup" :aria-label="t('perf.metric')">
+          <div class="chips" role="radiogroup" :aria-label="t('perf.metric')" @keydown="onRadioGroupKey">
             <button
-              v-for="m in METRICS"
+              v-for="(m, i) in METRICS"
               :key="m.id"
               type="button"
               role="radio"
               class="chip"
               :style="{ '--chip': METRIC_TONE[m.id] }"
               :aria-checked="metric === m.id"
+              :tabindex="radioTabindex(metric === m.id, i, true)"
               @click="metric = m.id"
             >
               <span class="chip__dot" :class="{ 'chip__dot--rt': m.id === 'rt' }" aria-hidden="true" />{{ t(m.label) }}
@@ -641,6 +650,10 @@ const modeOptions = computed(() => [
         </template>
       </TabKeyboard>
 
+      <p v-if="ro" class="ro-note" role="note">
+        <IconLock :size="16" stroke-width="1.75" aria-hidden="true" /><span>{{ t('perf.readOnly') }}</span>
+      </p>
+
       <!-- load error -->
       <Card v-if="perf.loadError" :title="t('perf.loadFailed')" :subtitle="perf.loadError">
         <div><Button :icon="IconRefresh" @click="perf.load(true)">{{ t('perf.reload') }}</Button></div>
@@ -681,7 +694,9 @@ const modeOptions = computed(() => [
               :dead-top="deadTop.value"
               :dead-bottom="deadBottom.value"
               :label="t('perf.actuation')"
+              :disabled="ro"
               @update="setActuation"
+              @step="stepActuation"
               @commit="endGesture"
             />
             <div class="act__readout">
@@ -698,6 +713,7 @@ const modeOptions = computed(() => [
                 :step="0.01"
                 :decimals="decimals"
                 :label="t('perf.actuation')"
+                :disabled="ro"
                 relative
                 @update:model-value="setActuation($event, false)"
                 @step="stepActuation"
@@ -709,7 +725,7 @@ const modeOptions = computed(() => [
         </Card>
 
         <Card v-else-if="id === 'mode'" class="c-mode" :class="{ grow: growers.has('mode') }" :title="t('perf.mode')">
-          <Segmented :model-value="mode" :options="modeOptions" :label="t('perf.mode')" @update:model-value="setMode" />
+          <Segmented :model-value="mode" :options="modeOptions" :label="t('perf.mode')" :disabled="ro" @update:model-value="setMode" />
           <p class="hint">
             {{ mode === null ? t('perf.modeMixed') : mode === 1 ? t('perf.modeHintRt') : t('perf.modeHintStandard') }}
           </p>
@@ -717,6 +733,7 @@ const modeOptions = computed(() => [
             <Switch
               :model-value="continuous ?? false"
               :label="continuous === null ? `${t('perf.continuous')} (${t('perf.mixed')})` : t('perf.continuous')"
+              :disabled="ro"
               @update:model-value="setContinuous"
             />
             <p class="hint">{{ continuous === false ? t('perf.continuousOffHint') : t('perf.continuousOnHint') }}</p>
@@ -731,6 +748,7 @@ const modeOptions = computed(() => [
               :class="{ 'link--on': rtLinked }"
               :aria-pressed="rtLinked"
               :title="t('perf.rtLinkHint')"
+              :disabled="ro"
               @click="rtLinkOverride = !rtLinked"
             >
               <component :is="rtLinked ? IconLink : IconLinkOff" :size="16" stroke-width="1.5" aria-hidden="true" />
@@ -747,6 +765,7 @@ const modeOptions = computed(() => [
                 :step="0.01"
                 :decimals="decimals"
                 :label="t('perf.rtPress')"
+                :disabled="ro"
                 relative
                 @update:model-value="setRt('rtPress', $event, false)"
                 @step="stepRt('rtPress', $event)"
@@ -761,6 +780,9 @@ const modeOptions = computed(() => [
               :fine-step="0.001"
               :label="t('perf.rtPress')"
               style="--sl-tone: var(--m-press)"
+              :disabled="ro"
+              relative
+              @step="stepRt('rtPress', $event)"
               @update:model-value="setRt('rtPress', $event)"
               @commit="endGesture"
             />
@@ -775,6 +797,7 @@ const modeOptions = computed(() => [
                 :step="0.01"
                 :decimals="decimals"
                 :label="t('perf.rtRelease')"
+                :disabled="ro"
                 relative
                 @update:model-value="setRt('rtRelease', $event, false)"
                 @step="stepRt('rtRelease', $event)"
@@ -789,6 +812,9 @@ const modeOptions = computed(() => [
               :fine-step="0.001"
               :label="t('perf.rtRelease')"
               style="--sl-tone: var(--m-release)"
+              :disabled="ro"
+              relative
+              @step="stepRt('rtRelease', $event)"
               @update:model-value="setRt('rtRelease', $event)"
               @commit="endGesture"
             />
@@ -806,6 +832,7 @@ const modeOptions = computed(() => [
                 :step="0.01"
                 :decimals="decimals"
                 :label="dz.label"
+                :disabled="ro"
                 relative
                 @update:model-value="setDead(dz.field, $event, false)"
                 @step="stepDead(dz.field, $event)"
@@ -820,6 +847,9 @@ const modeOptions = computed(() => [
               :fine-step="0.001"
               :label="dz.label"
               :style="{ '--sl-tone': 'var(--m-deadzone)' }"
+              :disabled="ro"
+              relative
+              @step="stepDead(dz.field, $event)"
               @update:model-value="setDead(dz.field, $event)"
               @commit="endGesture"
             />
@@ -837,7 +867,7 @@ const modeOptions = computed(() => [
 
         <Card v-else :class="{ grow: growers.has('presets') }" :title="t('perf.presets')">
           <div class="presets">
-            <button v-for="p in PRESETS" :key="p.id" type="button" class="preset" @click="applyPreset(p.id)">
+            <button v-for="p in PRESETS" :key="p.id" type="button" class="preset" :disabled="ro" @click="applyPreset(p.id)">
               <span class="preset__name">{{ t(PRESET_TEXT[p.id][0]) }}</span>
               <span class="preset__desc num">{{ t(PRESET_TEXT[p.id][1]) }}</span>
             </button>
@@ -851,7 +881,7 @@ const modeOptions = computed(() => [
           <div class="presets">
             <p v-if="!userPresets.presets.length" class="hint">{{ t('perf.presetsEmpty') }}</p>
             <div v-for="u in userPresets.presets" :key="u.id" class="preset-row">
-              <button type="button" class="preset" :data-preset="u.id" :title="userPresetTitle(u)" @click="applyUserPreset(u)">
+              <button type="button" class="preset" :data-preset="u.id" :title="userPresetTitle(u)" :disabled="ro" @click="applyUserPreset(u)">
                 <span class="preset__name">{{ u.name }}</span>
                 <span class="preset__desc num">{{ userPresetMeta(u) }}</span>
               </button>
@@ -970,6 +1000,12 @@ const modeOptions = computed(() => [
 .link:hover:not(:disabled) { background: var(--bg-3); color: var(--fg-1); }
 .link:disabled { opacity: 0.35; cursor: not-allowed; }
 .link--on { color: var(--acc); background: var(--acc-soft); border-color: var(--acc-line); }
+.ro-note {
+  display: flex; align-items: flex-start; gap: var(--s-2); margin: 0; padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-control); background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--fg-1); font-size: var(--fs-label); line-height: 18px;
+}
+.ro-note svg { flex: none; margin-top: 1px; color: var(--warn); }
 .unknown {
   grid-column: 1 / -1;
   display: flex;
@@ -1006,11 +1042,12 @@ const modeOptions = computed(() => [
   text-align: left;
   transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
 }
-.preset:hover { background: var(--bg-4); border-color: var(--acc-line); }
+.preset:hover:not(:disabled) { background: var(--bg-4); border-color: var(--acc-line); }
+.preset:disabled { opacity: 0.45; cursor: not-allowed; }
 .preset:active { transform: translateY(1px); }
 .preset__name { font-weight: 600; }
 .preset__desc { font-size: var(--fs-label); color: var(--fg-3); }
-.preset:hover .preset__desc { color: var(--fg-2); }
+.preset:hover:not(:disabled) .preset__desc { color: var(--fg-2); }
 /* Saved presets: the same rows as the built-ins, with a × beside each. */
 .preset-row { position: relative; display: flex; flex: 1 1 auto; }
 .preset-row .preset { flex: 1; min-width: 0; padding-right: 40px; }

@@ -31,6 +31,8 @@ const groups = computed(() => dksGroups(props.firmware));
 const pickerRow = ref<number | null>(null);
 const pickerOpen = computed({ get: () => pickerRow.value !== null, set: (v) => { if (!v) pickerRow.value = null; } });
 let paint: { row: number; on: boolean } | null = null;
+/** The cell a pointer press toggled already: its click (which follows the press) must not toggle it back. */
+let pressed: string | null = null;
 
 function update(patch: Partial<DksAssignment>) {
   emit('update:modelValue', { ...props.modelValue, ...patch });
@@ -46,6 +48,7 @@ function onCellDown(e: PointerEvent, row: number, cell: number) {
   if (!props.modelValue.keycodes[row] || e.button !== 0) return;
   e.preventDefault();
   paint = { row, on: !dksCellActive(props.modelValue.travels[row], cell) };
+  pressed = `${row}:${cell}`;
   setCell(row, cell, paint.on);
 }
 function onCellEnter(e: PointerEvent, row: number, cell: number) {
@@ -56,9 +59,15 @@ const END_EVENTS = ['pointerup', 'pointercancel', 'blur'] as const;
 for (const ev of END_EVENTS) window.addEventListener(ev, endPaint);
 onBeforeUnmount(() => { for (const ev of END_EVENTS) window.removeEventListener(ev, endPaint); });
 
-function onCellKey(e: KeyboardEvent, row: number, cell: number) {
-  if (e.key !== ' ' && e.key !== 'Enter') return;
-  e.preventDefault();
+/**
+ * A cell toggles on click (WHOLE P3), so Enter / Space and assistive tech work as on any button. A pointer press toggles
+ * already on pointerdown (painting starts there), so the click that ends that same press is skipped: one toggle per press.
+ * A click without a pointer (keyboard, assistive tech: `detail` 0) always toggles.
+ */
+function onCellClick(e: MouseEvent, row: number, cell: number) {
+  const fromPress = e.detail > 0 && pressed === `${row}:${cell}`;
+  pressed = null;
+  if (fromPress) return;
   setCell(row, cell, !dksCellActive(props.modelValue.travels[row], cell));
 }
 
@@ -153,7 +162,7 @@ const fmt = (v: number) => v.toFixed(1);
             :disabled="!modelValue.keycodes[row - 1]"
             @pointerdown="onCellDown($event, row - 1, i)"
             @pointerenter="onCellEnter($event, row - 1, i)"
-            @keydown="onCellKey($event, row - 1, i)"
+            @click="onCellClick($event, row - 1, i)"
           >
             <span class="cell__mark" />
           </button>

@@ -16,7 +16,7 @@ const props = defineProps<{
   label: string;
   disabled?: boolean;
 }>();
-const emit = defineEmits<{ update: [number]; commit: [number] }>();
+const emit = defineEmits<{ update: [number]; commit: [number]; step: [number] }>();
 
 const shown = computed(() => props.value ?? props.range[0]);
 const ratio = computed(() => Math.min(1, Math.max(0, shown.value / props.max)));
@@ -91,6 +91,8 @@ const CAP_TRAVEL = 46; // px the illustrated cap moves at full travel
           :disabled="disabled"
           :range="value === null ? range : null"
           :format="(v) => `${v.toFixed(2)} mm`"
+          relative
+          @step="emit('step', $event)"
           @update:model-value="emit('update', $event)"
           @commit="emit('commit', $event)"
         />

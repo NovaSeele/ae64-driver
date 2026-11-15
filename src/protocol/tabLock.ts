@@ -56,6 +56,17 @@ async function acquire(name: string): Promise<boolean> {
 }
 
 /**
+ * Chrome frees a released lock one task later, not at once (measured on r127: refused in the same task and after a microtask,
+ * free after `setTimeout(0)`). So a close-then-open in one task would see this page's own lock as taken: ask once more after
+ * `setTimeout(0)`, and only a second refusal means another page holds it (N-WX4-1).
+ */
+async function acquireOrRetry(name: string): Promise<boolean> {
+  if (await acquire(name)) return true;
+  await new Promise<void>((r) => setTimeout(r, 0));
+  return held.has(name) || acquire(name);
+}
+
+/**
  * Takes a share of `name` for this page. Resolves to the share's release (call it once), or null when another page holds the
  * lock. Without Web Locks: a release that does nothing (the page goes on as before).
  */
@@ -64,7 +75,7 @@ export async function takeLock(name: string): Promise<(() => void) | null> {
   if (!held.has(name)) {
     let p = pending.get(name);
     if (!p) {
-      p = acquire(name).finally(() => pending.delete(name));
+      p = acquireOrRetry(name).finally(() => pending.delete(name));
       pending.set(name, p);
     }
     if (!(await p) && !held.has(name)) return null;

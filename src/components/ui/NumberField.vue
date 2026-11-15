@@ -7,11 +7,25 @@ export function decimalsFor(v: number, max: number): number {
 export function formatMm(v: number, max: number): string {
   return v.toFixed(decimalsFor(v, max));
 }
+/**
+ * The typed text as a number: null when empty, NaN when it is not one number. The decimal mark is "." or ","; more than one
+ * separator or a space inside ("1.500,5", "1 500") is not read, and neither is a separator in a field without decimals
+ * ("1.500" may be one thousand five hundred there). Nothing is guessed (WHOLE P3 NumberField).
+ */
+export function parseNumber(text: string, decimals: number): number | null {
+  const s = text.trim();
+  if (s === '') return null;
+  if (!/^[+-]?(\d+([.,]\d*)?|[.,]\d+)$/.test(s)) return NaN;
+  if (decimals === 0 && /[.,]/.test(s)) return NaN;
+  return Number(s.replace(',', '.'));
+}
 </script>
 
 <script setup lang="ts">
-// Numeric input with unit suffix. `null` shows the mixed-values placeholder. Commits on Enter/blur,
-// ArrowUp/Down step and the − / + buttons (Shift = fine, a tenth of the step). Accepts "," as decimal separator.
+// Numeric input with unit suffix. `null` shows the mixed-values placeholder. Commits on Enter/blur once the text was changed
+// (U-05: tabbing through writes nothing, and a value outside min / max that nobody typed stays as it is), ArrowUp/Down step
+// (from the typed text when it reads as a number) and the − / + buttons (Shift = fine, a tenth of the step). The decimal mark
+// is "." or ","; text that is not one number shows the error state and writes nothing (parseNumber).
 // On a mixed value (null) − / + / arrows are off, since there is no base to step from, unless `relative`
 // is set: then they emit `step` with the signed delta and the parent moves each item from its own value.
 import { computed, nextTick, ref, watch } from 'vue';
@@ -49,21 +63,38 @@ watch(display, (d, old) => {
 function clamp(v: number) {
   return Number(Math.min(props.max, Math.max(props.min, v)).toFixed(props.decimals));
 }
+/** The typed text is not one number: the field says so and writes nothing. */
+const badText = computed(() => Number.isNaN(parseNumber(text.value, props.decimals)));
+/** The value shown is outside min / max (the keyboard holds it; nobody typed it): shown, never clamped on its own. */
+const outOfRange = computed(() => props.modelValue !== null && clean.value && (props.modelValue < props.min - 1e-9 || props.modelValue > props.max + 1e-9));
+const invalidText = computed(() => {
+  if (badText.value) return t('ui.numberInvalid');
+  if (outOfRange.value) return t('ui.numberRange', { min: formatMm(props.min, props.decimals), max: formatMm(props.max, props.decimals) });
+  return undefined;
+});
 function commit() {
-  const v = parseFloat(text.value.replace(',', '.'));
-  if (Number.isFinite(v)) {
-    const c = clamp(v);
-    if (c !== props.modelValue) emit('update:modelValue', c);
-    text.value = formatMm(c, props.decimals);
-  } else text.value = display.value;
+  if (clean.value) return; // only focused (U-05): nothing typed, nothing written
+  const v = parseNumber(text.value, props.decimals);
+  if (v === null) { text.value = display.value; return; } // emptied: back to the value
+  if (Number.isNaN(v)) return; // not one number: the error state stays, nothing is written
+  const c = clamp(v);
+  if (c !== props.modelValue) emit('update:modelValue', c);
+  text.value = formatMm(c, props.decimals);
 }
 const stepOff = computed(() => props.disabled || (props.modelValue === null && !props.relative));
 function nudge(dir: 1 | -1, fine = false) {
-  if (stepOff.value) return;
+  if (props.disabled) return;
   const delta = dir * (fine ? props.step / 10 : props.step);
-  if (props.modelValue === null) { emit('step', Number(delta.toFixed(props.decimals + 1))); return; }
-  const c = clamp(props.modelValue + delta);
-  emit('update:modelValue', c);
+  // typed and not yet committed: step from what was typed when it reads as a number, else from the value
+  const typed = clean.value ? null : parseNumber(text.value, props.decimals);
+  const base = typed !== null && Number.isFinite(typed) ? typed : props.modelValue;
+  if (base === null) {
+    if (stepOff.value) return;
+    emit('step', Number(delta.toFixed(props.decimals + 1)));
+    return;
+  }
+  const c = clamp(base + delta);
+  if (c !== props.modelValue) emit('update:modelValue', c);
   text.value = formatMm(c, props.decimals);
 }
 function onKey(e: KeyboardEvent) {
@@ -76,7 +107,7 @@ function onKey(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="nf" :class="{ 'nf--disabled': disabled, 'nf--focus': focused }">
+  <div class="nf" :class="{ 'nf--disabled': disabled, 'nf--focus': focused, 'nf--invalid': invalidText }" :title="invalidText">
     <button type="button" class="nf__btn" :aria-label="`${t('ui.decrease')} ${label}`" tabindex="-1" :disabled="stepOff" @click="nudge(-1, $event.shiftKey)">
       <IconMinus :size="14" stroke-width="1.5" />
     </button>
@@ -89,6 +120,7 @@ function onKey(e: KeyboardEvent) {
       :aria-label="label"
       :placeholder="placeholder ?? t('perf.mixed')"
       :disabled="disabled"
+      :aria-invalid="invalidText ? true : undefined"
       @focus="focused = true; ($event.target as HTMLInputElement).select()"
       @blur="focused = false; commit()"
       @keydown="onKey"
@@ -114,6 +146,8 @@ function onKey(e: KeyboardEvent) {
 .nf:hover { border-color: var(--line-3); }
 .nf--focus { border-color: var(--acc-line); box-shadow: var(--focus-ring); }
 .nf--disabled { opacity: 0.45; }
+.nf--invalid { border-color: var(--warn); }
+.nf--invalid.nf--focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 30%, transparent); }
 .nf__input {
   width: 100%;
   min-width: 48px;
