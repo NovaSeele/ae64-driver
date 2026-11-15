@@ -575,15 +575,20 @@ export abstract class BaseTransport implements Ae64Transport {
     if (!serialReadable(info.serialHex)) throw new FirmwareSessionError('serial');
     const check = checkFile(copy, info.boardId);
     if (!check.ok) throw new FirmwareSessionError('file');
-    return newSession({ bytes: copy, check, board: info.boardId, serialHex: info.serialHex, step: 'open', app: this, boot: null, rescue: false });
+    return newSession({
+      bytes: copy, check, board: info.boardId, serialHex: info.serialHex, appSerialHex: info.serialHex, step: 'open', app: this, boot: null,
+      rescue: false,
+    });
   }
 
   /**
    * Rescue (DESIGN FW §3.6): a session on this connection, a keyboard already in its bootloader. Like beginFirmwareSession but
    * run mode 255 and a readable board; the session starts attached. `officialOnly` (only ever narrows) also needs an official
-   * build of KNOWN_FW. The bootloader's serial, when it reports one, is the session's.
+   * build of KNOWN_FW. The bootloader's serial, when it reports one, is the session's. `appSerialHex`: the serial the keyboard
+   * reported from its app, when a session on the app led here (W-06: its bootloader may report another one). It is accepted
+   * only for the keyboard back in its app (fwFind), never to choose a bootloader.
    */
-  async beginRescueSession(bytes: Uint8Array, opts: { officialOnly?: boolean } = {}): Promise<FwTicket> {
+  async beginRescueSession(bytes: Uint8Array, opts: { officialOnly?: boolean; appSerialHex?: string | null } = {}): Promise<FwTicket> {
     const copy = Uint8Array.from(bytes);
     const info = await this.getDeviceInfo();
     if (info.runMode !== 255) throw new FirmwareSessionError('mode');
@@ -592,7 +597,10 @@ export abstract class BaseTransport implements Ae64Transport {
     if (!check.ok) throw new FirmwareSessionError('file');
     if (opts.officialOnly && check.known?.kind !== 'official') throw new FirmwareSessionError('official');
     const serial = serialReadable(info.serialHex) ? info.serialHex : null;
-    return newSession({ bytes: copy, check, board: info.boardId, serialHex: serial, step: 'attached', app: null, boot: this, rescue: true });
+    const appSerialHex = opts.appSerialHex && serialReadable(opts.appSerialHex) ? opts.appSerialHex : serial;
+    return newSession({
+      bytes: copy, check, board: info.boardId, serialHex: serial, appSerialHex, step: 'attached', app: null, boot: this, rescue: true,
+    });
   }
 
   /** `08 01`, once, on the app connection that opened the session. The reply is optional (the keyboard may reset first). */
@@ -730,6 +738,8 @@ interface FwState {
   board: number;
   /** null: a rescue session whose bootloader reports no serial. */
   serialHex: string | null;
+  /** The serial the keyboard reports from its app, when known (W-06: may differ from its bootloader's). Only fwFind uses it. */
+  appSerialHex: string | null;
   step: FwStep;
   app: BaseTransport | null;
   boot: BaseTransport | null;
@@ -778,8 +788,8 @@ export function sessionFile(ticket: FwTicket): { known: KnownFw | null; size: nu
   return { known: st.check.known, size: st.bytes.length, packets: Math.ceil(st.bytes.length / FW_CHUNK), rescue: st.rescue };
 }
 
-/** A probe of this device is out (a second caller does not ask it twice at once). */
-const probing = new WeakSet<BaseTransport>();
+/** The probe of this device that is out: a second caller waits for its answer instead of asking twice at once (N-WX2-2). */
+const probing = new WeakMap<BaseTransport, Promise<DeviceInfo | null>>();
 
 /**
  * One `01 02` per device until it is unplugged; null when it does not answer. A device that did not answer is asked again, up to
@@ -789,18 +799,29 @@ const probing = new WeakSet<BaseTransport>();
 async function probe(t: BaseTransport, seen: Map<BaseTransport, DeviceInfo | null>, misses: FwState['misses']): Promise<DeviceInfo | null> {
   const had = seen.get(t);
   if (had) return had;
-  if (probing.has(t)) return null;
+  const out = probing.get(t);
+  if (out) {
+    // the same answer as the caller that asked; a miss it already counted for this session is not counted twice
+    const info = await out;
+    if (info) {
+      seen.set(t, info);
+      misses.delete(t);
+    } else {
+      if (!seen.has(t)) seen.set(t, null);
+      if (!misses.has(t)) misses.set(t, { n: 1, at: Date.now() });
+    }
+    return info;
+  }
   if (seen.has(t)) {
     const m = misses.get(t);
     if (!m || m.n >= FW_PROBE_TRIES || Date.now() - m.at < FW_PROBE_AGAIN_MS) return null;
   }
   seen.set(t, null);
-  probing.add(t);
-  let info: DeviceInfo | null = null;
+  const asked = t.getDeviceInfo(FW_PROBE_TIMEOUT_MS).catch(() => null);
+  probing.set(t, asked);
+  let info: DeviceInfo | null;
   try {
-    info = await t.getDeviceInfo(FW_PROBE_TIMEOUT_MS);
-  } catch {
-    info = null;
+    info = await asked;
   } finally {
     probing.delete(t);
   }
@@ -842,7 +863,8 @@ export async function fwAttach(ticket: FwTicket, devices: readonly BaseTransport
     return { ok: true, transport: pick };
   }
   if (live.some(([, i]) => i?.runMode === 0 && i.boardId === st.board && i.serialHex === st.serialHex)) return { ok: false, why: 'appBack' };
-  return { ok: false, why: live.length ? 'wrong' : 'none' };
+  // `wrong` only when something answered: a device still busy (no answer yet) is not judged (N-WX2-2)
+  return { ok: false, why: live.some(([, i]) => i !== null) ? 'wrong' : 'none' };
 }
 
 /**
@@ -862,8 +884,8 @@ export type FwFindResult =
 
 /**
  * After `08 04`: the session's keyboard back in its app among `devices` (one `01 02` each): run mode 0, the session's board and
- * serial. A rescue session without a serial takes the only AE64 Pro in app mode; several: `many`. `boot`: the keyboard showed up
- * in its bootloader again.
+ * serial, or the serial it reported from its app (W-06, N-WX2-1). A rescue session without either takes the only AE64 Pro in
+ * app mode; several: `many`. `boot`: the keyboard showed up in its bootloader again.
  */
 export async function fwFind(ticket: FwTicket, devices: readonly BaseTransport[]): Promise<FwFindResult> {
   const st = sessionOf(ticket);
@@ -872,7 +894,8 @@ export async function fwFind(ticket: FwTicket, devices: readonly BaseTransport[]
   for (const d of [...st.probedApp.keys()]) if (!d.connected) st.probedApp.delete(d);
   const live = [...st.probedApp];
   const apps = live.filter(([, i]) => i?.runMode === 0 && i.boardId === st.board);
-  const pickable = st.serialHex ? apps.filter(([, i]) => i!.serialHex === st.serialHex) : apps;
+  const known = [st.serialHex, st.appSerialHex].filter((h): h is string => h !== null);
+  const pickable = known.length ? apps.filter(([, i]) => known.includes(i!.serialHex)) : apps;
   if (pickable.length === 1) return { ok: true, transport: pickable[0][0], info: pickable[0][1]! };
   if (pickable.length > 1) return { ok: false, why: 'many' };
   const boot = live.some(([, i]) => i?.runMode === 255 && i.boardId === st.board && (!st.serialHex || i.serialHex === st.serialHex));
@@ -899,10 +922,13 @@ export function fwOtherBoot(ticket: FwTicket): BaseTransport | null {
   return other.length === 1 ? other[0][0] : null;
 }
 
-/** The board and serial (null: a rescue session whose bootloader reported none) the session's keyboard has. */
-export function fwSessionKeyboard(ticket: FwTicket): { board: number; serialHex: string | null } {
+/**
+ * The board and serial (null: a rescue session whose bootloader reported none) the session's keyboard has, and the serial it
+ * reports from its app (`appSerialHex`, null when unknown).
+ */
+export function fwSessionKeyboard(ticket: FwTicket): { board: number; serialHex: string | null; appSerialHex: string | null } {
   const st = sessionOf(ticket);
-  return { board: st.board, serialHex: st.serialHex };
+  return { board: st.board, serialHex: st.serialHex, appSerialHex: st.appSerialHex };
 }
 
 /**

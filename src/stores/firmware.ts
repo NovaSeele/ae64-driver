@@ -113,6 +113,11 @@ export const useFirmwareStore = defineStore('firmware', () => {
   let probedHere = new WeakMap<BaseTransport, { info: DeviceInfo | null; n: number; at: number }>();
   /** The keyboard of the session or of rescue mode: its board and serial (null: not reported), to recognise it again. */
   let ident: { board: number; serialHex: string | null } | null = null;
+  /**
+   * The serial the keyboard reported from its app when this session started on it (W-06, N-WX2-1: its bootloader may report
+   * another). Accepted only for the keyboard back in its app; null after a rescue opened at connect time (never known).
+   */
+  let appIdent: { board: number; serialHex: string } | null = null;
   /** The bootloader with another serial that W-06 may continue on. */
   let other: BaseTransport | null = null;
   /** The first run-mode-0 answer of the enter check (ms). */
@@ -155,8 +160,10 @@ export const useFirmwareStore = defineStore('firmware', () => {
   const isPro = computed(() => deviceBoard.value === FW_BOARD_PRO);
   const canStart = computed(() => !active.value && isPro.value && fileOk.value && typedOk(typed.value)
     && (!needsRisk.value || riskOk.value) && !busy.value && useDeviceStore().connected);
-  const canRescueWrite = computed(() => rescue.value && phase.value === 'rescue' && !!boot && boot.connected && rescueBoard.value === FW_BOARD_PRO
-    && fileOk.value && !rescueRefused.value && (!needsRisk.value || riskOk.value) && bootTick.value >= 0);
+  // bootTick is read first: `boot` is not reactive, so the computed must depend on the tick whatever it short-circuits on
+  // (after the rescue bootloader left and another opened, the button stayed off).
+  const canRescueWrite = computed(() => bootTick.value >= 0 && rescue.value && phase.value === 'rescue' && !!boot && boot.connected
+    && rescueBoard.value === FW_BOARD_PRO && fileOk.value && !rescueRefused.value && (!needsRisk.value || riskOk.value));
   /** Bumped when the rescue bootloader comes or goes (canRescueWrite reads `boot`, which is not reactive). */
   const bootTick = ref(0);
   /** The session's bootloader connection is there (packetFail / verifyFail: "Write again" needs it). */
@@ -282,6 +289,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     port.value = markRaw(portFor(t));
     total.value = sessionFile(ticket).packets;
     ident = fwSessionKeyboard(ticket);
+    appIdent = ident.serialHex !== null ? { board: ident.board, serialHex: ident.serialHex } : null;
     zeroAt = null;
     phase.value = 'entering';
     const mine = epoch;
@@ -388,7 +396,8 @@ export const useFirmwareStore = defineStore('firmware', () => {
     if (mine !== epoch || !r) return;
     if (r.ok) return void attached(r.transport);
     if (r.why === 'many') return fail('manyBoot', { key: 'fw.err.manyBoot' });
-    if (!offerOther()) wrongDevice.value = true;
+    // 'none': the device chosen has not answered yet (busy); the search goes on and asks it again (N-WX2-2)
+    if (r.why === 'wrong' && !offerOther()) wrongDevice.value = true;
   }
 
   /** W-06: the device found is an AE64 Pro bootloader with another serial: say so, and offer rescue mode on it (never by itself). */
@@ -404,6 +413,9 @@ export const useFirmwareStore = defineStore('firmware', () => {
   async function continueRescue(): Promise<void> {
     const t = other;
     if (phase.value !== 'needPermission' || !otherSerial.value || !t?.connected) return;
+    // the serial the keyboard reported from its app, read before the ticket is dropped (N-WX2-1)
+    const k = ticket ? fwSessionKeyboard(ticket) : null;
+    if (k?.appSerialHex) appIdent = { board: k.board, serialHex: k.appSerialHex };
     other = null;
     otherSerial.value = false;
     ident = null;
@@ -607,6 +619,8 @@ export const useFirmwareStore = defineStore('firmware', () => {
   }
 
   const isOurs = (i: DeviceInfo): boolean => !!ident && i.boardId === ident.board && ident.serialHex !== null && i.serialHex === ident.serialHex;
+  /** The session's keyboard in its app: the serial of `ident`, or the one it reported from its app (N-WX2-1). */
+  const isOursInApp = (i: DeviceInfo): boolean => isOurs(i) || (!!appIdent && i.boardId === appIdent.board && i.serialHex === appIdent.serialHex);
 
   /**
    * While locked without a bootloader: every new device gets its `01 02`. A Pro bootloader opens rescue mode (the session's
@@ -627,7 +641,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
           const info = await probeHere(d);
           if (mine !== epoch) return;
           if (info?.runMode === 255) boots.push([d, info]);
-          else if (info?.runMode === 0 && isOurs(info)) return void backInApp(d, info);
+          else if (info?.runMode === 0 && isOursInApp(info)) return void backInApp(d, info);
         }
         const pick = boots.find(([, i]) => isOurs(i)) ?? boots[0];
         if (pick) return void openRescueOn(pick[0], pick[1]);
@@ -651,6 +665,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
   /** device.init found a keyboard in its bootloader (`01 02` said run mode 255). Nothing more was sent to it. */
   function openRescue(t: BaseTransport, info: DeviceInfo, demo: boolean): void {
     isDemo = demo;
+    appIdent = null; // opened at connect time: the app's serial is not known
     port.value = markRaw(portFor(t));
     void openRescueOn(t, info);
   }
@@ -685,7 +700,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     const t = boot;
     error.value = null;
     try {
-      ticket = await t.beginRescueSession(file.value.bytes, { officialOnly: officialOnly.value });
+      ticket = await t.beginRescueSession(file.value.bytes, { officialOnly: officialOnly.value, appSerialHex: appIdent?.serialHex ?? null });
     } catch (err) {
       const reason: MessageKey = err instanceof FirmwareSessionError && err.reason === 'board' ? 'fw.why.board'
         : err instanceof FirmwareSessionError && err.reason === 'mode' ? 'fw.why.mode' : 'fw.why.file';

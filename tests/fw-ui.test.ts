@@ -26,6 +26,8 @@ import { useSyncStore } from '../src/stores/sync';
 import { useUpdateStore } from '../src/update';
 import { CLOSE_BLOCKED_EVENT, desktopShell, installDesktopCloseGuard } from '../src/data/desktopClose';
 import { readFileSync } from 'node:fs';
+import { MockTransport } from '../src/protocol/mock';
+import { fwText } from '../src/components/firmware/fwText';
 import { t as tr } from '../src/i18n/vi';
 import type { MessageKey } from '../src/i18n/vi';
 import { CRC, demo, fileOf, makeFw, run, startWith } from './fw-helpers';
@@ -568,5 +570,55 @@ describe('N-FW4 (WX2): view-only rescue (no board read) does not show step 3 as 
     const b = await rescuePage({});
     expect(b.fw.rescueBoard).not.toBeNull();
     expect(step3(b.page)).toBe('fws--now');
+  });
+});
+
+describe('U6, U11 (WX2 fix round): step 3 after the keyboard came back in its app (appBack)', { timeout: 60_000 }, () => {
+  async function untilFw(pred: () => boolean, max = 30_000) {
+    let ms = 0;
+    while (!pred() && ms < max) { await run(250); ms += 250; }
+  }
+  async function pageNow() {
+    vi.useRealTimers();
+    const router = makeRouter();
+    await router.push('/firmware');
+    const page = keep(mount(FirmwarePage, { global: { plugins: [router] }, attachTo: document.body }));
+    await flushPromises();
+    return page;
+  }
+  const step3 = (page: VueWrapper) => page.findAll('.fws')[2];
+
+  it('U6: from rescue (no write): step 3 shows the message with the version, and is not running', async () => {
+    const s = await demo('pro');
+    s.fw.setEnabled(true);
+    s.bus.replugAsBootloader();
+    await run(1000);
+    const boot = (await s.bus.list()).find((d) => d instanceof MockBootloader) as MockBootloader;
+    const p = s.device.adoptFromFirmware(boot, true);
+    await run(500);
+    await p;
+    expect(s.fw.phase).toBe('rescue');
+    s.bus.unplug(boot);
+    setTimeout(() => s.bus.plug(new MockTransport({ seed: 'pro', serial: [...s.bus.serial], fwBus: s.bus })), 1500);
+    await untilFw(() => !s.fw.active, 10_000);
+    expect(s.fw.phase).toBe('appBack');
+    const page = await pageNow();
+    const msg = fwText(s.fw.error);
+    expect(msg).toContain(s.device.info!.firmware);
+    expect(step3(page).text()).toContain(msg);
+    expect(step3(page).classes()).toContain('fws--todo');
+  });
+
+  it('U11: lost mid-write, back in its app: step 3 is "fail", not "todo"', async () => {
+    const s = await demo('pro');
+    s.fw.setEnabled(true);
+    s.bus.flags.unplugAt = 50;
+    s.bus.flags.lostIntoApp = true;
+    await startWith(s.fw, makeFw({ crc: CRC.v0100 }));
+    await untilFw(() => s.fw.phase === 'appBack', 40_000);
+    expect(s.fw.phase).toBe('appBack');
+    const page = await pageNow();
+    expect(step3(page).classes()).toContain('fws--fail');
+    expect(step3(page).text()).toContain(fwText(s.fw.error));
   });
 });
