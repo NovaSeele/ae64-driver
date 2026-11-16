@@ -43,6 +43,19 @@ export const lightingEn: Record<keyof typeof lightingVi, string> = {
   'lighting.effectN': 'Effect {n}',
   'lighting.experimentalEffect': 'Experimental',
 
+  // Effect previews (FXP)
+  'lighting.fx.view': 'Previews',
+  'lighting.fx.viewOff': 'Off',
+  'lighting.fx.viewLite': 'Simple',
+  'lighting.fx.viewDetail': 'Detailed',
+  'lighting.fx.viewTip': 'How the effect buttons are drawn. Rest the pointer on a button, or Tab to it, to try it on the keyboard above. Only a click writes to the keyboard.',
+  'lighting.fx.gridHint': 'Rest the pointer on an effect, or Tab to it, to try it on the keyboard. Click to choose.',
+  'lighting.fx.unknown': 'Unknown',
+  'lighting.fx.noPreview': "No preview yet: we don't know how this effect looks on a real keyboard.",
+  'lighting.fx.trying': 'Trying {label}: simulated, not written to the keyboard',
+  'lighting.fx.tryingNone': 'Effect {n} has no preview yet',
+  'lighting.liveBadge.try': 'Preview',
+
   // Tuning (Brightness, Speed, Direction)
   'lighting.tuningTitle': 'Effect Tuning',
   'lighting.tuningShort': 'Adjust',

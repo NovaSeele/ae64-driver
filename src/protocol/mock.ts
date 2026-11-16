@@ -12,7 +12,7 @@ import { MockFwBus } from './mockFirmware';
 import { GP_CONTROLS, GP_FAMILY, GP_KEY_COUNT, decodeConfig, defaultBinding, emptyConfig, encodeConfig, gamepadOutputs, keyPosOf, toStandardGamepad } from './gamepad';
 import type { GamepadConfig, StandardGamepadState } from './gamepad';
 import { encodeLayoutStyleEntry, encodePerformance, le16, mmToUm, read16 } from './codec';
-import { STRIP_ORDER } from './ledLayout';
+import { frame, rgb } from '../data/ledPatterns';
 import { LED_MATRIX_COLS, PRODUCT_ID_MAX, PRODUCT_ID_PRO, LED_RECORDS_PER_PACKET, LED_STRIP_COUNT, MACRO_ACTIONS_PER_PAGE, RATIO_UNITS } from './constants';
 import { PHYSICAL_KEYS } from './layout';
 
@@ -566,7 +566,8 @@ export class MockTransport extends BaseTransport {
 
   /**
    * 05 03 is also the live framebuffer: custom LEDs return their colour, the others a stand-in motion pattern
-   * (demo only). Depends on Date.now() and on the demo keys currently pressed (simulatePress), which the reactive modes show.
+   * (demo only, src/data/ledPatterns.ts, the source the Lighting page's previews use too). Depends on Date.now() and on
+   * the demo keys currently pressed (simulatePress), which the reactive modes show.
    */
   /** Demo key presses for the reactive stand-ins: a press starts when a key is first seen pressed; kept 3 s. */
   private ledHeld = new Set<number>();
@@ -591,146 +592,20 @@ export class MockTransport extends BaseTransport {
     const [open, mode, brightness, speed, direction, paletteIndex] = prof.lightBase[area] ?? [0, 0, 0, 50, 0, 0];
     const pal = paletteIndex > 0 ? (prof.palette[area] ?? []).slice(paletteIndex * 4, paletteIndex * 4 + 3) : null; // B, G, R
     const now = Date.now() / 1000;
-    const frame = open ? makeLedFrame(area, mode, speed, direction, !pal, now, this.ledPresses(now)) : null;
+    const pattern = open ? frame(area, mode, speed, direction, !pal, now, this.ledPresses(now)) : null;
+    const colour = pal ? { r: pal[2] ?? 0, g: pal[1] ?? 0, b: pal[0] ?? 0 } : null;
     const out: number[] = [];
     for (let i = 0; i < LED_RECORDS_PER_PACKET; i++) {
       const idx = packet * LED_RECORDS_PER_PACKET + i;
       const rec = leds[idx];
       if (!rec) { out.push(0, 0, 0, 0); continue; }
       if (rec[3] === 0xff) { out.push(...rec); continue; }
-      if (!frame) { out.push(0, 0, 0, 0); continue; }
-      const { hue, lvl } = frame(idx);
-      const k = brightness / 100 * lvl;
-      if (pal) {
-        out.push(...[0, 1, 2].map((n) => Math.round((pal[n] ?? 0) * k)), 0);
-      } else {
-        const h = frac(hue) * 6;
-        const ch = (n: number) => Math.round(255 * k * Math.max(0, Math.min(1, Math.abs(((h + n) % 6) - 3) - 1)));
-        out.push(ch(4), ch(2), ch(0), 0); // B, G, R
-      }
+      if (!pattern) { out.push(0, 0, 0, 0); continue; }
+      const [r, g, b] = rgb(pattern(idx), colour, brightness / 100);
+      out.push(Math.round(b), Math.round(g), Math.round(r), 0); // B, G, R
     }
     return out;
   }
-}
-
-// ---------------------------------------------------------------- demo LED patterns (stand-ins, see ledPacket)
-const frac = (v: number) => v - Math.floor(v);
-
-/** Fixed hash of (n, salt) to 0…1. */
-function hash01(n: number, salt = 0): number {
-  let h = Math.imul(n | 0, 0x85ebca6b) ^ Math.imul(salt + 1, 0x9e3779b1);
-  h ^= h >>> 13;
-  h = Math.imul(h, 0xc2b2ae35);
-  h ^= h >>> 16;
-  return (h >>> 0) / 4294967296;
-}
-
-const STRIP_POS = new Map(STRIP_ORDER.map((led, i) => [led, i / LED_STRIP_COUNT]));
-/** A demo key press as the reactive stand-ins see it: the LED cell and the age in seconds. */
-interface LedPress { cell: number; age: number }
-
-/**
- * The pattern of one area at one instant: LED index → hue (cycles, rainbow source) and level (0…1, multiplies
- * the colour). Each firmware mode gets the stand-in that looks like what the board does (recorded on a real AE64 Max;
- * the UI number is mode + 1). Keys: 0 static, 1 horizontal wave, 2 vertical wave, 3 ripple, 4 spiral, 7 breathing,
- * 9 colour wipe, 10 arc wave, 11 sine line, 12 random steady, 13 twinkle, 14 starlight, 15 raindrop, 16 reactive key,
- * 17 reactive key + neighbours, 18 reactive row; 5, 6, 8 and anything above 18 are unknown and get a neutral dim
- * static. Strip: 0 static, 1 chase (whole ring lit, colours rotating), 2 breathing, 3 mirrored wave from the top centre, 4 mirrored chase.
- * Reactive modes are dark until a demo key is pressed (presses).
- */
-function makeLedFrame(area: number, mode: number, speed: number, direction: number, rainbow: boolean, now: number, presses: LedPress[] = []) {
-  const T = 6 - 5.2 * speed / 100;
-  const dir = direction ? -1 : 1;
-  const phi = now / T;
-  const wave = (p: number) => 0.15 + 0.85 * (0.5 + 0.5 * Math.cos(2 * Math.PI * p)); // palette level of a moving band
-  const breath = 0.08 + 0.92 * (0.5 - 0.5 * Math.cos(2 * Math.PI * phi));
-  const fade = 0.3 + 1.2 * (1 - speed / 100);
-  const live = presses.filter((p) => p.age >= 0 && p.age < fade);
-  const cellXy = (cell: number) => [Math.min((cell % LED_MATRIX_COLS) / 14, 1), Math.min(Math.floor(cell / LED_MATRIX_COLS), 4) / 4];
-
-  if (area === 1) {
-    return (idx: number): { hue: number; lvl: number } => {
-      const pos = STRIP_POS.get(idx) ?? 0;
-      const m = Math.min(idx, LED_STRIP_COUNT - idx) / (LED_STRIP_COUNT / 2); // 0 at the top centre → 1 at the bottom centre
-      switch (mode) {
-        case 1: { const p = pos - dir * phi; return { hue: p, lvl: rainbow ? 1 : wave(p) }; } // chase: the whole ring lit, the colours rotating around it
-        case 2: return { hue: rainbow ? Math.floor(phi) * 0.2 : 0, lvl: breath };
-        case 3: { const p = m - dir * phi; return { hue: p, lvl: rainbow ? 1 : wave(p) }; }
-        case 4: { const f = frac(3 * m - dir * phi); return { hue: m, lvl: f < 0.3 ? 1 : 0.04 }; }
-        default: return { hue: 3 * pos, lvl: 1 }; // static: the rainbow repeats 3 times around the ring
-      }
-    };
-  }
-
-  return (idx: number): { hue: number; lvl: number } => {
-    const [x, y] = cellXy(idx);
-    const kx = (x - 0.5) * 14, ky = (y - 0.5) * 4; // key units from the centre
-    switch (mode) {
-      case 0: return { hue: x, lvl: 1 };
-      case 1: { const p = x - dir * phi; return { hue: p, lvl: rainbow ? 1 : wave(p) }; }
-      case 2: { const p = y - dir * phi; return { hue: p, lvl: rainbow ? 1 : wave(p) }; }
-      case 3: {
-        const d = Math.hypot(x - 0.5, y - 0.5);
-        return { hue: d - dir * phi, lvl: rainbow ? 1 : 0.1 + 0.9 * Math.max(0, Math.cos(2 * Math.PI * (2 * d - dir * phi))) };
-      }
-      case 4: { // pinwheel: three arms turning around the centre
-        const ang = Math.atan2(ky, kx) / (2 * Math.PI);
-        const p = 3 * ang - dir * phi;
-        return { hue: ang - dir * phi, lvl: rainbow ? 0.25 + 0.75 * (0.5 + 0.5 * Math.cos(2 * Math.PI * p)) : 0.05 + 0.95 * Math.max(0, Math.cos(2 * Math.PI * p)) };
-      }
-      case 7: return { hue: 0.17 * Math.floor(phi), lvl: breath }; // one colour for the whole board, the next one on each breath
-      case 9: { // colour wipe: the next colour fills from the left over the previous one
-        const c = phi / 2;
-        const step = Math.floor(c);
-        const filled = (dir > 0 ? x : 1 - x) <= Math.min(1, frac(c) * 1.2);
-        return { hue: (filled ? step : step - 1) * 0.23, lvl: filled ? 1 : 0.3 };
-      }
-      case 10: { // nested U-shaped bands moving sideways
-        const q = frac(1.5 * x - dir * phi) - 0.5;
-        const p = y + 2.4 * q * q;
-        return { hue: p, lvl: rainbow ? 1 : wave(p) };
-      }
-      case 11: { // a thin wavy line across a dark board
-        const yc = 0.5 + 0.38 * Math.sin(2 * Math.PI * (x * 1.3 - dir * phi));
-        return { hue: x - dir * phi, lvl: Math.max(0, 1 - Math.abs(y - yc) / 0.2) };
-      }
-      case 12: { // each key a random colour, changing slowly
-        const s = Math.floor(phi * 0.4 + hash01(idx, 7));
-        return { hue: hash01(idx, s), lvl: 0.5 + 0.5 * hash01(idx, s + 100) };
-      }
-      case 13: { // many keys fade in and out in random colours
-        const q = phi * 0.8 + hash01(idx);
-        const s = frac(q);
-        return { hue: hash01(idx, Math.floor(q) + 1), lvl: s < 0.7 ? Math.sin(Math.PI * s / 0.7) : 0 };
-      }
-      case 14: { // about ten keys flash at a time
-        const q = phi * 1.2 + hash01(idx);
-        const s = frac(q);
-        return { hue: hash01(idx, Math.floor(q) + 1), lvl: s < 0.2 && hash01(idx, Math.floor(q) + 9) < 0.8 ? 1 - s / 0.2 : 0 };
-      }
-      case 15: { // one soft blob at a random place that fades
-        const c = phi * 0.5;
-        const n = Math.floor(c);
-        const age = frac(c);
-        const px = (hash01(n, 3) - 0.5) * 14, py = (hash01(n, 4) - 0.5) * 4;
-        const d = Math.hypot(kx - px, (ky - py) * 1.5);
-        return { hue: hash01(n, 5), lvl: Math.max(0, 1 - d / 2.4) * (1 - age) };
-      }
-      case 16: case 17: case 18: { // reactive: key / key + neighbours / row
-        const row = Math.floor(idx / LED_MATRIX_COLS), col = idx % LED_MATRIX_COLS;
-        let lvl = 0;
-        for (const p of live) {
-          const pr = Math.floor(p.cell / LED_MATRIX_COLS), pc = p.cell % LED_MATRIX_COLS;
-          const k = 1 - p.age / fade;
-          if (p.cell === idx) lvl = Math.max(lvl, k);
-          else if (mode === 17 && Math.abs(pr - row) <= 1 && Math.abs(pc - col) <= 1) lvl = Math.max(lvl, k * 0.5);
-          else if (mode === 18 && pr === row) lvl = Math.max(lvl, k);
-        }
-        return { hue: x, lvl };
-      }
-      default: return { hue: x, lvl: 0.45 }; // unknown modes: neutral
-    }
-  };
 }
 
 export function createMockTransport(opts?: { seed?: DemoSeed }): MockTransport {

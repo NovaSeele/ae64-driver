@@ -74,10 +74,10 @@ describe('item 1: the key table is complete', () => {
         for (const k of literals(src)) expect((SESSION_KEYS as readonly string[]).includes(k), `${k} in ${file}`).toBe(true);
       }
     }
-    // 14 in the table (J: ae64.accent, ae64.wallpaper; FW: ae64.labs.firmware, export: false) + ae64.lastDevice +
-    // ae64.accentVars + ae64.appcfg.done + ae64.calibrating (WX4, W-12); ae64.switchTab is gone (E)
-    expect(found.size).toBe(18);
-    expect(TABLE).toHaveLength(14);
+    // 15 in the table (J: ae64.accent, ae64.wallpaper; FW: ae64.labs.firmware, export: false; FXP: ae64.lighting.fxView) +
+    // ae64.lastDevice + ae64.accentVars + ae64.appcfg.done + ae64.calibrating (WX4, W-12); ae64.switchTab is gone (E)
+    expect(found.size).toBe(19);
+    expect(TABLE).toHaveLength(15);
     expect(APP_SETTINGS.filter((s) => s.export === false).map((s) => s.key)).toEqual(['ae64.labs.firmware']);
     expect([...DERIVED_KEYS]).toEqual(['ae64.accentVars']);
     expect(TABLE).not.toContain('ae64.switchTab');

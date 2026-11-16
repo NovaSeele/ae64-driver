@@ -3,13 +3,19 @@
 // one editor dock. Every control calls the same lighting-store action as before; the colour field, the quick colours and
 // the strip's Esc only change what the page shows, never the keyboard.
 import { IconBorderOuter, IconChevronDown, IconKeyboard } from '@tabler/icons-vue';
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
 import SelectionBar from '../components/keyboard/SelectionBar.vue';
 import type { LegendItem } from '../components/keyboard/SelectionBar.vue';
 import { GLOW_BADGE_TONE } from '../components/keyboard/Keycap.vue';
 import { LiveLedPainter } from '../components/keyboard/liveLedPainter';
+import { effectIcon } from '../components/lighting/effectIcons';
+import { PreviewControl } from '../components/lighting/previewControl';
+import { TileDriver } from '../components/lighting/tileDriver';
+import type { TileParams } from '../components/lighting/tileDriver';
+import { readFxView, writeFxView } from '../components/lighting/fxView';
+import type { FxView } from '../components/lighting/fxView';
 import Button from '../components/ui/Button.vue';
 import Dialog from '../components/ui/Dialog.vue';
 import InfoTip from '../components/ui/InfoTip.vue';
@@ -21,14 +27,17 @@ import Switch from '../components/ui/Switch.vue';
 import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
 import { useSyncStore } from '../stores/sync';
-import { hexToRgb, rgbToHex, useLightingStore } from '../stores/lighting';
+import { LED_MATRIX_TOTAL, hexToRgb, rgbToHex, useLightingStore } from '../stores/lighting';
+import type { LiveLedFrame } from '../stores/lighting';
 import { inkFor } from '../colorInk';
 import { bandGradient, ledGlow } from '../ledGlow';
 import type { LedGlow, RingSide } from '../ledGlow';
 import { LED_MATRIX_COLS, LED_STRIP_COUNT, STRIP_ORDER, STRIP_SIDES } from '../protocol';
 import type { PhysicalKey } from '../protocol';
 import { stripRing } from '../protocol/ledLayout';
-import { effectHint, effectName } from '../data/ledEffects';
+import { effectHint, effectKnown, effectName } from '../data/ledEffects';
+import { PREVIEW_FLOOR, TYPING_KEYS, frame as ledFrame, isReactive, rgb as ledRgb, stillAt, typingPresses } from '../data/ledPatterns';
+import type { Rgb } from '../data/ledPatterns';
 import { locale } from '../i18n/locale';
 import { resolvedTheme } from '../theme';
 import { t } from '../i18n/vi';
@@ -116,8 +125,14 @@ onBeforeUnmount(() => {
   offProfile?.();
   lighting.stopLivePolling();
   window.removeEventListener('keydown', onWindowKey);
+  window.removeEventListener('keydown', onPreviewEsc, true);
   document.removeEventListener('visibilitychange', onVisibility);
+  previewCtl.dispose();
   stopPainting();
+  tiles.destroy();
+  gridObserver?.disconnect();
+  gridResize?.disconnect();
+  motionMql?.removeEventListener?.('change', onMotion);
 });
 
 // ------------------------------------------------------------------ Live colours (LED60)
@@ -129,15 +144,111 @@ const tabVisible = ref(typeof document === 'undefined' || !document.hidden);
 function onVisibility() { tabVisible.value = !document.hidden; }
 document.addEventListener('visibilitychange', onVisibility);
 const livePaint = computed(() => ready.value && lighting.livePreview && !lighting.liveError && lighting.liveHasFrame && tabVisible.value);
+
+// "Xem thử" (FXP §7): while a tile is rested on or focused, the previewed area of the big keyboard plays that effect from
+// the pattern module (src/data/ledPatterns.ts) instead of its live or saved colours. Display only: the live read loop keeps
+// running unchanged (its frames are just not painted for the previewed area), and nothing is written.
+interface Preview { area: 0 | 1; n: number; known: boolean }
+/** The tile shown: a known effect plays on the board; an unknown one only gets the "no preview" cue. */
+const preview = ref<Preview | null>(null);
+const playing = computed(() => (ready.value && preview.value?.known ? preview.value : null));
+/** The halves painted outside Vue: everything while live frames show; else only the area being previewed. */
+const paintKeys = computed(() => livePaint.value || playing.value?.area === 0);
+const paintStrip = computed(() => livePaint.value || playing.value?.area === 1);
+const painted = computed(() => paintKeys.value || paintStrip.value);
+
+const reducedMotion = ref(false);
+let motionMql: MediaQueryList | null = null;
+function onMotion() { reducedMotion.value = !!motionMql?.matches; }
+if (typeof matchMedia === 'function') {
+  motionMql = matchMedia('(prefers-reduced-motion: reduce)');
+  reducedMotion.value = motionMql.matches;
+  motionMql.addEventListener?.('change', onMotion);
+}
+
+/** The cells the scripted typing of the reactive previews presses (H, E, L, O, A, S, D, K). */
+const typingCells = computed(() => TYPING_KEYS.flatMap((name) => {
+  const k = device.keys.find((x) => x.name === name);
+  return k ? [k.row * LED_MATRIX_COLS + k.col] : [];
+}));
+/** An area's palette colour, null = the rainbow. */
+function areaPal(a: 0 | 1): Rgb | null {
+  const b = a === 0 ? lighting.area0Base : lighting.area1Base;
+  if (b.paletteIndex === 0) return null;
+  const e = (a === 0 ? lighting.area0Palette : lighting.area1Palette)[b.paletteIndex];
+  return e ? { r: e.r, g: e.g, b: e.b } : null;
+}
+
+/** At most one preview frame per this many ms (30 fps). */
+const PREVIEW_FRAME_MS = 1000 / 30;
+const previewFrame: LiveLedFrame = { seq: 0, keys: new Uint8Array(LED_MATRIX_TOTAL * 3), strip: new Uint8Array(LED_STRIP_COUNT * 3) };
+let previewBuiltAt = -Infinity;
+let previewLiveSeq = -1;
+let previewOf = '';
+/**
+ * The preview frame at `sec`: the previewed area from the pattern with its palette, speed, direction and brightness (never
+ * under PREVIEW_FLOOR, so the shape still shows at 0–14 %); an LED with its own colour keeps it, as on the keyboard. The
+ * other half is the live frame's, when live frames show (else it is not painted).
+ */
+function buildPreviewFrame(p: Preview, sec: number): void {
+  if (livePaint.value) {
+    previewFrame.keys.set(lighting.liveFrame.keys);
+    previewFrame.strip.set(lighting.liveFrame.strip);
+  }
+  const b = p.area === 0 ? lighting.area0Base : lighting.area1Base;
+  const mode = p.n - 1;
+  const at = reducedMotion.value ? stillAt(p.area, mode) : sec;
+  const pal = areaPal(p.area);
+  const presses = isReactive(p.area, mode) ? typingPresses(at, typingCells.value) : [];
+  const pattern = ledFrame(p.area, mode, b.speed, b.direction, !pal, at, presses);
+  const k = Math.max(PREVIEW_FLOOR, b.brightness) / 100;
+  const dst = p.area === 0 ? previewFrame.keys : previewFrame.strip;
+  const matrix = p.area === 0 ? lighting.area0Matrix : lighting.area1Matrix;
+  const count = p.area === 0 ? LED_MATRIX_TOTAL : LED_STRIP_COUNT;
+  for (let i = 0; i < count; i++) {
+    const rec = matrix[i];
+    const [r, g, bl] = rec?.custom ? [rec.r, rec.g, rec.b] : ledRgb(pattern(i), pal, k);
+    dst[i * 3] = Math.round(r);
+    dst[i * 3 + 1] = Math.round(g);
+    dst[i * 3 + 2] = Math.round(bl);
+  }
+}
+
 const boardEl = ref<HTMLElement | null>(null);
 let painter: LiveLedPainter | null = null;
 let paintRaf: number | null = null;
 let paintedSeq = -1;
+let paintedFrom: LiveLedFrame | null = null;
+let paintedParts = { keys: false, strip: false };
 function paintFrame(): void {
-  const frame = lighting.liveFrame;
-  if (!painter || (frame.seq === paintedSeq && !painter.dirty)) return;
+  if (!painter) return;
+  const parts = { keys: paintKeys.value, strip: paintStrip.value };
+  if ((paintedParts.keys && !parts.keys) || (paintedParts.strip && !parts.strip)) {
+    painter.clear(); // a half no longer painted here gets Vue's colours back
+    paintedFrom = null;
+  }
+  paintedParts = parts;
+  let frame = lighting.liveFrame;
+  const p = playing.value;
+  if (p) {
+    const t = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const of = `${p.area}:${p.n}`;
+    const liveSeq = livePaint.value ? lighting.liveFrame.seq : -1;
+    if (of !== previewOf || liveSeq !== previewLiveSeq || t - previewBuiltAt >= PREVIEW_FRAME_MS - 1) {
+      buildPreviewFrame(p, t / 1000);
+      previewOf = of;
+      previewLiveSeq = liveSeq;
+      previewBuiltAt = t;
+      previewFrame.seq++;
+    }
+    frame = previewFrame;
+  } else {
+    previewOf = '';
+  }
+  if (frame === paintedFrom && frame.seq === paintedSeq && !painter.dirty) return;
+  paintedFrom = frame;
   paintedSeq = frame.seq;
-  painter.paint(frame, device.keys);
+  painter.paint(frame, device.keys, parts);
 }
 function paintLoop(): void {
   paintRaf = requestAnimationFrame(paintLoop);
@@ -153,6 +264,7 @@ function startPainting(): void {
   if (!el) return;
   painter ??= new LiveLedPainter(el);
   paintedSeq = -1;
+  paintedFrom = null;
   paintFrame(); // at once: Vue has just drawn the keys unlit
   if (paintRaf === null) paintRaf = requestAnimationFrame(paintLoop);
   for (const ev of STATE_EVENTS) el.addEventListener(ev, invalidatePaint);
@@ -172,11 +284,13 @@ function stopPainting(): void {
   capObserver = null;
   painter?.clear();
   paintedSeq = -1;
+  paintedFrom = null;
+  paintedParts = { keys: false, strip: false };
 }
-watch(livePaint, (on) => (on ? startPainting() : stopPainting()), { flush: 'post' });
+watch(painted, (on) => (on ? startPainting() : stopPainting()), { flush: 'post' });
 // a lit key's tint mask holds the theme's stops (the painter notices a moved or resized board itself)
 watch(resolvedTheme, () => painter?.resized(), { flush: 'post' });
-onMounted(() => { if (livePaint.value) startPainting(); });
+onMounted(() => { if (painted.value) startPainting(); });
 
 // ------------------------------------------------------------------ Preview colours
 /** Static stand-in for the firmware's rainbow: hue by position (0..1). */
@@ -185,7 +299,7 @@ function rainbowAt(pos: number): string {
 }
 
 function keyColor(key: PhysicalKey): string | undefined {
-  if (!ready.value || livePaint.value) return undefined; // live: painted outside Vue
+  if (!ready.value || paintKeys.value) return undefined; // live or previewed: painted outside Vue
   const custom = lighting.keyCustomColors[key.id];
   if (custom?.custom) {
     return custom.colorHex;
@@ -340,13 +454,136 @@ const effectLabel = (n: number) => {
 };
 const effectBtnLabel = (n: number) => t('lighting.effectN', { n: effectLabel(n) });
 const effectBtnTitle = (n: number) => {
+  // today's format "Hiệu ứng N · Tên — gợi ý"; an unknown effect says it has no preview (FXP §8)
+  if (!effectKnown(device.info?.boardIdHex, area.value, n)) return `${effectBtnLabel(n)} — ${t('lighting.fx.noPreview')}`;
   const hint = effectHint(device.info?.boardIdHex, area.value, n, locale.value);
   return hint ? `${effectBtnLabel(n)} — ${hint}` : effectBtnLabel(n);
 };
 
 function onEffect(index: number) {
+  previewCtl.end();
   lighting.applyBase(area.value, { mode: index }, baseLabel());
 }
+
+// ------------------------------------------------------------------ Effect buttons: three views (FXP §3, §4)
+const uid = useId();
+const fxView = ref<FxView>(readFxView());
+const fxViewOptions = computed(() => [
+  { value: 'off' as const, label: t('lighting.fx.viewOff') },
+  { value: 'lite' as const, label: t('lighting.fx.viewLite') },
+  { value: 'detail' as const, label: t('lighting.fx.viewDetail') },
+]);
+/** Display only: remembered per browser, never sent to the keyboard; a change ends a running preview. */
+watch(fxView, (v) => { writeFxView(v); previewCtl.end(); });
+
+const fxTiles = computed(() => Array.from({ length: modeCount.value }, (_, i) => {
+  const n = i + 1;
+  const known = effectKnown(device.info?.boardIdHex, area.value, n);
+  return {
+    n,
+    known,
+    on: base.value.mode === i,
+    name: effectName(device.info?.boardIdHex, area.value, n, locale.value) ?? t('lighting.fx.unknown'),
+    icon: effectIcon(area.value, n, known),
+  };
+}));
+
+// ------------------------------------------------------------------ "Xem thử": when it starts and ends (FXP §7)
+const gridEl = ref<HTMLElement | null>(null);
+const previewCtl = new PreviewControl({
+  allowed: (n) => fxView.value !== 'off' && !tuneLocked.value && base.value.mode !== n - 1 && n <= modeCount.value,
+  show: (n) => {
+    preview.value = n === null ? null : { area: area.value, n, known: effectKnown(device.info?.boardIdHex, area.value, n) };
+  },
+});
+// a tab change, the area off or locked, or the chosen effect becoming the previewed one: the preview ends
+watch([area, tuneLocked], () => previewCtl.end());
+watch(() => base.value.mode, (m) => { if (preview.value?.n === m + 1) previewCtl.end(); });
+
+const tileOf = (target: EventTarget | null): number => {
+  const el = (target as Element | null)?.closest?.('[data-n]');
+  return el && gridEl.value?.contains(el) ? Number((el as HTMLElement).dataset.n) : 0;
+};
+/** Keyboard focus, not a click's focus. */
+function keyboardFocus(el: Element): boolean {
+  try { return el.matches(':focus-visible'); } catch { return true; }
+}
+function onGridOver(e: PointerEvent) {
+  const n = tileOf(e.target);
+  if (n) previewCtl.over(n, e.pointerType ?? '');
+}
+function onGridLeave() {
+  const a = document.activeElement;
+  previewCtl.leave(a && gridEl.value?.contains(a) && keyboardFocus(a) ? tileOf(a) || null : null);
+}
+function onGridFocus(e: FocusEvent) {
+  const n = tileOf(e.target);
+  if (n && keyboardFocus(e.target as Element)) previewCtl.focus(n);
+}
+function onGridBlur(e: FocusEvent) {
+  if (!gridEl.value?.contains(e.relatedTarget as Node | null)) previewCtl.blur();
+}
+/** Esc ends a preview before anything else sees it (the key selection stays). */
+function onPreviewEsc(e: KeyboardEvent) {
+  if (e.key !== 'Escape' || e.defaultPrevented) return;
+  if (previewCtl.escape()) e.preventDefault();
+}
+window.addEventListener('keydown', onPreviewEsc, true);
+
+const previewCue = computed(() => {
+  const p = preview.value;
+  if (!p) return null;
+  return p.known
+    ? { none: false, text: t('lighting.fx.trying', { label: effectLabel(p.n) }) }
+    : { none: true, text: t('lighting.fx.tryingNone', { n: p.n }) };
+});
+
+// ------------------------------------------------------------------ Chi tiết: the mini keyboards (FXP §11)
+const tiles = new TileDriver(() => device.keys, stripRing());
+const gridOnScreen = ref(true);
+let gridObserver: IntersectionObserver | null = null;
+let gridResize: ResizeObserver | null = null;
+function syncTiles() {
+  const el = gridEl.value;
+  tiles.setTiles(el ? [...el.querySelectorAll<HTMLCanvasElement>('canvas[data-mode]')].map((canvas) => ({
+    canvas, mode: Number(canvas.dataset.mode), known: canvas.dataset.known === '1',
+  })) : []);
+}
+watch(gridEl, (el) => {
+  gridObserver?.disconnect();
+  gridResize?.disconnect();
+  gridObserver = null;
+  gridResize = null;
+  if (!el) return;
+  if (typeof IntersectionObserver === 'function') {
+    gridObserver = new IntersectionObserver((entries) => { gridOnScreen.value = entries.some((x) => x.isIntersecting); });
+    gridObserver.observe(el);
+  }
+  if (typeof ResizeObserver === 'function') {
+    gridResize = new ResizeObserver(() => tiles.resize());
+    gridResize.observe(el);
+  }
+}, { flush: 'post' });
+watch([gridEl, fxView, area, fxTiles], syncTiles, { flush: 'post' });
+const tileParams = computed<TileParams>(() => {
+  const b = base.value;
+  const light = resolvedTheme.value.includes('light');
+  return {
+    area: area.value,
+    open: b.open,
+    speed: b.speed,
+    direction: b.direction,
+    pal: areaPal(area.value),
+    typing: typingCells.value,
+    plate: light ? '#2a2c33' : '#0c0d10',
+    cap: light ? '#3d4049' : '#24262b',
+    ringOff: light ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.10)',
+  };
+});
+watch(tileParams, (p) => tiles.setParams(p), { immediate: true });
+watch([fxView, gridOnScreen, tabVisible, reducedMotion], () => tiles.setGate({
+  detail: fxView.value === 'detail', onScreen: gridOnScreen.value, tabVisible: tabVisible.value, reduced: reducedMotion.value,
+}), { immediate: true });
 
 // ------------------------------------------------------------------ Brightness / speed
 // The slider shows a local draft while it is dragged; the store only changes on commit, so applyBase
@@ -527,9 +764,9 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
           <InfoTip :text="t(area === 0 ? 'lighting.powerHintKeys' : 'lighting.powerHintStrip')" />
         </div>
         <div class="wb__group wb__live">
-          <span class="lighting-live-badge" :class="`lighting-live-badge--${liveState}`">
+          <span class="lighting-live-badge" :class="playing ? 'lighting-live-badge--try' : `lighting-live-badge--${liveState}`" data-testid="live-chip">
             <span class="lighting-live-badge__dot" />
-            {{ liveState === 'error' ? t('lighting.liveError') : liveState === 'live' ? t(device.demo ? 'lighting.simStatus' : 'lighting.liveStatus') : t('lighting.pausedStatus') }}
+            {{ playing ? t('lighting.liveBadge.try') : liveState === 'error' ? t('lighting.liveError') : liveState === 'live' ? t(device.demo ? 'lighting.simStatus' : 'lighting.liveStatus') : t('lighting.pausedStatus') }}
           </span>
           <InfoTip :text="device.demo ? t('lighting.demoSimNote') : t('lighting.livePreviewHint')" />
           <Switch v-model="lighting.livePreview" :label="t('lighting.livePreview')" />
@@ -552,13 +789,13 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
         <div
           ref="ringEl"
           class="ring ring--band"
-          :class="{ 'ring--on': activeTab === 'strip' && ready, 'ring--live': livePaint }"
+          :class="{ 'ring--on': activeTab === 'strip' && ready, 'ring--live': paintStrip }"
           role="group"
           :aria-label="t('lighting.ringLabel')"
           :aria-hidden="activeTab === 'strip' ? undefined : true"
         >
-          <template v-if="livePaint">
-            <!-- live: one band per side, its --band written by the painter (no style binding here) -->
+          <template v-if="paintStrip">
+            <!-- live or previewed: one band per side, its --band written by the painter (no style binding here) -->
             <span v-for="side in RING_SIDES" :key="`live-${side}`" class="ring__band ring__band--live" :class="`ring__band--${side}`" aria-hidden="true" />
           </template>
           <template v-else>
@@ -587,7 +824,8 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
         </div>
       </div>
 
-      <!-- selection bar -->
+      <!-- selection bar; a preview covers it in place with its cue, so nothing moves -->
+      <div class="legend" :class="{ 'legend--try': previewCue }">
       <SelectionBar v-if="activeTab === 'keys'" :shows="shows" :shows-alt="showsAlt" />
       <div v-else class="sb">
         <span class="sb__count" :class="{ 'sb__count--on': stripSelection.size > 0 }" aria-live="polite">
@@ -598,6 +836,11 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
           <Button v-for="p in stripPresets" :key="p.id" size="sm" variant="ghost" :disabled="locked" @click="onStripPreset(p.id)">{{ p.label }}</Button>
           <Button size="sm" variant="ghost" :disabled="locked || !stripSelection.size" @click="onStripPreset('none')">{{ t('sel.clear') }}</Button>
         </div>
+      </div>
+      <span v-if="previewCue" class="fx-try" :class="{ 'fx-try--none': previewCue.none }" aria-hidden="true" data-testid="preview-cue">
+        <svg v-if="!previewCue.none" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M21 12c-2.4 4 -5.4 6 -9 6c-3.6 0 -6.6 -2 -9 -6c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6" /></svg>
+        <span class="fx-try__t">{{ previewCue.text }}</span>
+      </span>
       </div>
 
       <!-- load error -->
@@ -617,33 +860,72 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
       <!-- editor dock -->
       <section v-else class="dock" :aria-label="t('lighting.effectsTitle')">
         <p v-if="!powered" class="dock__off" role="status">{{ t('lighting.powerOffHint') }}</p>
-        <div class="dock__cols">
-          <!-- a. Effects -->
-          <div class="col col--fx">
-            <div class="col__head">
-              <h3 class="col__title">{{ t('lighting.effectsShort') }}</h3>
-              <InfoTip class="col__tip" :text="t('lighting.effectsDesc')" placement="top" />
-              <span class="col__readout" data-testid="effect-readout" :title="effectBtnLabel(base.mode + 1)">{{ effectLabel(base.mode + 1) }}</span>
+        <!-- a. Effects: a full-width first row, its buttons drawn in the chosen view (FXP §2–§4) -->
+        <div class="fx col--fx" role="group" :aria-labelledby="`${uid}-fx-title`">
+          <div class="col__head fx__head">
+            <h3 :id="`${uid}-fx-title`" class="col__title">{{ t('lighting.effectsShort') }}</h3>
+            <InfoTip class="col__tip" :text="t('lighting.effectsDesc')" placement="top" />
+            <span class="col__readout" data-testid="effect-readout" :title="effectBtnLabel(base.mode + 1)">{{ effectLabel(base.mode + 1) }}</span>
+            <div class="fx__view">
+              <span :id="`${uid}-fx-view`" class="fx__viewlabel">{{ t('lighting.fx.view') }}</span>
+              <Segmented v-model="fxView" :options="fxViewOptions" :label="t('lighting.fx.view')" :labelledby="`${uid}-fx-view`" size="sm" data-testid="fx-view" />
+              <InfoTip :text="t('lighting.fx.viewTip')" placement="top" />
             </div>
-            <fieldset class="col__body" :disabled="tuneLocked">
-              <div class="effect-grid">
-                <button
-                  v-for="index in modeCount"
-                  :key="index - 1"
-                  type="button"
-                  class="effect-btn num"
-                  :class="{ 'effect-btn--active': base.mode === index - 1 }"
-                  :aria-label="effectBtnLabel(index)"
-                  :title="effectBtnTitle(index)"
-                  :aria-pressed="base.mode === index - 1"
-                  @click="onEffect(index - 1)"
-                >
-                  {{ index }}
-                </button>
-              </div>
-            </fieldset>
           </div>
+          <fieldset class="col__body fx__body" :disabled="tuneLocked">
+            <div
+              ref="gridEl"
+              class="fx__grid"
+              :class="[`fx__grid--${fxView}`, `fx__grid--a${area}`]"
+              :style="{ '--n': modeCount }"
+              :aria-describedby="`${uid}-fx-hint`"
+              @pointerover="onGridOver"
+              @pointerleave="onGridLeave"
+              @focusin="onGridFocus"
+              @focusout="onGridBlur"
+            >
+              <button
+                v-for="tile in fxTiles"
+                :key="`${area}-${tile.n}`"
+                type="button"
+                class="effect-btn"
+                :class="[`effect-btn--${fxView}`, {
+                  'effect-btn--active': tile.on,
+                  'effect-btn--unknown': !tile.known,
+                  'effect-btn--try': preview?.n === tile.n,
+                }]"
+                :data-n="tile.n"
+                :aria-label="effectBtnLabel(tile.n)"
+                :title="effectBtnTitle(tile.n)"
+                :aria-pressed="tile.on"
+                @click="onEffect(tile.n - 1)"
+              >
+                <span v-if="fxView === 'off'" class="num">{{ tile.n }}</span>
+                <template v-else-if="fxView === 'lite'">
+                  <!-- eslint-disable-next-line vue/no-v-html -- our own static glyphs (effectIcons.ts), no user text -->
+                  <svg class="effect-btn__icon" viewBox="0 0 20 20" aria-hidden="true" v-html="tile.icon" />
+                  <span class="effect-btn__n num">{{ tile.n }}</span>
+                  <span class="effect-btn__name">{{ tile.name }}</span>
+                  <svg v-if="tile.on" class="effect-btn__check" viewBox="0 0 16 16" aria-hidden="true" data-testid="fx-check"><path d="M3.5 8.4 6.6 11.4 12.6 4.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                </template>
+                <template v-else>
+                  <span class="effect-btn__pic">
+                    <canvas class="effect-btn__cv" :data-mode="tile.n - 1" :data-known="tile.known ? 1 : 0" aria-hidden="true" />
+                    <span v-if="!tile.known" class="effect-btn__q" aria-hidden="true">?</span>
+                  </span>
+                  <span class="effect-btn__label">
+                    <span class="effect-btn__n num">{{ tile.n }}</span>
+                    <span class="effect-btn__name">{{ tile.name }}</span>
+                  </span>
+                  <svg v-if="tile.on" class="effect-btn__check" viewBox="0 0 16 16" aria-hidden="true" data-testid="fx-check"><path d="M3.5 8.4 6.6 11.4 12.6 4.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                </template>
+              </button>
+            </div>
+            <span :id="`${uid}-fx-hint`" class="sr-only">{{ t('lighting.fx.gridHint') }}</span>
+          </fieldset>
+        </div>
 
+        <div class="dock__cols">
           <!-- b. Tuning -->
           <div class="col col--tune">
             <div class="col__head">
@@ -1005,7 +1287,8 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
 .dock--skel { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-4); }
 .lighting-skeleton { height: 160px; border-radius: var(--r-card); }
 .dock__off { margin: 0; color: var(--fg-3); font-size: var(--fs-label); }
-.dock__cols { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.25fr) minmax(0, 0.85fr) minmax(0, 1.1fr); gap: var(--s-4) 0; }
+/* FXP §2: Effects is the dock's first row; Tuning | Palette | Own colours below, three columns at every supported width */
+.dock__cols { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.85fr) minmax(0, 1.1fr); gap: var(--s-4) 0; }
 .col {
   container-type: inline-size;
   display: flex;
@@ -1030,12 +1313,6 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-@container (max-width: 919px) {
-  .dock__cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .col:nth-child(2) { padding-right: 0; }
-  .col:nth-child(3) { padding-left: 0; border-left: 0; }
-  .col:nth-child(n + 3) { padding-top: var(--s-4); border-top: 1px solid var(--line-1); }
-}
 
 /* Fieldset so `disabled` reaches every native control inside. */
 .col__body {
@@ -1056,30 +1333,84 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
   color: var(--fg-2);
 }
 
-/* a. Effects: a numeric grid */
-.effect-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+/* a. Effects (FXP §2–§4): a full-width row; one button, three looks */
+.fx { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; padding-bottom: 10px; border-bottom: 1px solid var(--line-1); }
+.fx__head { flex-wrap: wrap; row-gap: 4px; }
+.fx__head .col__readout { margin-left: var(--s-2); }
+.fx__view { display: flex; flex: none; align-items: center; gap: var(--s-2); margin-left: auto; }
+.fx__viewlabel { font-size: var(--fs-label); color: var(--fg-3); white-space: nowrap; }
+.fx__grid { display: grid; gap: 6px; }
+.fx__grid--off { grid-template-columns: repeat(var(--n), minmax(0, 64px)); }
+.fx__grid--lite { grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); }
+.fx__grid--a1.fx__grid--lite { grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); }
+.fx__grid--detail { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 .effect-btn {
-  height: 32px;
+  position: relative;
+  display: flex;
+  align-items: center;
   min-width: 0;
-  padding: 0;
+  margin: 0;
   background: var(--bg-3);
   border: 1px solid var(--line-1);
   border-radius: var(--r-control);
   color: var(--fg-2);
   cursor: pointer;
+  font: inherit;
   font-size: var(--fs-body);
   font-weight: 500;
+  text-align: left;
   transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 .effect-btn:hover:not(:disabled) { background: var(--bg-4); border-color: var(--line-3); color: var(--fg-1); }
 .effect-btn:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
 .effect-btn:disabled { cursor: not-allowed; }
-.effect-btn--active {
-  background: var(--acc-soft) !important;
-  border-color: var(--acc) !important;
-  color: var(--acc) !important;
+.effect-btn--off { justify-content: center; height: 32px; padding: 0; }
+.effect-btn--lite { gap: 6px; height: 32px; padding: 0 10px; } /* 6, not 8: the longest bold name keeps ~4 px at 177 px wide */
+.effect-btn__icon { flex: none; width: 20px; height: 20px; color: var(--fg-2); }
+.effect-btn:hover:not(:disabled) .effect-btn__icon { color: var(--fg-1); }
+.effect-btn__n { flex: none; min-width: 2ch; color: var(--fg-3); font-size: var(--fs-label); font-variant-numeric: tabular-nums; text-align: right; }
+.effect-btn__name { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: var(--fs-label); white-space: nowrap; text-overflow: ellipsis; }
+.effect-btn__check { flex: none; width: 14px; height: 14px; }
+.effect-btn--unknown .effect-btn__name { color: var(--fg-3); }
+.effect-btn--detail { flex-direction: column; align-items: stretch; gap: 4px; padding: 4px; }
+.effect-btn__pic { position: relative; display: block; height: 40px; overflow: hidden; border-radius: 4px; background: #0c0d10; }
+.effect-btn__cv { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+/* the keyboard picture stays dark in every theme, as the big one does: the "?" is drawn for that dark plate */
+.effect-btn__q { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(12, 13, 16, 0.55); color: #c9cbd3; font-size: 18px; font-weight: 700; }
+.effect-btn__label { display: flex; align-items: center; gap: 6px; min-width: 0; height: 18px; padding: 0 2px; }
+.effect-btn--detail .effect-btn__n, .effect-btn--detail .effect-btn__name { font-size: var(--fs-caption); }
+/* the chosen effect: soft accent fill, a 2 px accent edge, accent text and icon, bold, a check mark (never colour alone) */
+.effect-btn--active,
+.effect-btn--active:hover:not(:disabled) {
+  background: var(--acc-soft);
+  border-color: var(--acc);
+  box-shadow: inset 0 0 0 1px var(--acc);
+  color: var(--acc);
   font-weight: 600;
 }
+.effect-btn--active .effect-btn__icon,
+.effect-btn--active .effect-btn__n,
+.effect-btn--active:hover:not(:disabled) .effect-btn__icon { color: var(--acc); }
+/* Sơ lược: the check is a small filled disc on the icon's corner, so the name keeps its width (a bold long name with a
+   check beside it was cut at 1280 and 900) */
+.effect-btn--lite .effect-btn__check { position: absolute; top: 2px; left: 21px; width: 13px; height: 13px; padding: 1.5px; border-radius: 50%; background: var(--acc); color: var(--bg-1); }
+/* Chi tiết: the check is a filled disc on the picture's corner, so the label keeps its width */
+.effect-btn--detail .effect-btn__check { position: absolute; top: 7px; right: 7px; width: 16px; height: 16px; padding: 2px; border-radius: 50%; background: var(--acc); color: var(--bg-1); }
+/* the effect being tried on the big keyboard */
+.effect-btn--try:not(.effect-btn--active) { border-color: var(--acc-line); }
+@media (prefers-reduced-motion: reduce) {
+  .effect-btn { transition: none; }
+}
+
+/* the preview's cues: the chip, and the line that covers the legend row in place */
+.lighting-live-badge.lighting-live-badge--try { background: var(--acc-soft); color: var(--fg-1); border-color: var(--acc); }
+.lighting-live-badge--try .lighting-live-badge__dot { background: var(--acc); }
+.legend { position: relative; }
+.legend--try > :not(.fx-try) { visibility: hidden; }
+.fx-try { position: absolute; inset: 0; display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--acc); font-size: var(--fs-label); }
+.fx-try svg { flex: none; }
+.fx-try__t { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.fx-try--none { color: var(--fg-3); }
 
 /* b. Tuning */
 .field-block { display: flex; flex-direction: column; gap: 4px; }

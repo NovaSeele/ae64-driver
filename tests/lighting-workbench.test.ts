@@ -72,8 +72,8 @@ describe('Đèn workbench: effects', () => {
     const { lighting } = await mountPage('max');
     expect(effects()).toHaveLength(19);
     expect(effects()[0].attributes('aria-label')).toBe('Hiệu ứng 1 · Tĩnh');
-    expect(effects()[18].attributes('aria-label')).toBe('Hiệu ứng 19 · Phản hồi khi gõ');
-    expect(effects()[18].text()).toBe('19');
+    expect(effects()[18].attributes('aria-label')).toBe('Hiệu ứng 19 · Phản hồi hàng');
+    expect(effects()[18].find('.effect-btn__n').text()).toBe('19');
     const active = effects().filter((b) => b.attributes('aria-pressed') === 'true');
     expect(active).toHaveLength(1);
     expect(effects().findIndex((b) => b.attributes('aria-pressed') === 'true')).toBe(lighting.area0Base.mode);

@@ -41,6 +41,19 @@ export const lightingVi = {
   'lighting.effectN': 'Hiệu ứng {n}',
   'lighting.experimentalEffect': 'Thử nghiệm',
 
+  // Effect previews (FXP): the buttons' view, the "Xem thử" preview on the big keyboard
+  'lighting.fx.view': 'Hình minh hoạ',
+  'lighting.fx.viewOff': 'Tắt',
+  'lighting.fx.viewLite': 'Sơ lược',
+  'lighting.fx.viewDetail': 'Chi tiết',
+  'lighting.fx.viewTip': 'Cách vẽ các nút hiệu ứng. Rê chuột lên một nút, hoặc Tab tới nút đó, để xem thử trên bàn phím phía trên. Chỉ khi bấm chọn mới ghi vào phím.',
+  'lighting.fx.gridHint': 'Rê chuột hoặc Tab tới một hiệu ứng để xem thử trên bàn phím. Bấm để chọn.',
+  'lighting.fx.unknown': 'Chưa rõ',
+  'lighting.fx.noPreview': 'Chưa có hình xem trước: chưa rõ hiệu ứng này trông thế nào trên phím thật.',
+  'lighting.fx.trying': 'Đang xem thử {label}: mô phỏng, chưa ghi vào phím',
+  'lighting.fx.tryingNone': 'Hiệu ứng {n} chưa có hình xem trước',
+  'lighting.liveBadge.try': 'Xem thử',
+
   // Tuning (Brightness, Speed, Direction)
   'lighting.tuningTitle': 'Điều chỉnh hiệu ứng',
   'lighting.tuningShort': 'Điều chỉnh',

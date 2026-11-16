@@ -8,6 +8,7 @@ import { WALLPAPER_KEY, wallpaperPrefsValid } from './wallpaperPrefs';
 import { isLocale } from '../i18n/locale';
 import { presetsValid } from '../stores/userPresets';
 import { asPerfTab } from '../router';
+import { FX_VIEW_KEY, isFxView } from '../components/lighting/fxView';
 import { recentValid } from '../components/ui/recentColors';
 import { isDemoSeed } from '../protocol/mock';
 import { APPCFG_DONE_KEY, setAppcfgDone } from './appcfgDone';
@@ -42,6 +43,8 @@ export const APP_SETTINGS: readonly AppSetting[] = [
   { key: 'ae64.locale', group: 'locale', valid: isLocale },
   { key: 'ae64.perf.userPresets', group: 'presets', valid: presetsValid },
   { key: 'ae64.perfTab', group: 'tabs', valid: (r) => asPerfTab(r) !== null },
+  // how the Lighting page draws its effect buttons (FXP §3): display only
+  { key: FX_VIEW_KEY, group: 'tabs', valid: isFxView },
   { key: 'ae64.perf.depthShading', group: 'toggles', valid: isFlag01 },
   { key: 'ae64.live.keyLock', group: 'toggles', valid: isFlag01 },
   { key: 'ae64.live.colorByResult', group: 'toggles', valid: isFlag01 },

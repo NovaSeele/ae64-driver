@@ -78,9 +78,9 @@ describe('mock LED stand-ins', () => {
     const lit = frame(mock, 0, 30_050);
     expect(lum(lit[cellOf(g)])).toBeGreaterThan(0);
     expect(lit.filter((px) => lum(px) > 0)).toHaveLength(1);
-    // the row mode lights the whole row
+    // the row mode spreads along the whole row (FXP §9: the spread is a stand-in)
     await mock.setLightingBase(base({ mode: 18, paletteIndex: 1 }));
-    const row = frame(mock, 0, 30_100);
+    const row = frame(mock, 0, 30_500);
     const rowKeys = PHYSICAL_KEYS.filter((k) => k.row === g.row);
     expect(rowKeys.every((k) => lum(row[cellOf(k)]) > 0)).toBe(true);
     // released and faded: dark again
@@ -91,17 +91,20 @@ describe('mock LED stand-ins', () => {
   const litKeys = (fr: number[][]) => PHYSICAL_KEYS.map((k) => fr[cellOf(k)]);
   const T = 6 - 5.2 * 50 / 100; // seconds per cycle at the default speed 50
 
-  it('breathing: one colour across the board, fading in and out, the next hue on each breath (p0)', async () => {
+  it('breathing: one colour across the board, fading in and out but never dark, the next hue on each breath (p0)', async () => {
     fake();
     const mock = await make();
     await mock.setLightingBase(base({ mode: 7, paletteIndex: 0 }));
-    const at = (cycle: number) => litKeys(frame(mock, 0, (cycle * T) * 1000));
-    const peak = (cycle: number) => litKeys(frame(mock, 0, (cycle + 0.5) * T * 1000));
+    const P = T / 2.6; // FXP §9: a breath every 1.3 s at speed 50
+    const at = (cycle: number) => litKeys(frame(mock, 0, (cycle * P) * 1000));
+    const peak = (cycle: number) => litKeys(frame(mock, 0, (cycle + 0.5) * P * 1000));
     const a = peak(10);
     const top = Math.max(...a.map(lum));
     expect(top).toBeGreaterThan(0);
     for (const px of a) for (let c = 0; c < 3; c++) expect(Math.abs(px[c] - a[0][c])).toBeLessThanOrEqual(2);
-    expect(lum(at(10)[0])).toBeLessThan(lum(a[0]) * 0.3); // dim at the start of a breath, bright at the middle
+    const low = Math.max(...at(10.02)[0]) / Math.max(...a[0]);
+    expect(low).toBeLessThan(0.7); // dim at the start of a breath, bright at the middle
+    expect(low).toBeGreaterThan(0.5); // the rainbow never goes under 55 %
     const b = peak(11);
     expect(b.map((px) => px.join()).every((s, i) => s !== a[i].join())).toBe(true); // the hue moved
   });
@@ -132,7 +135,7 @@ describe('mock LED stand-ins', () => {
     expect(f0.filter((px, i) => px.join() !== f1[i].join()).length).toBeGreaterThan(20);
   });
 
-  it('static strip (strip 1): the rainbow goes about 3 times around the ring', async () => {
+  it('static strip (strip 1): the rainbow repeats every 10 LEDs, by LED number (FXP §9)', async () => {
     fake();
     const mock = await make();
     await mock.setLightingBase(base({ area: 1, mode: 0 }));
@@ -142,10 +145,12 @@ describe('mock LED stand-ins', () => {
       const h = mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
       return h / 6;
     };
-    const hs = STRIP_ORDER.map((led) => hue(f[led]));
-    let wraps = 0;
-    for (let i = 0; i < hs.length; i++) if (Math.abs(hs[(i + 1) % hs.length] - hs[i]) > 0.5) wraps++; // incl. the step back to the start
-    expect(wraps).toBe(3);
+    const dist = (a: number, b: number) => Math.min(Math.abs(a - b), 1 - Math.abs(a - b));
+    for (let led = 0; led + 10 < 38; led++) {
+      expect(dist(hue(f[led]), hue(f[led + 10]))).toBeLessThan(0.02);
+      expect(dist(hue(f[led]), hue(f[led + 5]))).toBeGreaterThan(0.45);
+    }
+    expect(STRIP_ORDER).toHaveLength(38);
   });
 
   it('starlight (keys 15): about 10 keys flash per frame, averaged over frames', async () => {

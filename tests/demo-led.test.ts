@@ -87,7 +87,7 @@ describe('demo LED stand-in patterns', () => {
 
   /** Milliseconds until the wave (palette colour, so the level is one scalar per LED) repeats its frame at t0. */
   async function wavePeriod(mock: MockTransport, speed: number): Promise<number> {
-    await mock.setLightingBase(base({ mode: 2, speed, brightness: 100, paletteIndex: 1 }));
+    await mock.setLightingBase(base({ mode: 1, speed, brightness: 100, paletteIndex: 1 }));
     const first = await frame(mock, 0, 100_000);
     let away = false;
     for (let ms = 20; ms < 8000; ms += 20) {

@@ -22,6 +22,9 @@ import type { PhysicalKey } from '../../protocol';
 import type { LiveLedFrame } from '../../stores/lighting';
 
 export const LIVE_FACE_CLASS = 'cap__face--live';
+/** Which halves of a frame a paint writes: the keys (area 0) and the edge strip (area 1). */
+export interface PaintParts { keys: boolean; strip: boolean }
+export const ALL_PARTS: Readonly<PaintParts> = Object.freeze({ keys: true, strip: true });
 const SIDES: RingSide[] = ['top', 'right', 'bottom', 'left'];
 const FACE_PROPS = ['background', 'border-color', 'box-shadow'] as const;
 const LIT_PROPS = ['background-color', 'opacity', 'mask-image', 'left', 'top', 'width', 'height'] as const;
@@ -275,7 +278,12 @@ export class LiveLedPainter {
     return url;
   }
 
-  paint(frame: LiveLedFrame, keys: readonly PhysicalKey[]): void {
+  /**
+   * Paint `frame`. `parts` says which halves are hand-painted (FXP: a preview with live view off paints only the previewed
+   * area; the other one keeps Vue's colours from the settings).
+   */
+  paint(frame: LiveLedFrame, keys: readonly PhysicalKey[], parts: PaintParts = ALL_PARTS): void {
+    if (!parts.keys) keys = [];
     const at = this.root.getBoundingClientRect();
     const box = `${at.left},${at.top},${at.width},${at.height}`;
     if (box !== this.rootBox) {
@@ -387,6 +395,7 @@ export class LiveLedPainter {
       this.writes++;
     }
 
+    if (!parts.strip) return;
     const dirty = new Set<RingSide>();
     for (const side of SIDES) if (this.lookup(this.band, side, `.ring__band--live.ring__band--${side}`).fresh) dirty.add(side);
     for (const led of this.ring) {

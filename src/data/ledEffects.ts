@@ -16,9 +16,7 @@ export interface LedEffect {
 /** Lighting area: 0 = keys, 1 = edge strip. */
 export type LedEffectArea = 0 | 1;
 
-const reactive: Pick<LedEffect, 'vi' | 'en' | 'hint' | 'sure'> = {
-  vi: 'Phản hồi khi gõ', en: 'Reactive', hint: ['Sáng khi bạn gõ phím', 'Lights up as you type'], sure: true,
-};
+const reactive: Pick<LedEffect, 'hint' | 'sure'> = { hint: ['Sáng khi bạn gõ phím', 'Lights up as you type'], sure: true };
 
 const KEYS: LedEffect[] = [
   { n: 1, vi: 'Tĩnh', en: 'Static', sure: true },
@@ -36,10 +34,10 @@ const KEYS: LedEffect[] = [
   { n: 13, vi: 'Màu ngẫu nhiên', en: 'Random colors', sure: true },
   { n: 14, vi: 'Lấp lánh', en: 'Twinkle', sure: true },
   { n: 15, vi: 'Sao sáng', en: 'Starlight', sure: true },
-  { n: 16, vi: 'Giọt nước', en: 'Raindrop', sure: true },
-  { n: 17, ...reactive },
-  { n: 18, ...reactive },
-  { n: 19, ...reactive },
+  { n: 16, vi: 'Đốm nảy', en: 'Bouncing glow', sure: true }, // a soft glow sliding along the diagonal (FXP §6)
+  { n: 17, vi: 'Phản hồi khi gõ', en: 'Reactive', ...reactive }, // never captured: the pressed key (inferred)
+  { n: 18, vi: 'Phản hồi lan', en: 'Reactive spread', ...reactive }, // a block around the pressed key
+  { n: 19, vi: 'Phản hồi hàng', en: 'Reactive row', ...reactive }, // the pressed key's row
 ];
 
 const STRIP: LedEffect[] = [
@@ -70,4 +68,9 @@ export function effectName(boardIdHex: string | undefined, area: LedEffectArea, 
 /** The extra tooltip line of effect `n`, or null. */
 export function effectHint(boardIdHex: string | undefined, area: LedEffectArea, n: number, locale: Locale): string | null {
   return find(boardIdHex, area, n)?.hint?.[locale === 'vi' ? 0 : 1] ?? null;
+}
+
+/** Effect `n` (UI number) is one whose look is known: it gets an icon, a moving picture and a preview (FXP §8). */
+export function effectKnown(boardIdHex: string | undefined, area: LedEffectArea, n: number): boolean {
+  return !!find(boardIdHex, area, n);
 }

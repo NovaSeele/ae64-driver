@@ -14,7 +14,8 @@ describe('effect names', () => {
   it('shows the recorded names in vi and en', () => {
     expect(effectName(MAX, 0, 3, 'vi')).toBe('Sóng dọc');
     expect(effectName(MAX, 0, 3, 'en')).toBe('Vertical wave');
-    expect(effectName(MAX, 0, 16, 'en')).toBe('Raindrop');
+    expect(effectName(MAX, 0, 16, 'en')).toBe('Bouncing glow'); // FXP §6: a glow sliding along the diagonal
+    expect(effectName(MAX, 0, 16, 'vi')).toBe('Đốm nảy');
     expect(effectName(MAX, 1, 4, 'vi')).toBe('Sóng đối xứng');
     expect(effectName(PRO, 0, 4, 'en')).toBe('Ripple');
   });
@@ -28,10 +29,13 @@ describe('effect names', () => {
     expect(effectName(MAX, 1, 6, 'en')).toBeNull();
   });
 
-  it('17–19 are all Reactive, with a hint in the title', () => {
+  it('17–19 are the reactive effects (key, spread, row), each with the typing hint', () => {
+    const names: Record<number, [string, string]> = {
+      17: ['Phản hồi khi gõ', 'Reactive'], 18: ['Phản hồi lan', 'Reactive spread'], 19: ['Phản hồi hàng', 'Reactive row'],
+    };
     for (const n of [17, 18, 19]) {
-      expect(effectName(MAX, 0, n, 'vi')).toBe('Phản hồi khi gõ');
-      expect(effectName(MAX, 0, n, 'en')).toBe('Reactive');
+      expect(effectName(MAX, 0, n, 'vi')).toBe(names[n][0]);
+      expect(effectName(MAX, 0, n, 'en')).toBe(names[n][1]);
       expect(effectHint(MAX, 0, n, 'vi')).toBe('Sáng khi bạn gõ phím');
       expect(effectHint(MAX, 0, n, 'en')).toBe('Lights up as you type');
     }
@@ -65,7 +69,8 @@ describe('Lighting page: effect names', () => {
     const btns = () => page.findAll('.effect-btn');
     expect(btns()[2].attributes('aria-label')).toBe('Hiệu ứng 3 · Sóng dọc');
     expect(btns()[2].attributes('title')).toBe('Hiệu ứng 3 · Sóng dọc');
-    expect(btns()[2].text()).toBe('3');
+    expect(btns()[2].find('.effect-btn__n').text()).toBe('3'); // FXP: the default view adds the icon and the name
+    expect(btns()[2].find('.effect-btn__name').text()).toBe('Sóng dọc');
     expect(btns()[8].attributes('aria-label')).toBe('Hiệu ứng 9');
     expect(btns()[16].attributes('title')).toBe('Hiệu ứng 17 · Phản hồi khi gõ — Sáng khi bạn gõ phím');
 
