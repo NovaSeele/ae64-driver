@@ -22,7 +22,7 @@ import { useDeviceStore } from '../src/stores/device';
 import { useFirmwareStore } from '../src/stores/firmware';
 import { useGamepadStore } from '../src/stores/gamepad';
 import { useSyncStore } from '../src/stores/sync';
-import { kib, num } from '../src/components/firmware/fwText';
+import { kib, num, shaShort } from '../src/components/firmware/fwText';
 import { locale } from '../src/i18n/locale';
 import { t as tr } from '../src/i18n/vi';
 import { CRC, FAKE, fileOf, makeFw, run } from './fw-helpers';
@@ -489,6 +489,143 @@ describe('OFU §5, §6: the AE64 Max flow on the demo', () => {
     await flushPromises();
     expect(s.fw.bootVersion).toBe('0.0.0.0');
     expect(page.find('[data-test="fw-boot-version"]').text()).toBe('—');
+  });
+});
+
+describe("OFU review P3-1: a red list line shows the file's value and the list's", () => {
+  it("SHA-256: the file's hash and the list's; size: the file's bytes and the list's", async () => {
+    serve({ list: listText({ maxSha: 'e'.repeat(64) }) });
+    const s = await setup('max');
+    await listed(s.fw);
+    await downloaded(s.fw, '0.0.4.0');
+    const w = keep(mount(FwFileStep, { attachTo: document.body }));
+    await flushPromises();
+    const bad = () => w.findAll('.fw-chk li.bad').map((l) => l.text());
+    expect(bad()).toEqual([tr('fw.chk.listShaBad', { h: shaShort(sha(MAX_FILE)), want: 'eeee…eeee' })]);
+    w.unmount();
+    // the list says 4 KiB more than the server sends: a short body (the server's own smaller file)
+    const d = JSON.parse(listText()) as { builds: Record<string, unknown>[] };
+    const m = d.builds.find((b) => b.version === '0.0.4.0')!;
+    m.size = MAX_FILE.length + 4096;
+    serve({ list: JSON.stringify(d) });
+    const s2 = await setup('max');
+    await listed(s2.fw);
+    await downloaded(s2.fw, '0.0.4.0');
+    const w2 = keep(mount(FwFileStep, { attachTo: document.body }));
+    await flushPromises();
+    // the bytes are the listed file's, so only the size line is red
+    expect(w2.findAll('.fw-chk li.bad').map((l) => l.text())).toEqual([tr('fw.chk.listSizeBad', { n: num(MAX_FILE.length), want: num(MAX_FILE.length + 4096) })]);
+  });
+});
+
+describe('OFU review P3-2: the backstops behind the disabled buttons', () => {
+  it('A2: bytes changed after the checks → the press re-checks the SHA-256: preflightFail (fw.why.file), 0 × 08', async () => {
+    serve();
+    const s = await setup('max');
+    await listed(s.fw);
+    await downloaded(s.fw, '0.0.4.0');
+    expect(s.fw.fileOk).toBe(true);
+    s.fw.typed = 'AE64 Max';
+    s.fw.verOk = true;
+    expect(s.fw.canStart).toBe(true);
+    // a byte of the header's padding (28..4095): the five checks and the CRC-32 still pass; only the SHA-256 re-check sees it
+    s.fw.file!.bytes![100] ^= 1;
+    await s.fw.start();
+    expect(s.fw.phase).toBe('preflightFail');
+    expect(s.fw.error?.paramKeys?.reason).toBe('fw.why.file');
+    expect(s.frames.filter((f) => f[0] === 0x08)).toEqual([]);
+    expect(s.fw.active).toBe(false);
+  });
+
+  it("A3: the same in rescue mode: rescueWrite() re-checks a download's SHA-256 and writes nothing", async () => {
+    serve();
+    const s = await setup('max');
+    await listed(s.fw);
+    const bus = s.t.fwMock!;
+    bus.replugAsBootloader();
+    await new Promise((r) => setTimeout(r, 1200)); // the bootloader shows up 800 ms after the replug
+    const boot = (await bus.list()).find((d) => d instanceof MockBootloader) as MockBootloader;
+    await s.device.adoptFromFirmware(boot, true);
+    await vi.waitFor(() => expect(s.fw.rescueBoard).toBe(FW_BOARD_MAX));
+    await downloaded(s.fw, '0.0.4.0');
+    expect(s.fw.canRescueWrite).toBe(true);
+    // a byte of the header's padding (28..4095): the five checks and the CRC-32 still pass; only the SHA-256 re-check sees it
+    s.fw.file!.bytes![100] ^= 1;
+    await s.fw.rescueWrite();
+    await new Promise((r) => setTimeout(r, 500));
+    expect(bus.writes).toEqual([]);
+    expect(s.fw.phase).toBe('rescue'); // still waiting for a good file: no session began
+    expect(s.fw.sent).toBe(0);
+    expect(bus.violations).toEqual([]);
+  });
+
+  it("H6: start() with the box unticked on a rewrite → preflightFail, 0 × 08 (the button is disabled; this is the store's own check)", async () => {
+    serve();
+    const s = await setup('max');
+    await listed(s.fw);
+    await downloaded(s.fw, '0.0.4.0');
+    s.fw.typed = 'AE64 Max';
+    expect(s.fw.relation).toBe('same');
+    s.fw.verOk = true;
+    expect(s.fw.canStart).toBe(true);
+    // a real keyboard waits for the firmware lock first (W-11); the box is unticked during that wait
+    s.device.demo = false;
+    const p = s.fw.start();
+    s.fw.verOk = false;
+    await p;
+    expect(s.fw.phase).toBe('preflightFail');
+    expect(s.frames.filter((f) => f[0] === 0x08)).toEqual([]);
+    expect(s.fw.active).toBe(false);
+  });
+
+  it('H4: the box ticked for "kind unknown" does not carry over when Đọc lại answers XInput (same file, new sentence)', async () => {
+    serve();
+    const s = await setup('pro-xinput');
+    vi.spyOn(s.t, 'gamepadInfo').mockRejectedValueOnce(new Error('timeout'));
+    await listed(s.fw);
+    await vi.waitFor(() => expect(s.fw.kind).toBe('unknown'));
+    await downloaded(s.fw, '0.1.0.0');
+    expect(s.fw.relation).toBe('kindUnknown');
+    s.fw.typed = 'AE64 Pro';
+    s.fw.verOk = true;
+    expect(s.fw.canStart).toBe(true);
+    await s.fw.readKind(true);
+    await vi.waitFor(() => expect(s.fw.kind).toBe('agp1'));
+    expect(s.fw.relation).toBe('third');
+    expect(s.fw.verOk).toBe(false);
+    expect(s.fw.canStart).toBe(false);
+  });
+
+  it('E5: a listed build with fetch: false gets the link look (card and "Các bản khác"), and download(b) requests nothing', async () => {
+    const d = JSON.parse(listText()) as { builds: Record<string, unknown>[] };
+    for (const b of d.builds) if (b.board === '0030000A') b.fetch = false;
+    serve({ list: JSON.stringify(d) });
+    const s = await setup('pro');
+    s.device.info!.firmware = '0.0.7.0';
+    await listed(s.fw);
+    await vi.waitFor(() => expect(s.fw.status.status).toBe('newer'));
+    const w = keep(mount(FwFileStep, { attachTo: document.body }));
+    await flushPromises();
+    const card = w.find('[data-test="ofu-card"]');
+    expect(card.find('a.btn').attributes('href')).toBe(s.fw.status.newest!.url);
+    expect(card.text()).not.toContain(tr('fw.on.download'));
+    await w.find('details[data-test="ofu-others"] summary').trigger('click');
+    expect(w.find('[data-test="ofu-others"]').text()).toContain(tr('fw.on.getLink'));
+    for (const b of s.fw.builds) await s.fw.download(b);
+    expect(fileCalls()).toEqual([]);
+    expect(s.fw.file).toBeNull();
+  });
+
+  it('E2: download() of a build for another board (the Pro build on a Max) requests nothing', async () => {
+    serve();
+    const s = await setup('max');
+    await listed(s.fw);
+    const pro = s.fw.list!.builds.find((b) => b.board === FW_BOARD_PRO)!;
+    expect(pro).toBeDefined();
+    await s.fw.download(pro);
+    expect(fileCalls()).toEqual([]);
+    expect(s.fw.file).toBeNull();
+    expect(s.fw.dl).toBeNull();
   });
 });
 

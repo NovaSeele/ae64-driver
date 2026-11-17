@@ -153,6 +153,10 @@ export function parseFwList(text: string): FwListParse {
     if (k && (k.board !== b.board || k.name !== b.name || k.version !== b.version || k.appVersion !== b.appVersion || k.kind !== b.kind)) {
       return { ok: false, why: `${boardHex(b.board)} ${b.version} disagrees with the app's table` };
     }
+    // fail closed (DESIGN OFU v1.7 §7.3, review P3-3): an official build the table knows by board and version, listed with
+    // another CRC-32, refuses the whole list; it is never learned as a second "official" build of that version
+    const same = KNOWN_FW.find((x) => x.kind === 'official' && x.board === b.board && x.version === b.version);
+    if (same && same.crc !== b.crc32) return { ok: false, why: `${boardHex(b.board)} ${b.version} has another CRC-32 than the app's table` };
   }
   return { ok: true, list: { updated: data.updated, builds } };
 }

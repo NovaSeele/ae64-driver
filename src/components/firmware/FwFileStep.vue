@@ -68,8 +68,9 @@ const lines = computed<Line[]>(() => {
   if (!f) return [];
   const b = f.build;
   const list: Line[] = f.lines.map((l) => {
-    if (l.key === 'listSize') return { key: l.key, ok: l.ok, text: t(l.ok ? 'fw.chk.listSize' : 'fw.chk.listSizeBad', { n: num(b?.size ?? 0) }) };
-    if (l.key === 'listSha') return { key: l.key, ok: l.ok, text: t(l.ok ? 'fw.chk.listSha' : 'fw.chk.listShaBad', { h: shaShort(b?.sha256 ?? '') }) };
+    // a red line shows the file's value and the list's (review P3-1): the list's alone would read as the file's
+    if (l.key === 'listSize') return { key: l.key, ok: l.ok, text: l.ok ? t('fw.chk.listSize', { n: num(b?.size ?? 0) }) : t('fw.chk.listSizeBad', { n: num(f.size), want: num(b?.size ?? 0) }) };
+    if (l.key === 'listSha') return { key: l.key, ok: l.ok, text: l.ok ? t('fw.chk.listSha', { h: shaShort(b?.sha256 ?? '') }) : t('fw.chk.listShaBad', { h: shaShort(f.sha256 ?? ''), want: shaShort(b?.sha256 ?? '') }) };
     return { key: l.key, ok: false, warn: true, text: t('fw.chk.listOther', { name: b?.name ?? '', v: b?.version ?? '' }) };
   });
   if (!f.check) return [...list, { key: 'size', ok: false, text: t('fw.chk.size') }];

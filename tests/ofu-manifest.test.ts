@@ -110,6 +110,14 @@ describe('OFU §7.3: one bad field refuses the whole list', () => {
     const xinput = KNOWN_FW.find((x) => x.kind === 'third')!;
     expect(refused(withField('crc32', xinput.crc.toString(16).padStart(8, '0'), 1))).toBe(true);
   });
+
+  it('fail closed (v1.7, P3-3): a known official board + version with another CRC-32 refuses the whole list (mutant 23)', () => {
+    // the Max 0.0.4.0 (build 0) and the Pro 0.1.0.0 (build 1), each with a CRC-32 the table does not have
+    expect(refused(withField('crc32', '12345678', 0))).toBe(true);
+    expect(refused(withField('crc32', '12345678', 1))).toBe(true);
+    // a new version with a new CRC-32 is still learned (the case above stays the only refusal)
+    expect(refused(JSON.stringify({ ...clone(), builds: [{ ...clone().builds[1], version: '0.2.0.0', appVersion: '0.2.0.0', crc32: '12345678', sha256: 'b'.repeat(64), file: 'n.bin', url: 'https://hub.xsyd.top/storage/firmware/n.bin' }, ...clone().builds] }))).toBe(false);
+  });
 });
 
 describe('OFU §7.3 (answer (a), v1.4): the allow-list is hub.xsyd.top/storage/firmware/ exactly', () => {
