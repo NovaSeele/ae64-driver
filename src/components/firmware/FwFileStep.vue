@@ -10,7 +10,7 @@ import {
 import Button from '../ui/Button.vue';
 import Segmented from '../ui/Segmented.vue';
 import FwOnline from './FwOnline.vue';
-import { boardHex, crcHex } from '../../protocol/firmware';
+import { FW_HEADER_BYTES, boardHex, crcHex } from '../../protocol/firmware';
 import { useFirmwareStore } from '../../stores/firmware';
 import { t } from '../../i18n/vi';
 import type { MessageKey } from '../../i18n/vi';
@@ -74,15 +74,21 @@ const lines = computed<Line[]>(() => {
     return { key: l.key, ok: false, warn: true, text: t('fw.chk.listOther', { name: b?.name ?? '', v: b?.version ?? '' }) };
   });
   if (!f.check) return [...list, { key: 'size', ok: false, text: t('fw.chk.size') }];
-  const h = f.check.header;
+  const c = f.check;
+  const h = c.header;
   const dev = fw.deviceBoard === null ? '—' : boardHex(fw.deviceBoard);
   return [...list, ...f.check.lines.map((l) => ({
     key: l.key,
     ok: l.ok,
     text: l.key === 'sig' ? t('fw.chk.sig')
       : l.key === 'board' ? t(l.ok ? 'fw.chk.board' : 'fw.chk.boardBad', { file: boardHex(h.board), dev })
-      : l.key === 'len' ? t('fw.chk.len', { n: num(h.length) })
-      : l.key === 'crc' ? t('fw.chk.crc', { crc: crcHex(h.crc) })
+      // a red header line says what differs, with both values; it never says "khớp" (DESIGN OFU v1.8 §9, review P3-4)
+      : l.key === 'len' ? (l.ok ? t('fw.chk.len', { n: num(h.length) })
+        : h.offset !== FW_HEADER_BYTES ? t('fw.chk.offBad', { off: num(h.offset) })
+        : t('fw.chk.lenBad', { n: num(Math.max(0, c.size - FW_HEADER_BYTES)), want: num(h.length) }))
+      : l.key === 'crc' ? (l.ok ? t('fw.chk.crc', { crc: crcHex(h.crc) })
+        : c.size <= FW_HEADER_BYTES ? t('fw.chk.crcNone')
+        : t('fw.chk.crcBad', { crc: crcHex(c.crc), want: crcHex(h.crc) }))
       : t('fw.chk.size'),
   }))];
 });
