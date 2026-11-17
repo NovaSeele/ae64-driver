@@ -151,6 +151,19 @@ describe('TIP: up or down', () => {
     await open();
     expect(side()).toBe('bottom');
   });
+
+  it('6b, the boundary: room above counts the 8 px gap and the 8 px edge (40 px bubble: 34 px of room flips, 40 stays)', async () => {
+    const short = 'x'.repeat(40); // 240 px wide, one 40 px line
+    scene.trigger = at(600, 61); // top 50: above = 50 − 8 − 8 = 34 < 40; below has room
+    mountTip({ placement: 'top', text: short });
+    await open();
+    expect(side()).toBe('bottom');
+    w!.unmount();
+    scene.trigger = at(600, 67); // top 56: above = 56 − 8 − 8 = 40, just enough
+    mountTip({ placement: 'top', text: short });
+    await open();
+    expect(side()).toBe('top');
+  });
 });
 
 describe('TIP: a narrow box, reset and order', () => {
