@@ -489,6 +489,9 @@ const fxTiles = computed(() => Array.from({ length: modeCount.value }, (_, i) =>
 }));
 
 // ------------------------------------------------------------------ "Xem thử": when it starts and ends (FXP §7)
+/** The effects hint says only what works now (FXP v2.1 H1): the "try it" words only where a preview can start (the same
+ *  gate as `allowed` below), the Tắt words in Tắt, and nothing while the effects are locked. */
+const fxHint = computed(() => (tuneLocked.value ? null : fxView.value === 'off' ? t('lighting.fx.gridHintOff') : t('lighting.fx.gridHint')));
 const gridEl = ref<HTMLElement | null>(null);
 const previewCtl = new PreviewControl({
   allowed: (n) => fxView.value !== 'off' && !tuneLocked.value && base.value.mode !== n - 1 && n <= modeCount.value,
@@ -862,7 +865,7 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
         <p v-if="!powered" class="dock__off" role="status">{{ t('lighting.powerOffHint') }}</p>
         <!-- a. Effects: a full-width first row, its buttons drawn in the chosen view (FXP §2–§4) -->
         <!-- the hint is the group's description: a plain div's description is never read when a tile gets focus -->
-        <div class="fx col--fx" role="group" :aria-labelledby="`${uid}-fx-title`" :aria-describedby="`${uid}-fx-hint`">
+        <div class="fx col--fx" role="group" :aria-labelledby="`${uid}-fx-title`" :aria-describedby="fxHint ? `${uid}-fx-hint` : undefined">
           <div class="col__head fx__head">
             <h3 :id="`${uid}-fx-title`" class="col__title">{{ t('lighting.effectsShort') }}</h3>
             <InfoTip class="col__tip" :text="t('lighting.effectsDesc')" placement="top" />
@@ -921,7 +924,8 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
                 </template>
               </button>
             </div>
-            <span :id="`${uid}-fx-hint`" class="sr-only">{{ t('lighting.fx.gridHint') }}</span>
+            <!-- no hint, no span: browse mode reads text in the group whatever aria-describedby says (H1a) -->
+            <span v-if="fxHint" :id="`${uid}-fx-hint`" class="sr-only">{{ fxHint }}</span>
           </fieldset>
         </div>
 

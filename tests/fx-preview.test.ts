@@ -20,6 +20,9 @@ import { TileDriver as Driver } from '../src/components/lighting/tileDriver';
 import type { TileParams } from '../src/components/lighting/tileDriver';
 import { PHYSICAL_KEYS } from '../src/protocol';
 import { t as tr } from '../src/i18n/vi';
+import { vi as viMsgs } from '../src/i18n/vi';
+import { en } from '../src/i18n/en';
+import InfoTip from '../src/components/ui/InfoTip.vue';
 import { parseImport, storedSettings } from '../src/data/appSettings';
 import LightingPage from '../src/pages/LightingPage.vue';
 
@@ -687,5 +690,89 @@ describe('FXP: TileDriver on its own (a recording canvas)', () => {
     expect([...draw({ open: false }, true)].sort()).toEqual([CAP, PLATE].sort());
     expect([...draw({ open: true }, false)].sort()).toEqual([CAP, PLATE].sort());
     expect([...draw({ open: true }, true)].some((c) => c.startsWith('rgba('))).toBe(true);
+  });
+});
+
+describe('FXP v2.1: the hint says only what works (H1, H1a)', () => {
+  const group = () => page!.find('.fx[role="group"]');
+  /** The group's description as a screen reader gets it: null when it has none. */
+  const desc = () => {
+    const id = group().attributes('aria-describedby');
+    return id === undefined ? null : (document.getElementById(id)?.textContent ?? '');
+  };
+  const TRY = viMsgs['lighting.fx.gridHint'];
+  const OFF = viMsgs['lighting.fx.gridHintOff'];
+  /** No text in the group, read in browse mode or not, carries either hint (H1a). */
+  const noHintText = () => {
+    const text = group().text();
+    expect(text).not.toContain(TRY);
+    expect(text).not.toContain(OFF);
+  };
+
+  it('Sơ lược and Chi tiết describe the group with the "try it" hint, Tắt with its own; the text changes in place', async () => {
+    await mountPage();
+    expect(desc()).toBe(TRY);
+    const id = group().attributes('aria-describedby')!;
+    const el = document.getElementById(id);
+    await viewOpt('detail').trigger('click');
+    await nextTick();
+    expect(desc()).toBe(TRY);
+    await viewOpt('off').trigger('click');
+    await nextTick();
+    expect(desc()).toBe(OFF);
+    expect(group().attributes('aria-describedby')).toBe(id);
+    expect(document.getElementById(id)).toBe(el);
+    expect(grid().attributes('aria-describedby')).toBeUndefined();
+    setLocale('en');
+    await nextTick();
+    expect(desc()).toBe(en['lighting.fx.gridHintOff']);
+    await viewOpt('lite').trigger('click');
+    await nextTick();
+    expect(desc()).toBe(en['lighting.fx.gridHint']);
+    expect(document.getElementById(id)).toBe(el);
+  });
+
+  it('the area off: no description and no hint text in the group; on again brings back the view\'s text', async () => {
+    const { lighting, sync } = await mountPage();
+    for (const [view, text] of [['lite', TRY], ['off', OFF]] as const) {
+      await viewOpt(view).trigger('click');
+      await nextTick();
+      lighting.applyBase(0, { open: false }, 'x');
+      await sync.flush();
+      await nextTick();
+      expect(group().attributes('aria-describedby'), view).toBeUndefined();
+      noHintText();
+      lighting.applyBase(0, { open: true }, 'x');
+      await sync.flush();
+      await nextTick();
+      expect(desc(), view).toBe(text);
+    }
+  });
+
+  it('a read-only board: no description and no hint text in the group', async () => {
+    const { device } = await mountPage();
+    for (const view of ['lite', 'off'] as const) {
+      await viewOpt(view).trigger('click');
+      device.boardAllowed = false;
+      await nextTick();
+      expect(group().attributes('aria-describedby'), view).toBeUndefined();
+      noHintText();
+      device.boardAllowed = true;
+      await nextTick();
+      expect(desc(), view).toBe(view === 'off' ? OFF : TRY);
+    }
+  });
+
+  it('the ⓘ of the view toggle says Tắt has no preview, in vi and en; Tắt has its own hint in both', async () => {
+    expect(viMsgs['lighting.fx.viewTip']).toBe('Cách vẽ các nút hiệu ứng. Ở Sơ lược và Chi tiết, rê chuột lên một nút hoặc Tab tới nút đó để xem thử trên bàn phím phía trên; Tắt chỉ hiện số, không xem thử. Chỉ khi bấm chọn mới ghi vào phím.');
+    expect(en['lighting.fx.viewTip']).toBe('How the effect buttons are drawn. In Simple and Detailed, rest the pointer on a button, or Tab to it, to try it on the keyboard above; Off shows numbers only, with no preview. Only a click writes to the keyboard.');
+    expect(OFF).toBe('Bấm vào một hiệu ứng để chọn. Muốn xem thử trước khi chọn, đổi Hình minh hoạ sang Sơ lược hoặc Chi tiết.');
+    expect(en['lighting.fx.gridHintOff']).toBe('Click an effect to choose it. To try effects before choosing, set Previews to Simple or Detailed.');
+    await mountPage();
+    const tips = () => page!.find('.fx__head').findAllComponents(InfoTip).map((c: { props: (k: string) => unknown }) => c.props('text'));
+    expect(tips()).toContain(viMsgs['lighting.fx.viewTip']);
+    setLocale('en');
+    await nextTick();
+    expect(tips()).toContain(en['lighting.fx.viewTip']);
   });
 });
