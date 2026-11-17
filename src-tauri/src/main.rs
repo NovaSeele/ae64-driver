@@ -23,6 +23,10 @@ fn force_close(window: tauri::Window) {
 
 fn main() {
     tauri::Builder::default()
+        // One Tauri API for the page (DESIGN OFU v1.7 §3.2): open_url for the Firmware page's maker link, scoped in
+        // capabilities/default.json to https://hub.xsyd.top/storage/firmware/*. No automatic link handling: the page calls it
+        // itself, from that link only.
+        .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .invoke_handler(tauri::generate_handler![hold_close, force_close])
         // A page (re)load starts without a session: release the hold, so a webview that reloaded mid-session can still be
         // closed (FW review FW-2). The page also calls hold_close(false) at start-up.

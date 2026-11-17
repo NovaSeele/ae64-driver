@@ -159,6 +159,7 @@ export const firmwareVi = {
   'fw.on.getLink': 'Lấy file',
   'fw.on.othersLinkNote': 'Bản có nút “Lấy file” phải tải bằng trình duyệt, rồi chọn ở File trên máy.',
   'fw.on.newTab': '(mở thẻ mới)',
+  'fw.on.newBrowser': '(mở trong trình duyệt)',
   'fw.on.listLine': 'Danh sách của AE64 Control, cập nhật {updated} · Chỉ tải danh sách và file, không gửi thông tin bàn phím.',
   'fw.on.listLineDesktop': 'Danh sách đi kèm bản app này, cập nhật {updated} · Chỉ tải file, không gửi thông tin bàn phím.',
   'fw.on.recheck': 'Kiểm tra lại',

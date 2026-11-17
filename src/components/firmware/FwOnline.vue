@@ -8,6 +8,7 @@ import {
   IconInfoCircle, IconList, IconRefresh, IconUpload, IconX,
 } from '@tabler/icons-vue';
 import Button from '../ui/Button.vue';
+import FwMakerLink from './FwMakerLink.vue';
 import { boardHex } from '../../protocol/firmware';
 import { FW_DESKTOP } from '../../protocol/fwDownload';
 import { compareVersions } from '../../protocol/fwManifest';
@@ -156,7 +157,7 @@ function act(a: Act): void {
         </div>
       </div>
       <div class="ofu-st__act">
-        <Button size="sm" :href="d.build.url" :icon="IconExternalLink">{{ t('fw.on.link') }}<span class="sr-only"> {{ t('fw.on.newTab') }}</span></Button>
+        <FwMakerLink :url="d.build.url" :icon="IconExternalLink">{{ t('fw.on.link') }}</FwMakerLink>
         <Button size="sm" :icon="IconUpload" @click="emit('pick')">{{ t('fw.on.pickSaved') }}</Button>
         <Button size="sm" variant="ghost" :icon="IconRefresh" @click="fw.download(d.build)">{{ t('fw.on.retry') }}</Button>
         <Button size="sm" variant="ghost" :icon="IconList" @click="fw.backToList()">{{ t('fw.dl.change') }}</Button>
@@ -184,7 +185,7 @@ function act(a: Act): void {
       </div>
       <div v-if="card.acts.length" class="ofu-st__act">
         <template v-for="a in card.acts" :key="a.kind + a.label">
-          <Button v-if="a.kind === 'link'" size="sm" :variant="a.variant" :href="a.build!.url" :icon="a.icon">{{ a.label }}<span class="sr-only"> {{ t('fw.on.newTab') }}</span></Button>
+          <FwMakerLink v-if="a.kind === 'link'" :variant="a.variant" :url="a.build!.url" :icon="a.icon">{{ a.label }}</FwMakerLink>
           <Button v-else size="sm" :variant="a.variant" :icon="a.icon" :disabled="!fw.canChoose" @click="act(a)">{{ a.label }}</Button>
         </template>
       </div>
@@ -211,7 +212,7 @@ function act(a: Act): void {
               <td class="a">
                 <template v-if="!o.running">
                   <Button v-if="fw.canFetch(o.b)" size="sm" :icon="IconDownload" :disabled="!fw.canChoose" @click="fw.download(o.b)">{{ t('fw.on.get') }}</Button>
-                  <Button v-else size="sm" :href="o.b.url" :icon="IconExternalLink">{{ t('fw.on.getLink') }}<span class="sr-only"> {{ t('fw.on.newTab') }}</span></Button>
+                  <FwMakerLink v-else :url="o.b.url" :icon="IconExternalLink">{{ t('fw.on.getLink') }}</FwMakerLink>
                 </template>
               </td>
             </tr>

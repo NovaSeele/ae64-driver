@@ -160,6 +160,7 @@ export const firmwareEn: Record<keyof typeof firmwareVi, string> = {
   'fw.on.getLink': 'Get file',
   'fw.on.othersLinkNote': 'A build with “Get file” is saved by the browser; then pick it under File on this computer.',
   'fw.on.newTab': '(opens a new tab)',
+  'fw.on.newBrowser': '(opens in your browser)',
   'fw.on.listLine': 'AE64 Control’s list, updated {updated} · Only the list and the file are downloaded; nothing about the keyboard is sent.',
   'fw.on.listLineDesktop': 'The list built into this app, updated {updated} · Only the file is downloaded; nothing about the keyboard is sent.',
   'fw.on.recheck': 'Check again',
