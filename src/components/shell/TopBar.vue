@@ -104,6 +104,9 @@ const savedTip = computed(() => (sync.lastProblem ? t('sync.lastProblem', { msg:
   background: var(--glass);
   backdrop-filter: blur(8px);
   flex: none;
+  /* a layer above the page, so page controls never paint over its tooltips; every overlay (50 and up) stays above it */
+  position: relative;
+  z-index: 10;
 }
 .top__head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .tile {
