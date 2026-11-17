@@ -16,6 +16,10 @@ import { LiveLedPainter } from '../src/components/keyboard/liveLedPainter';
 import { TileDriver } from '../src/components/lighting/tileDriver';
 import { FX_VIEW_KEY } from '../src/components/lighting/fxView';
 import { PreviewControl, REST_MS, SWITCH_MS } from '../src/components/lighting/previewControl';
+import { TileDriver as Driver } from '../src/components/lighting/tileDriver';
+import type { TileParams } from '../src/components/lighting/tileDriver';
+import { PHYSICAL_KEYS } from '../src/protocol';
+import { t as tr } from '../src/i18n/vi';
 import { parseImport, storedSettings } from '../src/data/appSettings';
 import LightingPage from '../src/pages/LightingPage.vue';
 
@@ -105,6 +109,9 @@ const esc = () => {
   (document.activeElement ?? document.body).dispatchEvent(ev); // as a real key press: at the focused element, bubbling to window
   return ev;
 };
+/** The design's timings (DESIGN FXP §7), written out: the tests do not follow the module's constants. */
+const REST = 300;
+const SWITCH = 100;
 const fakeTimers = () => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 async function advance(ms: number) {
   vi.advanceTimersByTime(ms);
@@ -285,7 +292,7 @@ describe('FXP: "Xem thử" on the big keyboard', () => {
     const chip0 = chip();
     fakeTimers();
     over(a);
-    await advance(REST_MS - 1);
+    await advance(REST - 1);
     expect(cue()).toBeNull();
     expect(chip()).toBe(chip0);
     await advance(1);
@@ -295,7 +302,7 @@ describe('FXP: "Xem thử" on the big keyboard', () => {
     expect(paintedFaces().length).toBeGreaterThan(0);
 
     over(b);
-    await advance(SWITCH_MS - 1);
+    await advance(SWITCH - 1);
     expect(tryTiles()).toEqual([a]);
     await advance(1);
     expect(tryTiles()).toEqual([b]);
@@ -329,7 +336,7 @@ describe('FXP: "Xem thử" on the big keyboard', () => {
     const { lighting } = await mountPage();
     const [a] = pick(lighting.area0Base.mode + 1, [5, 12]);
     fakeTimers();
-    const start = async () => { over(a); await advance(REST_MS); expect(tryTiles()).toEqual([a]); };
+    const start = async () => { over(a); await advance(REST); expect(tryTiles()).toEqual([a]); };
 
     await start();
     expect(esc().defaultPrevented).toBe(true);
@@ -357,7 +364,7 @@ describe('FXP: "Xem thử" on the big keyboard', () => {
     const [a, b] = pick(lighting.area0Base.mode + 1, [12, 13, 5]);
     fakeTimers();
     over(a);
-    await advance(REST_MS);
+    await advance(REST);
     esc();
     await nextTick();
     over(a, 'mouse', '.effect-btn__name');
@@ -367,13 +374,13 @@ describe('FXP: "Xem thử" on the big keyboard', () => {
     expect(cue()).toBeNull();
 
     over(b);
-    await advance(REST_MS);
+    await advance(REST);
     expect(tryTiles()).toEqual([b]);
 
     esc();
     leaveGrid();
     over(b);
-    await advance(REST_MS);
+    await advance(REST);
     expect(tryTiles()).toEqual([b]);
   });
 
@@ -394,7 +401,7 @@ describe('FXP: "Xem thử" on the big keyboard', () => {
       return m;
     };
     over(1); // Tĩnh: a still rainbow, so the level is the brightness
-    await advance(REST_MS);
+    await advance(REST);
     expect(maxOf()).toBe(Math.round(255 * 0.15));
     esc();
     leaveGrid();
@@ -405,7 +412,7 @@ describe('FXP: "Xem thử" on the big keyboard', () => {
     await sync.flush();
     fakeTimers();
     over(1);
-    await advance(REST_MS);
+    await advance(REST);
     expect(maxOf()).toBe(Math.round(255 * 0.8));
   });
 
@@ -415,7 +422,7 @@ describe('FXP: "Xem thử" on the big keyboard', () => {
     const apply = vi.spyOn(lighting, 'applyBase');
     fakeTimers();
     over(a);
-    await advance(REST_MS);
+    await advance(REST);
     expect(writes(out)).toHaveLength(0);
     await tile(a).trigger('click');
     await nextTick();
@@ -434,7 +441,7 @@ describe('FXP: "Xem thử" on the big keyboard', () => {
     const paint = vi.spyOn(LiveLedPainter.prototype, 'paint');
     fakeTimers();
     over(6);
-    await advance(REST_MS);
+    await advance(REST);
     expect(cue()).toBe('Hiệu ứng 6 chưa có hình xem trước');
     expect(chip()).not.toBe('Xem thử');
     expect(paint).not.toHaveBeenCalled();
@@ -494,15 +501,15 @@ describe('FXP: PreviewControl on its own', () => {
     const shown: (number | null)[] = [];
     const c = new PreviewControl({ allowed: (n) => n !== 4, show: (n) => shown.push(n) });
     c.over(2, 'mouse');
-    vi.advanceTimersByTime(REST_MS - 1);
+    vi.advanceTimersByTime(REST - 1);
     expect(c.shown).toBeNull();
     vi.advanceTimersByTime(1);
     expect(c.shown).toBe(2);
     c.over(3, 'pen');
-    vi.advanceTimersByTime(SWITCH_MS);
+    vi.advanceTimersByTime(SWITCH);
     expect(c.shown).toBe(3);
     c.over(4, 'mouse'); // not allowed: ends it
-    vi.advanceTimersByTime(SWITCH_MS);
+    vi.advanceTimersByTime(SWITCH);
     expect(c.shown).toBeNull();
     c.over(5, 'touch');
     vi.advanceTimersByTime(1000);
@@ -516,5 +523,169 @@ describe('FXP: PreviewControl on its own', () => {
     vi.advanceTimersByTime(1000);
     expect(c.shown).toBeNull(); // no timer fires after dispose
     expect(shown).toEqual([2, 3, null, 7, null]);
+  });
+});
+
+describe('FXP: review N-FXP-1 and N-FXP-2', () => {
+  it('the timings are the design\'s: 300 ms to start, 100 ms to switch (R19)', () => {
+    expect(REST_MS).toBe(300);
+    expect(SWITCH_MS).toBe(100);
+  });
+
+  it('the hint is the description of the "Hiệu ứng" group; the grid has none (N-FXP-1)', async () => {
+    await mountPage();
+    const group = page!.find('.fx[role="group"]');
+    const id = group.attributes('aria-describedby');
+    expect(id).toBeTruthy();
+    expect(document.getElementById(id!)?.textContent).toBe(tr('lighting.fx.gridHint'));
+    expect(grid().attributes('aria-describedby')).toBeUndefined();
+  });
+
+  /** The keys of the last frame the painter got, copied (the page reuses one frame buffer). */
+  const lastKeys = (paint: { mock: { calls: unknown[][] } }) => Uint8Array.from((paint.mock.calls.at(-1)![0] as { keys: Uint8Array }).keys);
+  const cellOf = (name: string) => { const k = PHYSICAL_KEYS.find((x) => x.name === name)!; return k.row * 21 + k.col; };
+
+  it('reduced motion: the big preview is a still, the same frame 500 ms later (11b)', async () => {
+    const { lighting } = await mountPage({ reduced: true });
+    const n = pick(lighting.area0Base.mode + 1, [5, 3])[0];
+    const paint = vi.spyOn(LiveLedPainter.prototype, 'paint');
+    (tile(n).element as HTMLElement).focus();
+    await nextTick();
+    await sleep(100);
+    const a = lastKeys(paint);
+    await sleep(500);
+    expect(lastKeys(paint)).toEqual(a);
+  });
+
+  it('without reduced motion the same preview moves (so the still check can fail)', async () => {
+    const { lighting } = await mountPage();
+    const n = pick(lighting.area0Base.mode + 1, [5, 3])[0];
+    const paint = vi.spyOn(LiveLedPainter.prototype, 'paint');
+    (tile(n).element as HTMLElement).focus();
+    await nextTick();
+    await sleep(100);
+    const a = lastKeys(paint);
+    await sleep(500);
+    expect(lastKeys(paint)).not.toEqual(a);
+  });
+
+  it('a key with its own colour keeps it in the preview, as on the keyboard (R8)', async () => {
+    const { lighting } = await mountPage();
+    const g = cellOf('G');
+    const m = lighting.area0Matrix.map((e) => ({ ...e }));
+    m[g] = { r: 1, g: 2, b: 3, custom: true };
+    lighting.area0Matrix = m;
+    const paint = vi.spyOn(LiveLedPainter.prototype, 'paint');
+    const n = pick(lighting.area0Base.mode + 1, [1, 5])[0];
+    (tile(n).element as HTMLElement).focus();
+    await nextTick();
+    await sleep(60);
+    const keys = lastKeys(paint);
+    expect([keys[g * 3], keys[g * 3 + 1], keys[g * 3 + 2]]).toEqual([1, 2, 3]);
+  });
+
+  it('a reactive preview types by itself: 17 lights only the typed keys, 18 only blocks round them (R17)', async () => {
+    const { lighting } = await mountPage();
+    const typed = ['H', 'E', 'L', 'O', 'A', 'S', 'D', 'K'].map(cellOf);
+    const own = new Set(lighting.area0Matrix.flatMap((e, i) => (e?.custom ? [i] : [])));
+    const lit = (keys: Uint8Array) => Array.from({ length: 126 }, (_, i) => i)
+      .filter((i) => !own.has(i) && Math.max(keys[i * 3], keys[i * 3 + 1], keys[i * 3 + 2]) > 0);
+    const paint = vi.spyOn(LiveLedPainter.prototype, 'paint');
+    for (const [n, near] of [[17, 0], [18, 1]] as const) {
+      (tile(n).element as HTMLElement).focus();
+      await nextTick();
+      await sleep(60);
+      const cells = lit(lastKeys(paint));
+      expect(cells.length, `effect ${n}`).toBeGreaterThan(0);
+      for (const c of cells) {
+        const ok = typed.some((tc) => Math.abs(Math.floor(tc / 21) - Math.floor(c / 21)) <= near && Math.abs((tc % 21) - (c % 21)) <= near);
+        expect(ok, `effect ${n}: cell ${c} is not round a typed key`).toBe(true);
+      }
+    }
+  });
+
+  it('unmount removes the capture Esc listener (R13)', async () => {
+    const add = vi.spyOn(window, 'addEventListener');
+    const remove = vi.spyOn(window, 'removeEventListener');
+    await mountPage();
+    const mine = add.mock.calls.filter((c) => c[0] === 'keydown' && c[2] === true).map((c) => c[1]);
+    expect(mine.length).toBeGreaterThan(0);
+    page!.unmount();
+    page = null;
+    for (const fn of mine) expect(remove.mock.calls.some((c) => c[0] === 'keydown' && c[1] === fn && c[2] === true)).toBe(true);
+  });
+
+  it('a click on another tile while one is shown ends the preview at once (R1)', async () => {
+    const { lighting } = await mountPage();
+    const [a, b] = pick(lighting.area0Base.mode + 1, [5, 12, 13]);
+    fakeTimers();
+    over(a);
+    await advance(REST);
+    expect(tryTiles()).toEqual([a]);
+    over(b);
+    await advance(SWITCH - 50);
+    await tile(b).trigger('click');
+    await nextTick();
+    expect(cue()).toBeNull();
+    await advance(SWITCH);
+    expect(cue()).toBeNull();
+  });
+});
+
+describe('FXP: TileDriver on its own (a recording canvas)', () => {
+  const PLATE = '#0c0d10';
+  const CAP = '#24262b';
+  function fakeCanvas() {
+    const styles: string[] = [];
+    const ctx = {
+      fillStyle: '',
+      fillRect() { styles.push(this.fillStyle); },
+      setTransform() {}, beginPath() {}, arc() {},
+      fill() { styles.push(this.fillStyle); },
+    };
+    const canvas = { width: 0, height: 0, getBoundingClientRect: () => ({ width: 140, height: 40 }), getContext: () => ctx };
+    return { canvas: canvas as unknown as HTMLCanvasElement, styles };
+  }
+  const params = (o: Partial<TileParams> = {}): TileParams => ({
+    area: 0, open: true, speed: 50, direction: 0, pal: null, typing: [], plate: PLATE, cap: CAP, ringOff: 'rgba(255,255,255,0.10)', ...o,
+  });
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it('draws at most 30 frames a second, however fast the display (R11)', () => {
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    let queue: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { queue.push(cb); return queue.length; });
+    vi.stubGlobal('cancelAnimationFrame', () => { queue = []; });
+    const d = new Driver(() => PHYSICAL_KEYS, []);
+    const { canvas } = fakeCanvas();
+    d.setParams(params());
+    d.setTiles([{ canvas, mode: 4, known: true }]);
+    d.setGate({ detail: true, onScreen: true, tabVisible: true, reduced: false });
+    expect(d.running).toBe(true);
+    for (let i = 0; i < 200; i++) { // 1 s of a 200 Hz display
+      now += 5;
+      const q = queue;
+      queue = [];
+      for (const cb of q) cb(now);
+    }
+    expect(d.loopFrames).toBeLessThanOrEqual(31);
+    expect(d.loopFrames).toBeGreaterThanOrEqual(25);
+    d.destroy();
+  });
+
+  it('the area off and an unknown effect draw an unlit keyboard; a known effect with the area on is lit (R23, R24)', () => {
+    const draw = (o: Partial<TileParams>, known: boolean) => {
+      const d = new Driver(() => PHYSICAL_KEYS, []);
+      const { canvas, styles } = fakeCanvas();
+      d.setParams(params(o));
+      d.setGate({ detail: true, reduced: true }); // stills: one picture, no loop
+      d.setTiles([{ canvas, mode: 0, known }]);
+      d.destroy();
+      return new Set(styles);
+    };
+    expect([...draw({ open: false }, true)].sort()).toEqual([CAP, PLATE].sort());
+    expect([...draw({ open: true }, false)].sort()).toEqual([CAP, PLATE].sort());
+    expect([...draw({ open: true }, true)].some((c) => c.startsWith('rgba('))).toBe(true);
   });
 });

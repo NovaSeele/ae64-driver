@@ -861,7 +861,8 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
       <section v-else class="dock" :aria-label="t('lighting.effectsTitle')">
         <p v-if="!powered" class="dock__off" role="status">{{ t('lighting.powerOffHint') }}</p>
         <!-- a. Effects: a full-width first row, its buttons drawn in the chosen view (FXP §2–§4) -->
-        <div class="fx col--fx" role="group" :aria-labelledby="`${uid}-fx-title`">
+        <!-- the hint is the group's description: a plain div's description is never read when a tile gets focus -->
+        <div class="fx col--fx" role="group" :aria-labelledby="`${uid}-fx-title`" :aria-describedby="`${uid}-fx-hint`">
           <div class="col__head fx__head">
             <h3 :id="`${uid}-fx-title`" class="col__title">{{ t('lighting.effectsShort') }}</h3>
             <InfoTip class="col__tip" :text="t('lighting.effectsDesc')" placement="top" />
@@ -878,7 +879,6 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
               class="fx__grid"
               :class="[`fx__grid--${fxView}`, `fx__grid--a${area}`]"
               :style="{ '--n': modeCount }"
-              :aria-describedby="`${uid}-fx-hint`"
               @pointerover="onGridOver"
               @pointerleave="onGridLeave"
               @focusin="onGridFocus"
