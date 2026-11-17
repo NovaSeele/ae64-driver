@@ -171,7 +171,7 @@ export class MockTransport extends BaseTransport {
   /** Test hook: the reply to the next AGP1 command this returns true for is lost (the command still runs), as a timeout. */
   dropGamepadReply: ((cmd: number) => boolean) | null = null;
   private gamepadHandler: ((req: Uint8Array) => Uint8Array | null) | null = null;
-  /** The demo USB bus of the firmware page (an AE64 Pro only): its bootloader and failure flags (mockFirmware.ts). */
+  /** The demo USB bus of the firmware page: its bootloader and failure flags (mockFirmware.ts). */
   readonly fwMock: MockFwBus | null;
   /** Which device of the bus this is (`app`: the demo keyboard itself). */
   readonly fwLabel: string;
@@ -200,8 +200,9 @@ export class MockTransport extends BaseTransport {
     this.fwLabel = opts.fwLabel ?? 'app';
     this.seed = opts.seed ?? 'max';
     this.initOpts = { seed: opts.seed, fastLedReplies: opts.fastLedReplies, serial: opts.serial, firmware: opts.firmware, fwLabel: opts.fwLabel };
-    this.fwMock = opts.fwBus ?? (pro ? new MockFwBus(this.snapshot['01:02'].slice(17, 29), { fastLedReplies: opts.fastLedReplies }) : null);
-    if (pro && !opts.fwBus) this.fwMock?.attach(this);
+    // every demo keyboard (AE64 Pro and AE64 Max, DESIGN OFU §5) has its USB bus and bootloader
+    this.fwMock = opts.fwBus ?? new MockFwBus(this.snapshot['01:02'].slice(17, 29), { fastLedReplies: opts.fastLedReplies, model: pro ? 'pro' : 'max' });
+    if (!opts.fwBus) this.fwMock.attach(this);
     this.latencyMs = opts.latencyMs ?? 2;
     this.fastLedReplies = !!opts.fastLedReplies && typeof MessageChannel !== 'undefined';
     const sw = pro ? PRO_SWITCH : {};

@@ -1,5 +1,6 @@
-// The demo's USB bus for the firmware page (DESIGN FW §3.9): the demo AE64 Pro, its bootloader after `08 01`, and the keyboard
-// back after `08 04`, as strict as a real bootloader should be. Demo and tests only: the real path is HidFwPort (hid.ts).
+// The demo's USB bus for the firmware page (DESIGN FW §3.9, DESIGN OFU §5): the demo AE64 Pro or AE64 Max, its bootloader after
+// `08 01`, and the keyboard back after `08 04`, as strict as a real bootloader should be. Demo and tests only: the real path is
+// HidFwPort (hid.ts). The Max bootloader keeps the board and serial and reports version 1.0.5.0, as recorded on the real Max.
 //
 // Reviewers drive the failure branches from the console: `device.transport.fwMock.flags` (FwMockFlags below), and read
 // `fwMock.received` (every command each device got), `fwMock.violations` (must stay empty) and `fwMock.writes` (the `08 02` frames).
@@ -101,10 +102,13 @@ export function twinSerial(serial: readonly number[]): number[] | null {
   return walk(0) ? out.slice() : null;
 }
 
+/** The version field of a demo bootloader's `01 02`: the Max's as recorded; the Pro's is not known (zeros). */
+const bootFirmware = (board: readonly number[]): number[] => (board[3] === MAX_BOARD[3] ? [1, 0, 5, 0] : [0, 0, 0, 0]);
+
 /** A keyboard in its bootloader (run mode 255). Answers `01 02`, `08 02`, `08 03`, `08 04` only; anything else is a violation. */
 export class MockBootloader extends BaseTransport {
   readonly kind = 'mock' as const;
-  readonly productName = 'AE64 Pro (update mode, demo)';
+  readonly productName: string;
   readonly productId = 0x0000;
   private plugged = true;
   private pending: { frame: Uint8Array; resolve: (b: Bytes) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null;
@@ -117,9 +121,10 @@ export class MockBootloader extends BaseTransport {
 
   constructor(
     readonly bus: MockFwBus, readonly serial: readonly number[], readonly label: 'boot' | 'boot-twin' | 'boot-max' | 'boot-other',
-    private readonly board: readonly number[] = PRO_BOARD,
+    private readonly board: readonly number[] = bus.bootBoard,
   ) {
     super();
+    this.productName = board[3] === MAX_BOARD[3] ? 'AE64 Max (update mode, demo)' : 'AE64 Pro (update mode, demo)';
   }
 
   get connected(): boolean {
@@ -170,7 +175,7 @@ export class MockBootloader extends BaseTransport {
         return; // busy: no reply
       }
       const noSerial = f.bootNoSerial && this.label !== 'boot-other';
-      reply = bus.deviceInfo(f.bootNoBoard ? [0, 0, 0, 0] : [...this.board], noSerial ? new Array(12).fill(0) : this.serial, 255, [0, 0, 0, 0]);
+      reply = bus.deviceInfo(f.bootNoBoard ? [0, 0, 0, 0] : [...this.board], noSerial ? new Array(12).fill(0) : this.serial, 255, bootFirmware(this.board));
     } else if (frame[0] === 0x08 && frame[1] === 0x02) {
       const off = (frame[2] | (frame[3] << 8) | (frame[4] << 16) | (frame[5] << 24)) >>> 0;
       const len = frame[6] | (frame[7] << 8);
@@ -241,8 +246,8 @@ export class MockBootloader extends BaseTransport {
 }
 
 /**
- * The demo USB bus of one AE64 Pro (and the extra devices of FwMockFlags.extra). Implements FwPort for the firmware store.
- * Timers go through setTimeout, so tests drive it with fake timers.
+ * The demo USB bus of one AE64 Pro or AE64 Max (and the extra devices of FwMockFlags.extra). Implements FwPort for the firmware
+ * store. Timers go through setTimeout, so tests drive it with fake timers.
  */
 export class MockFwBus implements FwPort {
   readonly flags: FwMockFlags = defaultFwMockFlags();
@@ -262,7 +267,21 @@ export class MockFwBus implements FwPort {
   /** `01 02` the keyboard still leaves unanswered after `08 01` (FwMockFlags.enterQuiet). */
   private quiet = 0;
 
-  constructor(readonly serial: readonly number[], private readonly opts: { fastLedReplies?: boolean } = {}) {}
+  /** The keyboard of this bus: its bootloader's board, and the demo seed it comes back with. */
+  readonly model: 'pro' | 'max';
+
+  constructor(readonly serial: readonly number[], private readonly opts: { fastLedReplies?: boolean; model?: 'pro' | 'max' } = {}) {
+    this.model = opts.model ?? 'pro';
+  }
+
+  get bootBoard(): readonly number[] {
+    return this.model === 'max' ? MAX_BOARD : PRO_BOARD;
+  }
+
+  /** The demo seed of this bus's keyboard running its stock app. */
+  private get appSeed(): DemoSeed {
+    return this.model === 'max' ? 'max' : 'pro';
+  }
 
   now(): number {
     return Date.now();
@@ -354,7 +373,7 @@ export class MockFwBus implements FwPort {
   lose(boot: MockBootloader): void {
     this.unplug(boot);
     this.later(1500, () => this.plug(this.flags.lostIntoApp
-      ? new MockTransport({ seed: 'pro', serial: [...this.serial], fastLedReplies: this.opts.fastLedReplies, fwBus: this })
+      ? new MockTransport({ seed: this.appSeed, serial: [...this.serial], fastLedReplies: this.opts.fastLedReplies, fwBus: this })
       : new MockBootloader(this, this.serial, 'boot')));
   }
 
@@ -376,9 +395,9 @@ export class MockFwBus implements FwPort {
       return;
     }
     const known = knownFw(fwCrc32(image, FW_HEADER_BYTES));
-    const version = (f.version ?? known?.appVersion ?? '0.1.0.0').split('.').map((n) => Number(n) & 0xff);
-    const xinput = known ? (known.gamepad ? !f.noGamepad : f.staleGamepad) : false;
-    const seed: DemoSeed = xinput ? 'pro-xinput' : 'pro';
+    const version = (f.version ?? known?.appVersion ?? (this.model === 'max' ? '0.0.4.0' : '0.1.0.0')).split('.').map((n) => Number(n) & 0xff);
+    const xinput = this.model === 'pro' && (known ? (known.gamepad ? !f.noGamepad : f.staleGamepad) : false);
+    const seed: DemoSeed = xinput ? 'pro-xinput' : this.appSeed;
     this.later(f.appDelayMs, () => this.plug(new MockTransport({
       seed, serial: [...this.serial], firmware: version, fastLedReplies: this.opts.fastLedReplies, fwBus: this,
     })));

@@ -1,29 +1,31 @@
 <script setup lang="ts">
-// The coloured banner above the steps (DESIGN FW §3.1): done (green), rescue mode (red, an alert), AE64 Max (yellow, no steps).
+// The coloured banner above the steps (DESIGN FW §3.1): done (green), rescue mode (red, an alert), a board the app has no
+// firmware for (yellow, no steps; DESIGN OFU §5).
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { IconAlertOctagon, IconCircleCheck, IconInfoCircle, IconTarget } from '@tabler/icons-vue';
 import Button from '../ui/Button.vue';
 import Card from '../ui/Card.vue';
+import { boardHex } from '../../protocol/firmware';
 import { useFirmwareStore } from '../../stores/firmware';
 import { t } from '../../i18n/vi';
 
-const props = defineProps<{ kind: 'done' | 'doneUnknown' | 'rescue' | 'noBoard' | 'max' }>();
+const props = defineProps<{ kind: 'done' | 'doneUnknown' | 'rescue' | 'noBoard' | 'board' }>();
 const fw = useFirmwareStore();
 const router = useRouter();
 const title = ref<HTMLElement | null>(null);
 
-const tone = computed(() => (props.kind === 'done' || props.kind === 'doneUnknown' ? 'ok' : props.kind === 'max' ? 'warn' : 'danger'));
+const tone = computed(() => (props.kind === 'done' || props.kind === 'doneUnknown' ? 'ok' : props.kind === 'board' ? 'warn' : 'danger'));
 const icon = computed(() => (tone.value === 'ok' ? IconCircleCheck : tone.value === 'warn' ? IconInfoCircle : IconAlertOctagon));
 const heading = computed(() => {
-  if (props.kind === 'done' || props.kind === 'doneUnknown') return t('fw.done.title', { version: fw.doneVersion });
-  if (props.kind === 'max') return t('fw.max.title');
+  if (props.kind === 'done' || props.kind === 'doneUnknown') return t(fw.doneSame ? 'fw.done.titleSame' : 'fw.done.title', { version: fw.doneVersion });
+  if (props.kind === 'board') return t('fw.board.title', { board: fw.deviceBoard === null ? '—' : boardHex(fw.deviceBoard) });
   return t('fw.rescue.title');
 });
 const body = computed(() => {
   if (props.kind === 'done') return t('fw.done.body');
   if (props.kind === 'doneUnknown') return t('fw.done.bodyUnknown', { version: fw.doneVersion });
-  if (props.kind === 'max') return t('fw.max.body');
+  if (props.kind === 'board') return t('fw.board.body');
   return t(props.kind === 'noBoard' ? 'fw.rescue.noBoard' : 'fw.rescue.body');
 });
 const calibrate = () => void router.push({ path: '/performance', query: { tab: 'calibration' } });

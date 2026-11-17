@@ -162,6 +162,7 @@ export const useGamepadStore = defineStore('gamepad', () => {
     lastTravelIssues.value = [];
     stickMemory.clear();
     loadPromise = null;
+    kindRead = null;
   }, { flush: 'sync' });
 
   /** Dead zones of sticks switched to the square gate, restored when they go back to round (this page session only). */
@@ -215,6 +216,41 @@ export const useGamepadStore = defineStore('gamepad', () => {
   }
 
   let loadPromise: Promise<void> | null = null;
+
+  /** What firmwareKind() read on this connection (cleared by the connection watch above). */
+  let kindRead: 'stock' | 'agp1' | 'unknown' | null = null;
+  /** An answer this store already holds for this connection: a load() or upload that read INFO. */
+  const kindOfSupport = (): 'stock' | 'agp1' | null =>
+    support.value === 'ready' || support.value === 'newer' ? 'agp1' : support.value === 'stock' ? 'stock' : null;
+
+  /**
+   * Official firmware or the XInput build, for the Firmware page (DESIGN OFU §3.2, OFU-10). Sends nothing to an AE64 Max, to a
+   * keyboard not running its app, or with no keyboard; nothing when this store already knows (support `ready`, `newer`,
+   * `stock`, or an earlier answer of this method on this connection, unless `force`). Otherwise one INFO, queued in this
+   * store's chain (an upload or a load() already queued finishes first, and their answer is used when they got one). Never
+   * changes `support`, `info` or the draft, and never reads the block. A timeout or any error: 'unknown'.
+   */
+  function firmwareKind(force = false): Promise<'stock' | 'agp1' | 'unknown'> {
+    if (!device.connected || device.info?.runMode !== 0) return Promise.resolve('unknown');
+    if (device.model !== 'pro') return Promise.resolve('stock');
+    const held = kindOfSupport() ?? (force ? null : kindRead);
+    if (held) return Promise.resolve(held);
+    const gen = device.connection;
+    return serial(async () => {
+      if (gen !== device.connection || !device.connected) return 'unknown' as const;
+      const now = kindOfSupport() ?? (force ? null : kindRead);
+      if (now) return now;
+      let k: 'stock' | 'agp1' | 'unknown';
+      try {
+        k = (await device.withTransport((t) => t.gamepadInfo(), { exclusive: true })) ? 'agp1' : 'stock';
+      } catch (err) {
+        k = err instanceof GamepadNewerError ? 'agp1' : 'unknown';
+      }
+      if (gen !== device.connection) return 'unknown' as const;
+      kindRead = k;
+      return k;
+    });
+  }
 
   /** INFO + READ of the block. Cached until `force`. Never sends anything to an AE64 Max. */
   function load(force = false): Promise<void> {
@@ -677,7 +713,7 @@ export const useGamepadStore = defineStore('gamepad', () => {
   return {
     support, info, config, saved, revision, loadError, unconfirmed, notice, lastIssues, lastTravelIssues, dirty, usb, usbBusy, usbError,
     protocolVersion, newerProto, conflict, travelKnown, travelIssues, locked,
-    load, apply, readUsb, setXboxDevice, travelUm, fitToTravel, assign, assignWasd, unassign, setCurve, setStick, setMode, setTransport,
+    load, firmwareKind, apply, readUsb, setXboxDevice, travelUm, fitToTravel, assign, assignWasd, unassign, setCurve, setStick, setMode, setTransport,
     keepKeyboard, writeMine, readBack,
   };
 });

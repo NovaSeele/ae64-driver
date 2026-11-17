@@ -2,6 +2,10 @@
 // find the keyboard again, and rescue mode. Family 08 is never built here: the protocol layer (client.ts) does, for a ticket it
 // issued; this store only holds the ticket and drives the steps. Nothing is sent before the user presses the start (or, in rescue
 // mode, the write) button, apart from the `01 02` reads of the steps.
+//
+// Step 1 has two sources (DESIGN OFU §3): the online list (our `/firmware/manifest.json`; a build's file downloaded from the
+// maker's server only on a press, checked against the list's size and SHA-256) and a file on this computer. Neither sends
+// anything to the keyboard; on an AE64 Pro the page asks the gamepad store once per connection whether it runs XInput.
 import { defineStore } from 'pinia';
 import { computed, markRaw, ref, shallowRef, watch } from 'vue';
 import {
@@ -9,8 +13,11 @@ import {
   fwOtherBoot, fwSessionKeyboard, sessionFile, FW_PROBE_AGAIN_MS, FW_PROBE_TIMEOUT_MS, FW_PROBE_TRIES,
 } from '../protocol/client';
 import type { FwTicket } from '../protocol/client';
-import { FW_BOARD_PRO, FW_MAX_FILE, checkFile, serialReadable } from '../protocol/firmware';
+import { FW_MAX_FILE, KNOWN_FW, checkFile, fwModel, isFwBoard, learnFw, serialReadable, thirdPartyVersions } from '../protocol/firmware';
 import type { FwCheck, KnownFw } from '../protocol/firmware';
+import { asKnown, buildsFor, compareVersions, fwRelation, fwStatus } from '../protocol/fwManifest';
+import type { FwBuild, FwKind, FwList, FwListState, FwRelation } from '../protocol/fwManifest';
+import { FW_DIRECT, downloadBuild, fetchFwList, sha256Hex } from '../protocol/fwDownload';
 import type { FwPort } from '../protocol/fwPort';
 import { HidFwPort } from '../protocol/hid';
 import { FIRMWARE_LOCK, heldElsewhere, takeLock } from '../protocol/tabLock';
@@ -59,12 +66,34 @@ export interface FwMessage {
   paramKeys?: Record<string, MessageKey>;
 }
 
+/** A check line the online list adds (DESIGN OFU §3.4, §3.5): size and SHA-256 against the list, or "same firmware, other file". */
+export interface FwListLine {
+  key: 'listSize' | 'listSha' | 'listOther';
+  ok: boolean;
+}
+
 export interface FwFile {
   name: string;
   size: number;
-  /** The store's own copy (never the File again); null when the file was too big to read. */
+  /** The store's own copy (never the File again); null when the file was too big to read, or did not match the list. */
   bytes: Uint8Array | null;
   check: FwCheck | null;
+  /** Where it came from: downloaded from the online list, or a file on this computer. */
+  via: 'online' | 'local';
+  /** The listed build it was downloaded as, or whose payload CRC-32 it has (a local file). */
+  build: FwBuild | null;
+  /** The file's SHA-256, when the list was involved. */
+  sha256: string | null;
+  lines: FwListLine[];
+  /** A local file with a listed build's firmware part but another SHA-256: treated as unknown (the risk box). */
+  unlisted: boolean;
+}
+
+/** The download block of the online source (DESIGN OFU §3.3); a finished download becomes `file`. */
+export interface FwDownload {
+  build: FwBuild;
+  done: number;
+  state: 'run' | 'cut' | 'tooBig' | 'fallback' | 'noNet';
 }
 
 export type FwRow = 'todo' | 'now' | 'done' | 'fail';
@@ -73,10 +102,13 @@ const readFlag = (): boolean => {
   try { return localStorage.getItem(LABS_FIRMWARE_KEY) === '1'; } catch { return false; }
 };
 
-/** The typed confirmation: surrounding spaces and case ignored, inner spaces collapsed. */
-export const typedOk = (typed: string): boolean => typed.trim().replace(/\s+/g, ' ').toLowerCase() === 'ae64 pro';
+/** The typed confirmation: the keyboard's own model; surrounding spaces and case ignored, inner spaces collapsed. */
+export const typedOk = (typed: string, model: string | null): boolean =>
+  !!model && typed.trim().replace(/\s+/g, ' ').toLowerCase() === model.toLowerCase();
 
 let hidPort: HidFwPort | null = null;
+/** The demo seed of a keyboard back in its app after a session (DESIGN OFU §5: a Max comes back as the demo Max). */
+const demoSeedOf = (board: number, gamepad: boolean): DemoSeed => (fwModel(board) === 'AE64 Max' ? 'max' : gamepad ? 'pro-xinput' : 'pro');
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export const useFirmwareStore = defineStore('firmware', () => {
@@ -112,7 +144,25 @@ export const useFirmwareStore = defineStore('firmware', () => {
   const rescueBoard = ref<number | null>(null);
   /** Shown in the done banner / mismatch message. */
   const doneVersion = ref('');
+  /** The session wrote the version the keyboard already ran ("Đã ghi lại bản {v}"). */
+  const doneSame = ref(false);
   const port = shallowRef<FwPort | null>(null);
+  /** The version field of the bootloader's `01 02` (the card's Bootloader row), while the keyboard is in it. */
+  const bootVersion = ref<string | null>(null);
+
+  // ---- step 1's source and the online list (DESIGN OFU §3, §7, §8)
+  const source = ref<'online' | 'local'>('online');
+  const listState = ref<FwListState>('idle');
+  const list = shallowRef<FwList | null>(null);
+  /** On an AE64 Pro: official firmware or XInput (the gamepad store's INFO); null while not read yet. */
+  const kind = ref<FwKind | null>(null);
+  const dl = shallowRef<FwDownload | null>(null);
+  /** The version box of step 2 (DESIGN OFU §4.1). */
+  const verOk = ref(false);
+  let dlCtl: AbortController | null = null;
+  let dlGen = 0;
+  let listGen = 0;
+  let kindGen = 0;
 
   let ticket: FwTicket | null = null;
   let app: BaseTransport | null = null;
@@ -187,8 +237,9 @@ export const useFirmwareStore = defineStore('firmware', () => {
     otherWindow.value = await heldElsewhere(FIRMWARE_LOCK);
   }
 
-  const known = computed<KnownFw | null>(() => file.value?.check?.known ?? null);
-  const fileOk = computed(() => !!file.value?.check?.ok && !!file.value.bytes);
+  const known = computed<KnownFw | null>(() => (file.value?.unlisted ? null : file.value?.check?.known ?? null));
+  /** The five checks, the bytes, and (a download) size and SHA-256 against the list. */
+  const fileOk = computed(() => !!file.value?.check?.ok && !!file.value.bytes && file.value.lines.every((l) => l.ok || l.key === 'listOther'));
   const needsRisk = computed(() => fileOk.value && known.value?.kind !== 'official');
   /** Rescue with the switch off: only an official build the app knows. */
   const officialOnly = computed(() => rescue.value && !enabled.value);
@@ -206,13 +257,38 @@ export const useFirmwareStore = defineStore('firmware', () => {
   const busy = computed(() => (active.value ? null : busyKey()));
 
   const deviceBoard = computed<number | null>(() => (rescue.value ? rescueBoard.value : useDeviceStore().info?.boardId ?? null));
-  const isPro = computed(() => deviceBoard.value === FW_BOARD_PRO);
-  const canStart = computed(() => !active.value && isPro.value && fileOk.value && typedOk(typed.value)
-    && (!needsRisk.value || riskOk.value) && !busy.value && useDeviceStore().connected && !otherWindow.value);
+  /** The keyboard's board is one this app writes (AE64 Pro or AE64 Max). */
+  const boardOk = computed(() => isFwBoard(deviceBoard.value));
+  /** "AE64 Pro" / "AE64 Max": the word step 2 asks for. */
+  const model = computed(() => fwModel(deviceBoard.value));
+  /** The example of rescue mode's "official only" line: the board's newest official build the app knows. */
+  const officialExample = computed(() => {
+    const b = deviceBoard.value;
+    const best = KNOWN_FW.filter((k) => k.kind === 'official' && isFwBoard(b) && k.board === b >>> 0)
+      .sort((x, y) => compareVersions(y.appVersion, x.appVersion))[0];
+    return best ? `${best.name} ${best.version}` : 'AE64 Pro App 0.1.0.0';
+  });
+  /** The version the keyboard reports from its app (`01 02`, run mode 0); null in its bootloader or when not read. */
+  const current = computed<string | null>(() => {
+    const info = useDeviceStore().info;
+    return !rescue.value && info && info.runMode === 0 && info.firmware ? info.firmware : null;
+  });
+  const status = computed(() => fwStatus({
+    listState: listState.value, list: list.value, board: deviceBoard.value, rescue: rescue.value, current: current.value, kind: kind.value,
+  }));
+  /** The board's listed builds, newest first. */
+  const builds = computed(() => buildsFor(list.value, deviceBoard.value));
+  /** The chosen build against the keyboard (DESIGN OFU §4.1). */
+  const relation = computed<FwRelation | null>(() => (fileOk.value
+    ? fwRelation(known.value, { board: deviceBoard.value, current: current.value, kind: kind.value, rescue: rescue.value })
+    : null));
+  const needsVer = computed(() => relation.value !== null && relation.value !== 'newer');
+  const canStart = computed(() => !active.value && boardOk.value && fileOk.value && typedOk(typed.value, model.value)
+    && (!needsRisk.value || riskOk.value) && (!needsVer.value || verOk.value) && !busy.value && useDeviceStore().connected && !otherWindow.value);
   // bootTick is read first: `boot` is not reactive, so the computed must depend on the tick whatever it short-circuits on
   // (after the rescue bootloader left and another opened, the button stayed off).
   const canRescueWrite = computed(() => bootTick.value >= 0 && rescue.value && phase.value === 'rescue' && !!boot && boot.connected
-    && rescueBoard.value === FW_BOARD_PRO && fileOk.value && !rescueRefused.value && (!needsRisk.value || riskOk.value) && !otherWindow.value && lockAsking.value === 0);
+    && isFwBoard(rescueBoard.value) && fileOk.value && !rescueRefused.value && (!needsRisk.value || riskOk.value) && !otherWindow.value && lockAsking.value === 0);
   /** Bumped when the rescue bootloader comes or goes (canRescueWrite reads `boot`, which is not reactive). */
   const bootTick = ref(0);
   /** The session's bootloader connection is there (packetFail / verifyFail: "Write again" needs it). */
@@ -230,14 +306,30 @@ export const useFirmwareStore = defineStore('firmware', () => {
     const p0 = phase.value;
     const wasActive = active.value;
     const bytes = f.size > FW_MAX_FILE ? null : new Uint8Array(await f.arrayBuffer()).slice();
+    // DESIGN OFU §3.5: a file with a listed build's firmware part gets the SHA-256 line (the list is only read here)
+    const pre = bytes ? checkFile(bytes, deviceBoard.value) : null;
+    const listed = pre && listState.value === 'ok' ? buildsFor(list.value, pre.header.board).find((b) => b.crc32 === pre.crc) ?? null : null;
+    const sha = listed && bytes ? await sha256Hex(bytes) : null;
     // W-13: a session may have started (or moved on) while the file was read: it keeps its own file.
     if (mine !== epoch || started !== starts || phase.value !== p0 || active.value !== wasActive || !canChoose.value) return;
+    source.value = 'local';
+    endDownload();
+    await take({
+      name: f.name, size: f.size, bytes, via: 'local', build: listed, sha256: sha,
+      lines: listed ? [sha === listed.sha256 ? { key: 'listSha', ok: true } : { key: 'listOther', ok: false }] : [],
+      unlisted: !!listed && sha !== listed.sha256,
+    }, wasActive, p0);
+  }
+
+  /** The new file of step 1, from either source (W-04: after a failed write it opens rescue mode on the same bootloader). */
+  async function take(f: Omit<FwFile, 'check'>, wasActive: boolean, p0: FwPhase): Promise<void> {
     if (wasActive && p0 !== 'rescue') {
       // packetFail / verifyFail (W-04): rescue mode on the same bootloader connection, with a fresh `01 02` and its own checks.
       await openRescueOn(boot!);
       if (phase.value !== 'rescue') return;
     }
     riskOk.value = false;
+    verOk.value = false;
     error.value = null;
     if (!active.value) {
       // a new file after a finished or refused session: the page starts again at step 1
@@ -248,7 +340,124 @@ export const useFirmwareStore = defineStore('firmware', () => {
       otherSerial.value = false;
       sent.value = 0;
     }
-    file.value = markRaw({ name: f.name, size: f.size, bytes, check: bytes ? checkFile(bytes, deviceBoard.value) : null });
+    file.value = markRaw({ ...f, check: f.bytes ? checkFile(f.bytes, deviceBoard.value) : null });
+  }
+
+  // ---------------------------------------------------------------- step 1, online (DESIGN OFU §3.2, §3.3): no HID
+
+  /** Fetches the list (the page opened with Trực tuyến, "Thử lại", "Kiểm tra lại"). The fixed relative URL only. */
+  async function loadList(): Promise<void> {
+    if (listState.value === 'loading') return;
+    const mine = ++listGen;
+    listState.value = 'loading';
+    const r = await fetchFwList();
+    if (mine !== listGen) return;
+    if (r.kind === 'ok') {
+      // a listed official build not in KNOWN_FW is recognised by its CRC-32 for this page's life (§7.3)
+      for (const b of r.list.builds) if (isFwBoard(b.board)) learnFw(asKnown(b));
+      list.value = markRaw(r.list);
+    } else {
+      list.value = null;
+    }
+    listState.value = r.kind;
+  }
+
+  /** On an AE64 Pro running its app: official or XInput, through the gamepad store (once per connection; `force`: "Đọc lại"). */
+  async function readKind(force = false): Promise<void> {
+    const device = useDeviceStore();
+    if (active.value || rescue.value || !device.connected || device.model !== 'pro' || device.info?.runMode !== 0) return;
+    const mine = ++kindGen;
+    const gen = device.connection;
+    kind.value = null;
+    const k = await useGamepadStore().firmwareKind(force);
+    if (mine === kindGen && gen === device.connection) kind.value = k;
+  }
+
+  /** Ends a running download and drops its result (another source, "Đổi bản…", leaving the page). */
+  function endDownload(): void {
+    dlGen++;
+    dlCtl?.abort();
+    dlCtl = null;
+    dl.value = null;
+  }
+
+  /** The app downloads this build itself: the list allows it and this build of the app does (FW_DIRECT, DESIGN OFU v1.4 §8). */
+  function canFetch(b: FwBuild): boolean {
+    return FW_DIRECT && b.fetch;
+  }
+
+  /** "Tải về và kiểm tra" (and every other download button): the build's file, checked against the list. */
+  async function download(b: FwBuild): Promise<void> {
+    if (!canChoose.value || !builds.value.includes(b) || !canFetch(b)) return;
+    endDownload();
+    const mine = dlGen;
+    const started = starts;
+    const ctl = new AbortController();
+    dlCtl = ctl;
+    dl.value = markRaw<FwDownload>({ build: b, done: 0, state: 'run' });
+    const r = await downloadBuild(b, {
+      signal: ctl.signal,
+      onProgress: (done) => { if (mine === dlGen) dl.value = markRaw<FwDownload>({ build: b, done, state: 'run' }); },
+    });
+    if (mine !== dlGen) return;
+    dlCtl = null;
+    if (r.kind !== 'ok' && r.kind !== 'mismatch') {
+      dl.value = markRaw({ build: b, done: 'done' in r ? r.done : dl.value?.done ?? 0, state: r.kind });
+      return;
+    }
+    dl.value = null;
+    // a session may have started meanwhile: it keeps its own file (W-13)
+    if (started !== starts || !canChoose.value || source.value !== 'online') return;
+    const match = r.kind === 'ok';
+    await take({
+      name: b.file, size: r.bytes.length, bytes: match ? r.bytes : null, via: 'online', build: b, sha256: r.sha256,
+      lines: [{ key: 'listSize', ok: match || r.sizeOk }, { key: 'listSha', ok: match || r.shaOk }], unlisted: false,
+    }, active.value, phase.value);
+    // a mismatch keeps no bytes: its five checks are shown from this one look
+    const f = file.value;
+    if (!match && f?.via === 'online' && f.build === b) file.value = markRaw({ ...f, check: checkFile(r.bytes, deviceBoard.value) });
+  }
+
+  /** "Dừng tải": the download stops; the partial bytes are dropped. */
+  function stopDownload(): void {
+    dlCtl?.abort();
+  }
+
+  /** "Đổi bản…": back to the status card (a downloaded file is dropped). */
+  function backToList(): void {
+    if (!canChoose.value) return;
+    endDownload();
+    if (file.value?.via !== 'online') return;
+    file.value = null;
+    riskOk.value = false;
+    verOk.value = false;
+    if (!active.value) clear();
+  }
+
+  /** The source switch (DESIGN OFU §3.1): a running download ends, and a file not taken from the new source is cleared. */
+  function setSource(s: 'online' | 'local'): void {
+    if (!canChoose.value || s === source.value) return;
+    endDownload();
+    source.value = s;
+    if (file.value && file.value.via !== s) {
+      file.value = null;
+      riskOk.value = false;
+      verOk.value = false;
+      if (!active.value) clear();
+    }
+    if (s === 'online' && listState.value === 'idle') void loadList();
+  }
+
+  /** The page opens: Trực tuyến, the list (unless it is loaded or loading), the Pro's kind. Nothing is downloaded. */
+  function openPage(): void {
+    if (canChoose.value) source.value = 'online';
+    if (source.value === 'online' && listState.value !== 'ok' && listState.value !== 'loading') void loadList();
+    if (kind.value === null) void readKind();
+  }
+
+  /** The page closes: a running download stops. */
+  function leavePage(): void {
+    endDownload();
   }
 
   /** The device's board changed (rescue opened, another keyboard): check the chosen file again. */
@@ -256,6 +465,13 @@ export const useFirmwareStore = defineStore('firmware', () => {
     const f = file.value;
     if (f?.bytes) file.value = markRaw({ ...f, check: checkFile(f.bytes, b) });
   });
+  // another connection: its kind is read again (the gamepad store keeps one answer per connection)
+  watch(() => useDeviceStore().connection, () => {
+    kindGen++;
+    kind.value = null;
+  }, { flush: 'sync' });
+  /** A new file, or a new keyboard state (its version or kind), clears the version box. */
+  watch(relation, () => { verOk.value = false; });
 
   // ---------------------------------------------------------------- timers and listeners of one session
 
@@ -315,8 +531,10 @@ export const useFirmwareStore = defineStore('firmware', () => {
     lostIn.value = null;
     // 0. one window at a time (W-11): the firmware lock, for a real keyboard
     if (!device.demo && !(await takeFwLock())) return preflightFail({ key: 'fw.err.otherWindow' });
-    // 1. the typed name and the risk box, again at the press
-    if (!typedOk(typed.value) || (needsRisk.value && !riskOk.value)) return preflightFail(null);
+    // 1. the typed name, the risk box and the version box, again at the press
+    if (!typedOk(typed.value, model.value) || (needsRisk.value && !riskOk.value) || (needsVer.value && !verOk.value)) return preflightFail(null);
+    const rewrite = relation.value === 'same';
+    const f0 = file.value;
     // 2. nothing to write, pending or running
     try {
       await useSyncStore().flush();
@@ -327,9 +545,16 @@ export const useFirmwareStore = defineStore('firmware', () => {
     if (why) return preflightFail({ key: 'fw.err.busy', paramKeys: { reason: why } });
     // 3. every poller stops (exclusive), until the keyboard is handed back
     releaseExclusive = device.holdExclusive();
-    // 4. the session: the protocol layer copies the file, checks it and reads a fresh `01 02`
+    // 4. the list's SHA-256 again, on the very bytes handed to the session (DESIGN OFU §11)
+    const bytes = f0?.bytes;
+    if (!f0 || !bytes || file.value !== f0) return preflightFail({ key: 'fw.err.recheck', params: { dev: '' }, paramKeys: { reason: 'fw.why.file' } });
+    const want = f0.via === 'online' ? f0.build?.sha256 ?? '' : f0.lines.some((l) => l.key === 'listSha') ? f0.build?.sha256 ?? '' : null;
+    if (want !== null && (await sha256Hex(bytes)) !== want) {
+      return preflightFail({ key: 'fw.err.recheck', params: { dev: '' }, paramKeys: { reason: 'fw.why.file' } });
+    }
+    // 5. the session: the protocol layer copies the file, checks it and reads a fresh `01 02`
     try {
-      ticket = await t.beginFirmwareSession(file.value.bytes);
+      ticket = await t.beginFirmwareSession(bytes);
     } catch (err) {
       const reason: MessageKey = err instanceof FirmwareSessionError
         ? ({ mode: 'fw.why.mode', serial: 'fw.why.serial', board: 'fw.why.board', file: 'fw.why.file', official: 'fw.why.file' } as const)[err.reason]
@@ -339,6 +564,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     }
     app = t;
     isDemo = device.demo;
+    doneSame.value = rewrite;
     port.value = markRaw(portFor(t));
     total.value = sessionFile(ticket).packets;
     ident = fwSessionKeyboard(ticket);
@@ -428,7 +654,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     try {
       const r = await fwAttach(ticket, await port.value.list());
       if (mine !== epoch) return;
-      if (r.ok) return void attached(r.transport);
+      if (r.ok) return void attached(r.transport, r.info);
       if (r.why === 'many') return fail('manyBoot', { key: 'fw.err.manyBoot' });
       if (r.why === 'appBack') return void enterFailed(fwAppBack(ticket));
       if (r.why === 'wrong' && phase.value === 'needPermission') offerOther();
@@ -449,7 +675,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     if (mine !== epoch || !chosen.length) return;
     const r = await fwAttach(ticket, chosen).catch(() => null);
     if (mine !== epoch || !r) return;
-    if (r.ok) return void attached(r.transport);
+    if (r.ok) return void attached(r.transport, r.info);
     if (r.why === 'many') return fail('manyBoot', { key: 'fw.err.manyBoot' });
     // 'none': the device chosen has not answered yet (busy); the search goes on and asks it again (N-WX2-2), and the page
     // says so (N-WX2-4) until it answers, "Search again", the next "Allow…" or the session attaches
@@ -503,9 +729,10 @@ export const useFirmwareStore = defineStore('firmware', () => {
     }));
   }
 
-  function attached(t: BaseTransport): void {
+  function attached(t: BaseTransport, info: DeviceInfo): void {
     stopTimers();
     boot = t;
+    bootVersion.value = info.firmware;
     wrongDevice.value = false;
     notAnswered.value = false;
     otherSerial.value = false;
@@ -574,7 +801,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
       const r = await fwFind(ticket, list);
       if (mine !== epoch) return;
       if (r.ok) return void found(r.transport, r.info);
-      if (r.why === 'many') return fail('manyApp', { key: 'fw.err.manyApp' });
+      if (r.why === 'many') return fail('manyApp', { key: 'fw.err.manyApp', params: { model: model.value ?? 'AE64' } });
       if (r.why === 'boot') {
         const b = fwFoundBoot(ticket);
         if (b) return void openRescueOn(b);
@@ -603,10 +830,13 @@ export const useFirmwareStore = defineStore('firmware', () => {
       result = 'versionMismatch';
     } else {
       let gi: Awaited<ReturnType<BaseTransport['gamepadInfo']>> | 'error' = null;
-      try {
-        gi = await t.gamepadInfo();
-      } catch {
-        gi = 'error';
+      // only a board with an XInput build (the Pro) is asked: an AE64 Max never gets a family-0x10 frame (DESIGN OFU §5, §8)
+      if (thirdPartyVersions(info.boardId).length > 0) {
+        try {
+          gi = await t.gamepadInfo();
+        } catch {
+          gi = 'error';
+        }
       }
       if (mine !== epoch) return;
       gamepad = gi !== null && gi !== 'error';
@@ -622,8 +852,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     if (result === 'noGamepad') msg = { key: 'fw.err.noGamepad', params: { got } };
     phase.value = result;
     error.value = msg;
-    const seed: DemoSeed | undefined = isDemo ? (gamepad ? 'pro-xinput' : 'pro') : undefined;
-    await endSession(t, seed);
+    await endSession(t, isDemo ? demoSeedOf(info.boardId, gamepad) : undefined);
   }
 
   /**
@@ -641,12 +870,14 @@ export const useFirmwareStore = defineStore('firmware', () => {
     app = null;
     rescue.value = false;
     rescueBoard.value = null;
+    bootVersion.value = null;
     other = null;
     otherSerial.value = false;
     releaseExclusive?.();
     releaseExclusive = null;
     typed.value = '';
     riskOk.value = false;
+    verOk.value = false;
     const mine = epoch;
     let ok = false;
     try {
@@ -721,7 +952,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
   /** W-07: the session's keyboard runs its app again. Nothing more is sent but device.init's reads; the app unlocks. */
   async function backInApp(t: BaseTransport, info: DeviceInfo): Promise<void> {
     fail('appBack', { key: 'fw.err.appBack', params: { v: info.firmware } });
-    await endSession(t, isDemo ? 'pro' : undefined, () => { error.value = { key: 'fw.err.appBackNoApp', params: { v: info.firmware } }; });
+    await endSession(t, isDemo ? demoSeedOf(info.boardId, false) : undefined, () => { error.value = { key: 'fw.err.appBackNoApp', params: { v: info.firmware } }; });
   }
 
   // ---------------------------------------------------------------- rescue mode (DESIGN FW §3.6)
@@ -744,6 +975,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     active.value = true;
     rescue.value = true;
     rescueBoard.value = i && i.boardId !== 0 && i.boardId !== 0xffffffff ? i.boardId : null;
+    bootVersion.value = i?.firmware ?? null;
     if (rescueBoard.value !== null) {
       ident = { board: rescueBoard.value, serialHex: serialReadable(i!.serialHex) ? i!.serialHex : ident?.serialHex ?? null };
     }
@@ -764,6 +996,9 @@ export const useFirmwareStore = defineStore('firmware', () => {
   /** "Write firmware" in rescue mode: a session on the bootloader (its own `01 02`), then the same steps. */
   async function rescueWrite(): Promise<void> {
     if (!canRescueWrite.value || !boot || !file.value?.bytes) return;
+    // a download: the list's SHA-256 again on its bytes (DESIGN OFU §11); the press stays synchronous for a local file (W-13)
+    const f0 = file.value;
+    if (f0.via === 'online' && (!f0.build || !f0.bytes || (await sha256Hex(f0.bytes)) !== f0.build.sha256 || file.value !== f0 || !canRescueWrite.value)) return;
     // the lock was taken when rescue mode opened; a backstop only (no await when held: the press stays synchronous, W-13)
     if (!isDemo && !fwUnlock && (!(await takeFwLock()) || !canRescueWrite.value || !boot || !file.value?.bytes)) return;
     starts++;
@@ -909,8 +1144,10 @@ export const useFirmwareStore = defineStore('firmware', () => {
 
   return {
     enabled, active, rescue, phase, file, typed, riskOk, sent, total, error, wrongDevice, notAnswered, otherWindow, checkOtherWindow, otherSerial, rescueBoard, doneVersion, port,
-    rows, known, fileOk, needsRisk, officialOnly, rescueRefused, busy, isPro, canStart, canRescueWrite, deviceBoard, bootLive,
+    rows, known, fileOk, needsRisk, officialOnly, officialExample, rescueRefused, busy, boardOk, model, canStart, canRescueWrite, deviceBoard, bootLive,
     canChoose, setEnabled, chooseFile, start, allow, continueRescue, retry, findAgain, rescueWrite, openRescue, clear,
+    doneSame, bootVersion, source, listState, list, kind, dl, verOk, current, status, builds, relation, needsVer,
+    loadList, readKind, canFetch, download, stopDownload, backToList, setSource, openPage, leavePage,
     /** Test hook: wait for queued microtasks of the store. */
     _sleep: sleep,
   };

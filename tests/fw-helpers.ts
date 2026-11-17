@@ -41,9 +41,11 @@ export function crcTail(data: Uint8Array, target: number): number[] {
 const le32 = (b: Uint8Array, at: number, v: number) => { b[at] = v & 0xff; b[at + 1] = (v >>> 8) & 0xff; b[at + 2] = (v >>> 16) & 0xff; b[at + 3] = (v >>> 24) & 0xff; };
 
 /** A file with a right header: signature, board, offset 0x1000, payload length and CRC; payload from a fixed seed. */
-export function makeFw(o: { size?: number; board?: number; crc?: number; seed?: number } = {}): Uint8Array {
+export function makeFw(o: { size?: number; board?: number; crc?: number; seed?: number; pad?: number } = {}): Uint8Array {
   const size = o.size ?? 118_776;
   const b = new Uint8Array(size);
+  // the header's padding: zeros (Pro files) or 0xFF from byte 28 (the Max file, DESIGN OFU §5); no check reads it
+  if (o.pad !== undefined) b.fill(o.pad, 28, FW_HEADER_BYTES);
   b.set([0xa5, 0x5a, 0xaf, 0xbe], 0);
   le32(b, 4, o.board ?? FW_BOARD_PRO);
   le32(b, 8, FW_HEADER_BYTES);
@@ -62,6 +64,8 @@ export function makeFw(o: { size?: number; board?: number; crc?: number; seed?: 
 export const CRC = {
   v0100: 0xe7e8a423, v0080: 0xae146e4d, v0070: 0x157ec1ea, v0060: 0x518247de, v0050: 0x872a56bd,
   xinput081: 0x9d0c07b0, xinput08: 0x497b6355,
+  /** AE64 Max App 0.0.4.0 (board 0030000D) */
+  max0040: 0xf1a65817,
 } as const;
 
 /** A File as the page gets it (name, size, bytes). */
@@ -102,11 +106,12 @@ export function seq(bus: MockFwBus): string[] {
   return out;
 }
 
-/** Choose `bytes`, type the confirmation (and the risk box when asked), press start. */
-export async function startWith(fw: ReturnType<typeof useFirmwareStore>, bytes: Uint8Array, opts: { risk?: boolean } = {}) {
+/** Choose `bytes`, type the confirmation (and the risk and version boxes when asked: DESIGN OFU §4.1), press start. */
+export async function startWith(fw: ReturnType<typeof useFirmwareStore>, bytes: Uint8Array, opts: { risk?: boolean; ver?: boolean; typed?: string } = {}) {
   await fw.chooseFile(fileOf(bytes));
-  fw.typed = 'AE64 Pro';
+  fw.typed = opts.typed ?? 'AE64 Pro';
   if (opts.risk ?? fw.needsRisk) fw.riskOk = true;
+  if (opts.ver ?? fw.needsVer) fw.verOk = true;
   const started = fw.start();
   await run(0);
   return { started };

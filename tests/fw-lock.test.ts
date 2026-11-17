@@ -113,11 +113,11 @@ describe('3. the 08 lock', () => {
     expect(a.bus.writes).toEqual([]);
   });
 
-  it('an AE64 Max (board 0030000D) cannot open a session; nor can a file for another board', async () => {
+  it('an AE64 Max (board 0030000D) refuses a Pro file and a file for another board (0030000B) before any 08', async () => {
     const { t } = await demo('max');
     const sent = outs08(t);
     await expect(withTimers(t.beginFirmwareSession(makeFw({ crc: CRC.v0100 })))).rejects.toMatchObject({ reason: 'board', board: FW_BOARD_MAX });
-    await expect(withTimers(t.beginFirmwareSession(makeFw({ board: FW_BOARD_MAX })))).rejects.toBeInstanceOf(FirmwareSessionError);
+    await expect(withTimers(t.beginFirmwareSession(makeFw({ board: 0x0030000b })))).rejects.toBeInstanceOf(FirmwareSessionError);
     expect(sent).toEqual([]);
   });
 
@@ -147,7 +147,8 @@ describe('3. the 08 lock', () => {
       const notFw = pkt(112, 56); notFw[0] = 0x01; // a right 08 02 in every byte but the family
       expect(checkFirmwareFrame(notFw, g())).not.toBeNull();
       expect(checkFirmwareFrame(pkt(112, 56), null)).not.toBeNull();
-      expect(checkFirmwareFrame(pkt(112, 56), g({ board: FW_BOARD_MAX }))).not.toBeNull();
+      expect(checkFirmwareFrame(pkt(112, 56), g({ board: 0x0030000b }))).not.toBeNull(); // neither Pro nor Max
+      expect(checkFirmwareFrame(pkt(112, 56), g({ board: FW_BOARD_MAX }))).toBeNull(); // DESIGN OFU §5: the Max is written
       expect(checkFirmwareFrame(pkt(112, 56), g({ step: 'attached' }))).not.toBeNull();
       expect(checkFirmwareFrame(pkt(112, 56), g({ sender: 'app' }))).not.toBeNull();
       expect(checkFirmwareFrame(pkt(112, 56), g({ sender: 'other' }))).not.toBeNull();

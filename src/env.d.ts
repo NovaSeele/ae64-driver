@@ -21,6 +21,14 @@ declare module 'node:path' {
   export function join(...paths: string[]): string;
 }
 
+declare module 'node:child_process' {
+  export function execFileSync(file: string, args: string[], options: { encoding: 'utf8' }): string;
+}
+
+declare module 'node:crypto' {
+  export function createHash(algorithm: 'sha256'): { update(data: Uint8Array): { digest(encoding: 'hex'): string } };
+}
+
 declare module '*.vue' {
   import type { DefineComponent } from 'vue';
   const component: DefineComponent<object, object, unknown>;

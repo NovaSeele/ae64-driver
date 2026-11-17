@@ -14,6 +14,8 @@ withDefaults(defineProps<{
   /** A button that navigates: rendered as a link (<RouterLink>, opens in a new tab with a middle click) with the same
    *  look. A link has no type, disabled or busy state. */
   to?: RouteLocationRaw;
+  /** A link to another site with the same look: a new tab, no opener, no referrer. The slot should say it opens a tab. */
+  href?: string;
 }>(), { variant: 'secondary', size: 'md', type: 'button' });
 </script>
 
@@ -22,6 +24,18 @@ withDefaults(defineProps<{
     <component :is="icon" v-if="icon" class="btn__icon" :size="size === 'sm' ? 15 : 17" stroke-width="1.5" aria-hidden="true" />
     <span v-if="$slots.default" class="btn__label"><slot /></span>
   </RouterLink>
+  <a
+    v-else-if="href"
+    :href="href"
+    target="_blank"
+    rel="noopener noreferrer"
+    referrerpolicy="no-referrer"
+    class="btn"
+    :class="[`btn--${variant}`, `btn--${size}`, { 'btn--block': block }]"
+  >
+    <component :is="icon" v-if="icon" class="btn__icon" :size="size === 'sm' ? 15 : 17" stroke-width="1.5" aria-hidden="true" />
+    <span v-if="$slots.default" class="btn__label"><slot /></span>
+  </a>
   <button
     v-else
     :type="type"

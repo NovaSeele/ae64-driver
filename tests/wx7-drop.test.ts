@@ -92,6 +92,7 @@ describe('WX7 item 3: the window-level drop guard', () => {
     const fw = useFirmwareStore();
     expect(fw.canChoose).toBe(true);
     const choose = vi.spyOn(fw, 'chooseFile').mockResolvedValue(undefined as never);
+    fw.setSource('local'); // DESIGN OFU §3.1: the page opens on Trực tuyến; the drop zone is File trên máy
     w = mount(FwFileStep, { attachTo: document.body });
     const zone = w.find('.fw-drop');
     const file = new File([new Uint8Array(4)], 'fw.bin');

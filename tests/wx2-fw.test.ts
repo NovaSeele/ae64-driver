@@ -333,7 +333,7 @@ describe('W-06: a bootloader with another serial', { timeout: 60_000 }, () => {
     expect(s.fw.phase).toBe('needPermission');
     const w = mount(FwEnterStep);
     await nextTick();
-    expect(w.text()).toContain(tr('fw.s2.otherSerial'));
+    expect(w.text()).toContain(tr('fw.s2.otherSerial', { model: 'AE64 Pro' }));
     await run(10_000);
     expect(s.bus.writes).toEqual([]);
     await w.findAll('button').find((b) => b.text() === tr('fw.s2.otherSerialBtn'))!.trigger('click');
@@ -436,6 +436,7 @@ describe('W-13: a file read while a session starts', { timeout: 60_000 }, () => 
     const first = makeFw({ crc: CRC.v0100 });
     await s.fw.chooseFile(fileOf(first, 'first.bin'));
     s.fw.typed = 'AE64 Pro';
+    if (s.fw.needsVer) s.fw.verOk = true; // DESIGN OFU §4.1: 0.1.0.0 on the demo Pro (0.1.0.0) asks for the version box
     let finish!: () => void;
     const second = makeFw({ crc: CRC.v0080, seed: 3 });
     const slow = { name: 'second.bin', size: second.length, arrayBuffer: () => new Promise<ArrayBuffer>((r) => { finish = () => r(second.slice().buffer); }) } as unknown as File;

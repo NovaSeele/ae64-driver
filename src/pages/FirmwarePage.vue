@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Firmware page (DESIGN FW §1, §2, §3.1): three step cards (file → update mode → write) and a side column (the keyboard, notes).
-// AE64 Pro only; on an AE64 Max the page is view-only (a banner, no steps, no command). Behind the labs switch (router guard),
-// except rescue mode. Opening the page, choosing a file and typing the confirmation send nothing to the keyboard.
+// AE64 Pro and AE64 Max (DESIGN OFU §5); on another board the page is view-only (a banner, no steps, no command). Behind the labs
+// switch (router guard), except rescue mode. Opening the page, reading the online list, downloading or choosing a file and typing
+// the confirmation send nothing to the keyboard (on an AE64 Pro, the gamepad store's one INFO per connection: DESIGN OFU §8).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   IconAlertTriangle, IconRefresh, IconCircleCheck, IconCircleX, IconCheck, IconDatabaseExport, IconLifebuoy, IconPlugConnected, IconTarget,
@@ -16,7 +17,7 @@ import FwBanner from '../components/firmware/FwBanner.vue';
 import FwFileStep from '../components/firmware/FwFileStep.vue';
 import FwEnterStep from '../components/firmware/FwEnterStep.vue';
 import FwWriteStep from '../components/firmware/FwWriteStep.vue';
-import { FW_BOARD_MAX, FW_BOARD_PRO, boardHex } from '../protocol/firmware';
+import { boardHex, fwModel, isFwBoard } from '../protocol/firmware';
 import { useDeviceStore } from '../stores/device';
 import { useFirmwareStore } from '../stores/firmware';
 import type { FwPhase } from '../stores/firmware';
@@ -28,7 +29,8 @@ const device = useDeviceStore();
 const fw = useFirmwareStore();
 
 const board = computed(() => fw.deviceBoard);
-const isMax = computed(() => !fw.rescue && board.value === FW_BOARD_MAX);
+/** A board the app has no firmware for: view only. */
+const viewOnly = computed(() => !fw.rescue && board.value !== null && !isFwBoard(board.value));
 const inBoot = computed(() => fw.rescue || ['writing', 'packetFail', 'verifying', 'verifyFail', 'rebooting', 'lost'].includes(fw.phase));
 
 const ENTER: FwPhase[] = ['preflight', 'entering', 'needPermission'];
@@ -94,7 +96,7 @@ watch(focusKey, async (k, old) => {
 });
 
 const bannerKind = computed(() => {
-  if (isMax.value) return 'max' as const;
+  if (viewOnly.value) return 'board' as const;
   if (fw.rescue) return fw.rescueBoard === null ? 'noBoard' as const : 'rescue' as const;
   if (fw.phase === 'done') return 'done' as const;
   if (fw.phase === 'doneUnknown') return 'doneUnknown' as const;
@@ -103,11 +105,20 @@ const bannerKind = computed(() => {
 
 // ---- side: the keyboard
 const model = computed(() => {
-  if (fw.rescue) return board.value === FW_BOARD_PRO ? 'AE64 Pro' : '—';
+  if (fw.rescue) return fwModel(board.value) ?? '—';
   return device.modelName ?? '—';
 });
 const boardText = computed(() => (board.value === null ? '—' : boardHex(board.value)));
 const firmware = computed(() => (inBoot.value ? '—' : device.info?.firmware ?? '—'));
+/** The bootloader's own version (DESIGN OFU §6), only while the keyboard is in it; 0.0.0.0 means it does not say. */
+const bootVersion = computed(() => (fw.bootVersion && fw.bootVersion !== '0.0.0.0' ? fw.bootVersion : '—'));
+
+// ---- step 1's online source (DESIGN OFU §3): the list on opening; on an AE64 Pro, whether it runs XInput (once per connection)
+onMounted(() => fw.openPage());
+onBeforeUnmount(() => fw.leavePage());
+watch(() => [device.connection, device.connected, device.info?.runMode, fw.active, fw.rescue] as const, () => {
+  if (!fw.active && !fw.rescue && fw.kind === null) void fw.readKind();
+});
 
 // ---- the desktop app: closing the window while a session runs asks first (DESIGN FW §3.4)
 const closeAsk = ref(false);
@@ -141,7 +152,7 @@ function closeAnyway(): void {
           <p class="fw-other__t"><IconAlertTriangle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.otherWindow') }}</span></p>
           <Button size="sm" :icon="IconRefresh" @click="fw.checkOtherWindow()">{{ t('fw.otherWindowRetry') }}</Button>
         </div>
-        <ol v-if="!isMax" class="fw-steps">
+        <ol v-if="!viewOnly" class="fw-steps">
           <li v-for="s in steps" :key="s.n" :ref="(el) => { stepEls[s.n] = el as HTMLElement | null }">
             <Card class="fws" :class="`fws--${s.state}`" :aria-labelledby="`fws-${s.n}`">
               <div class="fws__head">
@@ -173,6 +184,7 @@ function closeAnyway(): void {
             <dt>{{ t('fw.dev.model') }}</dt><dd>{{ model }}</dd>
             <dt>{{ t('fw.dev.board') }}</dt><dd>{{ boardText }}</dd>
             <dt>{{ t('fw.dev.version') }}</dt><dd>{{ firmware }}</dd>
+            <template v-if="inBoot"><dt>{{ t('fw.dev.boot') }}</dt><dd data-test="fw-boot-version">{{ bootVersion }}</dd></template>
             <dt>{{ t('fw.dev.mode') }}</dt><dd :class="{ boot: inBoot }">{{ t(inBoot ? 'fw.dev.modeBoot' : 'fw.dev.modeApp') }}</dd>
           </dl>
         </Card>

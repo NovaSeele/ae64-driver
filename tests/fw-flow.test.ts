@@ -1,7 +1,7 @@
 // DESIGN FW §11 tests 4, 5, 6, 8, 9, 10 (the store part), 11 (rescue) and 12: the session on the demo bus (fake bootloader),
 // fake timers with the real waits (6 s / 3 s per packet / 10 s / 3 s + 20 s).
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { FW_BOARD_MAX, FW_BOARD_PRO } from '../src/protocol/firmware';
+import { FW_BOARD_PRO } from '../src/protocol/firmware';
 import { MockBootloader } from '../src/protocol/mockFirmware';
 import type { MockFwBus } from '../src/protocol/mockFirmware';
 import { MockTransport } from '../src/protocol/mock';
@@ -53,6 +53,7 @@ describe('9. a full write on the demo Pro, and the versions after it', { timeout
     // 12. opening the page, choosing the file and typing send nothing
     await s.fw.chooseFile(fileOf(file));
     s.fw.typed = 'AE64 Pro';
+    if (s.fw.needsVer) s.fw.verOk = true; // DESIGN OFU §4.1: 0.1.0.0 on the demo Pro (0.1.0.0) asks for the version box
     await run(1000);
     expect(s.bus.received).toEqual([]);
     expect(s.fw.needsRisk).toBe(false);
@@ -352,6 +353,7 @@ describe('8. before 08 01 (preflight)', { timeout: 60_000 }, () => {
     const s = await demo('pro');
     await s.fw.chooseFile(fileOf(makeFw({ crc: CRC.v0100 })));
     s.fw.typed = 'AE64 Pro';
+    if (s.fw.needsVer) s.fw.verOk = true; // DESIGN OFU §4.1: 0.1.0.0 on the demo Pro (0.1.0.0) asks for the version box
     expect(s.fw.canStart).toBe(true);
     const cases: [string, () => () => void][] = [
       ['fw.busy.write', () => s.device.holdExclusive()],
@@ -380,6 +382,7 @@ describe('8. before 08 01 (preflight)', { timeout: 60_000 }, () => {
     ];
     for (const [key, make] of cases) {
       s.fw.typed = 'AE64 Pro';
+      if (s.fw.needsVer) s.fw.verOk = true; // DESIGN OFU §4.1: 0.1.0.0 on the demo Pro (0.1.0.0) asks for the version box
       expect(s.fw.canStart, key).toBe(true);
       vi.spyOn(sync, 'flush').mockImplementation(async () => { make(); });
       await s.fw.start();
@@ -401,6 +404,7 @@ describe('8. before 08 01 (preflight)', { timeout: 60_000 }, () => {
     await s.fw.chooseFile(f);
     new Uint8Array(await f.arrayBuffer()).fill(0xee); // the bytes the File handed out
     s.fw.typed = 'AE64 Pro';
+    if (s.fw.needsVer) s.fw.verOk = true; // DESIGN OFU §4.1: 0.1.0.0 on the demo Pro (0.1.0.0) asks for the version box
     void s.fw.start();
     await until(ended(s));
     expect(s.fw.phase).toBe('done');
@@ -482,14 +486,17 @@ describe('8. before 08 01 (preflight)', { timeout: 60_000 }, () => {
     expect(s.bus.received).toEqual([]);
   });
 
-  it('12. AE64 Max: nothing can start, 0 commands', async () => {
+  it('12. AE64 Max (DESIGN OFU §5): a Pro file fails the board line, "AE64 Pro" does not confirm, nothing can start, 0 commands', async () => {
     const s = await demo('max');
-    expect(s.bus).toBeNull(); // no firmware bus on a Max
+    expect(s.bus).not.toBeNull(); // the demo Max has the demo USB bus too
     const sent: number[][] = [];
     s.t.onPacketRaw((d, b) => { if (d === 'out') sent.push([b[0], b[1]]); });
     await s.fw.chooseFile(fileOf(makeFw({ crc: CRC.v0100 })));
     s.fw.typed = 'AE64 Pro';
-    expect(s.fw.isPro).toBe(false);
+    expect(s.fw.boardOk).toBe(true);
+    expect(s.fw.model).toBe('AE64 Max');
+    expect(s.fw.file?.check?.lines.find((l) => l.key === 'board')?.ok).toBe(false);
+    expect(s.fw.fileOk).toBe(false);
     expect(s.fw.canStart).toBe(false);
     await s.fw.start();
     await run(5000);
@@ -929,7 +936,9 @@ describe('FW-TEST-1. real WebHID: HidTransport and HidFwPort on a fake navigator
 
 // FW review FW-TEST-3: one test per guard the reviewer's mutants showed untested (mutFW.cjs R2…R15, Sa…Sk, Dc…De).
 describe('FW-TEST-3. guards the review mutants found untested', { timeout: 60_000 }, () => {
-  const MAX_BOOT_BOARD = [0x00, 0x30, 0x00, 0x0d];
+  /** A board the app writes no firmware for (neither 0030000A nor 0030000D). */
+  const OTHER_BOARD = 0x0030000b;
+  const OTHER_BOOT_BOARD = [0x00, 0x30, 0x00, 0x0b];
   /** Commands the bus saw from index `from` on, as "dev cmd". */
   const after = (bus: MockFwBus, from: number) => bus.received.slice(from).map((r) => `${r.dev} ${r.cmd}`);
 
@@ -1126,20 +1135,20 @@ describe('FW-TEST-3. guards the review mutants found untested', { timeout: 60_00
     expect(s.bus.violations).toEqual([]);
   });
 
-  it('Sf: rescue on a bootloader of board 0030000D: no write even with a file for that board and the risk box', async () => {
+  it('Sf: rescue on a bootloader of board 0030000B (neither Pro nor Max): no write even with a file for that board and the risk box', async () => {
     const s = await demo('pro');
     s.fw.setEnabled(true);
     s.bus.replugAsBootloader();
     await run(1000);
     for (const d of await s.bus.list()) if (d instanceof MockBootloader) s.bus.unplug(d);
-    const boot = new MockBootloader(s.bus, new Array(12).fill(0), 'boot-max', MAX_BOOT_BOARD);
+    const boot = new MockBootloader(s.bus, new Array(12).fill(0), 'boot-other', OTHER_BOOT_BOARD);
     s.bus.plug(boot);
     const p = s.device.adoptFromFirmware(boot, true);
     await run(500);
     await p;
     expect(s.fw.rescue).toBe(true);
-    expect(s.fw.rescueBoard).toBe(FW_BOARD_MAX);
-    await s.fw.chooseFile(fileOf(makeFw({ board: FW_BOARD_MAX })));
+    expect(s.fw.rescueBoard).toBe(OTHER_BOARD);
+    await s.fw.chooseFile(fileOf(makeFw({ board: OTHER_BOARD })));
     s.fw.riskOk = true;
     expect(s.fw.canRescueWrite).toBe(false);
     await s.fw.rescueWrite();

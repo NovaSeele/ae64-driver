@@ -1,22 +1,33 @@
 <script setup lang="ts">
-// Step 2 (DESIGN FW §3.1, §3.3): what will happen, the typed confirmation ("AE64 Pro"), the risk box for a third-party or
-// unknown file, then "Bắt đầu cập nhật". While waiting for the bootloader: a spinner, and the "Allow…" button when the browser
+// Step 2 (DESIGN FW §3.1, §3.3; DESIGN OFU §4): what will happen (per model), the typed confirmation (the keyboard's model), the
+// version box for a rewrite, an older or a third-party build, the risk box for a third-party or unknown file, then the start
+// button. While waiting for the bootloader: a spinner, and the "Allow…" button when the browser
 // has no permission for it yet (a real click: requestDevice cannot run by itself).
 import { computed } from 'vue';
 import { IconAlertCircle, IconInfoCircle, IconLifebuoy, IconPlayerPlay, IconRefresh, IconUsb } from '@tabler/icons-vue';
 import Button from '../ui/Button.vue';
 import { typedOk, useFirmwareStore } from '../../stores/firmware';
 import { t } from '../../i18n/vi';
+import type { MessageKey } from '../../i18n/vi';
 import { fwText } from './fwText';
 
 const fw = useFirmwareStore();
-const MODEL = 'AE64 Pro';
+const modelName = computed(() => fw.model ?? 'AE64 Pro');
 const [before, after] = t('fw.s2.type', { model: '\u0000' }).split('\u0000');
 
 const waiting = computed(() => fw.phase === 'preflight' || fw.phase === 'entering' || fw.phase === 'needPermission');
 /** The form shows before a session, and again after one that stopped before `08 01` (nothing was written). */
 const form = computed(() => !fw.active && !fw.rescue && fw.fileOk && ['idle', 'preflightFail', 'enterFail'].includes(fw.phase));
-const ok = computed(() => typedOk(fw.typed));
+const ok = computed(() => typedOk(fw.typed, fw.model));
+/** The version box (DESIGN OFU §4.1): a rewrite, an older build, official over XInput, or a Pro whose kind is unknown. */
+const verBox = computed(() => {
+  const r = fw.relation;
+  if (!fw.needsVer || !r || r === 'newer') return '';
+  const v = fw.known?.version ?? '';
+  const key: MessageKey = r === 'same' ? 'fw.box.same' : r === 'older' ? 'fw.box.older' : r === 'third' ? 'fw.box.third' : 'fw.box.kindUnknown';
+  return t(key, { v });
+});
+const startLabel = computed(() => t(fw.relation === 'same' ? 'fw.s2.startSame' : fw.relation === 'older' ? 'fw.s2.startOlder' : 'fw.s2.start'));
 const busyText = computed(() => (fw.busy ? t('fw.err.busy', { reason: t(fw.busy) }) : ''));
 const err = computed(() => (fw.phase === 'preflightFail' || fw.phase === 'enterFail' || fw.phase === 'manyBoot' ? fwText(fw.error) : ''));
 </script>
@@ -25,11 +36,11 @@ const err = computed(() => (fw.phase === 'preflightFail' || fw.phase === 'enterF
   <template v-if="fw.rescue" />
   <p v-else-if="!fw.fileOk && !fw.active" class="fws__p">{{ t('fw.s2.need1') }}</p>
   <template v-else-if="form">
-    <p class="fws__p">{{ t('fw.s2.body') }}</p>
+    <p class="fws__p">{{ t(fw.model === 'AE64 Max' ? 'fw.s2.bodyMax' : 'fw.s2.body') }} {{ t('fw.s2.time') }}</p>
     <p v-if="err" class="fw-err" role="alert"><IconAlertCircle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ err }}</span></p>
     <div class="fw-confirm">
       <div class="fw-field">
-        <label for="fw-type">{{ before }}<code>{{ MODEL }}</code>{{ after }}</label>
+        <label for="fw-type">{{ before }}<code>{{ modelName }}</code>{{ after }}</label>
         <input
           id="fw-type"
           v-model="fw.typed"
@@ -40,8 +51,12 @@ const err = computed(() => (fw.phase === 'preflightFail' || fw.phase === 'enterF
           :aria-invalid="fw.typed !== '' && !ok ? true : undefined"
         />
       </div>
-      <Button v-if="!fw.otherWindow" variant="danger" :icon="IconPlayerPlay" :disabled="!fw.canStart" @click="fw.start()">{{ t('fw.s2.start') }}</Button>
+      <Button v-if="!fw.otherWindow" variant="danger" :icon="IconPlayerPlay" :disabled="!fw.canStart" @click="fw.start()">{{ startLabel }}</Button>
     </div>
+    <label v-if="verBox" class="fw-risk" data-test="ofu-verbox">
+      <input v-model="fw.verOk" type="checkbox" aria-describedby="fw-ver-line" />
+      <span>{{ verBox }}</span>
+    </label>
     <label v-if="fw.needsRisk" class="fw-risk">
       <input v-model="fw.riskOk" type="checkbox" aria-describedby="fw-risk-line" />
       <span>{{ t('fw.risk') }}</span>
@@ -60,11 +75,11 @@ const err = computed(() => (fw.phase === 'preflightFail' || fw.phase === 'enterF
         <IconInfoCircle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.s2.notAnswered') }}</span>
       </p>
       <p v-if="fw.wrongDevice" class="fw-err" role="alert">
-        <IconAlertCircle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.s2.wrongDevice') }}</span>
+        <IconAlertCircle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.s2.wrongDevice', { model: modelName }) }}</span>
       </p>
       <template v-if="fw.otherSerial">
         <p class="fw-err" role="alert">
-          <IconAlertCircle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.s2.otherSerial') }}</span>
+          <IconAlertCircle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.s2.otherSerial', { model: modelName }) }}</span>
         </p>
         <div><Button variant="danger" :icon="IconLifebuoy" @click="fw.continueRescue()">{{ t('fw.s2.otherSerialBtn') }}</Button></div>
       </template>

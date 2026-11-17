@@ -293,6 +293,8 @@ describe('14. the UI during a session', { timeout: 60_000 }, () => {
     const top = keep(mount(TopBar, { global: { plugins: [router] }, attachTo: document.body }));
     const page = keep(mount(FirmwarePage, { global: { plugins: [router] }, attachTo: document.body }));
     await flushPromises();
+    // DESIGN OFU §3.2: the page reads the list (offline here: no network) and, on a Pro, its kind; both settle first
+    await vi.waitFor(() => { expect(s.fw.kind).not.toBeNull(); expect(s.fw.listState).not.toBe('loading'); });
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
     return { ...s, router, side, top, page };
   }
@@ -400,6 +402,7 @@ describe('14. the UI during a session', { timeout: 60_000 }, () => {
     await run(0);
     expect(document.activeElement?.id).toBe('fws-2');
     m.fw.typed = 'AE64 Pro';
+    if (m.fw.needsVer) m.fw.verOk = true; // DESIGN OFU §4.1: 0.1.0.0 on the demo Pro (0.1.0.0) asks for the version box
     await run(0);
     expect(document.activeElement?.id).toBe('fws-2'); // typing never moves the focus
     void m.fw.start();

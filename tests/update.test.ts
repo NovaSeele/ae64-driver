@@ -11,6 +11,12 @@ import { t as tr } from '../src/i18n/vi';
 
 describe('update', () => {
   describe('computeReleaseFileList', () => {
+    it('OFU §8: the firmware list is never in release.json (so the worker never precaches it)', () => {
+      const files = computeReleaseFileList(['index.html', 'firmware/manifest.json', 'firmware/x.json', 'assets/a.js', 'firmware.svg']);
+      expect(files.filter((f) => f.startsWith('firmware/'))).toEqual([]);
+      expect(files).toContain('assets/a.js');
+      expect(files).toContain('firmware.svg');
+    });
     it('filters out sw.js and release.json, and includes ./ and index.html', () => {
       const bundle = {
         'assets/index-abc.js': {},

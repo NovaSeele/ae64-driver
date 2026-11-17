@@ -34,7 +34,8 @@ export function computeReleaseFileList(bundle: Record<string, unknown> | string[
   set.add('index.html');
   for (const f of keys) {
     const normalised = f.replace(/\\/g, '/').replace(/^\.\//, '');
-    if (!normalised || normalised === 'release.json' || normalised === 'sw.js') continue;
+    // the firmware list (DESIGN OFU §8) is read from the network only: never precached
+    if (!normalised || normalised === 'release.json' || normalised === 'sw.js' || normalised.startsWith('firmware/')) continue;
     set.add(normalised);
   }
   return Array.from(set).sort();

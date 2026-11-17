@@ -36,7 +36,8 @@ describe.skipIf(!DIR)('real firmware files (AE64_FW_DIR)', { timeout: 120_000 },
   it('1. the seven files: five ✓ each, identified as the right build (version, appVersion, gamepad)', () => {
     const files = readAll();
     expect([...files.keys()].sort()).toEqual(REAL.map((r) => r.crc).sort());
-    expect(KNOWN_FW.map((k) => crcHex(k.crc)).sort()).toEqual(REAL.map((r) => r.crc).sort());
+    // the folder holds the seven AE64 Pro files; the table's AE64 Max build (DESIGN OFU §5) has no file here
+    expect(KNOWN_FW.filter((k) => k.board === FW_BOARD_PRO).map((k) => crcHex(k.crc)).sort()).toEqual(REAL.map((r) => r.crc).sort());
     for (const r of REAL) {
       const b = files.get(r.crc)!;
       expect(b.length, r.crc).toBe(r.size);

@@ -56,18 +56,24 @@ describe('1. the file check (synthetic files, always run)', () => {
     expect(checkFile(file, dev.boardId).ok).toBe(true);
     expect(boardHex(FW_BOARD_PRO)).toBe('0030000A');
   });
-  it('KNOWN_FW: seven builds, keyed by CRC-32, frozen; a synthetic file with a known CRC is taken for that build', () => {
+  it('KNOWN_FW: eight builds (seven Pro, one Max), keyed by CRC-32, frozen; a synthetic file with a known CRC is taken for that build', () => {
     expect(KNOWN_FW.map((k) => `${crcHex(k.crc)} ${k.kind} ${k.version} ${k.appVersion}`)).toEqual([
       'e7e8a423 official 0.1.0.0 0.1.0.0', 'ae146e4d official 0.0.8.0 0.0.8.0', '157ec1ea official 0.0.7.0 0.0.7.0',
       '518247de official 0.0.6.0 0.0.6.0', '872a56bd official 0.0.5.0 0.0.5.0', '9d0c07b0 third 0.8.1 0.1.0.0', '497b6355 third 0.8 0.1.0.0',
+      'f1a65817 official 0.0.4.0 0.0.4.0',
     ]);
-    expect(KNOWN_FW.map((k) => k.gamepad)).toEqual([null, null, null, null, null, { agp: 1, caps: 30 }, { agp: 1, caps: null }]);
+    expect(KNOWN_FW.map((k) => k.board)).toEqual([...new Array(7).fill(FW_BOARD_PRO), FW_BOARD_MAX]);
+    expect(KNOWN_FW.map((k) => k.gamepad)).toEqual([null, null, null, null, null, { agp: 1, caps: 30 }, { agp: 1, caps: null }, null]);
     expect(Object.isFrozen(KNOWN_FW) && KNOWN_FW.every((k) => Object.isFrozen(k))).toBe(true);
     for (const [name, crc] of Object.entries(CRC)) {
-      const f = makeFw({ crc, seed: crc });
+      const board = crc === CRC.max0040 ? FW_BOARD_MAX : FW_BOARD_PRO;
+      const f = makeFw({ crc, seed: crc, board, pad: board === FW_BOARD_MAX ? 0xff : undefined });
       expect(fwCrc32(f, FW_HEADER_BYTES), name).toBe(crc);
-      expect(checkFile(f, FW_BOARD_PRO).known, name).toBe(knownFw(crc));
+      expect(checkFile(f, board).known, name).toBe(knownFw(crc));
+      expect(checkFile(f, board).ok, name).toBe(true); // the Max's 0xFF padding passes (no check reads it)
     }
+    // a build is known only on its own board: the Max CRC in a Pro file is not the Max build
+    expect(knownFw(CRC.max0040, FW_BOARD_PRO)).toBeNull();
     expect(checkFile(makeFw({ crc: CRC.v0100, board: FW_BOARD_MAX }), FW_BOARD_PRO).known).toBeNull(); // known only when ok
   });
   it('crcTail solves the last 4 bytes for any CRC (test helper check)', () => {

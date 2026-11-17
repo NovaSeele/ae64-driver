@@ -212,6 +212,7 @@ describe('0b: the WX4 reviewer mutants that survived', () => {
     fw.setEnabled(true);
     await fw.chooseFile(fileOf(makeFw({ crc: CRC.v0100 })));
     fw.typed = 'AE64 Pro';
+    if (fw.needsVer) fw.verOk = true; // DESIGN OFU §4.1: 0.1.0.0 on the demo Pro (0.1.0.0) asks for the version box
     expect(fw.canStart).toBe(true);
     vi.spyOn(useSyncStore(), 'flush').mockRejectedValueOnce(new Error('queue failed'));
     await fw.start();

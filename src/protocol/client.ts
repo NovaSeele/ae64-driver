@@ -14,7 +14,7 @@ import {
 import * as c from './codec';
 import { checkFirmwareFrame, checkFrame, checkGamepadFrame, checkPerformanceWrite, isWriteCommand, UnsafeCommandError } from './safety';
 import type { FwStep, GamepadStaging } from './safety';
-import { FW_BOARD_PRO, FW_CHUNK, checkFile, chunks, serialReadable } from './firmware';
+import { FW_CHUNK, checkFile, chunks, isFwBoard, parseHeader, serialReadable } from './firmware';
 import type { FwCheck, KnownFw } from './firmware';
 import * as gp from './gamepad';
 import type { GamepadInfo, GamepadUsbState } from './gamepad';
@@ -583,17 +583,19 @@ export abstract class BaseTransport implements Ae64Transport {
 
   /**
    * Opens a firmware session on this connection (the keyboard running its app). Copies `bytes`, checks the copy, then reads a
-   * fresh `01 02`: run mode 0, board 0x0030000A equal to the file's, a readable serial. Never takes a check, board or serial
+   * fresh `01 02`: run mode 0, a board of FW_BOARDS (AE64 Pro or Max) equal to the file's, a readable serial. Never takes a check, board or serial
    * from outside. Throws FirmwareSessionError (nothing of family 08 was sent).
    */
   async beginFirmwareSession(bytes: Uint8Array, opts: { officialOnly?: boolean } = {}): Promise<FwTicket> {
     const copy = Uint8Array.from(bytes);
-    const pre = checkFile(copy, FW_BOARD_PRO);
+    const fileBoard = parseHeader(copy).board;
+    if (!isFwBoard(fileBoard)) throw new FirmwareSessionError('file');
+    const pre = checkFile(copy, fileBoard);
     if (!pre.ok) throw new FirmwareSessionError('file');
     if (opts.officialOnly && pre.known?.kind !== 'official') throw new FirmwareSessionError('official');
     const info = await this.getDeviceInfo();
     if (info.runMode !== 0) throw new FirmwareSessionError('mode');
-    if (info.boardId !== FW_BOARD_PRO || info.boardId !== pre.header.board) throw new FirmwareSessionError('board', info.boardId);
+    if (!isFwBoard(info.boardId) || info.boardId !== pre.header.board) throw new FirmwareSessionError('board', info.boardId);
     if (!serialReadable(info.serialHex)) throw new FirmwareSessionError('serial');
     const check = checkFile(copy, info.boardId);
     if (!check.ok) throw new FirmwareSessionError('file');
@@ -614,7 +616,7 @@ export abstract class BaseTransport implements Ae64Transport {
     const copy = Uint8Array.from(bytes);
     const info = await this.getDeviceInfo();
     if (info.runMode !== 255) throw new FirmwareSessionError('mode');
-    if (info.boardId !== FW_BOARD_PRO) throw new FirmwareSessionError('board', info.boardId);
+    if (!isFwBoard(info.boardId)) throw new FirmwareSessionError('board', info.boardId);
     const check = checkFile(copy, info.boardId);
     if (!check.ok) throw new FirmwareSessionError('file');
     if (opts.officialOnly && check.known?.kind !== 'official') throw new FirmwareSessionError('official');
@@ -854,7 +856,7 @@ async function probe(t: BaseTransport, seen: Map<BaseTransport, DeviceInfo | nul
 }
 
 export type FwAttachResult =
-  | { ok: true; transport: BaseTransport }
+  | { ok: true; transport: BaseTransport; info: DeviceInfo }
   | { ok: false; why: 'none' | 'many' | 'wrong' | 'appBack' };
 
 /**
@@ -882,7 +884,8 @@ export async function fwAttach(ticket: FwTicket, devices: readonly BaseTransport
   if (pick) {
     st.boot = pick;
     st.step = 'attached';
-    return { ok: true, transport: pick };
+    // the probe's answer: the page shows its version as the bootloader's (DESIGN OFU §6)
+    return { ok: true, transport: pick, info: st.probedBoot.get(pick)! };
   }
   if (live.some(([, i]) => i?.runMode === 0 && i.boardId === st.board && i.serialHex === st.serialHex)) return { ok: false, why: 'appBack' };
   // `wrong` only when something answered: a device still busy (no answer yet) is not judged (N-WX2-2)

@@ -1,8 +1,10 @@
-// Firmware files for the AE64 Pro (DESIGN FW §3.2): header parse, the five checks, the table of known builds and the 56-byte
-// chunks of `08 02`. Pure functions: nothing is sent and no frame is built here (only client.ts builds family 08, §3.5).
+// Firmware files for the AE64 Pro and AE64 Max (DESIGN FW §3.2, DESIGN OFU §5): header parse, the five checks, the table of
+// known builds and the 56-byte chunks of `08 02`. Pure functions: nothing is sent and no frame is built here (only client.ts
+// builds family 08, §3.5).
 //
-// Header (measured on all 7 reference files): bytes 0–3 A5 5A AF BE; LE32 at 4 = board; LE32 at 8 = 0x1000 (payload offset);
-// LE32 at 12 = payload length; LE32 at 16 = CRC-32 (IEEE, as zlib) of the payload; 20–4095 zero. The payload starts at 4096.
+// Header (measured on the 7 Pro reference files and the recorded Max file): bytes 0–3 A5 5A AF BE; LE32 at 4 = board; LE32 at
+// 8 = 0x1000 (payload offset); LE32 at 12 = payload length; LE32 at 16 = CRC-32 (IEEE, as zlib) of the payload. The rest of the
+// header is padding: zeros in the Pro files, 0xFF from byte 28 in the Max file; no check reads it. The payload starts at 4096.
 
 export const FW_SIGNATURE: readonly number[] = Object.freeze([0xa5, 0x5a, 0xaf, 0xbe]);
 export const FW_HEADER_BYTES = 0x1000;
@@ -10,9 +12,15 @@ export const FW_HEADER_BYTES = 0x1000;
 export const FW_MAX_FILE = 262_144;
 /** Data bytes per `08 02` packet (64-byte report: 08 02, LE32 offset, LE16 length, up to 56 bytes). */
 export const FW_CHUNK = 56;
-/** The only board this app writes firmware to: AE64 Pro. Compared as a number everywhere. */
+/** The boards. */
 export const FW_BOARD_PRO = 0x0030000a;
 export const FW_BOARD_MAX = 0x0030000d;
+/** The boards this app writes firmware to, with their model name. Compared as numbers everywhere (DESIGN OFU §5). */
+export const FW_BOARDS: ReadonlyMap<number, 'AE64 Pro' | 'AE64 Max'> = new Map([[FW_BOARD_PRO, 'AE64 Pro'], [FW_BOARD_MAX, 'AE64 Max']]);
+/** True for a board in FW_BOARDS. */
+export const isFwBoard = (board: number | null | undefined): board is number => typeof board === 'number' && FW_BOARDS.has(board >>> 0);
+/** The model name of a board in FW_BOARDS, or null. */
+export const fwModel = (board: number | null | undefined): 'AE64 Pro' | 'AE64 Max' | null => (isFwBoard(board) ? FW_BOARDS.get(board >>> 0)! : null);
 
 export interface FwHeader {
   sig: boolean;
@@ -24,6 +32,8 @@ export interface FwHeader {
 }
 
 export interface KnownFw {
+  /** The board the build is for. */
+  board: number;
   crc: number;
   name: string;
   /** Shown to the user ("0.8.1"). */
@@ -46,8 +56,8 @@ export interface FwCheck {
   size: number;
 }
 
-/** Known builds by payload CRC-32 (DESIGN FW §3.2). Numbers only: no firmware byte is in the app. */
-const KNOWN_LIST: KnownFw[] = [
+/** Known builds by payload CRC-32 (DESIGN FW §3.2, DESIGN OFU §5). Numbers only: no firmware byte is in the app. */
+const KNOWN_LIST: Omit<KnownFw, 'board'>[] = [
   { crc: 0xe7e8a423, name: 'AE64 Pro App', version: '0.1.0.0', kind: 'official', appVersion: '0.1.0.0', gamepad: null },
   { crc: 0xae146e4d, name: 'AE64 Pro App', version: '0.0.8.0', kind: 'official', appVersion: '0.0.8.0', gamepad: null },
   { crc: 0x157ec1ea, name: 'AE64 Pro App', version: '0.0.7.0', kind: 'official', appVersion: '0.0.7.0', gamepad: null },
@@ -56,7 +66,28 @@ const KNOWN_LIST: KnownFw[] = [
   { crc: 0x9d0c07b0, name: 'AE64 Pro XInput (FnRGB)', version: '0.8.1', kind: 'third', appVersion: '0.1.0.0', gamepad: { agp: 1, caps: 30 } },
   { crc: 0x497b6355, name: 'AE64 Pro XInput (FnRGB)', version: '0.8', kind: 'third', appVersion: '0.1.0.0', gamepad: { agp: 1, caps: null } },
 ];
-export const KNOWN_FW: readonly Readonly<KnownFw>[] = Object.freeze(KNOWN_LIST.map((k) => Object.freeze(k)));
+export const KNOWN_FW: readonly Readonly<KnownFw>[] = Object.freeze([
+  ...KNOWN_LIST.map((k) => Object.freeze({ board: FW_BOARD_PRO, ...k })),
+  Object.freeze({ board: FW_BOARD_MAX, crc: 0xf1a65817, name: 'AE64 Max App', version: '0.0.4.0', kind: 'official', appVersion: '0.0.4.0', gamepad: null } as KnownFw),
+]);
+
+/**
+ * Official builds the app learned from its own checked firmware list (DESIGN OFU §7.3): recognised by their CRC-32 for this
+ * page's life, like KNOWN_FW. Only fwManifest's checked list adds to it.
+ */
+const learned: Readonly<KnownFw>[] = [];
+export function learnFw(k: KnownFw): void {
+  if (k.kind !== 'official' || !isFwBoard(k.board)) return;
+  if (KNOWN_FW.some((x) => x.crc === k.crc >>> 0) || learned.some((x) => x.crc === k.crc >>> 0)) return;
+  learned.push(Object.freeze({ ...k, crc: k.crc >>> 0, gamepad: null }));
+}
+/** Test hook: forget the learned builds. */
+export function forgetLearnedFw(): void {
+  learned.length = 0;
+}
+/** The versions a third-party build of KNOWN_FW reports from its app (`01 02`): the version alone does not tell those apart. */
+export const thirdPartyVersions = (board: number | null): string[] =>
+  [...new Set(KNOWN_FW.filter((k) => k.kind === 'third' && k.board === board).map((k) => k.appVersion))];
 
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256);
@@ -88,7 +119,9 @@ export function parseHeader(buf: Uint8Array): FwHeader {
   };
 }
 
-export const knownFw = (crc: number): KnownFw | null => KNOWN_FW.find((k) => k.crc === crc >>> 0) ?? null;
+/** The known build with this payload CRC-32 (for `board`, when given): KNOWN_FW first, then the learned ones. */
+export const knownFw = (crc: number, board?: number): KnownFw | null =>
+  [...KNOWN_FW, ...learned].find((k) => k.crc === crc >>> 0 && (board === undefined || k.board === board >>> 0)) ?? null;
 
 /**
  * The five checks of DESIGN FW §3.2, all against numbers: signature, board in the file (LE) = board of the keyboard (`01 02`
@@ -108,7 +141,7 @@ export function checkFile(buf: Uint8Array, deviceBoard: number | null): FwCheck 
     { key: 'size', ok: size <= FW_MAX_FILE },
   ];
   const ok = lines.every((l) => l.ok);
-  return { header, ok, lines, known: ok ? knownFw(crc) : null, crc, size };
+  return { header, ok, lines, known: ok ? knownFw(crc, header.board) : null, crc, size };
 }
 
 /** The `08 02` chunks: the whole file from offset 0 (the 4096-byte header too), 56 bytes each, the last one shorter. */

@@ -292,6 +292,11 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(fetch(request, { cache: 'no-store' }));
     return;
   }
+  // the firmware list (/firmware/*, DESIGN OFU §8): network only, never cached, and no referrer (not even this worker's URL)
+  if (url.pathname.startsWith('/firmware/')) {
+    event.respondWith(fetch(request, { cache: 'no-store', referrerPolicy: 'no-referrer' }));
+    return;
+  }
 
   event.respondWith(
     (async () => {

@@ -174,6 +174,7 @@ describe('W-11: one page per keyboard (Web Locks)', () => {
     fw.setEnabled(true);
     await fw.chooseFile(fileOf(makeFw({ crc: CRC.v0100 })));
     fw.typed = 'AE64 Pro';
+    if (fw.needsVer) fw.verOk = true; // DESIGN OFU §4.1: 0.1.0.0 on the demo Pro (0.1.0.0) asks for the version box
     const started = fw.start();
     await vi.waitFor(() => expect(fw.phase).not.toBe('preflight'), { timeout: 10000 });
     expect(fw.active).toBe(true);
@@ -220,6 +221,7 @@ describe('W-11: one page per keyboard (Web Locks)', () => {
     expect(w.find('[data-test="fw-other-window"]').text()).toContain(tr('fw.otherWindow'));
     // the check said free, then the other window took it: start() refuses at the press, before anything is sent
     fw.otherWindow = false;
+    if (fw.needsVer) fw.verOk = true; // DESIGN OFU §4.1: 0.1.0.0 on the demo Pro (0.1.0.0) asks for the version box
     expect(fw.canStart).toBe(true);
     s.bus.received.length = 0;
     await fw.start();

@@ -7,6 +7,7 @@
 import type { Performance } from './types';
 import { decodeCombo, isKnownKeycode } from './keycodes';
 import { isCatalogTriple, switchCatalogFor } from './switches';
+import { isFwBoard } from './firmware';
 import {
   GP_BOARD_HEX, GP_BOARD_ID, GP_CAP, GP_CMD, GP_CONFIG_BYTES, GP_MAGIC, GP_MAX_DATA, GP_READ_CHUNK, GP_VERSION, crc32, decodeConfig,
   requiredTransportBit, u16, u32,
@@ -217,13 +218,12 @@ export interface FirmwareGuard {
   size: number;
 }
 
-const FW_PRO_BOARD = 0x0030000a;
 const FW_DATA_MAX = 56;
 const le32At = (p: readonly number[], o: number): number => ((p[o] ?? 0) | ((p[o + 1] ?? 0) << 8) | ((p[o + 2] ?? 0) << 16) | ((p[o + 3] ?? 0) << 24)) >>> 0;
 
 /**
  * The only check family 08 goes through (DESIGN FW §3.5). Returns a reason to refuse, or null:
- * - a session must exist, for board 0x0030000A (compared as a number);
+ * - a session must exist, for board 0x0030000A or 0x0030000D (compared as a number);
  * - `08 01` once, on the app connection that opened the session (step `open`);
  * - `08 02` on the attached bootloader while writing, at the next offset (contiguous from 0, step 56), with the length of the
  *   rest of the file (56, the last one shorter) and exactly that many data bytes;
@@ -233,7 +233,7 @@ const le32At = (p: readonly number[], o: number): number => ((p[o] ?? 0) | ((p[o
 export function checkFirmwareFrame(p: readonly number[], g: FirmwareGuard | null | undefined): string | null {
   if (p[0] !== 0x08) return 'not a firmware frame';
   if (!g) return 'firmware frame without a firmware session';
-  if (g.board !== FW_PRO_BOARD) return `firmware is only written to board 0030000A (session board ${g.board.toString(16).padStart(8, '0')})`;
+  if (!isFwBoard(g.board)) return `firmware is only written to boards 0030000A and 0030000D (session board ${(g.board as number).toString(16).padStart(8, '0')})`;
   switch (p[1]) {
     case 0x01:
       if (g.step !== 'open') return `08 01 in step ${g.step}`;

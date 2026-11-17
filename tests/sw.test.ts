@@ -624,6 +624,30 @@ describe('Service Worker (public/sw.js)', () => {
       expect(networkFetch).toHaveBeenCalled();
       expect(await res.text()).toBe('first visit html');
     });
+
+    it('OFU §8: /firmware/manifest.json goes to the network with no-store and is put in no cache, even when a cache holds it', async () => {
+      const metaCache = await mockCaches.open('ae64-meta');
+      await metaCache.put('/__ae64_version__', new Response(JSON.stringify({ version: '0.2.0' })));
+      const app = await mockCaches.open('ae64-app-0.2.0');
+      await app.put('/firmware/manifest.json', new Response('{"stale":true}'));
+      const networkFetch = vi.fn().mockResolvedValue(new Response('{"schema":1}', { status: 200, headers: { 'content-type': 'application/json' } }));
+      vi.stubGlobal('fetch', networkFetch);
+      const before = new Map([...mockCaches.caches].map(([k, c]) => [k, c.map.size]));
+      const res = await triggerFetch(new Request('http://127.0.0.1:5173/firmware/manifest.json'));
+      expect(await res.text()).toBe('{"schema":1}');
+      expect(networkFetch).toHaveBeenCalledTimes(1);
+      expect(networkFetch.mock.calls[0][1]).toEqual({ cache: 'no-store', referrerPolicy: 'no-referrer' });
+      expect(new Map([...mockCaches.caches].map(([k, c]) => [k, c.map.size]))).toEqual(before);
+      // and any other path under /firmware/ the same way
+      await triggerFetch(new Request('http://127.0.0.1:5173/firmware/other.json'));
+      expect(networkFetch.mock.calls[1][1]).toEqual({ cache: 'no-store', referrerPolicy: 'no-referrer' });
+    });
+
+    it('OFU §8: a cross-origin request (a firmware file on hub.xsyd.top) is left to the browser', async () => {
+      let answered = false;
+      for (const fn of listeners.fetch) fn({ request: new Request('https://hub.xsyd.top/storage/firmware/x.bin'), respondWith: () => { answered = true; } });
+      expect(answered).toBe(false);
+    });
   });
 });
 
