@@ -1,7 +1,7 @@
 // DESIGN TT §14 test 1: the scoring (src/typing/score.ts), every case of §5.2 and every assertion of the design's
 // typscore.test.mjs, with the same numbers.
 import { describe, expect, it } from 'vitest';
-import { bare, base, finished, hint, letters, onTrack, same, score, split, tones } from '../src/typing/score';
+import { bare, base, counted, finished, hint, letters, onTrack, same, score, split, tones } from '../src/typing/score';
 
 const near = (a: number, b: number) => expect(Math.abs(a - b), `${a} ≠ ${b}`).toBeLessThan(1e-9);
 
@@ -228,5 +228,21 @@ describe('typing score: DESIGN TT §5.2, the hand-computed table', () => {
   it('the on-track partial word at a time-out counts no missed or incorrect letter (mutant 5)', () => {
     const r = score({ target: ['đẹp'], value: 'đẹ', ms: 6000, end: 'time', lang: 'vi' });
     expect(r.letters).toEqual({ correct: 2, incorrect: 0, missed: 0, extra: 0 });
+  });
+  it('kept only when a person could have typed it (v1.4, N1; mutant 28)', () => {
+    expect(counted({ seconds: 15, raw: 400 })).toBe(true);
+    expect(counted({ seconds: 1, raw: 120 })).toBe(true);
+    expect(counted({ seconds: 15, raw: 400.01 })).toBe(false);
+    expect(counted({ seconds: 0.999, raw: 300 })).toBe(false);
+    expect(counted({ seconds: 0, raw: 0 })).toBe(false); // one input with the whole text: 0 s, and score() gives 0 WPM
+    const words = ['Nam', 'hạnh', 'phúc', 'việt', 'đẹp', 'lắm', 'xe', 'buýt', 'nghỉ', 'quốc'];
+    const once = score({ target: words, value: words.join(' '), ms: 0, end: 'words', lang: 'vi' });
+    expect(once.wpm).toBe(0);
+    expect(counted(once)).toBe(false);
+    const robot = score({ target: words, value: words.join(' '), ms: 50, end: 'words', lang: 'vi' });
+    expect(robot.raw).toBeGreaterThan(400);
+    expect(counted(robot)).toBe(false);
+    const human = score({ target: words, value: words.join(' '), ms: 9000, end: 'words', lang: 'vi' });
+    expect(counted(human)).toBe(true);
   });
 });

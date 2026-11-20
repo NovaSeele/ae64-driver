@@ -13,11 +13,11 @@ import TypingResult from '../components/typing/TypingResult.vue';
 import type { ShownResult } from '../components/typing/TypingResult.vue';
 import TypingHistory from '../components/typing/TypingHistory.vue';
 import { t } from '../i18n/vi';
-import { finished, hint, onTrack, same, score, split } from '../typing/score';
+import { counted, finished, hint, onTrack, same, score, split } from '../typing/score';
 import type { Hint, TextLang } from '../typing/score';
 import { MORE_WHEN_LEFT, makeText, moreWords } from '../typing/texts';
 import type { Content, EndKind } from '../typing/texts';
-import { COUNTS, TIMES, addResult, clearHistory, loadPrefs, loadResults, savePrefs } from '../typing/store';
+import { COUNTS, TIMES, addResult, clearHistory, loadBest, bestKey, loadPrefs, loadResults, savePrefs } from '../typing/store';
 import type { Prefs } from '../typing/store';
 import { kindText, mmss, num, pct } from '../typing/format';
 
@@ -28,6 +28,10 @@ const runId = ref(0);
 const phase = ref<'idle' | 'running' | 'done'>('idle');
 /** An IME composition is open in the box (compositionstart → compositionend). */
 const composing = ref(false);
+/** How the run ended, and (time-out) whether a composition was open at the deadline: the end paint's inputs (DESIGN TT §3.7).
+ *  Apart from `composing`, which a later compositionend clears. */
+const endHow = ref<'time' | 'words' | null>(null);
+const endOpen = ref(false);
 /** The box's value at the last scored input. */
 const last = ref('');
 /** performance.now() at the start, and repainted every 200 ms while running (the clock only). */
@@ -97,6 +101,8 @@ function restart(focus: boolean): void {
   clearTimers();
   phase.value = 'idle';
   composing.value = false;
+  endHow.value = null;
+  endOpen.value = false;
   last.value = '';
   hintKey.value = null;
   result.value = null;
@@ -173,6 +179,8 @@ function finish(end: 'time' | 'words', value: string): void {
   // Read first: making the box read-only, or a blur, can end the composition (v1.1, DESIGN TT §3.5).
   const wasComposing = end === 'time' && composing.value;
   clearTimers();
+  endHow.value = end;
+  endOpen.value = wasComposing;
   const ms = end === 'time' ? prefs.time * 1000 : performance.now() - t0.value;
   phase.value = 'done';
   endMs.value = ms;
@@ -186,15 +194,22 @@ function finish(end: 'time' | 'words', value: string): void {
   last.value = value;
   const r = score({ target: target.value, value, ms, end, lang: prefs.lang, composing: wasComposing });
   const wpm = Math.round(r.wpm);
-  const saved = addResult({
-    at: Date.now(), ...kind.value, wpm, raw: Math.round(r.raw), acc: r.accuracy, wordsPerMin: Math.round(r.wordsPerMin), seconds: r.seconds,
-  });
-  results.value = loadResults();
+  // v1.4 (N1): a run faster than anyone types is shown, not kept: no history row, never a best.
+  const kept = counted(r);
+  let saved: { prevBest: number | null; isBest: boolean } = { prevBest: loadBest()[bestKey(kind.value)]?.wpm ?? null, isBest: false };
+  if (kept) {
+    saved = addResult({
+      at: Date.now(), ...kind.value, wpm, raw: Math.round(r.raw), acc: r.accuracy, wordsPerMin: Math.round(r.wordsPerMin), seconds: r.seconds,
+    });
+    results.value = loadResults();
+  }
   result.value = {
     wpm, raw: r.raw, wordsPerMin: r.wordsPerMin, accuracy: r.accuracy, letters: r.letters, seconds: r.seconds, wrong: r.wrong,
-    isBest: saved.isBest, prevBest: saved.prevBest, kind: kindText(kind.value), lang: prefs.lang,
+    isBest: saved.isBest, prevBest: saved.prevBest, kept, kind: kindText(kind.value), lang: prefs.lang,
   };
-  say.value = t('tt.say', { wpm: num(wpm), acc: pct(r.accuracy), n: r.wrong.length });
+  say.value = kept
+    ? t('tt.say', { wpm: num(wpm), acc: pct(r.accuracy), n: r.wrong.length })
+    : t('tt.sayFast', { acc: pct(r.accuracy), n: r.wrong.length });
   void nextTick(() => resultCard.value?.reveal());
 }
 
@@ -219,7 +234,14 @@ const wordCls = computed(() => {
   const { done, current } = split(last.value);
   return target.value.map((w, i) => {
     if (i < done.length) return same(done[i], w) ? 'ok' : 'bad';
-    if (i === done.length) return composing.value || onTrack(current, w, prefs.lang) ? 'cur' : 'off';
+    if (i === done.length) {
+      // §3.7: at the end the word in progress is painted by the score's own rule, from the flags kept at the end
+      if (phase.value === 'done') {
+        if (endHow.value === 'words' && same(current, w)) return 'ok';
+        return endOpen.value || onTrack(current, w, prefs.lang) ? 'cur' : 'off';
+      }
+      return composing.value || onTrack(current, w, prefs.lang) ? 'cur' : 'off';
+    }
     return 'up';
   });
 });
@@ -238,7 +260,7 @@ const hintText = computed(() => (hintKey.value ? t(HINT_TEXT[hintKey.value]) : '
 
 // ----- the status row
 const elapsed = computed(() => (phase.value === 'idle' ? 0 : phase.value === 'done' ? endMs.value : Math.max(0, nowMs.value - t0.value)));
-const doneWords = computed(() => Math.min(prefs.count, split(last.value).done.length));
+const doneWords = computed(() => (phase.value === 'done' && endHow.value === 'words' ? prefs.count : Math.min(prefs.count, split(last.value).done.length)));
 const clock = computed(() => {
   if (prefs.kind === 'words') return mmss(elapsed.value / 1000);
   if (phase.value === 'idle') return mmss(prefs.time);

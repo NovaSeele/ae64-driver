@@ -168,6 +168,9 @@ describe('typing page: input (DESIGN TT §14 test 3)', () => {
     const k229 = key('keydown', { key: 'Process', code: 'Enter', keyCode: 229 });
     box().dispatchEvent(k229);
     expect(k229.defaultPrevented).toBe(false);
+    const safari = key('keydown', { key: 'Enter', code: 'Enter', keyCode: 229 }); // the committing Enter after compositionend; isComposing false
+    box().dispatchEvent(safari);
+    expect(safari.defaultPrevented).toBe(false);
     const letter = key('keydown', { key: 'a', code: 'KeyA' });
     box().dispatchEvent(letter);
     expect(letter.defaultPrevented).toBe(false);
@@ -345,6 +348,136 @@ describe('typing page: input (DESIGN TT §14 test 3)', () => {
     expect(big()).toEqual(['90WPM', '100%']);
     expect(wrongChips()).toBe(0);
     expect(stored()[0]).toMatchObject({ wpm: 90, raw: 90, acc: 1, wordsPerMin: 100 });
+  });
+
+  it('T8: time mode refills the text: 51 of 80 words typed, the text grows to 82 and the new words score right', async () => {
+    TEXT.words = Array.from({ length: 80 }, (_, i) => EN25[i % 25]);
+    setPrefs({ kind: 'time', time: 120 });
+    await mountPage();
+    const words = () => document.querySelectorAll('.tt-text__in .tt-w').length;
+    expect(words()).toBe(80);
+    let v = `${TEXT.words.slice(0, 50).join(' ')} `;
+    await type(v);
+    expect(words()).toBe(80); // 50 done: 30 left, not fewer than 30
+    v += `${TEXT.words[50]} `;
+    await type(v);
+    expect(words()).toBe(82); // 51 done: 29 left → moreWords (mocked: 2 words)
+    v += `${TEXT.words.slice(51).join(' ')} thêm nữa `;
+    await type(v);
+    expect(cls(79)).toBe('tt-w--ok');
+    expect(cls(80)).toBe('tt-w--ok');
+    expect(cls(81)).toBe('tt-w--ok');
+  });
+
+  it('T33: a late deadline counts the chosen length, not the elapsed time (timer 15 s late, and visibilitychange)', async () => {
+    setPrefs({ kind: 'time', time: 15 });
+    await mountPage();
+    await type('the cat sat ');
+    clock += 15000; // the page was throttled: when the timer fires, 30 s have passed
+    vi.advanceTimersByTime(15000);
+    await nextTick();
+    await nextTick();
+    expect(heading()).not.toBeNull();
+    expect(big()[0]).toBe('10WPM'); // 12 ÷ 5 ÷ 0.25 = 9.6, not 4.8 (5) from 30 s
+    expect(stored()[0]).toMatchObject({ wpm: 10, seconds: 15 });
+    w!.unmount();
+    document.body.innerHTML = '';
+    localStorage.clear();
+    vi.clearAllTimers();
+    clock = 1000;
+    setPrefs({ kind: 'time', time: 15 });
+    await mountPage();
+    await type('the cat sat ');
+    clock += 30000;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await nextTick();
+    await nextTick();
+    expect(big()[0]).toBe('10WPM');
+    expect(stored()[0]).toMatchObject({ wpm: 10, seconds: 15 });
+  });
+
+  it('TT-C1: case I keeps its word `cur` (never red), also after a compositionend once the run is over (mutant 27); case I′ is `off`', async () => {
+    TEXT.words = [...VI10];
+    setPrefs({ lang: 'vi', kind: 'time', time: 15 });
+    await mountPage();
+    await type('Nam ');
+    await compose(true);
+    await type('Nam hanhj', 'insertCompositionText');
+    await advance(15000);
+    expect(heading()).not.toBeNull();
+    expect(cls(1)).toBe('tt-w--cur');
+    await compose(false);
+    await nextTick();
+    expect(cls(1)).toBe('tt-w--cur');
+    // I′: the same text, no composition open: the letters are compared, off track
+    btn(t('tt.again')).click();
+    await nextTick();
+    await type('Nam hanhj');
+    await advance(15000);
+    expect(heading()).not.toBeNull();
+    expect(cls(1)).toBe('tt-w--off');
+  });
+
+  it('TT-C1: a words-mode end by an exact last word paints it ok, and the counter reads N / N', async () => {
+    setPrefs({ kind: 'words', count: 10 });
+    await mountPage();
+    await type('t');
+    clock += 6000;
+    await type(EN25.slice(0, 10).join(' '));
+    expect(heading()).not.toBeNull();
+    expect(cls(9)).toBe('tt-w--ok');
+    expect(cls(10)).toBe('tt-w--up');
+    expect(document.querySelector('.tt-count')!.textContent).toBe(t('tt.progress', { d: 10, n: 10 }));
+  });
+
+  it('N1: one input with the whole text (0 s): "—" speeds, the not-saved chip and note, tt.sayFast once, nothing saved, no best (mutant 28)', async () => {
+    setPrefs({ kind: 'words', count: 10 });
+    await mountPage();
+    let changes = 0;
+    const texts: string[] = [];
+    const obs = new MutationObserver(() => { if (say().textContent) { changes++; texts.push(say().textContent!); } });
+    obs.observe(say(), { childList: true, characterData: true, subtree: true });
+    await type(`${EN25.slice(0, 9).join(' ')} dog `); // one mistyped word, in a single input
+    await advance(1000);
+    obs.disconnect();
+    expect(heading()).not.toBeNull();
+    expect(document.activeElement).toBe(heading());
+    expect(big()).toEqual(['—WPM', '88%']);
+    const dd = [...document.querySelectorAll('.tt-dl dd')].map((d) => d.textContent);
+    expect(dd.slice(0, 2)).toEqual(['—', '—']);
+    expect(document.querySelector('.tt-best')!.textContent).toBe(t('tt.notSaved'));
+    expect(document.querySelector('.tt-best')!.classList.contains('tt-best--plain')).toBe(true);
+    expect(document.querySelector('.tt-best svg')).toBeNull();
+    expect(resultText()).not.toContain(t('tt.best'));
+    expect(document.querySelector('.tt-note')!.textContent).toBe(t('tt.notSavedWhy'));
+    expect(wrongChips()).toBe(1);
+    expect(changes).toBe(1);
+    expect(texts).toEqual([t('tt.sayFast', { acc: '88%', n: 1 })]);
+    expect(stored()).toEqual([]);
+    expect(localStorage.getItem('ae64.typing.best')).toBeNull();
+    // the history (TypingHistory: a table.tt-hist with one tbody row per result, else p.tt-none) shows no row
+    expect(document.querySelectorAll('.tt-hist tbody tr').length).toBe(0);
+    expect(document.querySelector('.tt-none')!.textContent).toBe(t('tt.histNone'));
+  });
+
+  it('N1: a time-mode run over 400 raw WPM is shown, not kept; a typed run still is', async () => {
+    setPrefs({ kind: 'time', time: 15 });
+    await mountPage();
+    await type('abcde '.repeat(120)); // 720 ch ÷ 5 ÷ 0.25 min = 576 raw
+    await advance(15000);
+    expect(heading()).not.toBeNull();
+    expect(big()[0]).toBe('—WPM');
+    expect(document.querySelector('.tt-note')).not.toBeNull();
+    expect(stored()).toEqual([]);
+    expect(localStorage.getItem('ae64.typing.best')).toBeNull();
+    btn(t('tt.again')).click();
+    await nextTick();
+    clock = 1000;
+    await type('the cat sat ');
+    await advance(15000);
+    expect(big()[0]).toBe('10WPM');
+    expect(document.querySelector('.tt-note')).toBeNull();
+    expect(stored()).toHaveLength(1);
   });
 
   it('restart: a new box element, focus in it, empty (mutant 11)', async () => {

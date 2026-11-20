@@ -103,4 +103,15 @@ describe('typing store (DESIGN TT §7)', () => {
     expect(loadBest()).toEqual({});
     expect(localStorage.getItem(PREFS_KEY)).not.toBeNull();
   });
+
+  it('read bounds (v1.4, N1; mutant 29): a result under 1 s or over 400 raw and a best over 400 WPM are ignored, one by one', () => {
+    const e = (at: number, o: Partial<TypingResult> = {}) => ({ ...result(at), v: 1, ...o });
+    localStorage.setItem(RESULTS_KEY, JSON.stringify([e(1, { seconds: 0.5 }), e(2, { raw: 401 }), e(3), e(4, { raw: 400, seconds: 1 })]));
+    expect(loadResults().map((r) => r.at)).toEqual([3, 4]);
+    localStorage.setItem(BEST_KEY, JSON.stringify({ a: { wpm: 18901, at: 1 }, b: { wpm: 401, at: 2 }, c: { wpm: 400, at: 3 }, d: { wpm: 50, at: 4 } }));
+    expect(loadBest()).toEqual({ c: { wpm: 400, at: 3 }, d: { wpm: 50, at: 4 } });
+    // a stored absurd best does not block a real one
+    localStorage.setItem(BEST_KEY, JSON.stringify({ 'vi-words-time-30': { wpm: 18901, at: 1 } }));
+    expect(addResult(result(9, 40))).toEqual({ prevBest: null, isBest: true });
+  });
 });

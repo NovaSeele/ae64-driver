@@ -2,6 +2,7 @@
 // localStorage only. Every read and write is in try/catch (blocked storage still runs the test; nothing is remembered then),
 // and every read is checked for shape (anything else is ignored). The typed text and the target text are never stored.
 import { locale } from '../i18n/locale';
+import { MAX_RAW, MIN_SECONDS } from './score';
 import type { TextLang } from './score';
 import type { Content, EndKind } from './texts';
 
@@ -84,15 +85,15 @@ export function savePrefs(p: Prefs): void {
   write(PREFS_KEY, { lang: p.lang, content: p.content, kind: p.kind, time: p.time, count: p.count, readNext: p.readNext });
 }
 
-/** Newest first, at most MAX_RESULTS; entries of another shape are dropped. */
+/** Newest first, at most MAX_RESULTS; entries of another shape, or faster than anyone types (v1.4), are dropped. */
 export function loadResults(): TypingResult[] {
   const a = read(RESULTS_KEY);
-  return Array.isArray(a) ? a.filter(isResult).slice(0, MAX_RESULTS) : [];
+  return Array.isArray(a) ? a.filter((r) => isResult(r) && r.seconds >= MIN_SECONDS && r.raw <= MAX_RAW).slice(0, MAX_RESULTS) : [];
 }
 export function loadBest(): Record<string, Best> {
   const b = read(BEST_KEY);
   const out: Record<string, Best> = {};
-  if (isObj(b)) for (const [k, v] of Object.entries(b)) if (isBestEntry(v)) out[k] = { wpm: v.wpm, at: v.at };
+  if (isObj(b)) for (const [k, v] of Object.entries(b)) if (isBestEntry(v) && v.wpm <= MAX_RAW) out[k] = { wpm: v.wpm, at: v.at };
   return out;
 }
 

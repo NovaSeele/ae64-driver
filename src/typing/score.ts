@@ -143,6 +143,11 @@ export function score({ target, value, ms, end, lang, composing = false }: {
   };
 }
 
+/** Kept (saved, a best) only when a person could have typed it (DESIGN TT §7, v1.4): at least 1 s and at most 400 raw WPM
+ *  (unrounded, straight from `score()`). */
+export const MIN_SECONDS = 1, MAX_RAW = 400;
+export const counted = (r: { seconds: number; raw: number }): boolean => r.seconds >= MIN_SECONDS && r.raw <= MAX_RAW;
+
 /** Words mode ends: N words committed, or the last one typed exactly while no composition is open. */
 export function finished({ target, value, n, composing }: { target: readonly string[]; value: string; n: number; composing: boolean }): boolean {
   const { done, current } = split(value);
