@@ -39,6 +39,7 @@ export const firmwareEn: Record<keyof typeof firmwareVi, string> = {
   'fw.chk.len': 'Firmware length matches the header ({n} bytes)',
   'fw.chk.crc': 'CRC-32 matches the header ({crc})',
   'fw.chk.lenBad': 'Firmware length differs from the header: file {n} bytes, header {want} bytes',
+  'fw.chk.lenNone': 'Firmware length: the file has nothing after its 4,096-byte header',
   'fw.chk.offBad': 'The header puts the firmware at byte {off}, not 4,096',
   'fw.chk.crcBad': 'CRC-32 differs from the header: file {crc}, header {want}',
   'fw.chk.crcNone': 'CRC-32: the file has nothing after its 4,096-byte header',

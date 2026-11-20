@@ -37,6 +37,7 @@ export const firmwareVi = {
   'fw.chk.len': 'Độ dài phần firmware khớp đầu file ({n} byte)',
   'fw.chk.crc': 'CRC-32 khớp đầu file ({crc})',
   'fw.chk.lenBad': 'Độ dài phần firmware khác đầu file: file {n} byte, đầu file {want} byte',
+  'fw.chk.lenNone': 'Độ dài phần firmware: file không có gì sau 4.096 byte đầu',
   'fw.chk.offBad': 'Đầu file ghi phần firmware bắt đầu ở byte {off}, không phải 4.096',
   'fw.chk.crcBad': 'CRC-32 khác đầu file: file {crc}, đầu file {want}',
   'fw.chk.crcNone': 'CRC-32: file không có gì sau 4.096 byte đầu',

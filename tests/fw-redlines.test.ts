@@ -21,7 +21,8 @@ import { CRC, fileOf, makeFw } from './fw-helpers';
 const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 const le32 = (b: Uint8Array, at: number, v: number) => { b[at] = v & 0xff; b[at + 1] = (v >>> 8) & 0xff; b[at + 2] = (v >>> 16) & 0xff; b[at + 3] = (v >>> 24) & 0xff; };
 
-/** The four broken files of §9, from one good file (118 776 bytes: a 4 096-byte header and 114 680 bytes of firmware). */
+/** The broken files of §9, from one good file (118 776 bytes: a 4 096-byte header and 114 680 bytes of firmware); the last two
+ * are v1.9's (review P3-5): a header-only file whose header says length 0, and a 10-byte file (its offset field is not even there). */
 function broken(good: Uint8Array) {
   const cut = good.slice(0, 100_000);
   const offset = good.slice();
@@ -29,7 +30,10 @@ function broken(good: Uint8Array) {
   const flipped = good.slice();
   flipped[5000] ^= 1;
   const headerOnly = good.slice(0, FW_HEADER_BYTES);
-  return { cut, offset, flipped, headerOnly };
+  const zeroLen = headerOnly.slice();
+  le32(zeroLen, 12, 0);
+  const tiny = good.slice(0, 10);
+  return { cut, offset, flipped, headerOnly, zeroLen, tiny };
 }
 const PRO = makeFw({ crc: CRC.v0100, seed: 21 });
 const MAX = makeFw({ crc: CRC.max0040, board: FW_BOARD_MAX, pad: 0xff, seed: 22 });
@@ -113,21 +117,52 @@ describe('OFU v1.8 §9: the red header lines say what differs (local file, vi an
     expect(line(ls, 'Firmware length')).toEqual(['ok', 'Firmware length matches the header (114,680 bytes)']);
   });
 
-  it('a header-only file: length "file 0 byte", and the CRC-32 line says there is nothing after the header (mutant 29)', async () => {
+  it('a header-only file: both header lines say there is nothing after the header (v1.9 lenNone, mutants 29, 30)', async () => {
     const s = await setup('pro');
     s.fw.setSource('local');
     await s.fw.chooseFile(fileOf(broken(PRO).headerOnly));
     let ls = await linesOf();
     expect(bad(ls)).toEqual([
-      'Độ dài phần firmware khác đầu file: file 0 byte, đầu file 114.680 byte',
+      'Độ dài phần firmware: file không có gì sau 4.096 byte đầu',
       'CRC-32: file không có gì sau 4.096 byte đầu',
     ]);
     locale.value = 'en';
     ls = await linesOf();
     expect(bad(ls)).toEqual([
-      'Firmware length differs from the header: file 0 bytes, header 114,680 bytes',
+      'Firmware length: the file has nothing after its 4,096-byte header',
       'CRC-32: the file has nothing after its 4,096-byte header',
     ]);
+  });
+
+  it('a header-only file whose header says length 0: lenNone and crcNone, not "file 0 byte, đầu file 0 byte" (P3-5, mutant 30)', async () => {
+    const s = await setup('pro');
+    s.fw.setSource('local');
+    await s.fw.chooseFile(fileOf(broken(PRO).zeroLen));
+    let ls = await linesOf();
+    expect(bad(ls)).toEqual([
+      'Độ dài phần firmware: file không có gì sau 4.096 byte đầu',
+      'CRC-32: file không có gì sau 4.096 byte đầu',
+    ]);
+    locale.value = 'en';
+    ls = await linesOf();
+    expect(bad(ls)).toEqual([
+      'Firmware length: the file has nothing after its 4,096-byte header',
+      'CRC-32: the file has nothing after its 4,096-byte header',
+    ]);
+  });
+
+  it('a 10-byte file: lenNone and crcNone; no line says "byte 0" or "0 byte" (P3-5, mutant 30)', async () => {
+    const s = await setup('pro');
+    s.fw.setSource('local');
+    await s.fw.chooseFile(fileOf(broken(PRO).tiny));
+    for (const lang of ['vi', 'en'] as const) {
+      locale.value = lang;
+      const ls = await linesOf();
+      const red = bad(ls);
+      expect(red).toContain(lang === 'vi' ? 'Độ dài phần firmware: file không có gì sau 4.096 byte đầu' : 'Firmware length: the file has nothing after its 4,096-byte header');
+      expect(red).toContain(lang === 'vi' ? 'CRC-32: file không có gì sau 4.096 byte đầu' : 'CRC-32: the file has nothing after its 4,096-byte header');
+      for (const [, t] of ls) expect(t, lang).not.toMatch(/byte 0|0 bytes?/);
+    }
   });
 
   it('a good file: the green lines are unchanged (signature, board, length, CRC-32, size)', async () => {
@@ -146,14 +181,21 @@ describe('OFU v1.8 §9: the red header lines say what differs (local file, vi an
   });
 });
 
-/** The rule: no red line says "khớp" / "matches", for every broken file, in both languages. */
+/** A red line with two values (lenBad, crcBad, listSizeBad, listShaBad): "file X, <the other> Y". */
+const TWO = /file ([^,]+), (?:đầu file|danh sách|header|list) (.+?)(?: bytes?)?$/;
+/** The rules, for every broken file, in both languages: no red line says "khớp" / "matches", and none shows two equal values
+ * (v1.9 §9, review P3-5). */
 async function noMatchWordOnRed(where: string) {
   for (const lang of ['vi', 'en'] as const) {
     locale.value = lang;
     const ls = await linesOf();
     const red = bad(ls);
     expect(red.length, `${where} ${lang}: some red line`).toBeGreaterThan(0);
-    for (const t of red) expect(t, `${where} ${lang}`).not.toMatch(/khớp|matches/i);
+    for (const t of red) {
+      expect(t, `${where} ${lang}`).not.toMatch(/khớp|matches/i);
+      const m = TWO.exec(t);
+      if (m) expect(m[1].replace(/ bytes?$/, ''), `${where} ${lang}: ${t}`).not.toBe(m[2]);
+    }
   }
   locale.value = 'vi';
 }

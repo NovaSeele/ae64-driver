@@ -96,6 +96,32 @@ describe('OFU v1.7 §3.2: the maker link in the desktop app', () => {
     expect(opener.openUrl).toHaveBeenCalledTimes(1);
   });
 
+  it('the fallback card (FW_DIRECT on, the file refused): its link is a button, and one click opens that build once (v1.9, P3-6, mutant 31)', async () => {
+    flags.direct = true;
+    const { w, fw } = await page();
+    const b = fw.status.newest!;
+    // the file request fails with no response, as a CORS refusal does: the fallback card, with the maker link
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      requests.push(url);
+      if (url === '/firmware/manifest.json') return new Response(LIST, { status: 200, headers: { 'content-type': 'application/json' } });
+      throw new TypeError('Failed to fetch');
+    }));
+    await fw.download(b);
+    await flushPromises();
+    const card = w.find('[data-test="ofu-fallback"]');
+    expect(card.exists()).toBe(true);
+    expect(card.findAll('a').filter((a) => a.attributes('href') !== undefined)).toEqual([]);
+    const links = card.findAll('[data-test="ofu-maker-link"]');
+    expect(links.length).toBe(1);
+    expect(links[0].element.tagName).toBe('BUTTON');
+    expect(links[0].text()).toContain(tr('fw.on.link'));
+    expect(links[0].text()).toContain(tr('fw.on.newBrowser'));
+    await links[0].trigger('click');
+    await flushPromises();
+    expect(opener.openUrl.mock.calls).toEqual([[b.url]]);
+    expect(requests.filter((u) => u !== '/firmware/manifest.json')).toEqual([b.url]); // the one refused download, nothing after
+  });
+
   it('a refused open (the scope or the plugin) ends quietly: no throw, nothing else opened', async () => {
     opener.openUrl.mockRejectedValueOnce(new Error('not allowed'));
     expect(await openMakerUrl('https://hub.xsyd.top/storage/firmware/cos/202610/x.bin')).toBe(false);
