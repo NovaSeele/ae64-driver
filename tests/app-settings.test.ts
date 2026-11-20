@@ -75,10 +75,11 @@ describe('item 1: the key table is complete', () => {
       }
     }
     // 15 in the table (J: ae64.accent, ae64.wallpaper; FW: ae64.labs.firmware, export: false; FXP: ae64.lighting.fxView) +
-    // ae64.lastDevice + ae64.accentVars + ae64.appcfg.done + ae64.calibrating (WX4, W-12); ae64.switchTab is gone (E)
-    expect(found.size).toBe(19);
-    expect(TABLE).toHaveLength(15);
-    expect(APP_SETTINGS.filter((s) => s.export === false).map((s) => s.key)).toEqual(['ae64.labs.firmware']);
+    // ae64.lastDevice + ae64.accentVars + ae64.appcfg.done + ae64.calibrating (WX4, W-12); ae64.switchTab is gone (E);
+    // TT: + ae64.typing.prefs, and ae64.typing.results and ae64.typing.best, export: false
+    expect(found.size).toBe(22);
+    expect(TABLE).toHaveLength(18);
+    expect(APP_SETTINGS.filter((s) => s.export === false).map((s) => s.key)).toEqual(['ae64.labs.firmware', 'ae64.typing.results', 'ae64.typing.best']);
     expect([...DERIVED_KEYS]).toEqual(['ae64.accentVars']);
     expect(TABLE).not.toContain('ae64.switchTab');
   });
@@ -88,8 +89,8 @@ describe('item 1: the key table is complete', () => {
     for (const k of [...TABLE, ...NOT_EXPORTED, ...DERIVED_KEYS, ...SESSION_KEYS]) expect(outside.includes(`'${k}'`), k).toBe(true);
   });
 
-  it('the groups keep the design order and all ten have a key (J: accent and wallpaper next to theme)', () => {
-    expect(groupsOf(TABLE)).toEqual(['theme', 'accent', 'wallpaper', 'locale', 'presets', 'tabs', 'toggles', 'colors', 'sidebar', 'demo']);
+  it('the groups keep the design order and all eleven have a key (J: accent and wallpaper next to theme; TT: typing last)', () => {
+    expect(groupsOf(TABLE)).toEqual(['theme', 'accent', 'wallpaper', 'locale', 'presets', 'tabs', 'toggles', 'colors', 'sidebar', 'demo', 'typing']);
   });
 });
 
@@ -327,6 +328,31 @@ describe('items 4, 5: export → import, reset (PLAN)', () => {
     expect(reload).toHaveBeenCalledTimes(1);
     expect(sessionStorage.getItem(APPCFG_DONE_KEY)).toBe('reset');
   });
+
+  it('TT: the typing prefs are in an export, its results and bests are not; a reset removes all three', async () => {
+    const prefs = JSON.stringify({ lang: 'vi', content: 'words', kind: 'time', time: 30, count: 25, readNext: false });
+    const results = JSON.stringify([{ v: 1, at: 1, lang: 'vi', content: 'words', kind: 'time', n: 30, wpm: 40, raw: 42, acc: 0.95, wordsPerMin: 12, seconds: 30 }]);
+    const best = JSON.stringify({ 'vi-words-time-30': { wpm: 40, at: 1 } });
+    localStorage.setItem('ae64.typing.prefs', prefs);
+    localStorage.setItem('ae64.typing.results', results);
+    localStorage.setItem('ae64.typing.best', best);
+    // the rules are the store's own shape checks
+    for (const [k, v] of [['ae64.typing.prefs', prefs], ['ae64.typing.results', results], ['ae64.typing.best', best]]) expect(rule(k)(v), k).toBe(true);
+    expect(rule('ae64.typing.prefs')('{"lang":"fr"}')).toBe(false);
+    expect(rule('ae64.typing.results')('[{"v":2}]')).toBe(false);
+    expect(rule('ae64.typing.best')('{"x":{"wpm":"a","at":1}}')).toBe(false);
+    const { json, n } = buildExport();
+    expect(n).toBe(1);
+    expect(JSON.parse(json).data).toEqual({ 'ae64.typing.prefs': prefs });
+    // a file that carries them anyway: ignored, not written
+    const r = parseImport(JSON.stringify({ app: 'ae64-control', data: { 'ae64.typing.prefs': prefs, 'ae64.typing.results': results, 'ae64.typing.best': best } }), 10);
+    expect(r.ok && Object.keys(r.data)).toEqual(['ae64.typing.prefs']);
+    expect(resetKeys().sort()).toEqual(['ae64.typing.best', 'ae64.typing.prefs', 'ae64.typing.results']);
+    vi.spyOn(pageReload, 'reload').mockImplementation(() => undefined);
+    await useDeviceStore().connectDemo('max');
+    await useAppSettings().applyAndReload('reset');
+    expect(['ae64.typing.prefs', 'ae64.typing.results', 'ae64.typing.best'].map((k) => localStorage.getItem(k))).toEqual([null, null, null]);
+  });
 });
 
 describe('item 6: the safe order (flush first, then write, then reload)', () => {
@@ -493,8 +519,8 @@ describe('item 14: strings', () => {
     const viKeys = Object.keys(viDict).filter((k) => H_KEY.test(k));
     const enKeys = Object.keys(en).filter((k) => H_KEY.test(k));
     expect(viKeys.sort()).toEqual(enKeys.sort());
-    // 63 of H + data.c.accent, data.c.wallpaper and appcfg.errWallpaper of J + appcfg.resetWallpaper (WX3)
-    expect(viKeys.length).toBe(67);
+    // 63 of H + data.c.accent, data.c.wallpaper and appcfg.errWallpaper of J + appcfg.resetWallpaper (WX3) + data.c.typing (TT)
+    expect(viKeys.length).toBe(68);
     for (const k of viKeys) {
       const v = (viDict as Record<string, string>)[k];
       const e = (en as Record<string, string>)[k];

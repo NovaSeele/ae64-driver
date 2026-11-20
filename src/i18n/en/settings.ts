@@ -109,6 +109,7 @@ export const settingsEn: Record<keyof typeof settingsVi, string> = {
   'data.c.colors': 'Recent colours',
   'data.c.sidebar': 'Collapsed sidebar',
   'data.c.demo': 'Demo keyboard model',
+  'data.c.typing': 'Typing test: options, results and best scores',
   'data.keyboardBackup': 'Back up the keyboard configuration on the Diagnostics page',
   'appcfg.export': 'Export file',
   'appcfg.import': 'Import file…',

@@ -107,6 +107,7 @@ export const settingsVi = {
   'data.c.colors': 'Màu dùng gần đây',
   'data.c.sidebar': 'Sidebar thu gọn',
   'data.c.demo': 'Mẫu bàn phím demo',
+  'data.c.typing': 'Bài gõ tốc độ: tuỳ chọn, kết quả và kỷ lục',
   'data.keyboardBackup': 'Sao lưu cấu hình phím ở trang Chẩn đoán',
   'appcfg.export': 'Xuất file',
   'appcfg.import': 'Nhập file…',

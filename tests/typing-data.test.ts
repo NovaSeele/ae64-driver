@@ -122,3 +122,12 @@ describe('typing data: the checker itself', () => {
     expect(check('en-words.txt', new Uint8Array([0x61, 0xff, 0x0a]))).not.toEqual([]); // not UTF-8
   });
 });
+
+describe('typing data: line ends in a checkout', () => {
+  it('the lists are pinned to LF (.gitattributes), and a CRLF list still gives clean entries', async () => {
+    expect(readFileSync(resolve('.gitattributes'), 'utf8')).toMatch(/^src\/data\/typing\/\*\.txt text eol=lf$/m);
+    const { lines } = await import('../src/typing/texts');
+    expect(lines('việt nam\r\nhòa bình\r\n')).toEqual(['việt nam', 'hòa bình']);
+    expect(lines('a\nb\n')).toEqual(['a', 'b']);
+  });
+});

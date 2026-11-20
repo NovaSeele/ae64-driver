@@ -18,10 +18,11 @@ import { useGamepadStore } from '../stores/gamepad';
 import { useSettingsStore } from '../stores/settings';
 import { useSyncStore } from '../stores/sync';
 import { LABS_FIRMWARE_KEY, useFirmwareStore } from '../stores/firmware';
+import { BEST_KEY, PREFS_KEY, RESULTS_KEY, bestValid, prefsValid, resultsValid } from '../typing/store';
 import { t } from '../i18n/vi';
 
 /** The "Stored on this computer" list, in this order. A new key joins a group (or J adds one). */
-export const APP_SETTING_GROUPS = ['theme', 'accent', 'wallpaper', 'locale', 'presets', 'tabs', 'toggles', 'colors', 'sidebar', 'demo'] as const;
+export const APP_SETTING_GROUPS = ['theme', 'accent', 'wallpaper', 'locale', 'presets', 'tabs', 'toggles', 'colors', 'sidebar', 'demo', 'typing'] as const;
 export type AppSettingGroup = (typeof APP_SETTING_GROUPS)[number];
 
 export interface AppSetting {
@@ -54,6 +55,11 @@ export const APP_SETTINGS: readonly AppSetting[] = [
   { key: 'ae64.recentColors', group: 'colors', valid: recentValid },
   { key: 'ae64.sidebarCollapsed', group: 'sidebar', valid: isFlag01 },
   { key: 'ae64.demoModel', group: 'demo', valid: isDemoSeed },
+  // The typing test (DESIGN TT §7): its options go with the other preferences; its results and bests stay on this device
+  // (never in a file), and a reset removes them.
+  { key: PREFS_KEY, group: 'typing', valid: prefsValid },
+  { key: RESULTS_KEY, group: 'typing', valid: resultsValid, export: false },
+  { key: BEST_KEY, group: 'typing', valid: bestValid, export: false },
 ];
 /**
  * localStorage, never exported, imported or reset: which keyboard this browser connected last (auto-reconnect), and the keyboard
