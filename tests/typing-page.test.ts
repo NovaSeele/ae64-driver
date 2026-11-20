@@ -282,6 +282,7 @@ describe('typing page: input (DESIGN TT §14 test 3)', () => {
     await type('Nam hạnh', 'insertCompositionText');
     await advance(15000);
     expect(big()).toEqual(['6WPM', '100%']); // 8 ÷ 5 ÷ 0.25 = 6.4
+    expect(cls(1)).toBe('tt-w--cur');
   });
 
   it('the same "Nam hanhj" with no composition is the user\'s text: 1 extra letter, 87 %', async () => {

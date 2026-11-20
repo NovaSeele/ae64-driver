@@ -35,6 +35,7 @@ describe('typing texts (DESIGN TT §6, §14 test 5b)', () => {
   it('moreWords gives at least 60 (T23)', () => {
     for (const l of LANGS) for (const c of CONTENTS) expect(moreWords(l, c).length, `${l} ${c}`).toBeGreaterThanOrEqual(MORE_WORDS);
     expect(MORE_WORDS).toBe(60);
+    expect(TIME_WORDS).toBe(80);
   });
 
   it('every word comes from its list', () => {
