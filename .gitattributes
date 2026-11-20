@@ -1,0 +1,2 @@
+# The typing test lists are data with an exact format (LF, checked by tests/typing-data.test.ts): never CRLF in a checkout.
+src/data/typing/*.txt text eol=lf
