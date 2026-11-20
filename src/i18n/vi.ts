@@ -13,6 +13,7 @@ import { gamepadVi } from './gamepad';
 import { firmwareVi } from './firmware';
 import { overviewVi } from './overview';
 import { profilesVi } from './profiles';
+import { typingVi } from './typing';
 import { applyPlurals, locale } from './locale';
 import { en } from './en';
 
@@ -42,6 +43,7 @@ export const base = {
   'page.settings': 'Cài đặt thiết bị',
   'page.diagnostics': 'Chẩn đoán',
   'page.firmware': 'Firmware',
+  'page.typing': 'Tốc độ gõ',
   'page.wip': 'Đang phát triển',
   'page.wipBody': 'Trang này sẽ có trong bản cập nhật tới. Các trang khác vẫn dùng bình thường.',
 
@@ -290,6 +292,7 @@ export const vi = {
   ...firmwareVi,
   ...overviewVi,
   ...profilesVi,
+  ...typingVi,
 } as const;
 
 export type MessageKey = keyof typeof vi;

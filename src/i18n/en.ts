@@ -12,6 +12,7 @@ import { gamepadEn } from './en/gamepad';
 import { firmwareEn } from './en/firmware';
 import { overviewEn } from './en/overview';
 import { profilesEn } from './en/profiles';
+import { typingEn } from './en/typing';
 
 const baseEn: Record<keyof typeof base, string> = {
   'app.name': 'AE64 Control',
@@ -39,6 +40,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'page.settings': 'Device settings',
   'page.diagnostics': 'Diagnostics',
   'page.firmware': 'Firmware',
+  'page.typing': 'Typing test',
   'page.wip': 'Work in progress',
   'page.wipBody': 'This page will be available in a future update. Other pages are fully functional.',
 
@@ -287,4 +289,5 @@ export const en = {
   ...firmwareEn,
   ...overviewEn,
   ...profilesEn,
+  ...typingEn,
 } as const;

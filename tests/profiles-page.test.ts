@@ -737,7 +737,7 @@ describe('ProfileSelect (sidebar) fixes (§3.9, items 6, 7)', () => {
 });
 
 describe('Router, sidebar, Settings, strings (items 10, 11, 12)', () => {
-  it('item 10: the route is named "profiles" and lazy; the Keyboard group is Overview, Performance, Profiles', async () => {
+  it('item 10: the route is named "profiles" and lazy; the Keyboard group is Overview, Performance, Profiles, Typing test', async () => {
     const r = appRouter();
     expect(r.hasRoute('profiles')).toBe(true);
     const rec = routes.find((x) => x.name === 'profiles')!;
@@ -749,6 +749,7 @@ describe('Router, sidebar, Settings, strings (items 10, 11, 12)', () => {
       ['/overview', 'page.overview', 'var(--f-overview)'],
       ['/performance', 'page.performance', 'var(--f-performance)'],
       ['/profiles', 'page.profiles', 'var(--f-profiles)'],
+      ['/typing', 'page.typing', 'var(--f-live)'], // DESIGN TT §1: after Profile
     ]);
     await r.push('/profiles');
     expect(r.currentRoute.value.name).toBe('profiles');

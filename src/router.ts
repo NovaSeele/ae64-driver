@@ -3,8 +3,8 @@ import { createRouter, createWebHashHistory } from 'vue-router';
 import type { Router, RouteRecordRaw } from 'vue-router';
 import type { Component } from 'vue';
 import {
-  IconAdjustmentsHorizontal, IconBulb, IconCpu, IconDeviceGamepad2, IconKeyboard, IconLayoutDashboard, IconListDetails,
-  IconSettings, IconStack2, IconStethoscope,
+  IconAdjustmentsHorizontal, IconBulb, IconCpu, IconCursorText, IconDeviceGamepad2, IconKeyboard, IconLayoutDashboard,
+  IconListDetails, IconSettings, IconStack2, IconStethoscope,
 } from '@tabler/icons-vue';
 import type { MessageKey } from './i18n/vi';
 import OverviewPage from './pages/OverviewPage.vue';
@@ -26,7 +26,8 @@ export interface NavItem {
 }
 
 // DESIGN E §3.8: Travel, Advanced keys, Switch, Calibration and Key test are the five tabs of the one Performance item.
-// DESIGN F §3.1: the Overview (start page) comes first. DESIGN G §3.1: Profiles after Performance.
+// DESIGN F §3.1: the Overview (start page) comes first. DESIGN G §3.1: Profiles after Performance. DESIGN TT §1: the typing
+// test after Profiles.
 export const NAV: { group: MessageKey; items: NavItem[] }[] = [
   {
     group: 'nav.groupKeyboard',
@@ -34,6 +35,7 @@ export const NAV: { group: MessageKey; items: NavItem[] }[] = [
       { path: '/overview', title: 'page.overview', icon: IconLayoutDashboard, tone: 'var(--f-overview)' },
       { path: '/performance', title: 'page.performance', icon: IconAdjustmentsHorizontal, tone: 'var(--f-performance)' },
       { path: '/profiles', title: 'page.profiles', icon: IconStack2, tone: 'var(--f-profiles)' },
+      { path: '/typing', title: 'page.typing', icon: IconCursorText, tone: 'var(--f-live)' },
     ],
   },
   {
@@ -81,6 +83,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/switch', redirect: (to) => ({ path: '/performance', query: { tab: to.query.tab === 'calibration' ? 'calibration' : 'switch' } }) },
   { path: '/calibration', redirect: { path: '/performance', query: { tab: 'calibration' } } },
   { path: '/live', redirect: (to) => ({ path: '/performance', query: { ...to.query, tab: 'test' } }) },
+  // DESIGN TT §1: the page, its texts and its scoring are one chunk, loaded only when opened.
+  { path: '/typing', component: () => import('./pages/TypingPage.vue'), meta: { title: 'page.typing' } },
   { path: '/lighting', component: () => import('./pages/LightingPage.vue'), meta: { title: 'page.lighting' } },
   { path: '/gamepad', component: () => import('./pages/GamepadPage.vue'), meta: { title: 'page.gamepad' } },
   { path: '/macro', component: () => import('./pages/MacroPage.vue'), meta: { title: 'page.macro' } },
