@@ -81,7 +81,9 @@ Khác với driver của nhà sản xuất vốn tự động tải phiên bản
 ## An toàn
 
 - Lệnh cập nhật firmware (family `08`) chỉ được gửi từ trang Firmware, và trang này chỉ hiện khi bật công tắc
-  thử nghiệm của nó trong Cài đặt. Mọi đường khác đều bị chặn family `08` ngay ở tầng truyền
+  thử nghiệm của nó trong Cài đặt. Ngoại lệ duy nhất: bàn phím đang ở chế độ cập nhật khi kết nối sẽ mở trang ở
+  chế độ cứu hộ, và chỉ ghi khi bạn chọn file rồi bấm **Ghi firmware**. Mọi đường khác đều bị chặn family `08`
+  ngay ở tầng truyền
   (`src/protocol/client.ts`). Ứng dụng **không bao giờ** gửi lệnh khôi phục cài đặt gốc; mã "Factory reset" cũng
   không có trong bộ chọn phím.
 - Chỉ ghi khi bảng mạch là `0030000D` (AE64 Max) hoặc `0030000A` (AE64 Pro); bàn phím khác được mở ở chế

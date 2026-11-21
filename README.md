@@ -89,7 +89,9 @@ updates itself**. The app keeps running the version it has until the user checks
 ## Safety
 
 - Firmware update commands (family `08`) are sent only from the Firmware page, which stays hidden until its
-  experimental switch in Settings is on. Every other path refuses family `08` in the transport
+  experimental switch in Settings is on. The one exception: a keyboard that is already in update mode when you
+  connect it opens the page in rescue mode, which writes only after you choose a file and press **Write firmware**.
+  Every other path refuses family `08` in the transport
   (`src/protocol/client.ts`). The app **never** sends a factory reset; the "Factory reset" keycode is not in the
   key picker either.
 - It writes only when the board is `0030000D` (AE64 Max) or `0030000A` (AE64 Pro); other keyboards open
