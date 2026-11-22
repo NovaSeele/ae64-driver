@@ -19,10 +19,14 @@ import { useSettingsStore } from '../stores/settings';
 import { useSyncStore } from '../stores/sync';
 import { LABS_FIRMWARE_KEY, useFirmwareStore } from '../stores/firmware';
 import { BEST_KEY, PREFS_KEY, RESULTS_KEY, bestValid, prefsValid, resultsValid } from '../typing/store';
+import {
+  CUSTOM_SWITCHES_KEY, GENERIC_SWITCH_KEY, SWITCH_ASSIGN_KEY, SWITCH_CAPS_KEY, SWITCH_RECAL_KEY,
+  assignValid, customValid, genericValid, isSwitchCaps,
+} from './customSwitch';
 import { t } from '../i18n/vi';
 
 /** The "Stored on this computer" list, in this order. A new key joins a group (or J adds one). */
-export const APP_SETTING_GROUPS = ['theme', 'accent', 'wallpaper', 'locale', 'presets', 'tabs', 'toggles', 'colors', 'sidebar', 'demo', 'typing'] as const;
+export const APP_SETTING_GROUPS = ['theme', 'accent', 'wallpaper', 'locale', 'presets', 'tabs', 'toggles', 'colors', 'sidebar', 'demo', 'typing', 'switches'] as const;
 export type AppSettingGroup = (typeof APP_SETTING_GROUPS)[number];
 
 export interface AppSetting {
@@ -50,6 +54,8 @@ export const APP_SETTINGS: readonly AppSetting[] = [
   { key: 'ae64.live.keyLock', group: 'toggles', valid: isFlag01 },
   { key: 'ae64.live.colorByResult', group: 'toggles', valid: isFlag01 },
   { key: 'ae64.calibration.showAdc', group: 'toggles', valid: isFlag01 },
+  // Switch tab keycap view ('photo' | 'travel', DESIGN CSW §9.5): display only.
+  { key: SWITCH_CAPS_KEY, group: 'toggles', valid: isSwitchCaps },
   // The Firmware page switch (DESIGN FW §3.8): turning it on is a choice made on this computer, never carried by a file.
   { key: LABS_FIRMWARE_KEY, group: 'toggles', valid: isFlag01, export: false },
   { key: 'ae64.recentColors', group: 'colors', valid: recentValid },
@@ -60,12 +66,18 @@ export const APP_SETTINGS: readonly AppSetting[] = [
   { key: PREFS_KEY, group: 'typing', valid: prefsValid },
   { key: RESULTS_KEY, group: 'typing', valid: resultsValid, export: false },
   { key: BEST_KEY, group: 'typing', valid: bestValid, export: false },
+  // Custom switches (DESIGN CSW §13): user switches, generic declaration and per-board assignments move with the backup;
+  // the recalibration list stays on this device (NOT_EXPORTED, kept on reset).
+  { key: CUSTOM_SWITCHES_KEY, group: 'switches', valid: customValid },
+  { key: GENERIC_SWITCH_KEY, group: 'switches', valid: genericValid },
+  { key: SWITCH_ASSIGN_KEY, group: 'switches', valid: assignValid },
 ];
 /**
- * localStorage, never exported, imported or reset: which keyboard this browser connected last (auto-reconnect), and the keyboard
- * this app put into calibration with no stop answered yet (W-12: the next connection stops it; a reset must not forget it).
+ * localStorage, never exported, imported or reset: which keyboard this browser connected last (auto-reconnect), the keyboard
+ * this app put into calibration with no stop answered yet (W-12: the next connection stops it; a reset must not forget it),
+ * and the swapped-switch recalibration list (DESIGN CSW §13: kept on reset, never exported).
  */
-export const NOT_EXPORTED = ['ae64.lastDevice', 'ae64.calibrating'] as const;
+export const NOT_EXPORTED = ['ae64.lastDevice', 'ae64.calibrating', SWITCH_RECAL_KEY] as const;
 /**
  * localStorage caches derived from a key of the table (DESIGN J §3.8): never exported (not in APP_SETTINGS), refused in an
  * imported file (an unknown key), removed by an import (with the keys it writes) and by a reset.

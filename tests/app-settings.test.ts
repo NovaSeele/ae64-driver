@@ -76,10 +76,12 @@ describe('item 1: the key table is complete', () => {
     }
     // 15 in the table (J: ae64.accent, ae64.wallpaper; FW: ae64.labs.firmware, export: false; FXP: ae64.lighting.fxView) +
     // ae64.lastDevice + ae64.accentVars + ae64.appcfg.done + ae64.calibrating (WX4, W-12); ae64.switchTab is gone (E);
-    // TT: + ae64.typing.prefs, and ae64.typing.results and ae64.typing.best, export: false
-    expect(found.size).toBe(22);
-    expect(TABLE).toHaveLength(18);
+    // TT: + ae64.typing.prefs, and ae64.typing.results and ae64.typing.best, export: false;
+    // CSW: + ae64.switch.caps, ae64.switch.custom, ae64.switch.generic, ae64.switch.assign, and ae64.switch.recal (NOT_EXPORTED)
+    expect(found.size).toBe(27);
+    expect(TABLE).toHaveLength(22);
     expect(APP_SETTINGS.filter((s) => s.export === false).map((s) => s.key)).toEqual(['ae64.labs.firmware', 'ae64.typing.results', 'ae64.typing.best']);
+    expect([...NOT_EXPORTED]).toEqual(['ae64.lastDevice', 'ae64.calibrating', 'ae64.switch.recal']);
     expect([...DERIVED_KEYS]).toEqual(['ae64.accentVars']);
     expect(TABLE).not.toContain('ae64.switchTab');
   });
@@ -89,8 +91,8 @@ describe('item 1: the key table is complete', () => {
     for (const k of [...TABLE, ...NOT_EXPORTED, ...DERIVED_KEYS, ...SESSION_KEYS]) expect(outside.includes(`'${k}'`), k).toBe(true);
   });
 
-  it('the groups keep the design order and all eleven have a key (J: accent and wallpaper next to theme; TT: typing last)', () => {
-    expect(groupsOf(TABLE)).toEqual(['theme', 'accent', 'wallpaper', 'locale', 'presets', 'tabs', 'toggles', 'colors', 'sidebar', 'demo', 'typing']);
+  it('the groups keep the design order and all twelve have a key (J: accent and wallpaper next to theme; TT: typing; CSW: switches last)', () => {
+    expect(groupsOf(TABLE)).toEqual(['theme', 'accent', 'wallpaper', 'locale', 'presets', 'tabs', 'toggles', 'colors', 'sidebar', 'demo', 'typing', 'switches']);
   });
 });
 
@@ -353,6 +355,42 @@ describe('items 4, 5: export → import, reset (PLAN)', () => {
     await useAppSettings().applyAndReload('reset');
     expect(['ae64.typing.prefs', 'ae64.typing.results', 'ae64.typing.best'].map((k) => localStorage.getItem(k))).toEqual([null, null, null]);
   });
+
+  it('CSW: custom, generic, assign and caps export/import and reset; recal is never exported and is kept on reset', async () => {
+    const serial = '360812504339463536051657';
+    const custom = JSON.stringify({
+      v: 1,
+      list: [{ uid: 'u-0123456789ab', name: 'Flux', maker: 'Wuque', travelUm: 3500, rangeUm: 3500, coefficient: 17536, curve: { kind: 'manual' }, color: '#9b6cf0', note: '' }],
+    });
+    const generic = JSON.stringify({ v: 1, rangeUm: 3600 });
+    const assign = JSON.stringify({ v: 1, boards: { [serial]: { at: 1000, keys: { 0: 'u-0123456789ab' } } } });
+    const recal = JSON.stringify({ v: 1, boards: { [serial]: [0, 1] } });
+    localStorage.setItem('ae64.switch.custom', custom);
+    localStorage.setItem('ae64.switch.generic', generic);
+    localStorage.setItem('ae64.switch.assign', assign);
+    localStorage.setItem('ae64.switch.caps', 'travel');
+    localStorage.setItem('ae64.switch.recal', recal);
+
+    const { json, n } = buildExport();
+    expect(n).toBe(4);
+    expect(JSON.parse(json).data).toEqual({
+      'ae64.switch.caps': 'travel',
+      'ae64.switch.custom': custom,
+      'ae64.switch.generic': generic,
+      'ae64.switch.assign': assign,
+    });
+    expect(json).not.toContain('ae64.switch.recal');
+    expect(parseImport(JSON.stringify({ app: 'ae64-control', data: { 'ae64.switch.recal': recal } }), 100)).toEqual({
+      ok: false, error: 'errKeys', keys: 'ae64.switch.recal',
+    });
+
+    expect(resetKeys()).not.toContain('ae64.switch.recal');
+    vi.spyOn(pageReload, 'reload').mockImplementation(() => undefined);
+    await useDeviceStore().connectDemo('max');
+    await useAppSettings().applyAndReload('reset');
+    expect(['ae64.switch.custom', 'ae64.switch.generic', 'ae64.switch.assign', 'ae64.switch.caps'].map((k) => localStorage.getItem(k))).toEqual([null, null, null, null]);
+    expect(localStorage.getItem('ae64.switch.recal')).toBe(recal);
+  });
 });
 
 describe('item 6: the safe order (flush first, then write, then reload)', () => {
@@ -519,8 +557,8 @@ describe('item 14: strings', () => {
     const viKeys = Object.keys(viDict).filter((k) => H_KEY.test(k));
     const enKeys = Object.keys(en).filter((k) => H_KEY.test(k));
     expect(viKeys.sort()).toEqual(enKeys.sort());
-    // 63 of H + data.c.accent, data.c.wallpaper and appcfg.errWallpaper of J + appcfg.resetWallpaper (WX3) + data.c.typing (TT)
-    expect(viKeys.length).toBe(68);
+    // 63 of H + data.c.accent, data.c.wallpaper and appcfg.errWallpaper of J + appcfg.resetWallpaper (WX3) + data.c.typing (TT) + data.c.switches (CSW)
+    expect(viKeys.length).toBe(69);
     for (const k of viKeys) {
       const v = (viDict as Record<string, string>)[k];
       const e = (en as Record<string, string>)[k];

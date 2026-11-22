@@ -1,0 +1,979 @@
+{
+ "schema": 1,
+ "from": "research/switches/unsupported-switches.json (2026-11-21), rules in DESIGN CSW §5.6",
+ "bounds": {
+  "rMin": 3130,
+  "rMax": 4015,
+  "cMin": 13300,
+  "cMax": 26800
+ },
+ "switches": [
+  {
+   "uid": "r-wuque-ws-dash-he",
+   "maker": "Wuque Studio",
+   "name": "WS Dash HE",
+   "travelUm": 3500,
+   "rangeUm": 3430,
+   "coefficient": 22800,
+   "curveFrom": {
+    "id": 4112,
+    "name": "Magnetic Jade",
+    "brand": "Gateron"
+   },
+   "confidence": "medium",
+   "notes": [
+    "samePart"
+   ],
+   "source": "https://kbd.news/switch/Wuque-Studio-WS-Dash-35.html"
+  },
+  {
+   "uid": "r-wuque-ws-flux-clacky",
+   "maker": "Wuque Studio",
+   "name": "WS Flux",
+   "aka": "Clacky, the original Flux Standard",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 17536,
+   "curveFrom": {
+    "id": 13472,
+    "name": "Skyline V3",
+    "brand": "Everglide"
+   },
+   "confidence": "medium",
+   "notes": [],
+   "source": "https://mkbguide.com/blog/wuque-studio-switches-guide-flux-poseidon-diamond-series"
+  },
+  {
+   "uid": "r-wuque-ws-flux-deep-clacky",
+   "maker": "Wuque Studio",
+   "name": "WS Flux Deep Clacky",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 17536,
+   "curveFrom": {
+    "id": 13472,
+    "name": "Skyline V3",
+    "brand": "Everglide"
+   },
+   "confidence": "medium",
+   "notes": [],
+   "source": "https://mkbguide.com/blog/wuque-studio-switches-guide-flux-poseidon-diamond-series"
+  },
+  {
+   "uid": "r-wuque-ws-flux-diamond-cullinan",
+   "maker": "Wuque Studio",
+   "name": "WS Flux Diamond Cullinan",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 17536,
+   "curveFrom": {
+    "id": 13472,
+    "name": "Skyline V3",
+    "brand": "Everglide"
+   },
+   "confidence": "medium",
+   "notes": [
+    "multiMagnet"
+   ],
+   "source": "https://us.maxgaming.com/us/switches/wuque-studio-ws-flux-cullinan-he-linear-switch"
+  },
+  {
+   "uid": "r-wuque-ws-flux-diamond-heart-of-the-ocean",
+   "maker": "Wuque Studio",
+   "name": "WS Flux Diamond Heart of the Ocean",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 17536,
+   "curveFrom": {
+    "id": 13472,
+    "name": "Skyline V3",
+    "brand": "Everglide"
+   },
+   "confidence": "medium",
+   "notes": [
+    "multiMagnet"
+   ],
+   "source": "https://kbd.news/switch/Wuque-Studio-WS-Flux-Heart-of-the-Ocean-513.html"
+  },
+  {
+   "uid": "r-wuque-ws-flux-diamond-star-kiss",
+   "maker": "Wuque Studio",
+   "name": "WS Flux Diamond Star Kiss",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 17536,
+   "curveFrom": {
+    "id": 13472,
+    "name": "Skyline V3",
+    "brand": "Everglide"
+   },
+   "confidence": "medium",
+   "notes": [
+    "multiMagnet"
+   ],
+   "source": "https://mkbguide.com/blog/wuque-studio-switches-guide-flux-poseidon-diamond-series"
+  },
+  {
+   "uid": "r-wuque-ws-flux-ocean-whisper",
+   "maker": "Wuque Studio",
+   "name": "WS Flux Ocean Whisper",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 17536,
+   "curveFrom": {
+    "id": 13472,
+    "name": "Skyline V3",
+    "brand": "Everglide"
+   },
+   "confidence": "low",
+   "notes": [
+    "lowConfidence"
+   ],
+   "source": "https://mkbguide.com/blog/wuque-studio-switches-guide-flux-poseidon-diamond-series"
+  },
+  {
+   "uid": "r-wuque-ws-flux-pink-lotus",
+   "maker": "Wuque Studio",
+   "name": "WS Flux Pink Lotus",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 17536,
+   "curveFrom": {
+    "id": 13472,
+    "name": "Skyline V3",
+    "brand": "Everglide"
+   },
+   "confidence": "medium",
+   "notes": [],
+   "source": "https://mkbguide.com/blog/wuque-studio-switches-guide-flux-poseidon-diamond-series"
+  },
+  {
+   "uid": "r-wuque-ws-flux-tears-of-the-sun",
+   "maker": "Wuque Studio",
+   "name": "WS Flux Tears of the Sun",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 17536,
+   "curveFrom": {
+    "id": 13472,
+    "name": "Skyline V3",
+    "brand": "Everglide"
+   },
+   "confidence": "low",
+   "notes": [
+    "multiMagnet",
+    "lowConfidence"
+   ],
+   "source": "https://kbd.news/switch/Wuque-Studio-WS-Flux-Tears-of-the-Sun-601.html"
+  },
+  {
+   "uid": "r-ags-radiant-he",
+   "maker": "Aiglatson Studio (AGS)",
+   "name": "Radiant HE",
+   "travelUm": 3400,
+   "rangeUm": 3400,
+   "coefficient": 19000,
+   "curveFrom": {
+    "id": 4144,
+    "name": "Magnetic Jade Gaming",
+    "brand": "Gateron"
+   },
+   "confidence": "medium",
+   "notes": [],
+   "source": "https://divinikey.com/products/ags-radiant-he-switches"
+  },
+  {
+   "uid": "r-akko-astroaim",
+   "maker": "Akko",
+   "name": "AstroAim Magnetic",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 17536,
+   "curveFrom": {
+    "id": 13472,
+    "name": "Skyline V3",
+    "brand": "Everglide"
+   },
+   "confidence": "high",
+   "notes": [],
+   "source": "https://akkogear.eu/products/akko-astroaim-magnetic-switch"
+  },
+  {
+   "uid": "r-akko-astrolink",
+   "maker": "Akko",
+   "name": "Astrolink Magnetic",
+   "travelUm": 3400,
+   "rangeUm": 3400,
+   "coefficient": 19000,
+   "curveFrom": {
+    "id": 4144,
+    "name": "Magnetic Jade Gaming",
+    "brand": "Gateron"
+   },
+   "confidence": "high",
+   "notes": [],
+   "source": "https://akkogear.eu/products/akko-astrolink-magnetic-switch"
+  },
+  {
+   "uid": "r-akko-flash",
+   "maker": "Akko",
+   "name": "Flash Magnetic",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 17536,
+   "curveFrom": {
+    "id": 13472,
+    "name": "Skyline V3",
+    "brand": "Everglide"
+   },
+   "confidence": "high",
+   "notes": [],
+   "source": "https://akkogear.eu/products/akko-flash-magnetic-switch"
+  },
+  {
+   "uid": "r-drunkdeer-raesha",
+   "maker": "DrunkDeer",
+   "name": "RAESHA Magnetic",
+   "travelUm": 3850,
+   "rangeUm": 3850,
+   "coefficient": 17200,
+   "curveFrom": {
+    "id": 4512,
+    "name": "Magnetic Green",
+    "brand": "Gateron"
+   },
+   "confidence": "low",
+   "notes": [
+    "polarityUnknown",
+    "lowConfidence"
+   ],
+   "source": "https://drunkdeer.com/products/50-35-pcs-linear-magnetic-switch"
+  },
+  {
+   "uid": "r-epomaker-creamy-jade-magnetic",
+   "maker": "Epomaker",
+   "name": "Creamy Jade Magnetic",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 17536,
+   "curveFrom": {
+    "id": 13472,
+    "name": "Skyline V3",
+    "brand": "Everglide"
+   },
+   "confidence": "high",
+   "notes": [],
+   "source": "https://epomaker.com/products/epomaker-creamy-jade-magnetic-switch-set"
+  },
+  {
+   "uid": "r-gateron-black-lotus-he",
+   "maker": "Gateron",
+   "name": "Black Lotus HE",
+   "aka": "Magnetic Jade Black Lotus",
+   "travelUm": 4000,
+   "rangeUm": 4000,
+   "coefficient": 15300,
+   "curveFrom": {
+    "id": 4464,
+    "name": "Magnetic Yellow",
+    "brand": "Gateron"
+   },
+   "confidence": "high",
+   "notes": [],
+   "source": "https://kbd.news/switch/Gateron-Black-Lotus-HE-590.html"
+  },
+  {
+   "uid": "r-gateron-ks-20-magnetic-white",
+   "maker": "Gateron",
+   "name": "KS-20 Magnetic White",
+   "travelUm": 4100,
+   "rangeUm": 4015,
+   "coefficient": 19700,
+   "curveFrom": {
+    "id": 4496,
+    "name": "KS-20 Magnetic Orange",
+    "brand": "Gateron"
+   },
+   "confidence": "high",
+   "notes": [
+    "rangeClamped"
+   ],
+   "source": "https://gateron.com/products/gateron-ks-20-magnetic-white-switch-set"
+  },
+  {
+   "uid": "r-gateron-ks-37-dual-rail-fox",
+   "maker": "Gateron",
+   "name": "KS-37 Dual-Rail Magnetic Fox",
+   "travelUm": 4000,
+   "rangeUm": 4000,
+   "coefficient": 13300,
+   "curveFrom": {
+    "id": 4416,
+    "name": "KS-37B Dual-Rail Magnetic White",
+    "brand": "Gateron"
+   },
+   "confidence": "medium",
+   "notes": [],
+   "source": "https://www.hlplanet.com/gateron-magnetic-switches/"
+  },
+  {
+   "uid": "r-gateron-magnetic-jade-attraction-he",
+   "maker": "Gateron",
+   "name": "Magnetic Jade Attraction HE",
+   "travelUm": 3200,
+   "rangeUm": 3200,
+   "coefficient": 26800,
+   "curveFrom": {
+    "id": 4256,
+    "name": "Magnetic Spark",
+    "brand": "Gateron"
+   },
+   "confidence": "high",
+   "notes": [
+    "multiMagnet"
+   ],
+   "source": "https://www.gateron.com/blog/detail/magnetic-jade-attraction-he-switch-set"
+  },
+  {
+   "uid": "r-gateron-magnetic-jade-delta-he",
+   "maker": "Gateron",
+   "name": "Magnetic Jade Delta HE",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 20000,
+   "curveFrom": {
+    "id": 4128,
+    "name": "Magnetic Jade Pro",
+    "brand": "Gateron"
+   },
+   "confidence": "medium",
+   "notes": [],
+   "source": "https://www.gateron.com/products/gateron-magnetic-jade-delta-switch"
+  },
+  {
+   "uid": "r-gateron-magnetic-jade-ruby-he",
+   "maker": "Gateron",
+   "name": "Magnetic Jade Ruby HE",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 20000,
+   "curveFrom": {
+    "id": 4128,
+    "name": "Magnetic Jade Pro",
+    "brand": "Gateron"
+   },
+   "confidence": "medium",
+   "notes": [],
+   "source": "https://kbd.news/switch/Gateron-Magnetic-Jade-Ruby-HE-325.html"
+  },
+  {
+   "uid": "r-gateron-magnetic-jade-sapphire-he",
+   "maker": "Gateron",
+   "name": "Magnetic Jade Sapphire HE",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 20000,
+   "curveFrom": {
+    "id": 4128,
+    "name": "Magnetic Jade Pro",
+    "brand": "Gateron"
+   },
+   "confidence": "medium",
+   "notes": [],
+   "source": "https://us.maxgaming.com/us/switches/magnetic-jade-sapphire-he-linear-switch"
+  },
+  {
+   "uid": "r-gateron-magnetic-jade-silent-he",
+   "maker": "Gateron",
+   "name": "Magnetic Jade Silent HE",
+   "travelUm": 3200,
+   "rangeUm": 3200,
+   "coefficient": 20480,
+   "curveFrom": {
+    "id": 4240,
+    "name": "Magnetic Jade POM",
+    "brand": "Gateron"
+   },
+   "confidence": "high",
+   "notes": [],
+   "source": "https://www.gateron.com/blog/detail/magnetic-jade-silent-switch-set"
+  },
+  {
+   "uid": "r-gateron-magnetic-jade-ultra",
+   "maker": "Gateron",
+   "name": "Magnetic Jade Ultra",
+   "travelUm": 3200,
+   "rangeUm": 3200,
+   "coefficient": 26800,
+   "curveFrom": {
+    "id": 4256,
+    "name": "Magnetic Spark",
+    "brand": "Gateron"
+   },
+   "confidence": "high",
+   "notes": [
+    "multiMagnet"
+   ],
+   "source": "https://kbd.news/switch/Gateron-Magnetic-Jade-Ultra-437.html"
+  },
+  {
+   "uid": "r-gateron-magnetic-moonlight-he",
+   "maker": "Gateron",
+   "name": "Magnetic Moonlight HE",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 20000,
+   "curveFrom": {
+    "id": 4128,
+    "name": "Magnetic Jade Pro",
+    "brand": "Gateron"
+   },
+   "confidence": "medium",
+   "notes": [
+    "travelConflict"
+   ],
+   "travelAlt": [
+    3100
+   ],
+   "source": "https://cannonkeys.com/products/gateron-magnetic-moonlight-linear-switch"
+  },
+  {
+   "uid": "r-gateron-magnetic-orchid",
+   "maker": "Gateron",
+   "name": "Magnetic Orchid",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 15200,
+   "curveFrom": {
+    "id": 4432,
+    "name": "KS-20 Dual-Rail Magnetic Orange",
+    "brand": "Gateron"
+   },
+   "confidence": "low",
+   "notes": [
+    "travelConflict",
+    "lowConfidence"
+   ],
+   "travelAlt": [
+    4100
+   ],
+   "source": "https://www.gateron.com/products/gateron-magnetic-orchid-switch-set"
+  },
+  {
+   "uid": "r-gateron-milky-yellow-he",
+   "maker": "Gateron",
+   "name": "Milky Yellow HE",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 20000,
+   "curveFrom": {
+    "id": 4128,
+    "name": "Magnetic Jade Pro",
+    "brand": "Gateron"
+   },
+   "confidence": "medium",
+   "notes": [],
+   "source": "https://divinikey.com/products/gateron-milky-yellow-he-switches"
+  },
+  {
+   "uid": "r-geon-raptor-he-v2",
+   "maker": "Geon (GeonWorks)",
+   "name": "Raptor HE V2",
+   "travelUm": 3400,
+   "rangeUm": 3400,
+   "coefficient": 19000,
+   "curveFrom": {
+    "id": 4144,
+    "name": "Magnetic Jade Gaming",
+    "brand": "Gateron"
+   },
+   "confidence": "medium",
+   "notes": [
+    "polarityUnknown"
+   ],
+   "source": "https://kbd.news/switch/Geon-Raptor-HE-V2-380.html"
+  },
+  {
+   "uid": "r-geon-raw-he",
+   "maker": "Geon (GeonWorks)",
+   "name": "Raw HE",
+   "aka": "Linear 50; also 40 and 60 gf springs",
+   "travelUm": 3400,
+   "rangeUm": 3400,
+   "coefficient": 22800,
+   "curveFrom": {
+    "id": 4112,
+    "name": "Magnetic Jade",
+    "brand": "Gateron"
+   },
+   "confidence": "medium",
+   "notes": [
+    "travelConflict"
+   ],
+   "travelAlt": [
+    3800
+   ],
+   "source": "https://wooting.io/product/geon-raw-he-switch"
+  },
+  {
+   "uid": "r-gravastar-ufo-magnetic",
+   "maker": "GravaStar",
+   "name": "UFO Magnetic",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 17536,
+   "curveFrom": {
+    "id": 13472,
+    "name": "Skyline V3",
+    "brand": "Everglide"
+   },
+   "confidence": "medium",
+   "notes": [
+    "polarityUnknown"
+   ],
+   "source": "https://www.gravastar.com/products/gravastar-ufo-magnetic-switch-hall-effect-gaming-switches"
+  },
+  {
+   "uid": "r-haimu-snow-silent-he",
+   "maker": "Haimu",
+   "name": "Snow Silent HE",
+   "travelUm": 3850,
+   "rangeUm": 3850,
+   "coefficient": 17200,
+   "curveFrom": {
+    "id": 4512,
+    "name": "Magnetic Green",
+    "brand": "Gateron"
+   },
+   "confidence": "medium",
+   "notes": [
+    "polarityUnknown"
+   ],
+   "source": "https://kbd.news/switch/Haimu-Snow-Silent-HE-502.html"
+  },
+  {
+   "uid": "r-hmx-crystal-he",
+   "maker": "HMX",
+   "name": "Crystal HE",
+   "travelUm": 3300,
+   "rangeUm": 3300,
+   "coefficient": 20480,
+   "curveFrom": {
+    "id": 4240,
+    "name": "Magnetic Jade POM",
+    "brand": "Gateron"
+   },
+   "confidence": "medium",
+   "notes": [
+    "polarityUnknown"
+   ],
+   "source": "https://kbd.news/switch/HMX-Crystal-HE-magnetic-411.html"
+  },
+  {
+   "uid": "r-hmx-80retros-blush-charm-sp-he",
+   "maker": "HMX (x 80Retros)",
+   "name": "Blush Charm SP HE",
+   "travelUm": 3400,
+   "rangeUm": 3400,
+   "coefficient": 19000,
+   "curveFrom": {
+    "id": 4144,
+    "name": "Magnetic Jade Gaming",
+    "brand": "Gateron"
+   },
+   "confidence": "low",
+   "notes": [
+    "polarityUnknown",
+    "lowConfidence"
+   ],
+   "source": "https://keeb-finder.com/switches/hmx-blush-charm-sp-hall-effect-switch-factory-lubed-35pcs"
+  },
+  {
+   "uid": "r-huano-omega-magnetic",
+   "maker": "HUANO",
+   "name": "OMEGA Magnetic",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 20224,
+   "curveFrom": {
+    "id": 2128,
+    "name": "Star Eye",
+    "brand": "HUANO"
+   },
+   "confidence": "medium",
+   "notes": [
+    "polarityUnknown"
+   ],
+   "source": "https://mechkeys.com/products/huano-omega-magnetic-switch"
+  },
+  {
+   "uid": "r-kailh-aurora-magnetic",
+   "maker": "Kailh",
+   "name": "Aurora Magnetic",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 21000,
+   "curveFrom": {
+    "id": 12656,
+    "name": "Magnetic God",
+    "brand": "Kailh"
+   },
+   "confidence": "low",
+   "notes": [
+    "polarityUnknown",
+    "lowConfidence"
+   ],
+   "source": "https://www.guru3d.com/story/kailh-aurora-magnetic-switches-debut-with-translucent-and-matte-rgb-variants/"
+  },
+  {
+   "uid": "r-kailh-lychee-he",
+   "maker": "Kailh",
+   "name": "Lychee Magnetic",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 21000,
+   "curveFrom": {
+    "id": 12656,
+    "name": "Magnetic God",
+    "brand": "Kailh"
+   },
+   "confidence": "low",
+   "notes": [
+    "lowConfidence"
+   ],
+   "source": "https://diykey.net/products/kailh-lychee-magnetic-switch-smooth-rt0-01-he-keyboard-switch"
+  },
+  {
+   "uid": "r-kailh-star-magnetic",
+   "maker": "Kailh",
+   "name": "Star Magnetic",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 21000,
+   "curveFrom": {
+    "id": 12656,
+    "name": "Magnetic God",
+    "brand": "Kailh"
+   },
+   "confidence": "medium",
+   "notes": [
+    "polarityUnknown"
+   ],
+   "source": "https://kbd.news/switch/Kailh-Star-Magnetic-584.html"
+  },
+  {
+   "uid": "r-keychron-gateron-double-rail-aurora",
+   "maker": "Keychron",
+   "name": "Gateron Double-Rail Magnetic Aurora",
+   "travelUm": 4000,
+   "rangeUm": 4000,
+   "coefficient": 13300,
+   "curveFrom": {
+    "id": 4416,
+    "name": "KS-37B Dual-Rail Magnetic White",
+    "brand": "Gateron"
+   },
+   "confidence": "medium",
+   "notes": [],
+   "source": "https://www.digitec.ch/en/s1/product/keychron-gateron-double-rail-magnetic-45-stueck-mouse-keyboard-accessories-64955132"
+  },
+  {
+   "uid": "r-keychron-gateron-double-rail-dawn",
+   "maker": "Keychron",
+   "name": "Gateron Double-Rail Magnetic Dawn",
+   "travelUm": 4000,
+   "rangeUm": 4000,
+   "coefficient": 13300,
+   "curveFrom": {
+    "id": 4416,
+    "name": "KS-37B Dual-Rail Magnetic White",
+    "brand": "Gateron"
+   },
+   "confidence": "low",
+   "notes": [
+    "lowConfidence"
+   ],
+   "source": "https://keychron.com/collections/keyboard-switch/products/gateron-double-rail-magnetic-switch"
+  },
+  {
+   "uid": "r-keychron-gateron-double-rail-nebula",
+   "maker": "Keychron",
+   "name": "Gateron Double-Rail Magnetic Nebula",
+   "travelUm": 4000,
+   "rangeUm": 4000,
+   "coefficient": 13300,
+   "curveFrom": {
+    "id": 4416,
+    "name": "KS-37B Dual-Rail Magnetic White",
+    "brand": "Gateron"
+   },
+   "confidence": "medium",
+   "notes": [],
+   "source": "https://keychron.com/collections/keyboard-switch/products/gateron-double-rail-magnetic-switch"
+  },
+  {
+   "uid": "r-moyu-yurui-he",
+   "maker": "Moyu Studio",
+   "name": "Yurui HE",
+   "travelUm": 3600,
+   "rangeUm": 3600,
+   "coefficient": 19456,
+   "curveFrom": {
+    "id": 19504,
+    "name": "Cullinan",
+    "brand": "Everglide"
+   },
+   "confidence": "medium",
+   "notes": [],
+   "source": "https://us.maxgaming.com/us/switches/moyu-studio-yurui-he-linear-switch"
+  },
+  {
+   "uid": "r-pulsar-gravity-s-pro",
+   "maker": "Pulsar",
+   "name": "Gravity S Pro Magnetic",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 17536,
+   "curveFrom": {
+    "id": 13472,
+    "name": "Skyline V3",
+    "brand": "Everglide"
+   },
+   "confidence": "low",
+   "notes": [
+    "lowConfidence"
+   ],
+   "source": "https://www.pulsar.gg/products/pulsar-magnetic-switch-gravity-s-pro-90pcs"
+  },
+  {
+   "uid": "r-ttc-black-horse-rgb-he",
+   "maker": "TTC",
+   "name": "Black Horse RGB HE",
+   "travelUm": 3450,
+   "rangeUm": 3450,
+   "coefficient": 19800,
+   "curveFrom": {
+    "id": 8320,
+    "name": "RGB Sacred Heart",
+    "brand": "TTC"
+   },
+   "confidence": "medium",
+   "notes": [
+    "travelConflict"
+   ],
+   "travelAlt": [
+    3500
+   ],
+   "source": "https://mechanicalkeyboards.com/products/TTC-Black-Horse-RGB-Plate-Mount-Magnetic-HE-Switch"
+  },
+  {
+   "uid": "r-ttc-camouflage-he",
+   "maker": "TTC",
+   "name": "Camouflage HE",
+   "travelUm": 3400,
+   "rangeUm": 3400,
+   "coefficient": 20500,
+   "curveFrom": {
+    "id": 8208,
+    "name": "King (KOM)",
+    "brand": "TTC"
+   },
+   "confidence": "medium",
+   "notes": [],
+   "source": "https://keeb-finder.com/switches/ttc-camouflage-magnetic"
+  },
+  {
+   "uid": "r-ttc-flip-king-he",
+   "maker": "TTC",
+   "name": "Flip King HE",
+   "travelUm": 3500,
+   "rangeUm": 3500,
+   "coefficient": 20000,
+   "curveFrom": {
+    "id": 8432,
+    "name": "HiFi Snow",
+    "brand": "TTC"
+   },
+   "confidence": "medium",
+   "notes": [],
+   "source": "https://mechanicalkeyboards.com/products/TTC-Flip-King-Plate-Mount-Magnetic-HE-Switch"
+  },
+  {
+   "uid": "r-ttc-pro-kom-he-magneto",
+   "maker": "TTC",
+   "name": "Pro KOM HE Magneto",
+   "travelUm": 3400,
+   "rangeUm": 3400,
+   "coefficient": 20500,
+   "curveFrom": {
+    "id": 8208,
+    "name": "King (KOM)",
+    "brand": "TTC"
+   },
+   "confidence": "low",
+   "notes": [
+    "lowConfidence"
+   ],
+   "source": "https://kbd.news/switch/TTC-Pro-KOM-HE-Magneto-542.html"
+  },
+  {
+   "uid": "r-ttc-white-horse-rgb-he",
+   "maker": "TTC",
+   "name": "White Horse RGB HE",
+   "travelUm": 3450,
+   "rangeUm": 3450,
+   "coefficient": 19800,
+   "curveFrom": {
+    "id": 8320,
+    "name": "RGB Sacred Heart",
+    "brand": "TTC"
+   },
+   "confidence": "medium",
+   "notes": [],
+   "source": "https://mechanicalkeyboards.com/products/TTC-White-Horse-RGB-Plate-Mount-Magnetic-HE-Switch"
+  },
+  {
+   "uid": "r-ttc-zero35-he",
+   "maker": "TTC",
+   "name": "Zero35 HE",
+   "travelUm": 3400,
+   "rangeUm": 3400,
+   "coefficient": 20800,
+   "curveFrom": {
+    "id": 8272,
+    "name": "Zodiac Snake White",
+    "brand": "TTC"
+   },
+   "confidence": "low",
+   "notes": [
+    "multiMagnet",
+    "lowConfidence"
+   ],
+   "source": "https://kbd.news/switch/TTC-Zero35-HE-551.html"
+  },
+  {
+   "uid": "r-ttc-mchose-noble-horse-he",
+   "maker": "TTC (x MCHOSE)",
+   "name": "Noble Horse HE",
+   "travelUm": 3450,
+   "rangeUm": 3450,
+   "coefficient": 19800,
+   "curveFrom": {
+    "id": 8320,
+    "name": "RGB Sacred Heart",
+    "brand": "TTC"
+   },
+   "confidence": "medium",
+   "notes": [
+    "travelConflict"
+   ],
+   "travelAlt": [
+    3500
+   ],
+   "source": "https://kbd.news/switch/TTC-MCHOSE-Noble-Horse-514.html"
+  },
+  {
+   "uid": "r-wooting-lekker-l45-v2",
+   "maker": "Wooting",
+   "name": "Lekker L45 V2",
+   "aka": "Linear45",
+   "travelUm": 4000,
+   "rangeUm": 4000,
+   "coefficient": 19700,
+   "curveFrom": {
+    "id": 4496,
+    "name": "KS-20 Magnetic Orange",
+    "brand": "Gateron"
+   },
+   "confidence": "high",
+   "notes": [],
+   "source": "https://wooting.io/product/lekker-switch-l45-v2"
+  },
+  {
+   "uid": "r-wooting-lekker-l60-v2",
+   "maker": "Wooting",
+   "name": "Lekker L60 V2",
+   "aka": "Linear60",
+   "travelUm": 4000,
+   "rangeUm": 4000,
+   "coefficient": 19700,
+   "curveFrom": {
+    "id": 4496,
+    "name": "KS-20 Magnetic Orange",
+    "brand": "Gateron"
+   },
+   "confidence": "high",
+   "notes": [],
+   "source": "https://wooting.io/product/lekker-switch-l60-v2"
+  },
+  {
+   "uid": "r-wooting-lekker-tikken-light",
+   "maker": "Wooting",
+   "name": "Lekker Tikken Light",
+   "travelUm": 4000,
+   "rangeUm": 4000,
+   "coefficient": 19700,
+   "curveFrom": {
+    "id": 4496,
+    "name": "KS-20 Magnetic Orange",
+    "brand": "Gateron"
+   },
+   "confidence": "high",
+   "notes": [],
+   "source": "https://wooting.io/product/wooting-lekker-tikken-light-switch"
+  },
+  {
+   "uid": "r-wooting-lekker-tikken-medium",
+   "maker": "Wooting",
+   "name": "Lekker Tikken Medium",
+   "travelUm": 4000,
+   "rangeUm": 4000,
+   "coefficient": 19700,
+   "curveFrom": {
+    "id": 4496,
+    "name": "KS-20 Magnetic Orange",
+    "brand": "Gateron"
+   },
+   "confidence": "high",
+   "notes": [],
+   "source": "https://wooting.io/product/wooting-lekker-tikken-medium-switch"
+  }
+ ],
+ "incompatible": [
+  {
+   "uid": "x-akko-he-cream-yellow",
+   "maker": "Akko",
+   "name": "HE Cream Yellow",
+   "reason": "sDown",
+   "source": "https://www.hlplanet.com/?p=2775"
+  },
+  {
+   "uid": "x-kailh-flame-he",
+   "maker": "Kailh",
+   "name": "Flame HE",
+   "reason": "sDown",
+   "source": "https://diykey.net/products/kailh-flame-switch-hifi-magnetic-switches"
+  },
+  {
+   "uid": "x-outemu-blue-ice-magnetic",
+   "maker": "Outemu",
+   "name": "Blue Ice Magnetic",
+   "reason": "sDown",
+   "source": "https://comparigon.com/keyboard-switches/outemu-blue-ice-magnetic"
+  },
+  {
+   "uid": "x-outemu-magnetic-beige",
+   "maker": "Outemu",
+   "name": "Magnetic Beige",
+   "reason": "sDown",
+   "source": "https://www.hlplanet.com/keyboards-hall-effect-switches"
+  },
+  {
+   "uid": "x-outemu-white-jade-magnetic",
+   "maker": "Outemu",
+   "name": "White Jade Magnetic",
+   "reason": "sDown",
+   "source": "https://comparigon.com/keyboard-switches/outemu-white-jade-magnetic"
+  }
+ ]
+}

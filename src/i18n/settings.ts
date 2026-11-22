@@ -108,6 +108,7 @@ export const settingsVi = {
   'data.c.sidebar': 'Sidebar thu gọn',
   'data.c.demo': 'Mẫu bàn phím demo',
   'data.c.typing': 'Bài gõ tốc độ: tuỳ chọn, kết quả và kỷ lục',
+  'data.c.switches': 'Switch riêng bạn tạo, và switch riêng gán cho phím',
   'data.keyboardBackup': 'Sao lưu cấu hình phím ở trang Chẩn đoán',
   'appcfg.export': 'Xuất file',
   'appcfg.import': 'Nhập file…',

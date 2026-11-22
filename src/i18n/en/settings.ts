@@ -110,6 +110,7 @@ export const settingsEn: Record<keyof typeof settingsVi, string> = {
   'data.c.sidebar': 'Collapsed sidebar',
   'data.c.demo': 'Demo keyboard model',
   'data.c.typing': 'Typing test: options, results and best scores',
+  'data.c.switches': 'Your custom switches, and which keys they are named on',
   'data.keyboardBackup': 'Back up the keyboard configuration on the Diagnostics page',
   'appcfg.export': 'Export file',
   'appcfg.import': 'Import file…',
