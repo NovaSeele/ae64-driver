@@ -35,7 +35,7 @@ describe('Switch tab', () => {
     const perf = usePerformanceStore();
     await perf.load();
     // The demo board has one switch: fit another in three keys (before the write spies start) so there are two groups.
-    perf.applySwitch([0, 1, 2], findSwitch(perf.catalog, 4208)!);
+    perf.applySwitch({ kind: 'catalog', entry: findSwitch(perf.catalog, 4208)! }, [0, 1, 2]);
     await useSyncStore().flush();
     await perf.load(true);
     const writes = [vi.spyOn(mock, 'setPerformance'), vi.spyOn(mock, 'commit')];

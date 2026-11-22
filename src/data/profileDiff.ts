@@ -4,14 +4,14 @@ import { isRtMode } from '../protocol';
 import type { Performance } from '../protocol';
 import { actuationOf, isKnownMode } from '../stores/performance';
 
-export type DiffField = 'mode' | 'actuation' | 'rtPress' | 'rtRelease' | 'continuous' | 'deadTop' | 'deadBottom' | 'switch';
-/** mode: 'std' (0) / 'rt' (1, 2); continuous: boolean; switch: axisV2Id; the rest: mm. */
+export type DiffField = 'mode' | 'actuation' | 'rtPress' | 'rtRelease' | 'continuous' | 'deadTop' | 'deadBottom';
+/** mode: 'std' (0) / 'rt' (1, 2); continuous: boolean; the rest: mm. */
 export type DiffValue = number | boolean | 'std' | 'rt';
 export interface DiffRow { id: number; field: DiffField; a: DiffValue; b: DiffValue }
 export interface TopChange { field: DiffField; a: DiffValue; b: DiffValue; keys: number }
 
 /** The order of the rows of one key (and the tie-break of topChanges). */
-export const DIFF_FIELDS: readonly DiffField[] = ['mode', 'actuation', 'rtPress', 'rtRelease', 'continuous', 'deadTop', 'deadBottom', 'switch'];
+export const DIFF_FIELDS: readonly DiffField[] = ['mode', 'actuation', 'rtPress', 'rtRelease', 'continuous', 'deadTop', 'deadBottom'];
 /** Two mm values closer than this are the same (= the store's sameEdit, 0.5 µm). */
 export const MM_TOLERANCE = 0.0005;
 
@@ -28,7 +28,6 @@ function valueOf(p: Performance, field: DiffField): DiffValue {
     case 'continuous': return p.mode === 1;
     case 'deadTop': return p.pressDeadStroke;
     case 'deadBottom': return p.releaseDeadStroke;
-    case 'switch': return p.axisV2Id;
   }
 }
 

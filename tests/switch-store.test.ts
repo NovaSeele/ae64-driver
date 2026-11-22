@@ -38,7 +38,7 @@ describe('switch selector store', () => {
     const setPerf = vi.spyOn(mock, 'setPerformance');
     const commit = vi.spyOn(mock, 'commit');
 
-    const plan = perf.planSwitch([W.id, A.id], apollo);
+    const plan = perf.planSwitch({ kind: 'catalog', entry: apollo }, [W.id, A.id]);
     expect(plan.keys).toEqual([W.id, A.id]);
     expect(plan.limitMm).toBe(3.13);
     expect(plan.clamped.map((c) => `${c.id}:${c.field}:${c.from}->${c.to}`)).toEqual([
@@ -47,7 +47,7 @@ describe('switch selector store', () => {
     expect(setPerf).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
 
-    perf.applySwitch([W.id, A.id], apollo);
+    perf.applySwitch({ kind: 'catalog', entry: apollo }, [W.id, A.id]);
     expect(setPerf).not.toHaveBeenCalled(); // debounced: nothing is sent until the queue runs
     await useSyncStore().flush();
     expect(setPerf).toHaveBeenCalledTimes(2);
@@ -76,15 +76,15 @@ describe('switch selector store', () => {
     const { perf } = await setup();
     const ur = findSwitch(perf.catalog, 12432)!;
     const before = useHistoryStore().undoLabel;
-    perf.applySwitch([W.id], ur);
+    perf.applySwitch({ kind: 'catalog', entry: ur }, [W.id]);
     expect(useHistoryStore().undoLabel).toBe(before);
-    expect(perf.planSwitch([W.id], ur).keys).toEqual([]);
+    expect(perf.planSwitch({ kind: 'catalog', entry: ur }, [W.id]).keys).toEqual([]);
   });
 
   it('a normal edit after a switch writes the triple the device reported', async () => {
     const { mock, perf } = await setup();
     const setPerf = vi.spyOn(mock, 'setPerformance');
-    perf.applySwitch([W.id], findSwitch(perf.catalog, 4208)!);
+    perf.applySwitch({ kind: 'catalog', entry: findSwitch(perf.catalog, 4208)! }, [W.id]);
     await useSyncStore().flush();
     setPerf.mockClear();
 
@@ -108,7 +108,7 @@ describe('switch selector store', () => {
       await real(pos, p);
     });
 
-    perf.applySwitch([W.id], findSwitch(perf.catalog, 4208)!);
+    perf.applySwitch({ kind: 'catalog', entry: findSwitch(perf.catalog, 4208)! }, [W.id]);
     const running = useSyncStore().flush();
     await inFlight; // the switch write is in flight, its verify has not run
     useHistoryStore().undo();
@@ -128,12 +128,12 @@ describe('switch selector store', () => {
     let writes = 0;
     vi.spyOn(mock, 'setPerformance').mockImplementation(async () => { writes++; });
     vi.spyOn(mock, 'getPerformance').mockImplementation(async (pos) => ({ ...(await real(pos)), ...odd }));
-    perf.applySwitch([W.id], findSwitch(perf.catalog, 4208)!);
+    perf.applySwitch({ kind: 'catalog', entry: findSwitch(perf.catalog, 4208)! }, [W.id]);
     await useSyncStore().flush();
     expect(writes).toBe(1); // no retry loop
     expect(perf.switchNotices).toEqual([{ id: W.id, wanted: APOLLO, got: odd }]);
     expect(perf.values[W.id]).toMatchObject(odd);
-    perf.applySwitch([A.id], findSwitch(perf.catalog, 4208)!);
+    perf.applySwitch({ kind: 'catalog', entry: findSwitch(perf.catalog, 4208)! }, [A.id]);
     expect(perf.switchNotices).toEqual([]);
   });
 });
@@ -144,7 +144,7 @@ describe('write guard memory', () => {
   it('keeps the first read of a key, so its original triple stays restorable after many reads', async () => {
     const { mock, perf } = await setup();
     const apollo = findSwitch(perf.catalog, 4208)!;
-    perf.applySwitch([W.id], apollo);
+    perf.applySwitch({ kind: 'catalog', entry: apollo }, [W.id]);
     await useSyncStore().flush();
     for (let i = 0; i < 12; i++) await mock.getPerformance(W);
     const seen = (mock as unknown as { perfSeen: Map<string, { axisV2Id: number }[]> }).perfSeen.get(`${W.row}:${W.col}`)!;

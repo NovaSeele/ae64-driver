@@ -35,4 +35,8 @@ export const overviewVi = {
   'ov.dSettings': 'Polling rate, giao diện, hệ thống',
   'ov.device': 'Thiết bị',
   'ov.protocol': 'Protocol',
+  'ov.swCheck': 'Thông số switch cần xem lại ở {n} phím',
+  'ov.swCheckLost': '{n} phím mất thông số switch và không bấm được.',
+  'ov.swCheckStale': '{n} phím không còn khớp với switch riêng đã gán.',
+  'ov.swCheckGo': 'Mở tab Switch',
 } as const;

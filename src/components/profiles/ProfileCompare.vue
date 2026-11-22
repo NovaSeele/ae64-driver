@@ -8,8 +8,6 @@ import Segmented from '../ui/Segmented.vue';
 import type { Performance } from '../../protocol';
 import { useDeviceStore } from '../../stores/device';
 import { usePerformanceStore } from '../../stores/performance';
-import { findSwitch } from '../../protocol/switches';
-import { switchName } from '../../data/switchDisplay';
 import { capDecimals, fmtMm } from '../../data/keycapActuation';
 import { diffProfiles, topChanges } from '../../data/profileDiff';
 import type { DiffField, DiffValue } from '../../data/profileDiff';
@@ -103,16 +101,12 @@ const top = computed(() => topChanges(rows.value));
 
 const FIELD_LABEL: Record<DiffField, MessageKey> = {
   mode: 'perf.mode', actuation: 'perf.actuation', rtPress: 'perf.rtPress', rtRelease: 'perf.rtRelease',
-  continuous: 'perf.continuous', deadTop: 'perf.deadTop', deadBottom: 'perf.deadBottom', switch: 'cmp.fSwitch',
+  continuous: 'perf.continuous', deadTop: 'perf.deadTop', deadBottom: 'perf.deadBottom',
 };
 function show(field: DiffField, v: DiffValue): string {
   switch (field) {
     case 'mode': return v === 'rt' ? t('perf.modeRt') : t('perf.modeStandard');
     case 'continuous': return v ? t('cmp.on') : t('cmp.off');
-    case 'switch': {
-      const e = findSwitch(perf.catalog, v as number);
-      return e ? switchName(e) : t('cmp.switchId', { id: v as number });
-    }
     default: return t('ov.actOne', { v: fmtMm(v as number, decimals.value) });
   }
 }

@@ -51,6 +51,7 @@ export const calibrationVi = {
   'calibration.attention': 'Cần chú ý',
   'calibration.chipShallow': '{key} đạt {mm} / {range} mm',
   'calibration.chipUncal': '{key} chưa hiệu chuẩn',
+  'calibration.chipSwitch': '{key}: đã thay switch, cần hiệu chuẩn lại',
   'calibration.announceShallow': '{key} mới đạt {mm} trên {range} mm, nhấn sâu hơn.',
   'calibration.uncalLabel': '{key} vẫn chưa hiệu chuẩn.',
   'calibration.markHint': 'Đánh dấu phím này trên bàn phím.',

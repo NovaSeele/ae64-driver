@@ -106,4 +106,15 @@ export const liveEn: Record<keyof typeof liveVi, string> = {
   'live.pStuck': 'not back to 0',
   'live.peaksEmpty': 'No key deeper than 0.30 mm yet.',
   'live.peakPin': 'Pin {key}',
+  // Custom switch watch in the key check (DESIGN CSW §17.7)
+  'live.watchTitle': 'Switch just changed · {name} · {mm} mm',
+  'live.watchNone': 'not pressed',
+  'live.watchStuck': 'stuck at {mm} mm',
+  'live.watchCellNone': '{key}, not pressed yet',
+  'live.watchCellFull': '{key}, {mm} mm, full travel',
+  'live.watchCellShort': '{key}, reached {mm} of {range} mm, short travel',
+  'live.watchCellStuck': '{key}, stuck at {mm} mm, not back to 0',
+  'live.watchOk': '{n|The key reaches|All # keys reach} full travel and {n|returns|return} to 0: the switch fits.',
+  'live.watchBad': 'A key falls short or does not return to 0. Recalibrate and check that the switch is seated; if it is still off, choose another curve in Custom.',
+  'live.watchClose': 'Stop watching',
 };

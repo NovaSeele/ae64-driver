@@ -3,9 +3,15 @@ import { vi, t, type MessageKey } from '../src/i18n/vi';
 import { en } from '../src/i18n/en';
 import { locale, plural, setLocale } from '../src/i18n/locale';
 
-function getPlaceholders(str: string): string[] {
-  const matches = [...str.matchAll(/\{(\w+)(?:\|[^}]*)?\}/g)].map((m) => m[1]);
-  return matches.sort();
+function getPlaceholders(str: string): { all: string[]; value: string[] } {
+  const all = new Set<string>();
+  const value = new Set<string>();
+  for (const [, name, pluralSpec] of str.matchAll(/\{(\w+)(?:\|([^}]*))?\}/g)) {
+    all.add(name);
+    // Plain `{x}` or `{n|# one|# other}` renders the value; `{n|one|other}` without `#` is English-only grammatical agreement.
+    if (pluralSpec === undefined || pluralSpec.includes('#')) value.add(name);
+  }
+  return { all: [...all].sort(), value: [...value].sort() };
 }
 
 describe('i18n', () => {
@@ -26,12 +32,23 @@ describe('i18n', () => {
     for (const key of viKeys) {
       const viVal = vi[key];
       const enVal = (en as Record<string, string>)[key];
-      const viPlaceholders = getPlaceholders(viVal);
-      const enPlaceholders = getPlaceholders(enVal);
-      expect(
-        enPlaceholders,
-        `Placeholder mismatch in "${key}" (vi: ${viVal}, en: ${enVal})`,
-      ).toEqual(viPlaceholders);
+      const viP = getPlaceholders(viVal);
+      const enP = getPlaceholders(enVal);
+      for (const name of viP.all) {
+        expect(
+          enP.all,
+          `Missing placeholder "${name}" in en "${key}" (vi: ${viVal}, en: ${enVal})`,
+        ).toContain(name);
+      }
+      for (const name of enP.value) {
+        expect(
+          viP.all,
+          `Extra placeholder "${name}" in en "${key}" (vi: ${viVal}, en: ${enVal})`,
+        ).toContain(name);
+      }
+      for (const [, , spec] of enVal.matchAll(/\{(\w+)\|([^}]*)\}/g)) {
+        expect(spec.split('|'), `Malformed plural in "${key}" (en: ${enVal})`).toHaveLength(2);
+      }
     }
   });
 

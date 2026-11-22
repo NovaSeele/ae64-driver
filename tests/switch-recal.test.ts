@@ -62,7 +62,7 @@ describe('switch change resets calibration', () => {
     expect(perf.uncalibrated).toEqual([]);
     expect(status().exists()).toBe(false);
 
-    perf.applySwitch([W.id], apollo);
+    perf.applySwitch({ kind: 'catalog', entry: apollo }, [W.id]);
     await useSyncStore().flush();
     await flushPromises();
     expect(setPerf.mock.calls[0][1].calibrate).toBe(1); // copied from the last fresh read, as before
@@ -71,7 +71,7 @@ describe('switch change resets calibration', () => {
     expect(perf.uncalibrated).toEqual([W.id]);
     expect(status().exists()).toBe(true);
     expect(status().attributes('role')).toBe('status');
-    expect(status().text()).toContain('1 phím chưa được hiệu chuẩn: W. Hành trình đo chưa đúng cho tới khi hiệu chuẩn lại.');
+    expect(status().text()).toContain('1 phím cần hiệu chuẩn: W. Hành trình đo chưa đúng cho tới khi hiệu chuẩn lại.');
     expect(status().text()).toContain('Hiệu chuẩn ngay');
     expect(status().find('.swp__recal-x').exists()).toBe(false); // no Hide
     expect(status().element.closest('.card')?.textContent).toContain('Switch trên bàn phím');
@@ -106,7 +106,7 @@ describe('switch change resets calibration', () => {
     // The selection holds another key: the status is still shown, and names the uncalibrated one.
     await page();
     await flushPromises();
-    expect(status().text()).toContain('1 phím chưa được hiệu chuẩn: A.');
+    expect(status().text()).toContain('1 phím cần hiệu chuẩn: A.');
   });
 
   it('names the first 8 uncalibrated keys in board order, then +m', async () => {
@@ -120,7 +120,7 @@ describe('switch change resets calibration', () => {
     await flushPromises();
     expect(perf.uncalibrated).toHaveLength(10);
     const first8 = keys.slice(0, 8).map((k) => device.legend(k)).join(', ');
-    expect(status().text()).toContain(`10 phím chưa được hiệu chuẩn: ${first8} +2. Hành trình`);
+    expect(status().text()).toContain(`10 phím cần hiệu chuẩn: ${first8} +2. Hành trình`);
   });
 
   it('a non-switch edit does not add a key', async () => {

@@ -17,8 +17,6 @@ import { useDeviceStore } from '../src/stores/device';
 import { usePerformanceStore } from '../src/stores/performance';
 import { useCalibrationStore } from '../src/stores/calibration';
 import { useSettingsStore } from '../src/stores/settings';
-import { findSwitch } from '../src/protocol/switches';
-import { switchName } from '../src/data/switchDisplay';
 import { clearTuningSnapshots } from '../src/stores/tuning';
 import ProfileSelect from '../src/components/shell/ProfileSelect.vue';
 import SettingsPage from '../src/pages/SettingsPage.vue';
@@ -361,16 +359,15 @@ describe('Profiles: compare (§3.5, §3.6, items 4, 5)', () => {
     expect(w.find('.cmp__table').exists()).toBe(true);
   });
 
-  it('G-TEST-5: a switch in the catalog shows its name, never "ID"', async () => {
+  it('CSW §8: switch values are board-wide, so a differing axisV2Id produces no diff row', async () => {
     await openTwo();
     const { w, perf } = await mountPage();
     const snap = perf.profileSnapshots.get(0)!;
     const other = perf.catalog!.find((e) => e.id !== snap.values[0].axisV2Id)!;
     perf.values = { ...Object.fromEntries(Object.entries(snap.values).map(([k, v]) => [k, { ...v }])), 0: { ...snap.values[0], axisV2Id: other.id } };
     await nextTick();
-    const cells = w.findAll('.cmp__table td').map((td) => td.text());
-    expect(cells).toEqual(['Switch', switchName(other), switchName(findSwitch(perf.catalog, snap.values[0].axisV2Id)!)]);
-    expect(cells.join(' ')).not.toMatch(/ID/);
+    expect(w.find('.cmp__same[role="status"]').exists()).toBe(true);
+    expect(w.find('.cmp__table').exists()).toBe(false);
   });
 
   it('item 5: A is never B: A = 1, B = 0, pick A = 0 → A = 0, B = 1 (and the other way)', async () => {
@@ -428,7 +425,7 @@ describe('Profiles: compare (§3.5, §3.6, items 4, 5)', () => {
     expect(w.find('.cmp__empty[role="status"]').text()).toBe('Không có phím nào khớp “F12”.');
   });
 
-  it('two equal profiles: the green "match" line; an unknown switch shows its ID', async () => {
+  it('two equal profiles: the green "match" line; a single-key diff shows no "Most common" line', async () => {
     await openTwo();
     const { w, perf } = await mountPage();
     const snap = perf.profileSnapshots.get(0)!;
@@ -436,10 +433,10 @@ describe('Profiles: compare (§3.5, §3.6, items 4, 5)', () => {
     await nextTick();
     expect(w.find('.cmp__same[role="status"]').text()).toBe('Hai profile giống nhau ở mọi thiết lập được so.');
     expect(w.find('.cmp__table').exists()).toBe(false);
-    perf.values = { ...perf.values, 0: { ...perf.values[0], axisV2Id: 65000 } };
+    perf.values = { ...perf.values, 0: { ...perf.values[0], pressDeadStroke: 0.4 } };
     await nextTick();
     expect(w.find('.cmp__count').text()).toBe('1 khác biệt trên 1 phím');
-    expect(w.findAll('.cmp__table td').map((td) => td.text())).toEqual(['Switch', 'Switch lạ (ID 65000)', expect.any(String)]);
+    expect(w.findAll('.cmp__table td').map((td) => td.text())).toEqual(['Deadzone trên', '0.4 mm', '0.1 mm']);
     expect(w.find('.cmp__top').exists()).toBe(false); // no change on 2 keys or more
   });
 

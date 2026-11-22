@@ -104,4 +104,15 @@ export const liveVi = {
   'live.pStuck': 'không về 0',
   'live.peaksEmpty': 'Chưa có phím nào sâu hơn 0.30 mm.',
   'live.peakPin': 'Ghim {key}',
+  // Custom switch watch in the key check (DESIGN CSW §17.7)
+  'live.watchTitle': 'Switch vừa đổi · {name} · {mm} mm',
+  'live.watchNone': 'chưa nhấn',
+  'live.watchStuck': 'dừng ở {mm} mm',
+  'live.watchCellNone': '{key}, chưa nhấn',
+  'live.watchCellFull': '{key}, {mm} mm, đủ hành trình',
+  'live.watchCellShort': '{key}, đạt {mm} trên {range} mm, chưa đủ hành trình',
+  'live.watchCellStuck': '{key}, dừng ở {mm} mm, không về 0',
+  'live.watchOk': 'Cả {n} phím nhấn hết đúng hành trình và về 0: switch khớp.',
+  'live.watchBad': 'Có phím chưa đủ hành trình hoặc không về 0. Thử hiệu chuẩn lại và kiểm tra switch đã cắm chặt; nếu vẫn lệch, chọn đường cong khác trong Switch riêng.',
+  'live.watchClose': 'Bỏ theo dõi',
 } as const;

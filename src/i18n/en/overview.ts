@@ -37,4 +37,8 @@ export const overviewEn: Record<keyof typeof overviewVi, string> = {
   'ov.dSettings': 'Polling rate, appearance, system',
   'ov.device': 'Device',
   'ov.protocol': 'Protocol',
+  'ov.swCheck': 'Switch values to check on {n|# key|# keys}',
+  'ov.swCheckLost': '{n|# key has|# keys have} lost {n|its|their} switch values and {n|does|do} not work.',
+  'ov.swCheckStale': '{n|# key no longer matches|# keys no longer match} the custom switch named on {n|it|them}.',
+  'ov.swCheckGo': 'Open the Switch tab',
 };

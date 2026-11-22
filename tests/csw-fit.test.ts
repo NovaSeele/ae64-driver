@@ -184,7 +184,7 @@ describe('planSwitch, applySwitch and SwitchPicker parity with fitTravel (Test 2
     const white4015 = findSwitch(perf.catalog, 4416)!;
     expect(white4015.rangeMax).toBe(4015);
 
-    const plan = perf.planSwitch([W.id], white4015);
+    const plan = perf.planSwitch({ kind: 'catalog', entry: white4015 }, [W.id]);
     expect(plan.limitMm).toBe(4.0);
     expect(plan.clamped).toEqual([
       { id: W.id, field: 'normalPress', from: 4.01, to: 4.0 },
@@ -199,7 +199,7 @@ describe('planSwitch, applySwitch and SwitchPicker parity with fitTravel (Test 2
     expect(warns()).toContain(t('sw.clampAct', { n: 1, max: formatMm(4.0, 3) }));
     expect(warns().some((line) => line?.includes(t('sw.clampOther', { n: 1, max: formatMm(4.0, 3) })))).toBe(false);
 
-    perf.applySwitch([W.id], white4015);
+    perf.applySwitch({ kind: 'catalog', entry: white4015 }, [W.id]);
     await useSyncStore().flush();
     expect(useSyncStore().state).toBe('saved');
     const after = await mock.getPerformance(W);
@@ -225,7 +225,7 @@ describe('planSwitch, applySwitch and SwitchPicker parity with fitTravel (Test 2
     const jadePro = findSwitch(perf.catalog, 4128)!; // rangeMax 3390
     expect(jadePro.rangeMax).toBe(3390);
 
-    const plan = perf.planSwitch([W.id], jadePro);
+    const plan = perf.planSwitch({ kind: 'catalog', entry: jadePro }, [W.id]);
     expect(plan.limitMm).toBe(3.39);
     expect(plan.clamped).toEqual([
       { id: W.id, field: 'pressDeadStroke', from: 3.5, to: 1.0 },
@@ -240,7 +240,7 @@ describe('planSwitch, applySwitch and SwitchPicker parity with fitTravel (Test 2
     expect(warns()).toContain(t('sw.clampOther', { n: 1, max: formatMm(3.39, 3) }));
     expect(warns().some((line) => line?.includes(t('sw.clampAct', { n: 1, max: formatMm(3.39, 3) })))).toBe(false);
 
-    perf.applySwitch([W.id], jadePro);
+    perf.applySwitch({ kind: 'catalog', entry: jadePro }, [W.id]);
     await useSyncStore().flush();
     expect(useSyncStore().state).toBe('saved');
     const after = await mock.getPerformance(W);

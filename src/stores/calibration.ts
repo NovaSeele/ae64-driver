@@ -255,11 +255,13 @@ export const useCalibrationStore = defineStore('calibration', () => {
         if (save) await t.commit(SAVE_GROUP.CALIBRATION);
       });
       stopFailed.value = false;
-      // The calibrate flag lives in the performance record; reload so later writes preserve the new value.
-      const perf = usePerformanceStore();
-      if (perf.loadedProfile !== null) void perf.load(true);
       // What this session saved, read before the 2 → 1 below (after it no key is 2). Only here: proof of a commit.
-      lastSaved.value = save ? device.keys.filter((k) => frame.value.status[k.id] === 2).map((k) => k.id) : null;
+      const saved = save ? device.keys.filter((k) => frame.value.status[k.id] === 2).map((k) => k.id) : null;
+      lastSaved.value = saved;
+      // Only a saved session clears the app's swapped-switch recal list, and only for the keys it actually saved (§10.1).
+      if (saved?.length) perf.clearRecal(saved);
+      // The calibrate flag lives in the performance record; reload so later writes preserve the new value.
+      if (perf.loadedProfile !== null) void perf.load(true);
       // As the factory driver does: once the session ends, "newly calibrated" is just "calibrated".
       frame.value = { ...frame.value, status: frame.value.status.map((s) => (s === 2 ? 1 : s)) };
       return true;

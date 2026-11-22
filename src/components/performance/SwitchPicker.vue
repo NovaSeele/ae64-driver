@@ -86,7 +86,7 @@ function onKey(e: KeyboardEvent) {
   list.value?.querySelectorAll<HTMLElement>('.sw-opt')[to]?.focus();
 }
 
-const plan = computed(() => (chosen.value ? perf.planSwitch(props.ids, chosen.value) : null));
+const plan = computed(() => (chosen.value ? perf.planSwitch({ kind: 'catalog', entry: chosen.value }, props.ids) : null));
 const clampLines = computed(() => {
   if (!plan.value) return { act: 0, other: 0 };
   const act = new Set(plan.value.clamped.filter((c) => c.field === (isRtMode(perf.values[c.id].mode) ? 'rtFirstTouch' : 'normalPress')).map((c) => c.id));
@@ -113,7 +113,9 @@ function apply() {
     const v = perf.values[id];
     return perf.uncalibrated.includes(id) || v.axisV2Id !== entry.id || v.axisRangeMax !== entry.rangeMax || v.axisCoefficient !== entry.coefficient;
   });
-  perf.applySwitch(props.ids, entry);
+  const choice = { kind: 'catalog' as const, entry };
+  const res = perf.applySwitch(choice, props.ids);
+  if (res.status === 'question') perf.applySwitch(choice, props.ids, 'notReplaced');
   open.value = false;
   useToast().show(t(uncal ? 'sw.appliedUncal' : 'sw.applied', { n, name: switchName(entry) }), 'success');
   emit('applied');

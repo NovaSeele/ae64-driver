@@ -56,10 +56,10 @@ describe('diffProfiles (DESIGN G §3.6, §11 item 1)', () => {
     expect(fields(diffProfiles(one(rt({ rtFirstTouch: 0.3 })), one(rt({ rtFirstTouch: 0.4 })), [0]))).toEqual(['actuation']);
   });
 
-  it('deadzones top and bottom; axisV2Id 12432 vs 4112 → a switch row; axis, calibrate, range, coefficient are not compared', () => {
+  it('deadzones top and bottom; switch triple (axisV2Id, range, coefficient), axis and calibrate are not compared (§8: board-wide)', () => {
     expect(fields(diffProfiles(one(std({ pressDeadStroke: 0.05 })), one(std()), [0]))).toEqual(['deadTop']);
     expect(fields(diffProfiles(one(std({ releaseDeadStroke: 0.3 })), one(std()), [0]))).toEqual(['deadBottom']);
-    expect(diffProfiles(one(std({ axisV2Id: 12432 })), one(std({ axisV2Id: 4112 })), [0])).toEqual([{ id: 0, field: 'switch', a: 12432, b: 4112 }]);
+    expect(diffProfiles(one(std({ axisV2Id: 12432 })), one(std({ axisV2Id: 4112 })), [0])).toEqual([]);
     expect(diffProfiles(one(std({ axis: 1, calibrate: 0, axisRangeMax: 4000, axisCoefficient: 1 })), one(std()), [0])).toEqual([]);
   });
 
@@ -77,8 +77,8 @@ describe('diffProfiles (DESIGN G §3.6, §11 item 1)', () => {
     const a = { 5: std({ normalPress: 2, axisV2Id: 4112, pressDeadStroke: 0 }), 2: rt({ rtPress: 0.1 }, 2) };
     const b = { 5: rt(), 2: rt() };
     const rows = diffProfiles(a, b, [5, 2]);
-    expect(rows.map((r) => `${r.id}:${r.field}`)).toEqual(['5:mode', '5:actuation', '5:deadTop', '5:switch', '2:rtPress', '2:continuous']);
-    expect(DIFF_FIELDS).toEqual(['mode', 'actuation', 'rtPress', 'rtRelease', 'continuous', 'deadTop', 'deadBottom', 'switch']);
+    expect(rows.map((r) => `${r.id}:${r.field}`)).toEqual(['5:mode', '5:actuation', '5:deadTop', '2:rtPress', '2:continuous']);
+    expect(DIFF_FIELDS).toEqual(['mode', 'actuation', 'rtPress', 'rtRelease', 'continuous', 'deadTop', 'deadBottom']);
   });
 });
 
@@ -87,7 +87,7 @@ describe('topChanges (§3.6, §11 item 2)', () => {
 
   it('a change on a single key is not a group; groups by number of keys, a tie by field order; at most 3', () => {
     const rows = [
-      row(0, 'switch', 1, 2), row(1, 'switch', 1, 2), // 2 keys, last field
+      row(0, 'deadBottom', 0.1, 0.2), row(1, 'deadBottom', 0.1, 0.2), // 2 keys, last field
       row(2, 'deadTop', 0.1, 0.2), row(3, 'deadTop', 0.1, 0.2), // 2 keys, earlier field
       row(4, 'actuation', 1, 2), row(5, 'actuation', 1, 2), row(6, 'actuation', 1, 2), // 3 keys
       row(7, 'mode', 'std', 'rt'), // 1 key: dropped
@@ -98,7 +98,7 @@ describe('topChanges (§3.6, §11 item 2)', () => {
       { field: 'rtPress', a: 0.1, b: 0.2, keys: 2 },
       { field: 'deadTop', a: 0.1, b: 0.2, keys: 2 },
     ]);
-    expect(topChanges(rows, 5).map((g) => g.field)).toEqual(['actuation', 'rtPress', 'deadTop', 'switch']);
+    expect(topChanges(rows, 5).map((g) => g.field)).toEqual(['actuation', 'rtPress', 'deadTop', 'deadBottom']);
     expect(topChanges([row(0, 'mode', 'std', 'rt')])).toEqual([]);
   });
 
@@ -111,7 +111,7 @@ describe('topChanges (§3.6, §11 item 2)', () => {
 describe('the demo\'s profiles 1 and 2 as in the `main` shot', () => {
   beforeEach(() => setActivePinia(createPinia()));
 
-  it('FPS (with the shot\'s edits) vs Default: 141 rows on 64 keys; Most common = mode 60, actuation 1.2→1.0 59, actuation 0.3→1.0 4', async () => {
+  it('FPS (with the shot\'s edits) vs Default: 140 rows on 64 keys (switch is board-wide, not compared); Most common = mode 60, actuation 1.2→1.0 59, actuation 0.3→1.0 4', async () => {
     const device = useDeviceStore();
     const perf = usePerformanceStore();
     await device.connectDemo();
@@ -125,7 +125,7 @@ describe('the demo\'s profiles 1 and 2 as in the `main` shot', () => {
     for (const k of ['W', 'A', 'S', 'D']) fps[id(k)] = { ...fps[id(k)], mode: 2, pressDeadStroke: 0.05 };
     fps[id('Esc')] = { ...fps[id('Esc')], axisV2Id: 4112 };
     const rows = diffProfiles(fps, def, device.keys.map((k) => k.id));
-    expect(rows).toHaveLength(141);
+    expect(rows).toHaveLength(140);
     expect(new Set(rows.map((r) => r.id)).size).toBe(64);
     expect(topChanges(rows)).toEqual([
       { field: 'mode', a: 'std', b: 'rt', keys: 60 },
@@ -133,6 +133,6 @@ describe('the demo\'s profiles 1 and 2 as in the `main` shot', () => {
       { field: 'actuation', a: 0.3, b: 1, keys: 4 },
     ]);
     expect(rows.filter((r) => r.id === id('W')).map((r) => r.field)).toEqual(['actuation', 'rtPress', 'rtRelease', 'continuous', 'deadTop']);
-    expect(rows.filter((r) => r.id === id('Esc')).map((r) => r.field)).toEqual(['mode', 'actuation', 'switch']);
+    expect(rows.filter((r) => r.id === id('Esc')).map((r) => r.field)).toEqual(['mode', 'actuation']);
   });
 });

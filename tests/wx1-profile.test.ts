@@ -498,7 +498,7 @@ describe('U-10: the MPT depth limit and the calibration travel use the active pr
     await perf.load();
     const key = device.keys[20];
     const other = perf.catalog!.find((e) => Math.floor(e.rangeMax / 100) !== Math.floor(perf.values[key.id].axisRangeMax / 100))!;
-    perf.applySwitch([key.id], other);
+    perf.applySwitch({ kind: 'catalog', entry: other }, [key.id]);
     await sync.flush();
     await device.switchProfile(1); // no perf.load(true): the Travel tab is not open
     await adv.load(true);

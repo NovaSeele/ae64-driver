@@ -384,7 +384,7 @@ describe('the keycap legend of each page (§3.4)', () => {
     await flushPromises();
     expect(legend()).toBe(`${tr('sel.shows')}: ${tr('swp.shows')}`);
     w.unmount();
-    perf.applySwitch([0, 1, 2], findSwitch(perf.catalog, 4208)!);
+    perf.applySwitch({ kind: 'catalog', entry: findSwitch(perf.catalog, 4208)! }, [0, 1, 2]);
     await useSyncStore().flush();
     await perf.load(true);
     perf.uncalibrated = [3];

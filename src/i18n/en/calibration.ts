@@ -53,6 +53,7 @@ export const calibrationEn: Record<keyof typeof calibrationVi, string> = {
   'calibration.attention': 'Needs attention',
   'calibration.chipShallow': '{key} reached {mm} / {range} mm',
   'calibration.chipUncal': '{key} not calibrated',
+  'calibration.chipSwitch': '{key}: switch swapped, needs recalibrating',
   'calibration.announceShallow': '{key} only reached {mm} of {range} mm, press it deeper.',
   'calibration.uncalLabel': '{key} is still not calibrated.',
   'calibration.markHint': 'Mark this key on the keyboard.',

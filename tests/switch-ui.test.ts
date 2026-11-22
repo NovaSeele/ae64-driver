@@ -91,7 +91,7 @@ describe('switch selector UI', () => {
 
   it('opening on a key that uses Wukong HE lands on the Everglide tab, option in use and focused', async () => {
     const { perf } = await setup();
-    perf.applySwitch(ALL, findSwitch(perf.catalog!, 12464)!);
+    perf.applySwitch({ kind: 'catalog', entry: findSwitch(perf.catalog!, 12464)! }, ALL);
     await useSyncStore().flush();
     await openDialog();
     expect(body().querySelector('[role=tab][aria-selected=true]')?.textContent).toContain('Everglide');

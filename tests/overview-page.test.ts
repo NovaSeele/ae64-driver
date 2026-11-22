@@ -455,7 +455,7 @@ describe('Overview: header, shortcuts, device line (DESIGN F §3.1, §3.7–§3.
 
   it('item 11: every ov.* key in vi and en, none empty; the page renders in English without a raw key', async () => {
     expect(Object.keys(overviewEn).sort()).toEqual(Object.keys(overviewVi).sort());
-    expect(Object.keys(overviewVi)).toHaveLength(35);
+    expect(Object.keys(overviewVi)).toHaveLength(39);
     for (const [k, s] of [...Object.entries(overviewVi), ...Object.entries(overviewEn)]) expect(s.trim(), k).not.toBe('');
     for (const k of ['page.overview', 'page.profiles', ...Object.keys(overviewVi)]) {
       expect((viDict as Record<string, string>)[k], k).toBeTruthy();
