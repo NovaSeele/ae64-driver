@@ -49,7 +49,7 @@ type Scope = 'profile' | 'board' | 'read';
 const TABS: { id: PerfTab; title: MessageKey; sub: MessageKey; icon: Component; tone: string; scope: Scope }[] = [
   { id: 'travel', title: 'ptab.travel', sub: 'ptab.travelSub', icon: IconAdjustmentsHorizontal, tone: 'var(--f-performance)', scope: 'profile' },
   { id: 'advanced', title: 'page.advanced', sub: 'ptab.advancedSub', icon: IconBolt, tone: 'var(--f-advanced)', scope: 'profile' },
-  { id: 'switch', title: 'swp.tabSwitch', sub: 'swp.tabSwitchSub', icon: IconSwitch, tone: 'var(--f-switch)', scope: 'profile' },
+  { id: 'switch', title: 'swp.tabSwitch', sub: 'swp.tabSwitchSub', icon: IconSwitch, tone: 'var(--f-switch)', scope: 'board' },
   { id: 'calibration', title: 'swp.tabCalibration', sub: 'swp.tabCalibrationSub', icon: IconTarget, tone: 'var(--f-calibration)', scope: 'board' },
   { id: 'test', title: 'ptab.test', sub: 'ptab.testSub', icon: IconActivity, tone: 'var(--f-live)', scope: 'read' },
 ];

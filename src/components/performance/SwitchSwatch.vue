@@ -1,18 +1,36 @@
 <script setup lang="ts">
-// A switch thumbnail on one plate: the maker's photo when the build ships one, else a drawn switch seen from above (dark
-// housing, stem cross in the switch colour; '' = no colour, dashed outline).
+// A switch thumbnail on one plate: the maker's photo when the build ships one (never for custom or lost switches),
+// else a drawn switch seen from above (dark housing, stem cross in the switch colour; '' = no colour, dashed outline;
+// custom = dashed --fg-2 housing; lost = dashed --danger housing with dashed stem, DESIGN CSW §9.4).
 import { computed } from 'vue';
 import { switchImage } from '../../data/switchDisplay';
 
-const props = withDefaults(defineProps<{ color: string; id?: number; size?: 'sm' | 'md' | 'lg' }>(), { size: 'md' });
-const fill = computed(() => (/^#[0-9a-f]{3,8}$/i.test(props.color) ? props.color : ''));
-const photo = computed(() => (props.id === undefined ? undefined : switchImage(props.id)));
+const props = withDefaults(defineProps<{ color: string; id?: number; size?: 'sm' | 'md' | 'lg'; custom?: boolean; lost?: boolean }>(), {
+  size: 'md',
+  custom: false,
+  lost: false,
+});
+const fill = computed(() => (!props.lost && /^#[0-9a-f]{3,8}$/i.test(props.color) ? props.color : ''));
+const photo = computed(() => (props.custom || props.lost || props.id === undefined ? undefined : switchImage(props.id)));
+const dashedHousing = computed(() => props.custom || props.lost);
 </script>
 
 <template>
   <img v-if="photo" :src="photo" alt="" :class="['swatch', 'swatch--photo', size !== 'md' && `swatch--${size}`]" decoding="async" draggable="false" />
-  <svg v-else :class="['swatch', size !== 'md' && `swatch--${size}`, !fill && 'swatch--none']" viewBox="0 0 24 24" aria-hidden="true">
-    <rect class="swatch__housing" x="0.5" y="0.5" width="23" height="23" rx="5" />
+  <svg
+    v-else
+    :class="['swatch', size !== 'md' && `swatch--${size}`, !fill && 'swatch--none', custom && 'swatch--custom', lost && 'swatch--lost']"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
+    <rect
+      class="swatch__housing"
+      :x="dashedHousing ? 0.75 : 0.5"
+      :y="dashedHousing ? 0.75 : 0.5"
+      :width="dashedHousing ? 22.5 : 23"
+      :height="dashedHousing ? 22.5 : 23"
+      rx="5"
+    />
     <path class="swatch__stem" d="M10 6h4v4h4v4h-4v4h-4v-4H6v-4h4z" :style="fill ? { fill } : undefined" />
   </svg>
 </template>
@@ -29,6 +47,8 @@ const photo = computed(() => (props.id === undefined ? undefined : switchImage(p
 .swatch--photo.swatch--lg { padding: 3px; border-radius: 9px; }
 .swatch--photo.swatch--sm { padding: 1px; border-radius: 4.5px; }
 .swatch__housing { fill: var(--swatch-housing); stroke: var(--line-3); stroke-width: 1; }
+.swatch--custom .swatch__housing { stroke: var(--fg-2); stroke-width: 1.25; stroke-dasharray: 2.5 2; }
+.swatch--lost .swatch__housing { stroke: var(--danger); stroke-width: 1.25; stroke-dasharray: 2.5 2; }
 .swatch__stem { stroke: rgba(255, 255, 255, 0.22); stroke-width: 1; stroke-linejoin: round; }
 .swatch--none .swatch__stem { fill: transparent; stroke: rgba(255, 255, 255, 0.6); stroke-dasharray: 2 1.6; }
 </style>

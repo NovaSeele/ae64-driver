@@ -15,6 +15,7 @@ import { PTAB_TOOLS } from '../performance/tabTools';
 import SwitchSim from './SwitchSim.vue';
 import TravelGraph from './TravelGraph.vue';
 import HealthCheck from './HealthCheck.vue';
+import type { WatchRow, WatchState, WatchView } from './HealthCheck.vue';
 import PeakTable from './PeakTable.vue';
 import { ANNOUNCE_MS, CheckAnnouncer, checkScrollTarget, emptyCheckView, summarizeCheck } from './keyCheck';
 import type { CheckKind, CheckView } from './keyCheck';
@@ -23,8 +24,10 @@ import { attachDemoPress } from './demoPress';
 import Card from '../ui/Card.vue';
 import Button from '../ui/Button.vue';
 import IconButton from '../ui/IconButton.vue';
+import { formatMm } from '../ui/NumberField.vue';
 import Segmented from '../ui/Segmented.vue';
 import Switch from '../ui/Switch.vue';
+import { recalBoardKey } from '../../data/customSwitch';
 import { useDeviceStore } from '../../stores/device';
 import { useSelectionStore } from '../../stores/selection';
 import { DEFAULT_RANGE_MM, rangeMm, usePerformanceStore } from '../../stores/performance';
@@ -229,6 +232,108 @@ const sinceReset = ref(false);
 const announcer = new CheckAnnouncer();
 const announcement = ref('');
 
+// ----- Post-Apply custom switch watch (DESIGN CSW §7.9): display + passed detection + live-region announcements (0 HID)
+const boardKey = computed(() => recalBoardKey(device.info) ?? device.info?.boardIdHex ?? '');
+const activeVerify = computed(() => {
+  const v = perf.verify;
+  return v && device.connected && v.keys.length > 0 && v.board === boardKey.value ? v : null;
+});
+function buildWatch(cv: CheckView): WatchView | null {
+  const v = activeVerify.value;
+  if (!v) return null;
+  const wanted = new Set(v.keys);
+  const rowById = new Map(cv.rows.map((r) => [r.id, r]));
+  const stuckById = new Map(cv.issues.filter((i) => i.kind === 'stuck').map((i) => [i.id, i]));
+  const rows: WatchRow[] = [];
+  for (const k of device.keys) {
+    if (!wanted.has(k.id)) continue;
+    const kind = cv.kinds[k.id];
+    let state: WatchState = 'none';
+    let mm = 0;
+    if (kind === 'ok') {
+      state = 'full';
+      mm = rowById.get(k.id)?.mm ?? 0;
+    } else if (kind === 'short') {
+      state = 'short';
+      mm = rowById.get(k.id)?.mm ?? 0;
+    } else if (kind === 'stuck') {
+      state = 'stuck';
+      mm = stuckById.get(k.id)?.mm ?? 0;
+    }
+    rows.push({ id: k.id, name: device.legend(k), state, mm });
+  }
+  return rows.length ? { name: v.name, rangeUm: v.rangeUm, rows } : null;
+}
+/** Card-rate watch view (in step with cardView counters/chips). */
+const watchView = computed<WatchView | null>(() => buildWatch(cardView.value));
+/** Immediate watch view for passed detection and batched live-region announcements. */
+const watchLive = computed<WatchView | null>(() => buildWatch(checkView.value));
+watch(watchLive, (wv) => {
+  if (wv && activeVerify.value && !activeVerify.value.passed && wv.rows.every((r) => r.state === 'full')) {
+    perf.markVerifyPassed();
+  }
+});
+
+let watchAnnouncedKey: string | null = null;
+const watchAnnounced = new Map<number, WatchState>();
+let watchOkAnnounced = false;
+function watchKeyOf(wv: WatchView): string {
+  return `${wv.name}\u0000${wv.rangeUm}\u0000${wv.rows.map((r) => r.id).join(',')}`;
+}
+function syncWatchAnnounced(wv: WatchView | null): void {
+  watchAnnounced.clear();
+  watchOkAnnounced = false;
+  if (!wv) {
+    watchAnnouncedKey = null;
+    return;
+  }
+  watchAnnouncedKey = watchKeyOf(wv);
+  for (const r of wv.rows) watchAnnounced.set(r.id, r.state);
+  watchOkAnnounced = wv.rows.every((r) => r.state === 'full');
+}
+function watchCellSentence(r: WatchRow, rangeStr: string): string {
+  const mmStr = r.mm.toFixed(2);
+  switch (r.state) {
+    case 'none': return t('live.watchCellNone', { key: r.name });
+    case 'full': return t('live.watchCellFull', { key: r.name, mm: mmStr });
+    case 'short': return t('live.watchCellShort', { key: r.name, mm: mmStr, range: rangeStr });
+    case 'stuck': return t('live.watchCellStuck', { key: r.name, mm: mmStr });
+  }
+}
+function drainWatchAnnouncements(): string[] {
+  const wv = watchLive.value;
+  if (!wv) {
+    watchAnnounced.clear();
+    watchAnnouncedKey = null;
+    watchOkAnnounced = false;
+    return [];
+  }
+  const key = watchKeyOf(wv);
+  if (key !== watchAnnouncedKey) {
+    watchAnnounced.clear();
+    watchAnnouncedKey = key;
+    watchOkAnnounced = false;
+    for (const r of wv.rows) watchAnnounced.set(r.id, 'none');
+  }
+  const rangeStr = formatMm(wv.rangeUm / 1000, 3);
+  const lines: string[] = [];
+  for (const r of wv.rows) {
+    const prev = watchAnnounced.get(r.id) ?? 'none';
+    if (r.state !== prev) {
+      watchAnnounced.set(r.id, r.state);
+      lines.push(watchCellSentence(r, rangeStr));
+    }
+  }
+  const allFull = wv.rows.every((r) => r.state === 'full');
+  if (allFull && !watchOkAnnounced) {
+    watchOkAnnounced = true;
+    lines.push(t('live.watchOk', { n: wv.rows.length }));
+  } else if (!allFull) {
+    watchOkAnnounced = false;
+  }
+  return lines;
+}
+
 /** `now`: the cards show it at once too (a reset, not a reading). */
 function refreshCheck(now = false) {
   const d = live.data;
@@ -242,7 +347,9 @@ function refreshCheck(now = false) {
 
 /** Put the next batched sentence in the live region (emptied first, so the same sentence twice is read twice). */
 function announce() {
-  const s = announcer.tick(live.data, checkView.value, live.drainReleased(), (id) => device.legend(device.keys[id]), performance.now(), t);
+  const base = announcer.tick(live.data, checkView.value, live.drainReleased(), (id) => device.legend(device.keys[id]), performance.now(), t);
+  const watchLines = drainWatchAnnouncements();
+  const s = [base, ...watchLines].filter(Boolean).join('\n');
   if (!s) return;
   announcement.value = '';
   void nextTick(() => { announcement.value = s; });
@@ -253,6 +360,7 @@ function restartCheck() {
   sinceReset.value = true;
   announcer.restart();
   refreshCheck(true);
+  syncWatchAnnounced(watchLive.value);
 }
 
 function pinKey(id: number) {
@@ -325,8 +433,10 @@ const hcRef = ref<InstanceType<typeof HealthCheck> | null>(null);
  * under the title bar (8px clear), focus the card title, and drop `check` from the URL so a reload does not reset again.
  */
 function enterCheck() {
+  live.allKeys = true;
   live.resetPeaks();
   refreshCheck(true);
+  syncWatchAnnounced(watchLive.value);
   const { check: _check, ...query } = route.query;
   void router.replace({ query });
   // The keyboard takes its size from a ResizeObserver and the page slides in: wait until the card stops moving (the
@@ -402,6 +512,8 @@ onMounted(() => {
   if (live.focusId === null) live.setFocus(device.keys.find((k) => k.name === 'W')?.id ?? 0);
   live.clear();
   live.resetPeaks(); // the check lives as long as the page: coming back starts it over
+  if (route.query.check === '1') live.allKeys = true; // §7.9: keep "Đo mọi phím" on so every watched key is read even while pinned
+  syncWatchAnnounced(watchLive.value);
   graphHold.value = false;
   live.start();
   offProfile = device.onProfileChanged(async () => {
@@ -543,9 +655,11 @@ function onTypeKey(e: KeyboardEvent) {
         :partial-key="partialKey"
         :pinned-id="pinnedId"
         :announcement="announcement"
+        :watch="watchView"
         @pin="pinKey"
         @restart="restartCheck"
         @all-keys="live.allKeys = true"
+        @clear-watch="perf.clearVerify()"
       />
       <PeakTable :rows="cardView.rows" :pinned-id="pinnedId" :estimated="cardView.estimated" :since-reset="sinceReset" @pin="pinKey" />
     </div>

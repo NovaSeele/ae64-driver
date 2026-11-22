@@ -47,11 +47,11 @@ describe('switch selector UI', () => {
     expect(w!.find('.swc__foot button').attributes('disabled')).toBeUndefined();
   });
 
-  it('dialog opens on the in-use tab with counts 30/19/8/7/12', async () => {
+  it('dialog opens on the in-use tab with counts 30/19/8/7/12 + Custom tab', async () => {
     await setup();
     await openDialog();
     const tabs = [...body().querySelectorAll('[role=tab]')];
-    expect(tabs.map((x) => x.querySelector('.tabs__n')?.textContent)).toEqual(['30', '19', '8', '7', '12']);
+    expect(tabs.map((x) => x.querySelector('.tabs__n')?.textContent)).toEqual(['30', '19', '8', '7', '12', '54']);
     expect(body().querySelector('[role=tab][aria-selected=true]')?.textContent).toContain('Khác');
     expect(opt('UR Ice HE-Ex').querySelector('.sw-opt__tag')?.textContent).toBe('Hiện tại');
   });

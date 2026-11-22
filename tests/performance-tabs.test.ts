@@ -566,7 +566,7 @@ describe('Performance tabs: sidebar, titles, the tab row', () => {
     const want: Record<PerfTab, string> = {
       travel: `${t('ptab.travelSub')}. ${t('ptab.scopeProfile', { name })}.`,
       advanced: `${t('ptab.advancedSub')}. ${t('ptab.scopeProfile', { name })}.`,
-      switch: `${t('swp.tabSwitchSub')}. ${t('ptab.scopeProfile', { name })}.`,
+      switch: `${t('swp.tabSwitchSub')}. ${t('ptab.scopeBoard')}.`,
       calibration: `${t('swp.tabCalibrationSub')}. ${t('ptab.scopeBoard')}.`,
       test: `${t('ptab.testSub')}. ${t('ptab.scopeRead')}.`,
     };

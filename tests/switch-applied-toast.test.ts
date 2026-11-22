@@ -82,19 +82,45 @@ describe('Apply toast says whether recalibration is needed', () => {
     expect(lastToast()).toBe(t('sw.appliedUncal', { n: 1, name: switchName(cur) }));
   });
 
-  it.each([
-    ['id only', (_cur: SwEntry, same: SwEntry) => ({ axisV2Id: same.id })],
-    ['rangeMax only', (cur: SwEntry) => ({ axisRangeMax: cur.rangeMax + 1 })],
-    ['coefficient only', (cur: SwEntry) => ({ axisCoefficient: cur.coefficient + 1 })],
-  ])('a stored triple differing from the entry in %s asks for recalibration', async (_n, diff) => {
+  it('a stored triple differing from the entry in id only clears calibration on the board (no swap question)', async () => {
     const device = useDeviceStore();
     await device.connectDemo();
     const perf = usePerformanceStore();
     await perf.load();
     const cur = perf.switchOf(W.id)!;
-    perf.values[W.id] = { ...perf.values[W.id], ...diff(cur, perf.catalog!.find((e) => e.id !== cur.id && e.group === cur.group)!) };
-    await pickAndApply([W.id], '', switchName(cur));
+    const other = perf.catalog!.find((e) => e.id !== cur.id && e.group === cur.group)!;
+    perf.values[W.id] = { ...perf.values[W.id], axisV2Id: other.id };
+    await pickAndApply([W.id], 'Khác', switchName(cur));
     expect(lastToast()).toBe(t('sw.appliedUncal', { n: 1, name: switchName(cur) }));
+  });
+
+  it.each([
+    ['rangeMax only', (cur: SwEntry) => ({ axisRangeMax: cur.rangeMax + 1 })],
+    ['coefficient only', (cur: SwEntry) => ({ axisCoefficient: cur.coefficient + 1 })],
+  ])('a stored triple differing from the entry in %s keeps the id and asks the swap question', async (_n, diff) => {
+    const device = useDeviceStore();
+    await device.connectDemo();
+    const perf = usePerformanceStore();
+    await perf.load();
+    const cur = perf.switchOf(W.id)!;
+    perf.values[W.id] = { ...perf.values[W.id], ...diff(cur) };
+    await pickAndApply([W.id], 'Khác', switchName(cur));
+    // idKept > 0 opens the swap question; clicking "Đã thay, áp dụng" applies and marks for recalibration.
+    expect(body().querySelector('.csw-ask')).not.toBeNull();
+    const yes = [...body().querySelectorAll<HTMLButtonElement>('[role=dialog] button')].find((b) => b.textContent?.trim() === t('sw.askYes'))!;
+    yes.click();
+    await flushPromises();
+    expect(lastToast()).toBe(t('sw.appliedMarked', { n: 1, name: switchName(cur) }));
+
+    // Re-test answering "Chưa thay, áp dụng": id did not change, so plain applied toast.
+    w?.unmount();
+    w = null;
+    perf.values[W.id] = { ...perf.values[W.id], ...diff(cur) };
+    await pickAndApply([W.id], 'Khác', switchName(cur));
+    const no = [...body().querySelectorAll<HTMLButtonElement>('[role=dialog] button')].find((b) => b.textContent?.trim() === t('sw.askNo'))!;
+    no.click();
+    await flushPromises();
+    expect(lastToast()).toBe(t('sw.applied', { n: 1, name: switchName(cur) }));
   });
 
   it('the recalibration status comes before the key list in the card', async () => {

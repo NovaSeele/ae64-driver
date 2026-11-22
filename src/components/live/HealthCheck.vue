@@ -1,11 +1,31 @@
+<script lang="ts">
+export type WatchState = 'none' | 'full' | 'short' | 'stuck';
+
+export interface WatchRow {
+  id: number;
+  name: string;
+  state: WatchState;
+  mm: number;
+}
+
+export interface WatchView {
+  name: string;
+  rangeUm: number;
+  rows: WatchRow[];
+}
+</script>
+
 <script setup lang="ts">
-// Key check card (DESIGN C §3.5): counters, the keys that need attention as chips, notes, and the live region for the
-// page's announcements. Display only: the page computes the view (keyCheck.ts) and owns the actions.
+// Key check card (DESIGN C §3.5, CSW §7.9): counters, optional post-Apply switch watch, the keys that need attention as
+// chips, notes, and the live region for the page's announcements. Display only: the page computes the view (keyCheck.ts)
+// and owns the actions.
 import { computed, ref, useId } from 'vue';
-import { IconAlertTriangle, IconArrowBarToDown, IconArrowBarToUp, IconCircleCheck, IconInfoCircle, IconRestore } from '@tabler/icons-vue';
+import { IconAlertTriangle, IconArrowBarToDown, IconArrowBarToUp, IconCircleCheck, IconInfoCircle, IconRestore, IconX } from '@tabler/icons-vue';
 import Card from '../ui/Card.vue';
 import Button from '../ui/Button.vue';
+import IconButton from '../ui/IconButton.vue';
 import InfoTip from '../ui/InfoTip.vue';
+import { formatMm } from '../ui/NumberField.vue';
 import { useRovingFocus } from '../../composables/useRovingFocus';
 import type { CheckIssue } from './keyCheck';
 import { DEFAULT_RANGE_MM } from '../../stores/performance';
@@ -25,8 +45,10 @@ const props = defineProps<{
   pinnedId: number | null;
   /** Text for the polite live region (the page batches announcements). */
   announcement?: string;
+  /** Post-Apply custom switch watch (DESIGN CSW §7.9); null/omitted when none. */
+  watch?: WatchView | null;
 }>();
-const emit = defineEmits<{ pin: [id: number]; restart: []; allKeys: [] }>();
+const emit = defineEmits<{ pin: [id: number]; restart: []; allKeys: []; clearWatch: [] }>();
 
 const titleEl = ref<HTMLElement | null>(null);
 const chipsEl = ref<HTMLElement | null>(null);
@@ -57,6 +79,36 @@ function makeChip(i: CheckIssue): Chip {
   return { ...i, before, after, label };
 }
 
+const watchRange = computed(() => (props.watch ? formatMm(props.watch.rangeUm / 1000, 3) : ''));
+const watchStatus = computed<'ok' | 'bad' | null>(() => {
+  const rows = props.watch?.rows;
+  if (!rows?.length) return null;
+  if (rows.some((r) => r.state === 'short' || r.state === 'stuck')) return 'bad';
+  if (rows.every((r) => r.state === 'full')) return 'ok';
+  return null;
+});
+function watchCellText(r: WatchRow): string {
+  switch (r.state) {
+    case 'none': return t('live.watchNone');
+    case 'full': return `${mm(r.mm)} mm`;
+    case 'short': return `${mm(r.mm)} / ${watchRange.value} mm`;
+    case 'stuck': return t('live.watchStuck', { mm: mm(r.mm) });
+  }
+}
+function watchCellLabel(r: WatchRow): string {
+  switch (r.state) {
+    case 'none': return t('live.watchCellNone', { key: r.name });
+    case 'full': return t('live.watchCellFull', { key: r.name, mm: mm(r.mm) });
+    case 'short': return t('live.watchCellShort', { key: r.name, mm: mm(r.mm), range: watchRange.value });
+    case 'stuck': return t('live.watchCellStuck', { key: r.name, mm: mm(r.mm) });
+  }
+}
+
+function clearWatch(): void {
+  emit('clearWatch');
+  titleEl.value?.focus({ preventScroll: true });
+}
+
 function restart(): void {
   emit('restart');
   titleEl.value?.focus();
@@ -81,6 +133,30 @@ defineExpose({ focusTitle, titleEl });
       <div><dt>{{ t('live.cShort') }}</dt><dd :class="short ? 'is-warn' : 'is-zero'">{{ short }}</dd></div>
       <div><dt>{{ t('live.cStuck') }}</dt><dd :class="stuck ? 'is-danger' : 'is-zero'">{{ stuck }}</dd></div>
     </dl>
+    <div v-if="watch && watch.rows.length" class="hc__watch">
+      <div class="hc__watch-head">
+        <span class="hc__watch-title">{{ t('live.watchTitle', { name: watch.name, mm: watchRange }) }}</span>
+        <IconButton class="hc__watch-close" :icon="IconX" :label="t('live.watchClose')" size="sm" @click="clearWatch" />
+      </div>
+      <ul class="hc__watch-cells">
+        <li v-for="r in watch.rows" :key="r.id" class="hc__watch-cell" :class="`is-${r.state}`">
+          <b aria-hidden="true">{{ r.name }}</b>
+          <span aria-hidden="true">{{ watchCellText(r) }}</span>
+          <IconCircleCheck v-if="r.state === 'full'" :size="14" stroke-width="1.8" aria-hidden="true" />
+          <IconArrowBarToDown v-else-if="r.state === 'short'" :size="14" stroke-width="1.8" aria-hidden="true" />
+          <IconArrowBarToUp v-else-if="r.state === 'stuck'" :size="14" stroke-width="1.8" aria-hidden="true" />
+          <span class="sr-only">{{ watchCellLabel(r) }}</span>
+        </li>
+      </ul>
+      <p v-if="watchStatus === 'ok'" class="hc__ok">
+        <IconCircleCheck :size="16" stroke-width="1.8" aria-hidden="true" />
+        <span>{{ t('live.watchOk', { n: watch.rows.length }) }}</span>
+      </p>
+      <p v-else-if="watchStatus === 'bad'" class="hc__note hc__note--warn">
+        <IconAlertTriangle :size="16" stroke-width="1.8" aria-hidden="true" />
+        <span>{{ t('live.watchBad') }}</span>
+      </p>
+    </div>
     <div v-if="chips.length" class="hc__attn">
       <span :id="attnId" class="micro">{{ t('live.attention') }}</span>
       <ul ref="chipsEl" class="hc__chips" :aria-labelledby="attnId">
@@ -146,6 +222,19 @@ defineExpose({ focusTitle, titleEl });
 .hc__stats .is-warn { color: var(--warn); }
 .hc__stats .is-danger { color: var(--danger); }
 .hc__stats .is-zero { color: var(--fg-3); }
+
+/* Post-Apply custom switch watch (DESIGN CSW §7.9) */
+.hc__watch { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-3); border: 1px solid var(--line-1); border-radius: var(--r-control); background: var(--bg-2); }
+.hc__watch-head { display: flex; align-items: center; gap: var(--s-2); }
+.hc__watch-title { flex: 1; min-width: 0; font-size: var(--fs-label); font-weight: 600; color: var(--fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ibtn.hc__watch-close { width: 24px; height: 24px; margin: -3px -3px 0 0; }
+.hc__watch-cells { display: flex; flex-wrap: wrap; gap: 6px var(--s-4); margin: 0; padding: 0; list-style: none; }
+.hc__watch-cell { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-label); color: var(--fg-1); font-variant-numeric: tabular-nums; }
+.hc__watch-cell b { font-weight: 600; min-width: 1.2em; }
+.hc__watch-cell.is-none span:not(.sr-only) { color: var(--fg-3); }
+.hc__watch-cell.is-full svg { color: var(--ok); }
+.hc__watch-cell.is-short svg { color: var(--warn); }
+.hc__watch-cell.is-stuck svg { color: var(--danger); }
 
 .hc__attn { display: flex; flex-direction: column; gap: var(--s-2); }
 .hc__chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 2px; list-style: none; max-height: 96px; overflow-y: auto; }

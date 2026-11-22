@@ -8,8 +8,9 @@ import type { Component } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 import type { RouteLocationRaw } from 'vue-router';
 import {
-  IconActivity, IconAdjustmentsHorizontal, IconAlertTriangle, IconArrowRight, IconBolt, IconBulb, IconCircleCheck,
-  IconKeyboard, IconListDetails, IconPencil, IconRefresh, IconSettings, IconStack2, IconTarget,
+  IconActivity, IconAdjustmentsHorizontal, IconAlertOctagon, IconAlertTriangle, IconArrowRight, IconBolt, IconBulb,
+  IconCircleCheck, IconInfoCircle, IconKeyboard, IconListDetails, IconPencil, IconRefresh, IconSettings, IconStack2,
+  IconTarget,
 } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
@@ -41,6 +42,7 @@ const router = useRouter();
 const hasProfiles = router.hasRoute('profiles');
 const PROFILES: RouteLocationRaw = { name: 'profiles' };
 const TRAVEL: RouteLocationRaw = { path: '/performance', query: { tab: 'travel' } };
+const SWITCH_TAB: RouteLocationRaw = { path: '/performance', query: { tab: 'switch' } };
 const CALIBRATION: RouteLocationRaw = { path: '/performance', query: { tab: 'calibration' } };
 
 // ----- data (DESIGN F §3.10): the keyboard first, then the device settings; both cached, so a return reads nothing
@@ -70,10 +72,11 @@ const rt = computed(() => rtCount(perf.values));
 const rtWidth = computed(() => `${total.value ? (100 * rt.value) / total.value : 0}%`);
 const UNCAL_NAMES = 3;
 const uncalNames = computed(() => {
-  const ids = perf.uncalibrated;
+  const ids = perf.needsCal;
   const names = ids.slice(0, UNCAL_NAMES).map((id) => device.legend(device.keys[id])).join(', ');
   return ids.length > UNCAL_NAMES ? `${names} +${ids.length - UNCAL_NAMES}` : names;
 });
+const swCheckCount = computed(() => perf.lostKeys.length + perf.staleKeys.length);
 
 // ----- keyboard (§3.2): the Travel tab's caps in the Actuation view, depth fill on
 function sublabel(k: PhysicalKey): string | undefined {
@@ -96,8 +99,8 @@ function fill(k: PhysicalKey): number | undefined {
   const p = perf.values[k.id];
   return p ? actFill(p) : undefined;
 }
-const uncalFlag = (k: PhysicalKey) => uncalFlagFor(perf.uncalibrated, k.id);
-const shows = computed(() => actuationLegend(device.keys.map((k) => perf.values[k.id]).filter(Boolean), perf.uncalibrated.length, true));
+const uncalFlag = (k: PhysicalKey) => uncalFlagFor(perf.needsCal, k.id);
+const shows = computed(() => actuationLegend(device.keys.map((k) => perf.values[k.id]).filter(Boolean), perf.needsCal.length, true));
 const plain = computed(() => legendSentence(shows.value));
 /** "… profile {name}. …" with the name (user data) in its own span. */
 const keyboardSub = computed(() => {
@@ -157,6 +160,24 @@ const pollingText = computed(() => (settings.loaded ? `${POLLING_RATE_HZ[setting
         </div>
       </section>
 
+      <Card v-if="loaded && swCheckCount" class="ovchk" aria-labelledby="ov-sw-check">
+        <IconAlertTriangle class="ovchk__ico" :size="18" stroke-width="1.75" aria-hidden="true" />
+        <div class="ovchk__body">
+          <h2 id="ov-sw-check" class="ovchk__title">{{ t('ov.swCheck', { n: swCheckCount }) }}</h2>
+          <p v-if="perf.lostKeys.length" class="ovchk__line ovchk__line--lost">
+            <IconAlertOctagon :size="15" stroke-width="1.75" aria-hidden="true" />
+            <span>{{ t('ov.swCheckLost', { n: perf.lostKeys.length }) }}</span>
+          </p>
+          <p v-if="perf.staleKeys.length" class="ovchk__line">
+            <IconInfoCircle :size="15" stroke-width="1.75" aria-hidden="true" />
+            <span>{{ t('ov.swCheckStale', { n: perf.staleKeys.length }) }}</span>
+          </p>
+        </div>
+        <Button class="ovchk__go" size="sm" :to="SWITCH_TAB">
+          {{ t('ov.swCheckGo') }}<IconArrowRight :size="15" stroke-width="1.75" aria-hidden="true" />
+        </Button>
+      </Card>
+
       <ul class="ovs" :aria-label="t('ov.stats')">
         <li>
           <StatTile :to="hasProfiles ? PROFILES : undefined" :icon="IconStack2" :label="t('ov.statProfile')">
@@ -201,14 +222,14 @@ const pollingText = computed(() => (settings.loaded ? `${POLLING_RATE_HZ[setting
           <StatTile :to="CALIBRATION" :icon="IconTarget" :label="t('swp.tabCalibration')">
             <template #value>
               <span v-if="loaded" class="ovs__value">
-                <IconAlertTriangle v-if="perf.uncalibrated.length" class="ovs__state ovs__state--warn" :size="20" stroke-width="2" aria-hidden="true" />
+                <IconAlertTriangle v-if="perf.needsCal.length" class="ovs__state ovs__state--warn" :size="20" stroke-width="2" aria-hidden="true" />
                 <IconCircleCheck v-else class="ovs__state ovs__state--ok" :size="20" stroke-width="2" aria-hidden="true" />
-                <span class="ovs__text">{{ perf.uncalibrated.length ? t('ov.calMissing', { n: perf.uncalibrated.length }) : t('ov.calAll', { n: total }) }}</span>
+                <span class="ovs__text">{{ perf.needsCal.length ? t('ov.calMissing', { n: perf.needsCal.length }) : t('ov.calAll', { n: total }) }}</span>
               </span>
               <span v-else class="ovs__value ovs__value--wait">—</span>
             </template>
             <template #sub>
-              <span class="ovs__sub">{{ !loaded ? waitText : perf.uncalibrated.length ? t('ov.calMissingSub', { keys: uncalNames }) : t('ov.calAllSub') }}</span>
+              <span class="ovs__sub">{{ !loaded ? waitText : perf.needsCal.length ? t('ov.calMissingSub', { keys: uncalNames }) : t('ov.calAllSub') }}</span>
             </template>
           </StatTile>
         </li>
@@ -295,6 +316,21 @@ const pollingText = computed(() => (settings.loaded ? `${POLLING_RATE_HZ[setting
 .ovh__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); margin-right: 2px; }
 .ovh__sep { color: var(--fg-3); }
 .ovh__actions { flex: none; display: flex; flex-wrap: wrap; gap: var(--s-2); margin-left: auto; }
+
+/* switch values check card (DESIGN CSW §11.3): read-only warning above the tiles, leads to the Switch tab */
+.card.ovchk {
+  flex-direction: row; align-items: flex-start; flex-wrap: wrap; gap: var(--s-3); padding: var(--s-4);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) var(--soft-pct), var(--bg-2));
+}
+.ovchk__ico { flex: none; color: var(--warn); margin-top: 2px; }
+.ovchk__body { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ovchk__title { margin: 0 0 2px; font-size: var(--fs-body); font-weight: 600; color: var(--fg-1); }
+.ovchk__line { margin: 0; display: flex; align-items: flex-start; gap: 6px; font-size: var(--fs-label); line-height: 1.45; color: var(--fg-1); }
+.ovchk__line > svg { flex: none; color: var(--fg-3); margin-top: 2px; }
+.ovchk__line--lost > svg { color: var(--danger); }
+.ovchk__go { flex: none; align-self: center; margin-left: auto; }
+.ovchk__go :deep(.btn__label) { display: inline-flex; align-items: center; gap: 6px; }
 
 /* four tiles about the active profile (StatTile draws the box and the label row) */
 .ovs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-3); margin: 0; padding: 0; list-style: none; }

@@ -19,6 +19,8 @@ const props = defineProps<{
   keys: PhysicalKey[];
   legend?: (key: PhysicalKey) => string;
   sublabel?: (key: PhysicalKey) => string | SubLine[] | undefined;
+  /** Accessible sublabel inserted after the legend whether a visual sublabel shows or not (replaces sublabel text when set). */
+  sublabelAria?: (key: PhysicalKey) => string | undefined;
   /** Small accent value on the keycap's bottom-left. */
   badge?: (key: PhysicalKey) => string | undefined;
   /** Accessible name / tooltip for a key's badge (replaces the badge text in the key's aria-label). */
@@ -233,8 +235,9 @@ onBeforeUnmount(() => {
 
 const styleOf = (k: PhysicalKey) => (typeof props.ledStyle === 'function' ? props.ledStyle(k) : props.ledStyle);
 
-/** Plain text of a key's sublabel for its aria-label (lines joined by spaces). */
+/** Plain text of a key's sublabel for its aria-label (sublabelAria overrides when set, even without a visible sublabel). */
 function subText(k: PhysicalKey): string {
+  if (props.sublabelAria) return props.sublabelAria(k) ?? '';
   const s = props.sublabel?.(k);
   if (!s) return '';
   return typeof s === 'string' ? s.replace(/\n/g, ' ') : s.map((l) => l.text).join(' ');

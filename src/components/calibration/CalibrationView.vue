@@ -56,8 +56,11 @@ const mode = computed<'loading' | 'loaderr' | 'running' | 'saved' | 'none'>(() =
 const STATUS_COLOR = ['var(--danger)', 'var(--info)', 'var(--ok)'];
 const GLOW: LedGlow[] = STATUS_COLOR.map((led) => ({ led, level: 1 }));
 const STATUS_TEXT = ['calibration.legendNone', 'calibration.legendDone', 'calibration.legendNew'] as const;
-/** The status a key is shown in: newly calibrated stays green after saving, until the next session. */
-const shown = (id: number) => (cal.isNew(id) ? 2 : cal.frame.status[id] ? 1 : 0);
+const recalSet = computed(() => new Set(perf.recalKeys));
+/** The status a key is shown in (DESIGN CSW §10.3): newly calibrated stays green, app recal list shows red, else board status. */
+const shown = (id: number): 0 | 1 | 2 => (cal.isNew(id) ? 2 : recalSet.value.has(id) ? 0 : cal.frame.status[id] ? 1 : 0);
+const shownUncalCount = computed(() => (cal.loaded ? device.keys.filter((k) => shown(k.id) === 0).length : 0));
+const shownCalibratedCount = computed(() => (cal.loaded ? device.keys.filter((k) => shown(k.id) > 0).length : 0));
 // The store's lists are new arrays on every polled frame (66 ms, ~15 Hz), even when nothing changed. Kept the same array while
 // the ids are the same, so the chips, the counters and the announcer only run when a key really joins or leaves a list
 // (review D-PERF-1).
@@ -117,7 +120,7 @@ const chips = computed<Chip[]>((prev) => {
 function buildChips(): Chip[] {
   const m = mode.value;
   if (m === 'loading' || m === 'loaderr') return [];
-  const uncal = cal.loaded ? device.keys.filter((k) => cal.frame.status[k.id] === 0).map((k) => k.id) : [];
+  const uncal = cal.loaded ? device.keys.filter((k) => shown(k.id) === 0).map((k) => k.id) : [];
   const uncalSet = new Set(uncal);
   const out: Chip[] = [];
   for (const id of shallowIds.value) {
@@ -130,8 +133,12 @@ function buildChips(): Chip[] {
   if (m === 'saved' || m === 'none') {
     for (const id of uncal) {
       const name = nameOf(id);
-      const [before, after] = splitKey(t('calibration.chipUncal', { key: '\u0000' }));
-      out.push({ id, kind: 'uncal', before, name, after, label: `${t('calibration.uncalLabel', { key: name })} ${t('calibration.markHint')}` });
+      const switched = recalSet.value.has(id);
+      const [before, after] = splitKey(t(switched ? 'calibration.chipSwitch' : 'calibration.chipUncal', { key: '\u0000' }));
+      const label = switched
+        ? `${t('calibration.chipSwitch', { key: name })}. ${t('calibration.markHint')}`
+        : `${t('calibration.uncalLabel', { key: name })} ${t('calibration.markHint')}`;
+      out.push({ id, kind: 'uncal', before, name, after, label });
     }
   }
   return out;
@@ -144,7 +151,7 @@ const right = computed<'attn' | 'ok' | 'wait' | 'empty' | null>(() => {
   if ((m === 'running' || m === 'saved') && cal.pressedIds.length) return cal.waitIds.length ? 'wait' : 'ok';
   return m === 'running' ? 'empty' : null;
 });
-const progress = computed(() => (running.value ? cal.newCount : cal.calibratedCount));
+const progress = computed(() => (running.value ? cal.newCount : shownCalibratedCount.value));
 /** Failure text for a session that ended badly: says whether the keyboard may still be calibrating. */
 const sessionError = computed(() =>
   cal.error ? `${t('calibration.failed', { error: cal.error })} ${cal.stopFailed ? t('calibration.stopFailed') : t('calibration.stoppedNotSaved')}` : null,
@@ -264,12 +271,12 @@ async function commit() {
 
 /** Finish asks first in a Dialog when nothing is new or keys still need attention (DESIGN D §3.6). */
 const finishAsk = ref(false);
-const needAsk = () => cal.newCount === 0 || cal.shallowIds.length > 0 || cal.uncalibratedCount > 0;
+const needAsk = () => cal.newCount === 0 || cal.shallowIds.length > 0 || shownUncalCount.value > 0;
 const finishBody = computed(() => {
   if (cal.newCount === 0) return t('calibration.confirmEmpty');
   const parts: string[] = [];
   if (cal.shallowIds.length) parts.push(t('calibration.finishShallow', { n: cal.shallowIds.length }));
-  if (cal.uncalibratedCount) parts.push(t('calibration.finishUncal', { n: cal.uncalibratedCount }));
+  if (shownUncalCount.value) parts.push(t('calibration.finishUncal', { n: shownUncalCount.value }));
   return t('calibration.finishBody', { list: parts.join(` ${t('calibration.and')} `) });
 });
 function onFinish() {
@@ -460,8 +467,8 @@ onBeforeUnmount(() => {
           </div>
           <Button variant="primary" size="sm" :icon="IconActivity" @click="recheck">{{ t('calibration.recheck') }}</Button>
         </div>
-        <p v-else-if="cal.uncalibratedCount === 0" class="done" role="status"><IconCheck :size="14" />{{ t('calibration.allDone') }}</p>
-        <p v-else class="warn">{{ t('calibration.uncalibrated', { n: cal.uncalibratedCount }) }}</p>
+        <p v-else-if="shownUncalCount === 0" class="done" role="status"><IconCheck :size="14" />{{ t('calibration.allDone') }}</p>
+        <p v-else class="warn">{{ t('calibration.uncalibrated', { n: shownUncalCount }) }}</p>
       </div>
       <div ref="actionsEl" class="actions">
         <template v-if="inSession">
@@ -488,7 +495,7 @@ onBeforeUnmount(() => {
           :pressed="cal.hasSession ? pressedIds.length : null"
           :fresh="cal.hasSession ? cal.sessionNewCount : null"
           :shallow="cal.hasSession ? shallowIds.length : null"
-          :uncal="cal.loaded ? cal.uncalibratedCount : null"
+          :uncal="cal.loaded ? shownUncalCount : null"
           :total="device.keys.length"
         />
         <p v-if="cal.loaded" class="sub">{{ running ? t('calibration.progressSession', { n: progress }) : t('calibration.progress', { n: progress }) }}</p>

@@ -1,6 +1,17 @@
 <script setup lang="ts">
+import type { Component } from 'vue';
+
+export interface TabItem {
+  id: string;
+  label: string;
+  count?: number;
+  icon?: Component;
+  /** Draws a 1 px divider before this tab to set it apart from the preceding group. */
+  apart?: boolean;
+}
+
 const model = defineModel<string>({ required: true });
-const props = defineProps<{ items: { id: string; label: string; count?: number }[]; label: string }>();
+const props = defineProps<{ items: TabItem[]; label: string }>();
 
 // ARIA tabs keyboard: ←/→ wrap, Home/End jump to the first/last tab (same as FeatureSwitch; Tabs has no disabled items).
 function onKey(e: KeyboardEvent) {
@@ -23,24 +34,27 @@ function onKey(e: KeyboardEvent) {
 
 <template>
   <div class="tabs" role="tablist" :aria-label="label" @keydown="onKey">
-    <button
-      v-for="(it, idx) in items"
-      :key="it.id"
-      type="button"
-      role="tab"
-      class="tabs__tab"
-      :data-id="it.id"
-      :aria-selected="it.id === model"
-      :tabindex="it.id === model || (idx === 0 && !items.some((x) => x.id === model)) ? 0 : -1"
-      @click="model = it.id"
-    >
-      {{ it.label }}<span v-if="it.count != null" class="tabs__n">{{ it.count }}</span>
-    </button>
+    <template v-for="(it, idx) in items" :key="it.id">
+      <span v-if="it.apart" class="tabs__sep" aria-hidden="true" />
+      <button
+        type="button"
+        role="tab"
+        class="tabs__tab"
+        :data-id="it.id"
+        :aria-selected="it.id === model"
+        :tabindex="it.id === model || (idx === 0 && !items.some((x) => x.id === model)) ? 0 : -1"
+        @click="model = it.id"
+      >
+        <component :is="it.icon" v-if="it.icon" class="tabs__icon" :size="15" aria-hidden="true" />{{ it.label }}<span v-if="it.count != null" class="tabs__n">{{ it.count }}</span>
+      </button>
+    </template>
   </div>
 </template>
 
 <style scoped>
 .tabs { display: flex; flex-wrap: wrap; gap: 0 var(--s-1); border-bottom: 1px solid var(--line-1); }
+.tabs__sep { align-self: stretch; width: 1px; margin: 6px var(--s-2); background: var(--line-2); flex: none; }
+.tabs__icon { width: 15px; height: 15px; margin-right: 5px; vertical-align: -2px; }
 .tabs__tab {
   position: relative;
   border: 0;

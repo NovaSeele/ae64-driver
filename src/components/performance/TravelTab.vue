@@ -14,7 +14,7 @@ export function deriveRtLinked(recs: PerformanceRec[], isRt: (mode: number) => b
 // its window listeners and the profile hook follow activation, and its view tools are shown only while it is open.
 import { computed, inject, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { IconAlertTriangle, IconFlask, IconLink, IconLinkOff, IconLock, IconRefresh, IconX } from '@tabler/icons-vue';
+import { IconAlertTriangle, IconFlask, IconInfoCircle, IconLink, IconLinkOff, IconLock, IconRefresh, IconX } from '@tabler/icons-vue';
 import KeyboardView from '../keyboard/KeyboardView.vue';
 import TabKeyboard from '../keyboard/TabKeyboard.vue';
 import type { LegendItem } from '../keyboard/SelectionBar.vue';
@@ -233,7 +233,7 @@ function legendFor(m: Metric): LegendItem[] | undefined {
   if (perf.loading || perf.loadError) return undefined;
   const recs = device.keys.map((k) => perf.values[k.id]).filter(Boolean);
   if (!recs.length) return undefined;
-  if (m === 'actuation') return actuationLegend(recs, perf.uncalibrated.length);
+  if (m === 'actuation') return actuationLegend(recs, perf.needsCal.length);
   const known = recs.filter((p) => isKnownMode(p.mode));
   const items: LegendItem[] = [];
   if (m === 'rt') {
@@ -245,13 +245,13 @@ function legendFor(m: Metric): LegendItem[] | undefined {
     items.push({ glyph: '↓', tone: 'var(--m-deadzone)', text: t('perf.showsDzBottom') });
   }
   if (known.length < recs.length) items.push({ sample: 'lock', label: t('perf.showsLockedGlyph'), text: t('perf.showsLocked'), tone: METRIC_TONE[m] });
-  if (perf.uncalibrated.length) items.push({ sample: 'flag', label: t('sel.flaggedGlyph'), text: t('sel.flagged') });
+  if (perf.needsCal.length) items.push({ sample: 'flag', label: t('sel.flaggedGlyph'), text: t('sel.flagged') });
   return items;
 }
 const shows = computed(() => legendFor(metric.value));
 /** The other chips' legends: the bar keeps one row count across chips. */
 const showsAlt = computed(() => METRICS.filter((m) => m.id !== metric.value).map((m) => legendFor(m.id)).filter((l): l is LegendItem[] => !!l));
-const uncalFlag = (k: PhysicalKey) => uncalFlagFor(perf.uncalibrated, k.id);
+const uncalFlag = (k: PhysicalKey) => uncalFlagFor(perf.needsCal, k.id);
 function badgeTitle(k: PhysicalKey): string | undefined {
   const p = perf.values[k.id];
   if (!p) return undefined;
@@ -278,6 +278,19 @@ const scopeNames = computed(() => {
   const names = loadedIds.value.map((id) => device.legend(device.keys[id]));
   return names.length > SCOPE_NAMES ? `${names.slice(0, SCOPE_NAMES).join(' ')} …` : names.join(' ');
 });
+
+// Deep-values note (DESIGN CSW §8): legends of keys with values above their switch's travel, first 8 then "+n".
+const DEEP_SHOWN = 8;
+const deepKeyNames = computed(() => {
+  const set = new Set(perf.deepKeys);
+  const legends = device.keys.filter((k) => set.has(k.id)).map((k) => device.legend(k));
+  const rest = legends.length - DEEP_SHOWN;
+  return legends.slice(0, DEEP_SHOWN).join(', ') + (rest > 0 ? ` +${rest}` : '');
+});
+function fixDeep() {
+  if (ro.value) return;
+  perf.fixDeepTravel();
+}
 
 // RT link: derived from the scope, re-derived whenever it changes; a click overrides it until then.
 const rtLinkOverride = ref<boolean | null>(null);
@@ -654,6 +667,12 @@ const modeOptions = computed(() => [
         <IconLock :size="16" stroke-width="1.75" aria-hidden="true" /><span>{{ t('perf.readOnly') }}</span>
       </p>
 
+      <div v-if="perf.deepKeys.length && !perf.loadError" class="deep-note" role="status">
+        <IconInfoCircle :size="16" stroke-width="1.75" aria-hidden="true" />
+        <span class="deep-note__text">{{ t('perf.deepNote', { n: perf.deepKeys.length, keys: deepKeyNames }) }}</span>
+        <Button variant="secondary" size="sm" :disabled="ro" @click="fixDeep">{{ t('perf.deepFix') }}</Button>
+      </div>
+
       <!-- load error -->
       <Card v-if="perf.loadError" :title="t('perf.loadFailed')" :subtitle="perf.loadError">
         <div><Button :icon="IconRefresh" @click="perf.load(true)">{{ t('perf.reload') }}</Button></div>
@@ -1006,6 +1025,16 @@ const modeOptions = computed(() => [
   color: var(--fg-1); font-size: var(--fs-label); line-height: 18px;
 }
 .ro-note svg { flex: none; margin-top: 1px; color: var(--warn); }
+.deep-note {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-2) var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line-2); border-radius: var(--r-control);
+  background: var(--panel); color: var(--fg-1);
+  font-size: var(--fs-label); line-height: 1.45;
+}
+.deep-note > svg { flex: none; color: var(--info); }
+.deep-note__text { flex: 1 1 260px; min-width: 0; }
+.deep-note > :deep(.btn) { flex: none; margin-left: auto; }
 .unknown {
   grid-column: 1 / -1;
   display: flex;

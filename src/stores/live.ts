@@ -863,6 +863,7 @@ export const useLiveStore = defineStore('live', () => {
     stop();
     setFocus(null);
     follow.value = true;
+    allKeys.value = true;
     reset();
   }, { flush: 'sync' });
 

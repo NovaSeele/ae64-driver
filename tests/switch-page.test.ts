@@ -11,7 +11,7 @@ import { useDeviceStore } from '../src/stores/device';
 import { useSelectionStore } from '../src/stores/selection';
 import { usePerformanceStore } from '../src/stores/performance';
 import { useCalibrationStore } from '../src/stores/calibration';
-import { groupKeys } from '../src/components/performance/switchGroups';
+import { groupKeys, identityOrder } from '../src/components/performance/switchGroups';
 import { locale } from '../src/i18n/locale';
 
 let w: VueWrapper | null = null;
@@ -42,7 +42,7 @@ describe('Switch tab', () => {
     ({ w } = await mountPerformance('switch'));
     await flushPromises();
 
-    const expected = groupKeys(device.keys.map((k) => k.id), perf.values, (id) => perf.catalog?.findIndex((e) => e.id === id) ?? Infinity);
+    const expected = groupKeys(device.keys.map((k) => k.id), (id) => perf.keySwitch(id), (ks) => identityOrder(ks, perf.catalog));
     const rows = w.findAll('.swp__row');
     expect(rows).toHaveLength(expected.length);
     expect(expected.length).toBeGreaterThan(1);
@@ -58,7 +58,7 @@ describe('Switch tab', () => {
     expect(change().attributes('disabled')).toBeDefined();
     // the change button sits in the footer of the selected-keys card (the right-hand card), not in its header
     expect(w.findAll('.swp > .card')[1].find('.swc__foot button').exists()).toBe(true);
-    expect(w.find('.card__actions').exists()).toBe(false);
+    expect(w.findAll('.swp > .card')[1].find('.card__actions').exists()).toBe(false);
 
     await rows[1].trigger('click');
     expect(useSelectionStore().ids).toEqual([...expected[1].ids].sort((a, b) => a - b));
