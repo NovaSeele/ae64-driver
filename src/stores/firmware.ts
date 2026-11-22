@@ -421,7 +421,6 @@ export const useFirmwareStore = defineStore('firmware', () => {
       return;
     }
     const inDone = DONE_PHASES.includes(phase.value);
-    if (!inDone && phase.value !== 'idle') return;
     const device = useDeviceStore();
     const serial = device.info?.serialHex;
     const board = device.info?.boardId;

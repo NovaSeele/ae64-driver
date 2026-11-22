@@ -230,10 +230,12 @@ describe('Test 1: preflight backup timing, 0 HID between 01 02 and 08 01, failur
     const s1 = await demo('max');
     const perf1 = usePerformanceStore();
     await loadPerf(perf1);
+    const setSpy1 = vi.spyOn(Storage.prototype, 'setItem');
     vi.spyOn(BaseTransport.prototype, 'beginFirmwareSession').mockRejectedValueOnce(new FirmwareSessionError('mode'));
     await startWith(s1.fw, MAX_FILE, { typed: 'AE64 Max' });
     await run(500);
     expect(s1.fw.phase).toBe('preflightFail');
+    expect(setSpy1.mock.calls.filter(([k]) => k === AXIS_BACKUP_KEY)).toEqual([]);
     expect(localStorage.getItem(AXIS_BACKUP_KEY)).toBeNull();
 
     // 2. Failing SHA-256 recheck before beginFirmwareSession (step 4)
@@ -241,6 +243,7 @@ describe('Test 1: preflight backup timing, 0 HID between 01 02 and 08 01, failur
     const s2 = await demo('max');
     const perf2 = usePerformanceStore();
     await loadPerf(perf2);
+    const setSpy2 = vi.spyOn(Storage.prototype, 'setItem');
     const beginSpy = vi.spyOn(BaseTransport.prototype, 'beginFirmwareSession');
     await s2.fw.chooseFile(fileOf(MAX_FILE));
     // Simulate a listed online file whose bytes were tampered after download
@@ -251,6 +254,7 @@ describe('Test 1: preflight backup timing, 0 HID between 01 02 and 08 01, failur
     await run(500);
     expect(s2.fw.phase).toBe('preflightFail');
     expect(beginSpy).not.toHaveBeenCalled();
+    expect(setSpy2.mock.calls.filter(([k]) => k === AXIS_BACKUP_KEY)).toEqual([]);
     expect(localStorage.getItem(AXIS_BACKUP_KEY)).toBeNull();
   });
 
@@ -959,5 +963,106 @@ describe('Test 12b: press-time refusal splits triple failure (cant) from non-tri
     const remaining = loadBackup(readAllBackups(), serial, FW_BOARD_MAX);
     expect(remaining).not.toBeNull();
     expect(Object.keys(remaining!.keys).map(Number).sort((a, b) => a - b)).toEqual([F.id, W.id].sort((a, b) => a - b));
+  });
+});
+
+describe('CSW-R1: evaluateAxisBackup runs in non-done inactive phases (enterFail, appBack)', { timeout: 60_000 }, () => {
+  it('enterFail: removes backup on fresh perf read so a later switch Apply + clear() never offers to undo it (kills CSW-R1 phase-gate mutant)', async () => {
+    const s = await demo('max');
+    const perf = usePerformanceStore();
+    const sync = useSyncStore();
+    const serial = s.device.info!.serialHex;
+    await loadPerf(perf);
+
+    // Trigger enterFail after preflight saved the backup (before 08 01)
+    s.bus.flags.enterFail = true;
+    await startWith(s.fw, MAX_FILE, { typed: 'AE64 Max' });
+    await until(() => s.fw.phase === 'enterFail' && !s.fw.active);
+    expect(s.fw.phase).toBe('enterFail');
+    expect(s.fw.active).toBe(false);
+    expect(s.device.connected).toBe(true);
+    // adoptFromFirmware bumped device.connection and cleared perf.loadedSerial, so pre-update read is never reused
+    expect(perf.loadedSerial).toBeNull();
+    expect(loadBackup(readAllBackups(), serial, FW_BOARD_MAX)).not.toBeNull();
+
+    // Fresh read on the reconnected keyboard (still in phase 'enterFail'): all 64 keys match the backup → removed at once
+    await loadPerf(perf);
+    await flushPromises();
+    expect(loadBackup(readAllBackups(), serial, FW_BOARD_MAX)).toBeNull();
+    expect(localStorage.getItem(AXIS_BACKUP_KEY)).toBeNull();
+    expect(s.fw.axShowCard).toBe(false);
+    expect(s.fw.axCompare).toBeNull();
+    expect(s.fw.axSame).toBe(false);
+
+    // User now changes W to another listed switch (Magnetic Jade Pro, id 4128)
+    const jade = perf.catalog!.find((e) => e.id === 4128)!;
+    expect(jade).toBeDefined();
+    const applied = perf.applySwitch({ kind: 'catalog', entry: jade }, [W.id]);
+    expect(applied.status).toBe('applied');
+    const flushP = sync.flush();
+    await run(200);
+    await flushP;
+    await flushPromises();
+    expect(perf.values[W.id].axisV2Id).toBe(4128);
+
+    // Clear back to idle and re-evaluate: no restore card, no fw.ax.same, and 0 HID from evaluation
+    s.fw.clear();
+    expect(s.fw.phase).toBe('idle');
+    const evalFrames: number[][] = [];
+    (s.device.transport as MockTransport).onPacketRaw((dir, b) => { if (dir === 'out') evalFrames.push(Array.from(b)); });
+    s.fw.refreshAxisBackup();
+    await flushPromises();
+    expect(s.fw.axShowCard).toBe(false);
+    expect(s.fw.axCompare).toBeNull();
+    expect(s.fw.axSame).toBe(false);
+    expect(evalFrames).toEqual([]);
+  });
+
+  it('appBack: lost mid-write then keyboard returns in its app — fresh perf.load() captures true after, removes unchanged backup, and never sets axSame', async () => {
+    // 1. Reconnected app still has intact switches equal to the backup → backup removed on fresh load, axSame stays false
+    const s1 = await demo('max');
+    const perf1 = usePerformanceStore();
+    const serial1 = s1.device.info!.serialHex;
+    await loadPerf(perf1);
+
+    s1.bus.flags.unplugAt = 50;
+    s1.bus.flags.lostIntoApp = true;
+    await startWith(s1.fw, MAX_FILE, { typed: 'AE64 Max' });
+    await until(() => s1.fw.phase === 'appBack' && !s1.fw.active);
+    expect(s1.fw.phase).toBe('appBack');
+    expect(s1.fw.active).toBe(false);
+    expect(s1.device.connected).toBe(true);
+    expect(perf1.loadedSerial).toBeNull();
+    // Backup is still present before the fresh read (pre-update read was cleared on reconnect)
+    expect(loadBackup(readAllBackups(), serial1, FW_BOARD_MAX)).not.toBeNull();
+
+    await loadPerf(perf1);
+    await flushPromises();
+    expect(loadBackup(readAllBackups(), serial1, FW_BOARD_MAX)).toBeNull();
+    expect(s1.fw.axShowCard).toBe(false);
+    expect(s1.fw.axSame).toBe(false);
+
+    // 2. Reconnected app came back with wiped switches → fresh perf.load() records true `after` in appBack, axSame stays false
+    localStorage.clear();
+    const s2 = await demo('max');
+    const perf2 = usePerformanceStore();
+    const serial2 = s2.device.info!.serialHex;
+    await loadPerf(perf2);
+
+    s2.bus.flags.unplugAt = 50;
+    s2.bus.flags.lostIntoApp = true;
+    await startWith(s2.fw, MAX_FILE, { typed: 'AE64 Max' });
+    await until(() => s2.fw.phase === 'appBack' && !s2.fw.active);
+    expect(s2.fw.phase).toBe('appBack');
+    (s2.device.transport as MockTransport).wipeAxis();
+
+    await loadPerf(perf2);
+    await flushPromises();
+    const stored = loadBackup(readAllBackups(), serial2, FW_BOARD_MAX);
+    expect(stored).not.toBeNull();
+    expect(stored!.after?.[W.id]).toEqual([0, 0, 0]);
+    expect(s2.fw.axShowCard).toBe(true);
+    expect(s2.fw.axCompare!.restore).toHaveLength(64);
+    expect(s2.fw.axSame).toBe(false);
   });
 });
