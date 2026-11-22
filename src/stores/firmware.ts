@@ -24,12 +24,21 @@ import { FIRMWARE_LOCK, heldElsewhere, takeLock } from '../protocol/tabLock';
 import { MockTransport } from '../protocol/mock';
 import { MockBootloader } from '../protocol/mockFirmware';
 import type { DemoSeed } from '../protocol/mock';
+import { supportsIntervalRt } from '../protocol/codec';
+import { checkPerformanceWrite } from '../protocol/safety';
+import { FW_AXIS, isCatalogTriple, isCustomTriple, switchCatalogFor } from '../protocol/switches';
+import type { SwitchTriple } from '../protocol/switches';
 import type { DeviceInfo } from '../protocol/types';
+import {
+  compare, isBackupExpired, loadBackup, readAllBackups, removeBackup, saveBackup, writeAllBackups,
+} from '../data/axisBackup';
+import type { AxisBackup, Compare, RestoreCheck, Triple } from '../data/axisBackup';
 import type { MessageKey } from '../i18n/vi';
 import { useCalibrationStore } from './calibration';
 import { useDeviceStore } from './device';
 import { useGamepadStore } from './gamepad';
 import { useHistoryStore } from './history';
+import { usePerformanceStore } from './performance';
 import { useSettingsStore } from './settings';
 import { useSyncStore } from './sync';
 import { holdWindowClose } from '../data/desktopClose';
@@ -98,6 +107,16 @@ export interface FwDownload {
 
 export type FwRow = 'todo' | 'now' | 'done' | 'fail';
 
+/** Result of the user pressing "Khôi phục {n} phím" (OFU v1.10 addendum §4.3). */
+export interface AxisRestoreResult {
+  restored: number[];
+  failed: number[];
+  cant: number[];
+  blocked: number[];
+}
+
+const DONE_PHASES: readonly FwPhase[] = ['done', 'doneUnknown', 'versionMismatch', 'noGamepad'];
+
 const readFlag = (): boolean => {
   try { return localStorage.getItem(LABS_FIRMWARE_KEY) === '1'; } catch { return false; }
 };
@@ -159,6 +178,15 @@ export const useFirmwareStore = defineStore('firmware', () => {
   const dl = shallowRef<FwDownload | null>(null);
   /** The version box of step 2 (DESIGN OFU §4.1). */
   const verOk = ref(false);
+  // ---- switch-values backup & restore across a firmware update (OFU v1.10 addendum)
+  const axSaveFailed = ref(false);
+  const axSame = ref(false);
+  const axDismissed = ref(false);
+  const axRestoring = ref(false);
+  const axBackup = shallowRef<AxisBackup | null>(null);
+  const axCompare = shallowRef<Compare | null>(null);
+  const axResult = shallowRef<AxisRestoreResult | null>(null);
+  const axStorageTick = ref(0);
   let dlCtl: AbortController | null = null;
   let dlGen = 0;
   let listGen = 0;
@@ -296,6 +324,251 @@ export const useFirmwareStore = defineStore('firmware', () => {
   const failedOnBoot = computed(() => active.value && (phase.value === 'packetFail' || phase.value === 'verifyFail'));
   /** Step 1 takes a file: before a session, in rescue mode before its write, and after a failed write or check (W-04). */
   const canChoose = computed(() => !active.value || phase.value === 'rescue' || (failedOnBoot.value && bootLive.value));
+
+  // ---- switch-values backup & restore helpers (OFU v1.10 addendum §2, §3, §4)
+
+  function hasGoodPerfRead(serialHex: string | null | undefined): boolean {
+    if (!serialReadable(serialHex)) return false;
+    const device = useDeviceStore();
+    const perf = usePerformanceStore();
+    if (perf.loading || perf.loadError || perf.loadedSerial !== serialHex || !device.keys.length) return false;
+    return device.keys.every((k) => {
+      const p = perf.values[k.id];
+      return p !== undefined && Number.isFinite(p.axisV2Id) && Number.isFinite(p.axisRangeMax) && Number.isFinite(p.axisCoefficient);
+    });
+  }
+
+  /** Step 2 warning: the performance store has no good read of this keyboard, so no backup can be taken (§3). */
+  const axNoSave = computed(() => !hasGoodPerfRead(useDeviceStore().info?.serialHex));
+  const axShowSaveFailed = computed(() => !active.value && !rescue.value && axSaveFailed.value && DONE_PHASES.includes(phase.value));
+  const axHasBackup = computed(() => {
+    void axStorageTick.value;
+    const device = useDeviceStore();
+    if (!device.connected || device.info?.runMode !== 0) return false;
+    return loadBackup(readAllBackups(), device.info.serialHex, device.info.boardId) !== null;
+  });
+  const axReadError = computed(() => !active.value && !rescue.value && !axSaveFailed.value && !axDismissed.value
+    && axResult.value === null && axHasBackup.value && Boolean(usePerformanceStore().loadError));
+  const axOfferedCount = computed(() => {
+    const c = axCompare.value;
+    return c ? c.restore.length + c.cant.length + c.blocked.length : 0;
+  });
+  /** True while the card is offering keys before a restore or "Để sau" (steps down the done banner's button to secondary). */
+  const axOffering = computed(() => !active.value && !rescue.value && !axSaveFailed.value && !axDismissed.value
+    && axResult.value === null && axBackup.value !== null && axOfferedCount.value > 0);
+  const axShowCard = computed(() => !active.value && !rescue.value && !axSaveFailed.value && !axDismissed.value
+    && (axResult.value !== null || (axBackup.value !== null && axOfferedCount.value > 0)));
+
+  function resetAxisView(keepSaveFailed = false): void {
+    if (!keepSaveFailed) axSaveFailed.value = false;
+    axSame.value = false;
+    axDismissed.value = false;
+    axBackup.value = null;
+    axCompare.value = null;
+    axResult.value = null;
+  }
+
+  /** Synchronous pre-update backup right after beginFirmwareSession succeeds and before 08 01 (§2). No HID, no await. */
+  function saveAxisBackupBeforeEnter(id: { board: number; serialHex: string | null }, fwBefore: string): void {
+    if (id.serialHex === null || !hasGoodPerfRead(id.serialHex)) return;
+    const device = useDeviceStore();
+    const perf = usePerformanceStore();
+    const keys: Record<number, Triple> = {};
+    for (const k of device.keys) {
+      const p = perf.values[k.id];
+      keys[k.id] = [p.axisV2Id, p.axisRangeMax, p.axisCoefficient];
+    }
+    try {
+      const next = saveBackup(readAllBackups(), {
+        v: 1,
+        serialHex: id.serialHex,
+        board: id.board,
+        fwBefore,
+        takenAt: Date.now(),
+        keys,
+      });
+      writeAllBackups(next);
+      axStorageTick.value++;
+    } catch {
+      axSaveFailed.value = true;
+    }
+  }
+
+  function makeRestoreCheck(): RestoreCheck {
+    const device = useDeviceStore();
+    const perf = usePerformanceStore();
+    const boardIdHex = device.info?.boardIdHex?.toLowerCase();
+    const catalog = switchCatalogFor(boardIdHex);
+    const intervalRt = supportsIntervalRt(device.version);
+    return {
+      tripleOk: (keyId, t) => {
+        const cur = perf.values[keyId];
+        if (!cur) return false;
+        if (!Number.isInteger(t[0]) || !Number.isInteger(t[1]) || !Number.isInteger(t[2])) return false;
+        if (t[1] < FW_AXIS.rangeMin || t[2] < FW_AXIS.coefMin) return false;
+        const triple: SwitchTriple = { axisV2Id: t[0], axisRangeMax: t[1], axisCoefficient: t[2] };
+        return isCatalogTriple(catalog, triple) || isCustomTriple(catalog, triple, cur.axisV2Id);
+      },
+      write: (keyId, next) => checkPerformanceWrite(next, perf.seenFor(keyId), { intervalRt, boardIdHex }),
+    };
+  }
+
+  function evaluateAxisBackup(): void {
+    if (active.value || rescue.value || axRestoring.value || axResult.value !== null) return;
+    if (axSaveFailed.value) {
+      axBackup.value = null;
+      axCompare.value = null;
+      return;
+    }
+    const inDone = DONE_PHASES.includes(phase.value);
+    if (!inDone && phase.value !== 'idle') return;
+    const device = useDeviceStore();
+    const serial = device.info?.serialHex;
+    const board = device.info?.boardId;
+    if (!device.connected || device.info?.runMode !== 0 || !serialReadable(serial) || board === undefined) {
+      axBackup.value = null;
+      axCompare.value = null;
+      return;
+    }
+    const all = readAllBackups();
+    const raw = all[serial];
+    if (raw && isBackupExpired(raw)) {
+      try { writeAllBackups(removeBackup(all, serial)); } catch { /* ignore */ }
+      axStorageTick.value++;
+      axBackup.value = null;
+      axCompare.value = null;
+      return;
+    }
+    let b = loadBackup(all, serial, board);
+    if (!b || !hasGoodPerfRead(serial)) {
+      axBackup.value = null;
+      axCompare.value = null;
+      return;
+    }
+    const perf = usePerformanceStore();
+    if (!b.after) {
+      const after: Record<number, Triple> = {};
+      for (const k of device.keys) {
+        const p = perf.values[k.id];
+        after[k.id] = [p.axisV2Id, p.axisRangeMax, p.axisCoefficient];
+      }
+      b = { ...b, after };
+      try {
+        writeAllBackups(saveBackup(all, b));
+        axStorageTick.value++;
+      } catch {
+        // keep `after` in memory if storage write fails
+      }
+    }
+    const cmp = compare(b, perf.values, makeRestoreCheck());
+    const offered = cmp.restore.length + cmp.cant.length + cmp.blocked.length;
+    if (offered === 0) {
+      try { writeAllBackups(removeBackup(readAllBackups(), serial)); } catch { /* ignore */ }
+      axStorageTick.value++;
+      axBackup.value = null;
+      axCompare.value = null;
+      const totalSaved = Object.keys(b.keys).length;
+      if (inDone && totalSaved > 0 && cmp.same.length === totalSaved) axSame.value = true;
+      return;
+    }
+    axBackup.value = markRaw(b);
+    axCompare.value = markRaw(cmp);
+    axSame.value = false;
+  }
+
+  /** If a valid backup exists for the connected keyboard, ensures performance is read (or compares immediately if already read). */
+  function ensurePerfReadForBackup(): void {
+    const device = useDeviceStore();
+    const perf = usePerformanceStore();
+    const serial = device.info?.serialHex;
+    const board = device.info?.boardId;
+    if (!device.connected || device.info?.runMode !== 0 || !serialReadable(serial) || board === undefined) return;
+    axStorageTick.value++;
+    const all = readAllBackups();
+    const raw = all[serial];
+    if (raw && isBackupExpired(raw)) {
+      try { writeAllBackups(removeBackup(all, serial)); } catch { /* ignore */ }
+      axStorageTick.value++;
+      return;
+    }
+    const b = loadBackup(all, serial, board);
+    if (!b) return;
+    if (hasGoodPerfRead(serial)) evaluateAxisBackup();
+    else if (!perf.loading && !perf.loadError) void perf.load();
+  }
+
+  function refreshAxisBackup(): void {
+    axStorageTick.value++;
+    evaluateAxisBackup();
+  }
+
+  /** "Để sau": hides the restore card for this visit; keeps the backup in localStorage; 0 HID (§4.2). */
+  function dismissAxisRestore(): void {
+    if (axRestoring.value) return;
+    axDismissed.value = true;
+  }
+
+  /** User press on "Khôi phục {n} phím" (§4.3): re-compares, writes only `restore` keys through perf.restoreAxis, verifies, updates backup. */
+  async function restoreSwitchValues(): Promise<AxisRestoreResult | null> {
+    if (axRestoring.value || active.value || rescue.value) return null;
+    const device = useDeviceStore();
+    const perf = usePerformanceStore();
+    const serial = device.info?.serialHex;
+    const board = device.info?.boardId;
+    if (!device.connected || device.info?.runMode !== 0 || !serialReadable(serial) || board === undefined) return null;
+    if (!hasGoodPerfRead(serial)) return null;
+    const all = readAllBackups();
+    const b = loadBackup(all, serial, board);
+    if (!b) return null;
+
+    axRestoring.value = true;
+    try {
+      const check = makeRestoreCheck();
+      const cmp = compare(b, perf.values, check);
+      const cantSet = new Set<number>(cmp.cant);
+      const blockedSet = new Set<number>(cmp.blocked);
+      const res = cmp.restore.length ? await perf.restoreAxis(cmp.next) : { restored: [], failed: [], refused: [] };
+      for (const item of res.refused) {
+        const saved = b.keys[item.id];
+        if (saved && !check.tripleOk(item.id, saved)) cantSet.add(item.id);
+        else blockedSet.add(item.id);
+      }
+      const restored = [...res.restored].sort((a, c) => a - c);
+      const failed = [...res.failed].sort((a, c) => a - c);
+      const cant = [...cantSet].sort((a, c) => a - c);
+      const blocked = [...blockedSet].sort((a, c) => a - c);
+
+      const remainingOffered = failed.length + cant.length + blocked.length;
+      let updated: AxisBackup | null = null;
+      try {
+        const latestAll = readAllBackups();
+        if (remainingOffered === 0) {
+          writeAllBackups(removeBackup(latestAll, serial));
+        } else {
+          const nextKeys: Record<number, Triple> = { ...b.keys };
+          const nextAfter: Record<number, Triple> | undefined = b.after ? { ...b.after } : undefined;
+          for (const id of restored) {
+            delete nextKeys[id];
+            if (nextAfter) delete nextAfter[id];
+          }
+          updated = nextAfter ? { ...b, keys: nextKeys, after: nextAfter } : { ...b, keys: nextKeys };
+          writeAllBackups(saveBackup(latestAll, updated));
+        }
+        axStorageTick.value++;
+      } catch {
+        // hardware writes already settled
+      }
+
+      const result: AxisRestoreResult = { restored, failed, cant, blocked };
+      const hasResult = restored.length + failed.length + cant.length + blocked.length > 0;
+      axResult.value = hasResult ? markRaw(result) : null;
+      axBackup.value = updated ? markRaw(updated) : null;
+      axCompare.value = null;
+      return result;
+    } finally {
+      axRestoring.value = false;
+    }
+  }
 
   // ---------------------------------------------------------------- file (step 1): no HID
 
@@ -453,6 +726,11 @@ export const useFirmwareStore = defineStore('firmware', () => {
     if (canChoose.value) source.value = 'online';
     if (source.value === 'online' && listState.value !== 'ok' && listState.value !== 'loading') void loadList();
     if (kind.value === null) void readKind();
+    if (!active.value && !rescue.value) {
+      axDismissed.value = false;
+      axResult.value = null;
+      ensurePerfReadForBackup();
+    }
   }
 
   /** The page closes: a running download stops. */
@@ -469,7 +747,30 @@ export const useFirmwareStore = defineStore('firmware', () => {
   watch(() => useDeviceStore().connection, () => {
     kindGen++;
     kind.value = null;
+    // Keep axSaveFailed across adoptFromFirmware while the session is still unwinding (active === true).
+    resetAxisView(active.value);
   }, { flush: 'sync' });
+  /** Re-run switch-backup compare on every good performance read of the connected keyboard (§4.1). */
+  watch(
+    () => {
+      const device = useDeviceStore();
+      const perf = usePerformanceStore();
+      return [
+        active.value,
+        rescue.value,
+        phase.value,
+        device.connected,
+        device.connection,
+        device.info?.serialHex ?? null,
+        device.info?.boardId ?? null,
+        perf.loading,
+        perf.loadError,
+        perf.loadedSerial,
+        perf.readSeq,
+      ] as const;
+    },
+    () => { evaluateAxisBackup(); },
+  );
   /** A new file, or a new keyboard state (its version or kind), clears the version box. */
   watch(relation, () => { verOk.value = false; });
 
@@ -529,6 +830,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     notAnswered.value = false;
     sent.value = 0;
     lostIn.value = null;
+    resetAxisView();
     // 0. one window at a time (W-11): the firmware lock, for a real keyboard
     if (!device.demo && !(await takeFwLock())) return preflightFail({ key: 'fw.err.otherWindow' });
     // 1. the typed name, the risk box and the version box, again at the press
@@ -569,6 +871,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     total.value = sessionFile(ticket).packets;
     ident = fwSessionKeyboard(ticket);
     appIdent = ident.serialHex !== null ? { board: ident.board, serialHex: ident.serialHex } : null;
+    saveAxisBackupBeforeEnter(ident, device.info?.firmware ?? '');
     zeroAt = null;
     phase.value = 'entering';
     const mine = epoch;
@@ -852,7 +1155,8 @@ export const useFirmwareStore = defineStore('firmware', () => {
     if (result === 'noGamepad') msg = { key: 'fw.err.noGamepad', params: { got } };
     phase.value = result;
     error.value = msg;
-    await endSession(t, isDemo ? demoSeedOf(info.boardId, gamepad) : undefined);
+    const adopted = await endSession(t, isDemo ? demoSeedOf(info.boardId, gamepad) : undefined);
+    if (adopted && !axSaveFailed.value) ensurePerfReadForBackup();
   }
 
   /**
@@ -961,6 +1265,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
   function openRescue(t: BaseTransport, info: DeviceInfo, demo: boolean): void {
     isDemo = demo;
     appIdent = null; // opened at connect time: the app's serial is not known
+    resetAxisView();
     port.value = markRaw(portFor(t));
     void openRescueOn(t, info);
   }
@@ -1004,6 +1309,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     starts++;
     const t = boot;
     error.value = null;
+    resetAxisView(true);
     try {
       ticket = await t.beginRescueSession(file.value.bytes, { officialOnly: officialOnly.value, appSerialHex: appIdent?.serialHex ?? null });
     } catch (err) {
@@ -1140,6 +1446,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
     otherSerial.value = false;
     sent.value = 0;
     probedHere = new WeakMap();
+    resetAxisView();
   }
 
   return {
@@ -1148,6 +1455,8 @@ export const useFirmwareStore = defineStore('firmware', () => {
     canChoose, setEnabled, chooseFile, start, allow, continueRescue, retry, findAgain, rescueWrite, openRescue, clear,
     doneSame, bootVersion, source, listState, list, kind, dl, verOk, current, status, builds, relation, needsVer,
     loadList, readKind, canFetch, download, stopDownload, backToList, setSource, openPage, leavePage,
+    axSaveFailed, axShowSaveFailed, axSame, axNoSave, axRestoring, axBackup, axCompare, axResult, axShowCard, axOffering, axReadError,
+    refreshAxisBackup, dismissAxisRestore, restoreSwitchValues,
     /** Test hook: wait for queued microtasks of the store. */
     _sleep: sleep,
   };

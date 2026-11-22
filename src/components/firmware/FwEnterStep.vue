@@ -4,7 +4,7 @@
 // button. While waiting for the bootloader: a spinner, and the "Allow…" button when the browser
 // has no permission for it yet (a real click: requestDevice cannot run by itself).
 import { computed } from 'vue';
-import { IconAlertCircle, IconInfoCircle, IconLifebuoy, IconPlayerPlay, IconRefresh, IconUsb } from '@tabler/icons-vue';
+import { IconAlertCircle, IconAlertTriangle, IconInfoCircle, IconLifebuoy, IconPlayerPlay, IconRefresh, IconUsb } from '@tabler/icons-vue';
 import Button from '../ui/Button.vue';
 import { typedOk, useFirmwareStore } from '../../stores/firmware';
 import { t } from '../../i18n/vi';
@@ -61,6 +61,9 @@ const err = computed(() => (fw.phase === 'preflightFail' || fw.phase === 'enterF
       <input v-model="fw.riskOk" type="checkbox" aria-describedby="fw-risk-line" />
       <span>{{ t('fw.risk') }}</span>
     </label>
+    <p v-if="fw.axNoSave" class="fw-warn" data-test="fw-ax-nosave">
+      <IconAlertTriangle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.ax.noSave') }}</span>
+    </p>
     <p v-if="busyText" class="fw-busy" role="status">{{ busyText }}</p>
   </template>
   <template v-else-if="waiting">
@@ -108,6 +111,8 @@ const err = computed(() => (fw.phase === 'preflightFail' || fw.phase === 'enterF
 .fw-risk input { width: 16px; height: 16px; margin: 0; accent-color: var(--acc); }
 .fw-note { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-size: var(--fs-label); line-height: 18px; color: var(--fg-1); }
 .fw-note svg { flex: none; margin-top: 2px; color: var(--fg-2); }
+.fw-warn { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-size: var(--fs-label); line-height: 18px; color: var(--warn); }
+.fw-warn svg { flex: none; margin-top: 1px; color: var(--warn); }
 .fw-busy { margin: 0; font-size: var(--fs-label); line-height: 18px; color: var(--warn); }
 .fw-wait { display: flex; gap: 10px; align-items: center; margin: 0; font-size: var(--fs-label); color: var(--fg-1); }
 .fw-spin { flex: none; width: 16px; height: 16px; border: 2px solid var(--line-3); border-top-color: var(--acc); border-radius: 50%; animation: fw-spin 0.9s linear infinite; }

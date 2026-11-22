@@ -14,12 +14,14 @@ import Dialog from '../components/ui/Dialog.vue';
 import { CLOSE_BLOCKED_EVENT, forceWindowClose } from '../data/desktopClose';
 import CopyInfo from '../components/settings/CopyInfo.vue';
 import FwBanner from '../components/firmware/FwBanner.vue';
+import AxisRestoreCard from '../components/firmware/AxisRestoreCard.vue';
 import FwFileStep from '../components/firmware/FwFileStep.vue';
 import FwEnterStep from '../components/firmware/FwEnterStep.vue';
 import FwWriteStep from '../components/firmware/FwWriteStep.vue';
 import { boardHex, fwModel, isFwBoard } from '../protocol/firmware';
 import { useDeviceStore } from '../stores/device';
 import { useFirmwareStore } from '../stores/firmware';
+import { usePerformanceStore } from '../stores/performance';
 import type { FwPhase } from '../stores/firmware';
 import { t } from '../i18n/vi';
 
@@ -27,6 +29,7 @@ type StepState = 'todo' | 'now' | 'done' | 'fail';
 
 const device = useDeviceStore();
 const fw = useFirmwareStore();
+const perf = usePerformanceStore();
 
 const board = computed(() => fw.deviceBoard);
 /** A board the app has no firmware for: view only. */
@@ -147,6 +150,16 @@ function closeAnyway(): void {
           </div>
         </div>
         <FwBanner v-if="bannerKind" ref="banner" :kind="bannerKind" />
+        <p v-if="fw.axShowSaveFailed" class="fw-ax-warn" role="status" data-test="fw-ax-save-failed">
+          <IconAlertTriangle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.ax.saveFailed') }}</span>
+        </p>
+        <p v-else-if="!bannerKind && fw.axSame && !fw.active && !fw.rescue" class="fw-ax-same" role="status" data-test="fw-ax-same">
+          <IconCheck :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.ax.same') }}</span>
+        </p>
+        <AxisRestoreCard v-else-if="fw.axShowCard" />
+        <Card v-else-if="fw.axReadError" :title="t('perf.loadFailed')" :subtitle="perf.loadError ?? undefined" data-test="fw-ax-read-error">
+          <div><Button :icon="IconRefresh" :loading="perf.loading" @click="perf.load(true)">{{ t('fw.on.retry') }}</Button></div>
+        </Card>
         <!-- W-11 / N-WX4-2: from the first step, before a file is picked (rescue mode says it on its own step) -->
         <div v-if="fw.otherWindow && !fw.rescue" class="fw-other" role="alert" data-test="fw-other-window">
           <p class="fw-other__t"><IconAlertTriangle :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.otherWindow') }}</span></p>
@@ -197,6 +210,7 @@ function closeAnyway(): void {
               </span>
             </li>
             <li><IconTarget :size="16" stroke-width="1.5" aria-hidden="true" /><span>{{ t('fw.note.calib') }}</span></li>
+            <li><IconDatabaseExport :size="16" stroke-width="1.5" aria-hidden="true" /><span>{{ t('fw.ax.note') }}</span></li>
             <li><IconPlugConnected :size="16" stroke-width="1.5" aria-hidden="true" /><span>{{ t('fw.note.cable') }}</span></li>
             <li><IconLifebuoy :size="16" stroke-width="1.5" aria-hidden="true" /><span>{{ t('fw.note.rescue') }}</span></li>
           </ul>
@@ -233,6 +247,10 @@ function closeAnyway(): void {
   background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--fg-1); font-size: var(--fs-label); line-height: 18px;
 }
 .fw-untested svg { flex: none; margin-top: 1px; color: var(--warn); }
+.fw-ax-warn { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-size: var(--fs-label); line-height: 1.5; color: var(--warn); }
+.fw-ax-warn svg { flex: none; margin-top: 2px; color: var(--warn); }
+.fw-ax-same { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-size: var(--fs-label); line-height: 1.5; color: var(--fg-2); }
+.fw-ax-same svg { flex: none; margin-top: 2px; color: var(--ok); }
 .fw-other {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); padding: var(--s-2) var(--s-3);
   border-radius: var(--r-control); background: color-mix(in srgb, var(--warn) 14%, transparent);

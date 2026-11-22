@@ -2,9 +2,9 @@
 // pattern (docs/ARCHITECTURE.md): load all keys → edit through history + sync → verify by reading back.
 import { defineStore } from 'pinia';
 import { computed, ref, shallowRef, watch } from 'vue';
-import { SAVE_GROUP, isRtMode } from '../protocol';
+import { SAVE_GROUP, UnsafeCommandError, isRtMode, supportsIntervalRt } from '../protocol';
 import type { Ae64Transport, Performance, PhysicalKey } from '../protocol';
-import { DIST_FIELDS, MAX_TRAVEL_MM } from '../protocol/safety';
+import { DIST_FIELDS, MAX_TRAVEL_MM, checkPerformanceWrite } from '../protocol/safety';
 import { FW_AXIS, coefBounds, findSwitch, rangeBounds, switchCatalogFor } from '../protocol/switches';
 import type { SwitchEntry, SwitchTriple } from '../protocol/switches';
 import { serialReadable } from '../protocol/firmware';
@@ -223,12 +223,23 @@ interface VerifyBatch {
   keys: Set<number>;
 }
 
+/** Per-key outcome of restoring backed-up switch values after a firmware update (OFU v1.10 addendum §4.3). */
+export interface RestoreAxisResult {
+  restored: number[];
+  failed: number[];
+  refused: { id: number; reason: string }[];
+}
+
 interface PendingSwitch {
   seq: number;
   writeTriple: boolean;
   assign?: string | null;
   recal: boolean;
   verifyOp?: VerifyBatch;
+  /** Firmware switch-values restore: settles restored/failed from read-back instead of switchNotices. */
+  onRestore?: (ok: boolean) => void;
+  /** Firmware switch-values restore: called if BaseTransport's guard refuses the write. */
+  onRefuse?: (reason: string) => void;
 }
 
 function sameEdit(a: PerfEdit, b: PerfEdit): boolean {
@@ -246,8 +257,14 @@ export const usePerformanceStore = defineStore('performance', () => {
   const loadedCount = ref(0);
   const loadError = ref<string | null>(null);
   const loadedProfile = ref<number | null>(null);
+  /** Readable serial of the keyboard the last full load() read, or null if not loaded / unreadable serial. */
+  const loadedSerial = ref<string | null>(null);
+  /** Bumped after every completed full read or verified single-key read (drives firmware switch-restore re-compare). */
+  const readSeq = ref(0);
   /** Last record read from the board per key: the source of preserved axis/calibration fields. */
   const fresh = new Map<number, Performance>();
+  /** Connection-scoped history of performance records read per key (mirrors BaseTransport.perfSeen for checkPerformanceWrite). */
+  const seenByKey = new Map<number, Performance[]>();
   /** Keys with a pending switch write / undo / redo (id → metadata): their job writes the triple and settles assignment/recal/verify on exact read-back. */
   const switchKeys = new Map<number, PendingSwitch>();
   let switchSeq = 0;
@@ -257,12 +274,21 @@ export const usePerformanceStore = defineStore('performance', () => {
   const uncalibrated = ref<number[]>([]);
   function noteFresh(id: number, read: Performance): void {
     fresh.set(id, read);
+    const seen = seenByKey.get(id) ?? [];
+    seen.push({ ...read });
+    if (seen.length > 8) seen.splice(1, seen.length - 8);
+    seenByKey.set(id, seen);
     const has = uncalibrated.value.includes(id);
     if (read.calibrate !== 0) {
       if (has) uncalibrated.value = uncalibrated.value.filter((k) => k !== id);
     } else if (!has) {
       uncalibrated.value = [...uncalibrated.value, id].sort((a, b) => a - b);
     }
+    if (!loading.value) readSeq.value++;
+  }
+  /** Records read from key `id` during this connection (newest last), for checkPerformanceWrite. */
+  function seenFor(id: number): readonly Performance[] {
+    return seenByKey.get(id) ?? [];
   }
   /**
    * A record of key `id` that another store read from profile `profile` (advanced keys restore the tuning after their
@@ -426,10 +452,12 @@ export const usePerformanceStore = defineStore('performance', () => {
     leftAt = null;
     values.value = {};
     fresh.clear();
+    seenByKey.clear();
     switchKeys.clear();
     switchNotices.value = [];
     uncalibrated.value = [];
     loadedProfile.value = null;
+    loadedSerial.value = null;
     loadPromise = null; // a load of the old keyboard may still be running: a new load() must start fresh
     loading.value = false;
   }, { flush: 'sync' });
@@ -445,11 +473,13 @@ export const usePerformanceStore = defineStore('performance', () => {
     if (loadPromise) return force ? loadPromise.then(() => load(true)) : loadPromise;
     if (!force && loadedProfile.value === device.activeProfile && Object.keys(values.value).length) return Promise.resolve();
     const gen = device.connection;
+    const readSerial = serialReadable(device.info?.serialHex) ? device.info!.serialHex : null;
     let mine: Promise<void> | null = null;
     mine = (async () => {
       loading.value = true;
       loadError.value = null;
       loadedCount.value = 0;
+      loadedSerial.value = null;
       reloadCustomSwitches();
       // Keep the profile being left (with its latest edits) before its values go.
       if (loadedProfile.value !== null && Object.keys(values.value).length) {
@@ -479,6 +509,8 @@ export const usePerformanceStore = defineStore('performance', () => {
         if (device.activeProfile !== profile) return;
         values.value = next;
         loadedProfile.value = profile;
+        loadedSerial.value = readSerial;
+        readSeq.value++;
       } catch (err) {
         if (gen !== device.connection) return;
         loadError.value = err instanceof Error ? err.message : String(err);
@@ -535,7 +567,12 @@ export const usePerformanceStore = defineStore('performance', () => {
         // Preserve axis / calibration metadata from the last fresh read; only a switch change writes its own triple.
         pending = switchKeys.get(id);
         writtenTriple = tripleOf(pending?.writeTriple ? current : base);
-        await t.setPerformance(key, { ...base, ...written, ...writtenTriple });
+        try {
+          await t.setPerformance(key, { ...base, ...written, ...writtenTriple });
+        } catch (err) {
+          if (err instanceof UnsafeCommandError && pending?.onRefuse) pending.onRefuse(err.reason);
+          throw err;
+        }
       },
       verify: async (t: Ae64Transport) => {
         const read = await t.getPerformance(key);
@@ -550,9 +587,11 @@ export const usePerformanceStore = defineStore('performance', () => {
         const tripleOk = !writtenTriple || sameTriple(got, writtenTriple);
         if (!tripleOk) {
           // The firmware normalised or refused the triple: show what the key really has, set no assignment/recal/verify, do not retry.
-          switchNotices.value = [...switchNotices.value, { id, wanted: writtenTriple!, got }];
+          if (pending?.onRestore) pending.onRestore(false);
+          else switchNotices.value = [...switchNotices.value, { id, wanted: writtenTriple!, got }];
           if (latest && loadedProfile.value === profile && values.value[id]) values.value = { ...values.value, [id]: { ...values.value[id], ...got } };
         } else if (latest && pending) {
+          if (pending.onRestore) pending.onRestore(true);
           if (pending.assign !== undefined) updateBoardAssignments({ [id]: pending.assign });
           if (pending.recal) addRecal([id]);
           if (pending.verifyOp && pending.verifyOp.id === activeVerifyOpId) {
@@ -610,6 +649,8 @@ export const usePerformanceStore = defineStore('performance', () => {
           assign: meta?.assign,
           recal: meta?.recal ?? false,
           verifyOp: meta?.verifyOp,
+          onRestore: meta?.onRestore,
+          onRefuse: meta?.onRefuse,
         });
       }
       changed.push(id);
@@ -670,11 +711,8 @@ export const usePerformanceStore = defineStore('performance', () => {
     return p ? findSwitch(catalog.value, p.axisV2Id) : undefined;
   }
 
-  /** Resolved switch identity of a loaded key, in DESIGN CSW §9.2's exact five-step order. */
-  function keySwitch(id: number): KeySwitch | undefined {
-    const p = values.value[id];
-    if (!p) return undefined;
-    const triple = tripleOf(p);
+  /** Resolved switch identity of a triple on key `id`, in DESIGN CSW §9.2's exact five-step order. */
+  function switchIdentity(triple: SwitchTriple, id: number): KeySwitch {
     // 1. R < 1000: lost (cannot actuate)
     if (triple.axisRangeMax < FW_AXIS.rangeMin) return { kind: 'lost', triple };
     const cat = catalog.value;
@@ -710,6 +748,12 @@ export const usePerformanceStore = defineStore('performance', () => {
     }
     // 5. Anything else
     return { kind: 'unknown', triple };
+  }
+
+  /** Resolved switch identity of a loaded key, in DESIGN CSW §9.2's exact five-step order. */
+  function keySwitch(id: number): KeySwitch | undefined {
+    const p = values.value[id];
+    return p ? switchIdentity(tripleOf(p), id) : undefined;
   }
 
   /** Full-read check (§11.1): stale (assigned known entry whose R or c differs, not lost) and lost (R < 1000). */
@@ -1014,9 +1058,72 @@ export const usePerformanceStore = defineStore('performance', () => {
     return { status: 'applied', written: plan.write, renamed: plan.rename, marked: markRecal, idNew: plan.idNew, name };
   }
 
+  /**
+   * Restore backed-up per-key switch triples and fitted distances (OFU v1.10 addendum §4.3).
+   * Writes through the same sync job, checkPerformanceWrite guard and 3-field read-back as applySwitch,
+   * with NO history entry, NO assignment change, NO recal entry and NO perf.verify watch.
+   * Never bypasses or widens checkPerformanceWrite: any refused key is never sent.
+   */
+  async function restoreAxis(records: Record<number, Performance>): Promise<RestoreAxisResult> {
+    const ids = Object.keys(records).map(Number).filter((id) => Number.isInteger(id)).sort((a, b) => a - b);
+    if (!ids.length) return { restored: [], failed: [], refused: [] };
+    if (!device.connected || loadedProfile.value !== device.activeProfile) {
+      return { restored: [], failed: ids, refused: [] };
+    }
+
+    const boardIdHex = device.info?.boardIdHex?.toLowerCase();
+    const intervalRt = supportsIntervalRt(device.version);
+    const edits: Record<number, PerfEdit> = {};
+    const triples: Record<number, SwitchTriple> = {};
+    const meta: Record<number, Omit<PendingSwitch, 'seq' | 'writeTriple'>> = {};
+    const outcomes = new Map<number, 'restored' | 'failed'>();
+    const refused: { id: number; reason: string }[] = [];
+
+    for (const id of ids) {
+      const rec = records[id];
+      const cur = values.value[id];
+      const base = fresh.get(id) ?? cur;
+      if (!rec || !cur || !base) {
+        outcomes.set(id, 'failed');
+        continue;
+      }
+      const edit = pickEdit(rec);
+      edit.normalRelease = edit.normalPress;
+      const triple = tripleOf(rec);
+      const candidate: Performance = { ...base, ...edit, ...triple };
+      const why = checkPerformanceWrite(candidate, seenFor(id), { intervalRt, boardIdHex });
+      if (why !== null) {
+        refused.push({ id, reason: why });
+        continue;
+      }
+      edits[id] = edit;
+      triples[id] = triple;
+      meta[id] = {
+        recal: false,
+        onRestore: (ok) => { outcomes.set(id, ok ? 'restored' : 'failed'); },
+        onRefuse: (reason) => { refused.push({ id, reason }); },
+      };
+    }
+
+    if (Object.keys(edits).length) {
+      commit(edits, triples, meta);
+      await sync.flush().catch(() => undefined);
+    }
+
+    const refusedIds = new Set(refused.map((r) => r.id));
+    const restored: number[] = [];
+    const failed: number[] = [];
+    for (const id of ids) {
+      if (refusedIds.has(id)) continue;
+      if (outcomes.get(id) === 'restored') restored.push(id);
+      else failed.push(id);
+    }
+    return { restored, failed, refused };
+  }
+
   return {
-    values, loading, loadedCount, loadError, loadedProfile, uncalibrated, recalKeys, needsCal, profileSnapshots,
-    load, apply, catalog, switchOf, keySwitch, planSwitch, applySwitch, switchNotices, noteRead,
+    values, loading, loadedCount, loadError, loadedProfile, loadedSerial, readSeq, uncalibrated, recalKeys, needsCal, profileSnapshots,
+    load, apply, catalog, switchOf, switchIdentity, keySwitch, planSwitch, applySwitch, switchNotices, noteRead, seenFor, restoreAxis,
     customSwitches, genericDecl, genericEntry, assignments, verify, staleKeys, lostKeys, deepKeys,
     saveCustomSwitch, addCustomSwitches, deleteCustomSwitch, setGenericRange, forgetKeys,
     clearRecal, clearVerify, markVerifyPassed, fixDeepTravel, reloadCustomSwitches,

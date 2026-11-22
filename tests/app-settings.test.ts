@@ -77,11 +77,12 @@ describe('item 1: the key table is complete', () => {
     // 15 in the table (J: ae64.accent, ae64.wallpaper; FW: ae64.labs.firmware, export: false; FXP: ae64.lighting.fxView) +
     // ae64.lastDevice + ae64.accentVars + ae64.appcfg.done + ae64.calibrating (WX4, W-12); ae64.switchTab is gone (E);
     // TT: + ae64.typing.prefs, and ae64.typing.results and ae64.typing.best, export: false;
-    // CSW: + ae64.switch.caps, ae64.switch.custom, ae64.switch.generic, ae64.switch.assign, and ae64.switch.recal (NOT_EXPORTED)
-    expect(found.size).toBe(27);
+    // CSW: + ae64.switch.caps, ae64.switch.custom, ae64.switch.generic, ae64.switch.assign, ae64.switch.recal (NOT_EXPORTED),
+    // and ae64.fw.axisBackup (NOT_EXPORTED, OFU v1.10 addendum §1)
+    expect(found.size).toBe(28);
     expect(TABLE).toHaveLength(22);
     expect(APP_SETTINGS.filter((s) => s.export === false).map((s) => s.key)).toEqual(['ae64.labs.firmware', 'ae64.typing.results', 'ae64.typing.best']);
-    expect([...NOT_EXPORTED]).toEqual(['ae64.lastDevice', 'ae64.calibrating', 'ae64.switch.recal']);
+    expect([...NOT_EXPORTED]).toEqual(['ae64.lastDevice', 'ae64.calibrating', 'ae64.switch.recal', 'ae64.fw.axisBackup']);
     expect([...DERIVED_KEYS]).toEqual(['ae64.accentVars']);
     expect(TABLE).not.toContain('ae64.switchTab');
   });

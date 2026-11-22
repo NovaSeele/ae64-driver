@@ -23,6 +23,7 @@ import {
   CUSTOM_SWITCHES_KEY, GENERIC_SWITCH_KEY, SWITCH_ASSIGN_KEY, SWITCH_CAPS_KEY, SWITCH_RECAL_KEY,
   assignValid, customValid, genericValid, isSwitchCaps,
 } from './customSwitch';
+import { AXIS_BACKUP_KEY } from './axisBackup';
 import { t } from '../i18n/vi';
 
 /** The "Stored on this computer" list, in this order. A new key joins a group (or J adds one). */
@@ -75,9 +76,10 @@ export const APP_SETTINGS: readonly AppSetting[] = [
 /**
  * localStorage, never exported, imported or reset: which keyboard this browser connected last (auto-reconnect), the keyboard
  * this app put into calibration with no stop answered yet (W-12: the next connection stops it; a reset must not forget it),
- * and the swapped-switch recalibration list (DESIGN CSW §13: kept on reset, never exported).
+ * the swapped-switch recalibration list (DESIGN CSW §13: kept on reset, never exported), and the pre-update switch backup
+ * (OFU v1.10 addendum §1: describes one physical keyboard at one moment, never leaves this browser).
  */
-export const NOT_EXPORTED = ['ae64.lastDevice', 'ae64.calibrating', SWITCH_RECAL_KEY] as const;
+export const NOT_EXPORTED = ['ae64.lastDevice', 'ae64.calibrating', SWITCH_RECAL_KEY, AXIS_BACKUP_KEY] as const;
 /**
  * localStorage caches derived from a key of the table (DESIGN J §3.8): never exported (not in APP_SETTINGS), refused in an
  * imported file (an unknown key), removed by an import (with the keys it writes) and by a reset.

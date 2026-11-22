@@ -398,9 +398,13 @@ export class MockFwBus implements FwPort {
     const version = (f.version ?? known?.appVersion ?? (this.model === 'max' ? '0.0.4.0' : '0.1.0.0')).split('.').map((n) => Number(n) & 0xff);
     const xinput = this.model === 'pro' && (known ? (known.gamepad ? !f.noGamepad : f.staleGamepad) : false);
     const seed: DemoSeed = xinput ? 'pro-xinput' : this.appSeed;
-    this.later(f.appDelayMs, () => this.plug(new MockTransport({
-      seed, serial: [...this.serial], firmware: version, fastLedReplies: this.opts.fastLedReplies, fwBus: this,
-    })));
+    this.later(f.appDelayMs, () => {
+      const app = new MockTransport({
+        seed, serial: [...this.serial], firmware: version, fastLedReplies: this.opts.fastLedReplies, fwBus: this,
+      });
+      app.wipeAxis();
+      this.plug(app);
+    });
   }
 
   /** Demo helper: the keyboard is unplugged and comes back in its bootloader (rescue mode). */

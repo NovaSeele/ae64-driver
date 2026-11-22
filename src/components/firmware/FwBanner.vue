@@ -3,7 +3,7 @@
 // firmware for (yellow, no steps; DESIGN OFU §5).
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { IconAlertOctagon, IconCircleCheck, IconInfoCircle, IconTarget } from '@tabler/icons-vue';
+import { IconAlertOctagon, IconCheck, IconCircleCheck, IconInfoCircle, IconTarget } from '@tabler/icons-vue';
 import Button from '../ui/Button.vue';
 import Card from '../ui/Card.vue';
 import { boardHex } from '../../protocol/firmware';
@@ -45,7 +45,16 @@ defineExpose({ focus });
       <div>
         <h3 ref="title" class="fw-ban__t" tabindex="-1">{{ heading }}</h3>
         <p class="fw-ban__p">{{ body }}</p>
-        <Button v-if="tone === 'ok'" class="fw-ban__btn" variant="primary" :icon="IconTarget" @click="calibrate">{{ t('fw.done.calib') }}</Button>
+        <Button
+          v-if="tone === 'ok'"
+          class="fw-ban__btn"
+          :variant="fw.axOffering ? 'secondary' : 'primary'"
+          :icon="IconTarget"
+          @click="calibrate"
+        >{{ t('fw.done.calib') }}</Button>
+        <p v-if="tone === 'ok' && fw.axSame" class="fw-ban__same" role="status" data-test="fw-ax-same">
+          <IconCheck :size="15" stroke-width="1.75" aria-hidden="true" /><span>{{ t('fw.ax.same') }}</span>
+        </p>
       </div>
     </div>
   </Card>
@@ -66,4 +75,6 @@ defineExpose({ focus });
 .fw-ban__t:focus-visible { box-shadow: var(--focus-ring); border-radius: 4px; }
 .fw-ban__p { margin: 4px 0 0; font-size: var(--fs-label); line-height: 20px; color: var(--fg-2); }
 .fw-ban__btn { margin-top: var(--s-3); }
+.fw-ban__same { display: flex; align-items: flex-start; gap: var(--s-2); margin: var(--s-2) 0 0; font-size: var(--fs-label); line-height: 1.5; color: var(--fg-2); }
+.fw-ban__same > svg { color: var(--ok); flex: none; margin-top: 2px; }
 </style>
