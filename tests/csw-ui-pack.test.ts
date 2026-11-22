@@ -7,7 +7,9 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import { MockTransport, PHYSICAL_KEYS } from '../src/protocol';
 import SwitchCard from '../src/components/performance/SwitchCard.vue';
 import { useDeviceStore } from '../src/stores/device';
+import { useHistoryStore } from '../src/stores/history';
 import { usePerformanceStore } from '../src/stores/performance';
+import { useSyncStore } from '../src/stores/sync';
 import { useToast } from '../src/components/ui/toast';
 import { PACK_FORMAT, PACK_MAX_BYTES, PACK_SCHEMA, PACK_TEMPLATE } from '../src/data/switchPack';
 import type { CustomSwitch } from '../src/data/customSwitch';
@@ -138,6 +140,47 @@ describe('Switch pack UI: panel, preview, import, export, template (DESIGN §19 
     // Returned to custom tab with nothing chosen
     expect(body().querySelector('.csw-imp')).toBeNull();
     expect(body().querySelector('.swp__idle')?.textContent).toBe(t('csw.idle'));
+  });
+
+  it('importing a switch pack with keys selected never writes to the keyboard even after flushing sync (kills M23b)', async () => {
+    const { mock, perf } = await openPackPanel();
+    const sync = useSyncStore();
+    const history = useHistoryStore();
+
+    const beforeTriple = {
+      axisV2Id: perf.values[W.id].axisV2Id,
+      axisRangeMax: perf.values[W.id].axisRangeMax,
+      axisCoefficient: perf.values[W.id].axisCoefficient,
+    };
+    const beforeAssign = perf.assignments[W.id];
+    const beforeVerify = perf.verify;
+    const beforeCanUndo = history.canUndo;
+    const beforeUndoId = history.undoId;
+
+    const ex = spyExchange(mock);
+    const json = JSON.stringify({
+      format: PACK_FORMAT,
+      schema: PACK_SCHEMA,
+      switches: [
+        { name: 'Imported No-Write', maker: 'TestLab', travelMm: 3.6, coefficient: 18000 },
+      ],
+    });
+    await feedFile(makeFile('no-write.json', json));
+
+    footBtn(t('csw.pkAddN', { n: 1 }))!.click();
+    await flushPromises();
+    await sync.flush();
+    await flushPromises();
+
+    expect(perf.customSwitches.map((s) => s.name)).toEqual(['Imported No-Write']);
+    expect(sync.pendingCount()).toBe(0);
+    expect(ex).not.toHaveBeenCalled();
+    expect(history.canUndo).toBe(beforeCanUndo);
+    expect(history.undoId).toBe(beforeUndoId);
+    expect(perf.values[W.id]).toMatchObject(beforeTriple);
+    expect(perf.assignments[W.id]).toBe(beforeAssign);
+    expect(perf.verify).toBe(beforeVerify);
+    expect(await mock.getPerformance(W)).toMatchObject(beforeTriple);
   });
 
   it('shows csw.pkBadFile with Back button for refused files, and template imports cleanly as 2 entries with 0 HID', async () => {
