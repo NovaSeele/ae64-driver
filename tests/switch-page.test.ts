@@ -137,8 +137,8 @@ describe('Switch and Calibration tabs (E: tabs of the Performance page)', () => 
     const mock = device.transport as MockTransport;
     const writes = [vi.spyOn(mock, 'setPerformance'), vi.spyOn(mock, 'commit')];
     const k = device.keys[0];
-    const m = mock as unknown as { profiles: { perf: Map<string, number[]> }[]; active: number };
-    m.profiles[m.active].perf.get(`${k.row}:${k.col}`)![16] = 0; // the board reports the key uncalibrated
+    const m = mock as unknown as { axis: Map<string, { calibrate: number }> };
+    m.axis.get(`${k.row}:${k.col}`)!.calibrate = 0; // the board reports the key uncalibrated
     await usePerformanceStore().load(true);
     await flushPromises();
     expect(usePerformanceStore().uncalibrated).toEqual([k.id]);

@@ -6,6 +6,9 @@ import type { Performance } from './types';
 
 export type SwitchTriple = Pick<Performance, 'axisV2Id' | 'axisRangeMax' | 'axisCoefficient'>;
 
+/** Firmware 04 02 limits (REPORT.md): anything outside is silently dropped. */
+export const FW_AXIS = { idMin: 0x1000, rangeMin: 1000, rangeMax: 5000, coefMin: 4096 } as const;
+
 export interface SwitchEntry {
   /** detail_axis_id (= Performance.axisV2Id). */
   id: number;
@@ -76,4 +79,35 @@ export function findSwitch(catalog: readonly SwitchEntry[] | null, axisV2Id: num
 export function isCatalogTriple(catalog: readonly SwitchEntry[] | null, t: SwitchTriple): boolean {
   const e = findSwitch(catalog, t.axisV2Id);
   return !!e && e.rangeMax === t.axisRangeMax && e.coefficient === t.axisCoefficient;
+}
+
+function boundsOf(catalog: readonly SwitchEntry[] | null, pick: (e: SwitchEntry) => number): { min: number; max: number } | null {
+  if (!catalog?.length) return null;
+  let min = Infinity;
+  let max = -Infinity;
+  for (const e of catalog) {
+    const v = pick(e);
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  return { min, max };
+}
+
+/** Smallest and largest rangeMax (µm) over the board's list, or null without a list. */
+export function rangeBounds(catalog: readonly SwitchEntry[] | null): { min: number; max: number } | null {
+  return boundsOf(catalog, (e) => e.rangeMax);
+}
+
+/** Smallest and largest coefficient over the board's list, or null without a list. */
+export function coefBounds(catalog: readonly SwitchEntry[] | null): { min: number; max: number } | null {
+  return boundsOf(catalog, (e) => e.coefficient);
+}
+
+/** A custom triple: the key's latest-read id or an id of the board's list, never below 0x1000; whole R and c within the list's bounds. */
+export function isCustomTriple(catalog: readonly SwitchEntry[] | null, t: SwitchTriple, currentId: number): boolean {
+  const rb = rangeBounds(catalog), cb = coefBounds(catalog);
+  if (!rb || !cb || !Number.isInteger(t.axisV2Id) || t.axisV2Id < FW_AXIS.idMin) return false;
+  if (t.axisV2Id !== currentId && !findSwitch(catalog, t.axisV2Id)) return false;
+  return Number.isInteger(t.axisRangeMax) && t.axisRangeMax >= rb.min && t.axisRangeMax <= rb.max
+    && Number.isInteger(t.axisCoefficient) && t.axisCoefficient >= cb.min && t.axisCoefficient <= cb.max;
 }

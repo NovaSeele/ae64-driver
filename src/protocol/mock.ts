@@ -15,6 +15,7 @@ import { encodeLayoutStyleEntry, encodePerformance, le16, mmToUm, read16 } from 
 import { frame, rgb } from '../data/ledPatterns';
 import { LED_MATRIX_COLS, PRODUCT_ID_MAX, PRODUCT_ID_PRO, LED_RECORDS_PER_PACKET, LED_STRIP_COUNT, MACRO_ACTIONS_PER_PAGE, RATIO_UNITS } from './constants';
 import { PHYSICAL_KEYS } from './layout';
+import { FW_AXIS } from './switches';
 
 const hex = (s: string) => s.trim().split(/\s+/).map((h) => parseInt(h, 16));
 
@@ -54,7 +55,7 @@ const SNAPSHOT_PERF: Performance = {
 
 /** The real Pro's profile names (each with a trailing space) and its switch on every key: 14544 White Wukong. */
 const PRO_PROFILE_NAMES = ['配置一 ', '配置二 ', '配置三 ', '配置四 '];
-const PRO_SWITCH: Partial<Performance> = { axisV2Id: 14544, axisRangeMax: 3400, axisCoefficient: 17664 };
+const PRO_SWITCH = { axisV2Id: 14544, axisRangeMax: 3400, axisCoefficient: 17664 };
 
 const ROW3_ADC = [2632, 2760, 2687, 2717, 2696, 2835, 2694, 2494, 2680, 2740, 2646, 2634, 0, 2645, 0];
 const KEYMAP_COLS = 30;
@@ -62,10 +63,18 @@ const RATIO_CODE = new Map(Object.entries(RATIO_UNITS).map(([code, units]) => [u
 const keyAt = (row: number, col: number) => PHYSICAL_KEYS.find((k) => k.row === row && k.col === col);
 const posKey = (row: number, col: number) => `${row}:${col}`;
 
+/** Board-wide switch triple + calibration flag per key (one global array in firmware, shared by all profiles). */
+interface MockAxis {
+  calibrate: number;
+  axisV2Id: number;
+  axisRangeMax: number;
+  axisCoefficient: number;
+}
+
 interface MockProfile {
   name: string;
   keymap: number[][][];               // [layer][row 0..5][col]
-  perf: Map<string, number[]>;        // row:col → bytes 4..26 of the 04 01 reply
+  perf: Map<string, number[]>;        // row:col → bytes 4..19 of the 04 01 reply (per-profile fields + axis)
   advanced: Map<string, number[]>;    // row:col → bytes 4.. of the 06 01 reply
   lightBase: number[][];              // [area] → bytes 4..9
   palette: number[][];                // [area] → 32 bytes
@@ -75,7 +84,7 @@ interface MockProfile {
 interface LiveKey { travel: number; pressed: boolean; extreme: number; rtArmed: boolean }
 
 function perfBytes(p: Performance): number[] {
-  return encodePerformance({ row: 0, col: 0 }, p).slice(4);
+  return encodePerformance({ row: 0, col: 0 }, p).slice(4, 20);
 }
 
 function makeProfile(name: string, perfFor: (k: PhysicalKey) => Partial<Performance>): MockProfile {
@@ -155,6 +164,8 @@ export class MockTransport extends BaseTransport {
   private replyPort: MessagePort | null = null;
   private readonly replyQueue: (() => void)[] = [];
   private readonly profiles: MockProfile[];
+  /** Board-wide switch triple and calibrate flag per key (`row:col`), shared across all 4 profiles as in firmware. */
+  private readonly axis = new Map<string, MockAxis>();
   private active = 0;
   private systemMode = 0;
   private pollingRate = 0;
@@ -205,18 +216,18 @@ export class MockTransport extends BaseTransport {
     if (!opts.fwBus) this.fwMock.attach(this);
     this.latencyMs = opts.latencyMs ?? 2;
     this.fastLedReplies = !!opts.fastLedReplies && typeof MessageChannel !== 'undefined';
-    const sw = pro ? PRO_SWITCH : {};
+    const baseAxis: MockAxis = pro
+      ? { calibrate: 1, ...PRO_SWITCH }
+      : { calibrate: SNAPSHOT_PERF.calibrate, axisV2Id: SNAPSHOT_PERF.axisV2Id, axisRangeMax: SNAPSHOT_PERF.axisRangeMax, axisCoefficient: SNAPSHOT_PERF.axisCoefficient };
+    for (const k of PHYSICAL_KEYS) this.axis.set(posKey(k.row, k.col), { ...baseAxis });
     const profileName = (i: number, name: string) => (pro ? PRO_PROFILE_NAMES[i] : name);
     this.profiles = [
-      makeProfile(profileName(0, 'Default'), () => sw),
-      makeProfile(profileName(1, 'FPS'), (k) => ({
-        ...(isWasd(k)
-          ? { mode: 1, rtFirstTouch: 0.3, rtPress: 0.1, rtRelease: 0.1, pressDeadStroke: 0.1 }
-          : { mode: 0, normalPress: 1.2, normalRelease: 1.2 }),
-        ...sw,
-      })),
-      makeProfile(profileName(2, 'Typing'), () => ({ mode: 0, normalPress: 2, normalRelease: 2, pressDeadStroke: 0.2, releaseDeadStroke: 0.2, ...sw })),
-      makeProfile(profileName(3, 'Profile 4'), () => ({ mode: 0, normalPress: 1.5, normalRelease: 1.5, ...sw })),
+      makeProfile(profileName(0, 'Default'), () => ({})),
+      makeProfile(profileName(1, 'FPS'), (k) => (isWasd(k)
+        ? { mode: 1, rtFirstTouch: 0.3, rtPress: 0.1, rtRelease: 0.1, pressDeadStroke: 0.1 }
+        : { mode: 0, normalPress: 1.2, normalRelease: 1.2 })),
+      makeProfile(profileName(2, 'Typing'), () => ({ mode: 0, normalPress: 2, normalRelease: 2, pressDeadStroke: 0.2, releaseDeadStroke: 0.2 })),
+      makeProfile(profileName(3, 'Profile 4'), () => ({ mode: 0, normalPress: 1.5, normalRelease: 1.5 })),
     ];
     // FPS profile: SOCD Last Override on A/D (row 3 cols 1 and 3), as a demo of advanced keys.
     this.profiles[1].advanced.set(posKey(3, 1), [6, 3, 3, ...le16(0x04), ...le16(0x07), 0, 0, 0]);
@@ -234,8 +245,7 @@ export class MockTransport extends BaseTransport {
     if (opts.seed === 'pro-xinput') {
       const maxTravelUm = (key: number): number => {
         const pos = keyPosOf(key);
-        const rec = pos && this.profiles[this.active].perf.get(posKey(pos.row, pos.col));
-        return rec ? this.decodePerfRecord(rec).axisRangeMax : 0;
+        return pos ? (this.axis.get(posKey(pos.row, pos.col))?.axisRangeMax ?? 0) : 0;
       };
       this.gamepadFirmware = new MockGamepadFirmware({ block: demoGamepadBlock(maxTravelUm(0)), maxTravelUm });
     }
@@ -303,12 +313,23 @@ export class MockTransport extends BaseTransport {
     this.travelTicker = fn;
   }
 
+  /** Test helper: resets every key's switch triple and calibrate flag to 0 (the suspected firmware-update wipe). */
+  wipeAxis(): void {
+    for (const ax of this.axis.values()) {
+      ax.axisV2Id = 0;
+      ax.axisRangeMax = 0;
+      ax.axisCoefficient = 0;
+      ax.calibrate = 0;
+    }
+  }
+
   /** Demo helper: set a key's travel (mm) so axis data (route/status/ADC) reflects a press. */
   simulatePress(keyId: number, travelMm: number): void {
     const key = PHYSICAL_KEYS[keyId];
     if (!key) return;
-    const perfRec = this.profiles[this.active].perf.get(posKey(key.row, key.col))!;
-    const p = this.decodePerfRecord(perfRec);
+    const pos = posKey(key.row, key.col);
+    const perfRec = this.profiles[this.active].perf.get(pos)!;
+    const p = this.decodePerfRecord(perfRec, pos);
     const rangeMax = p.axisRangeMax / 1000;
     let t = Math.min(Math.max(travelMm, 0), rangeMax);
     if (t <= p.pressDeadStroke) t = 0;
@@ -337,11 +358,11 @@ export class MockTransport extends BaseTransport {
     this.live.set(keyId, s);
   }
 
-  private decodePerfRecord(rec: number[]) {
+  private decodePerfRecord(rec: number[], pos: string) {
     const r = (o: number) => read16(rec, o - 4) / 1000;
     return {
       mode: rec[0], normalPress: r(5), normalRelease: r(7), rtFirstTouch: r(9), rtPress: r(11), rtRelease: r(13),
-      pressDeadStroke: r(15), axisRangeMax: read16(rec, 19),
+      pressDeadStroke: r(15), axisRangeMax: this.axis.get(pos)?.axisRangeMax ?? 0,
     };
   }
 
@@ -438,7 +459,7 @@ export class MockTransport extends BaseTransport {
             if (a === 0) this.newlyCalibrated.clear();
             else {
               // Stopping keeps what was calibrated: the key's calibrate flag is 1 again.
-              for (const pos of this.newlyCalibrated) { const rec = prof.perf.get(pos); if (rec) rec[16] = 1; }
+              for (const pos of this.newlyCalibrated) { const ax = this.axis.get(pos); if (ax) ax.calibrate = 1; }
               this.newlyCalibrated.clear();
             }
             return set(req);
@@ -488,16 +509,33 @@ export class MockTransport extends BaseTransport {
         }
         break;
       case 0x04:
-        if (op === 0x01) return set([4, 1, a, b, ...(prof.perf.get(posKey(a, b)) ?? [])]);
+        if (op === 0x01) {
+          const pos = posKey(a, b);
+          const rec = prof.perf.get(pos);
+          const ax = this.axis.get(pos);
+          if (!rec || !ax) return set([4, 1, a, b]);
+          return set([4, 1, a, b, ...rec, ax.calibrate, ...le16(ax.axisV2Id), ...le16(ax.axisRangeMax), ...le16(ax.axisCoefficient)]);
+        }
         if (op === 0x02) {
-          const old = prof.perf.get(posKey(a, b));
-          if (old) {
-            const next = req.slice(4, 27);
-            // Like the firmware: a changed switch triple (record bytes 17..22) resets the key's calibration, whatever was written.
-            if (old.slice(17, 23).some((v, i) => v !== next[17 + i])) next[16] = 0;
+          const pos = posKey(a, b);
+          const old = prof.perf.get(pos);
+          const ax = this.axis.get(pos);
+          if (old && ax) {
+            const next = req.slice(4, 20);
             // Like the firmware: the release point (record bytes 3..4) is stored equal to the press point (1..2), whatever was written.
             next[3] = next[1]; next[4] = next[2];
-            prof.perf.set(posKey(a, b), next);
+            prof.perf.set(pos, next);
+            const id = read16(req, 21);
+            const rangeMax = read16(req, 23);
+            const coef = read16(req, 25);
+            // Like firmware 04 02: silently drop axis fields outside FW_AXIS while keeping the performance fields above.
+            if (id >= FW_AXIS.idMin && rangeMax >= FW_AXIS.rangeMin && rangeMax <= FW_AXIS.rangeMax && coef >= FW_AXIS.coefMin) {
+              // Calibrate drops to 0 only when the switch id changes; an R-only or c-only change keeps it.
+              if (id !== ax.axisV2Id) ax.calibrate = 0;
+              ax.axisV2Id = id;
+              ax.axisRangeMax = rangeMax;
+              ax.axisCoefficient = coef;
+            }
           }
           return set(req);
         }
@@ -557,7 +595,7 @@ export class MockTransport extends BaseTransport {
         case 2: {
           const pos = posKey(key.row, key.col);
           if (this.calibrating && route > 3000) { this.newlyCalibrated.add(pos); return 2; }
-          return this.profiles[this.active].perf.get(pos)?.[16] === 0 ? 0 : 1;
+          return this.axis.get(pos)?.calibrate === 0 ? 0 : 1;
         }
         case 3: return s?.pressed ? 1 : 0;
         default: return 0;

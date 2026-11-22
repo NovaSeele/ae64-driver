@@ -4,6 +4,7 @@ import { defineStore } from 'pinia';
 import { computed, ref, shallowRef, watch } from 'vue';
 import { SAVE_GROUP, isRtMode } from '../protocol';
 import type { Ae64Transport, Performance, PhysicalKey } from '../protocol';
+import { DIST_FIELDS, MAX_TRAVEL_MM } from '../protocol/safety';
 import { findSwitch, switchCatalogFor } from '../protocol/switches';
 import type { SwitchEntry, SwitchTriple } from '../protocol/switches';
 import { switchName } from '../data/switchDisplay';
@@ -64,10 +65,35 @@ export function rangeMm(p: Performance | undefined): number {
   return p && p.axisRangeMax > 0 ? p.axisRangeMax / 1000 : DEFAULT_RANGE_MM;
 }
 
-/** Travel values that a switch with a shorter range lowers (only values above the limit change, never rounded). */
-export type TravelField = 'normalPress' | 'normalRelease' | 'rtFirstTouch' | 'rtPress' | 'rtRelease';
-const TRAVEL_FIELDS: TravelField[] = ['normalPress', 'normalRelease', 'rtFirstTouch', 'rtPress', 'rtRelease'];
+/** Distance fields fitted to a switch's travel limit (same seven fields checkPerformanceWrite checks). */
+export type TravelField = (typeof DIST_FIELDS)[number];
 type Clamped = { id: number; field: TravelField; from: number; to: number };
+
+/** The guard's distance limit (mm) for a switch range (µm): min(R / 1000, MAX_TRAVEL_MM). */
+export function travelLimitMm(rangeUm: number): number {
+  return Math.min(rangeUm / 1000, MAX_TRAVEL_MM);
+}
+
+/**
+ * Fits every distance field of `edit` to `travelLimitMm(rangeUm)` so the plan matches checkPerformanceWrite's seven-field rule.
+ * Returns a new edit object without mutating the input. Values at or under the limit are untouched; travel fields above it
+ * become the limit; dead-zone fields above it become LIMITS.deadMax (1.0 mm) because the firmware computes bottom dead zone
+ * as R − setting (setting ≥ R covers the whole travel or wraps).
+ */
+export function fitTravel(edit: PerfEdit, rangeUm: number): { edit: PerfEdit; clamped: { field: TravelField; from: number; to: number }[] } {
+  const limit = travelLimitMm(rangeUm);
+  const next: PerfEdit = { ...edit };
+  const clamped: { field: TravelField; from: number; to: number }[] = [];
+  for (const field of DIST_FIELDS) {
+    const from = next[field];
+    if (from > limit + 1e-9) {
+      const to = field === 'pressDeadStroke' || field === 'releaseDeadStroke' ? LIMITS.deadMax : limit;
+      clamped.push({ field, from, to });
+      next[field] = to;
+    }
+  }
+  return { edit: next, clamped };
+}
 
 const tripleOf = (p: Performance): SwitchTriple => ({ axisV2Id: p.axisV2Id, axisRangeMax: p.axisRangeMax, axisCoefficient: p.axisCoefficient });
 const sameTriple = (a: SwitchTriple, b: SwitchTriple): boolean =>
@@ -354,18 +380,12 @@ export const usePerformanceStore = defineStore('performance', () => {
   function switchChange(id: number, entry: SwitchEntry): { before: SwitchState; after: SwitchState; clamped: Clamped[] } | null {
     const cur = values.value[id];
     if (!cur || !isKnownMode(cur.mode)) return null;
-    const limit = entry.rangeMax / 1000;
-    const edit = pickEdit(cur);
-    const clamped: Clamped[] = [];
-    for (const field of TRAVEL_FIELDS) {
-      if (edit[field] > limit) {
-        clamped.push({ id, field, from: edit[field], to: limit });
-        edit[field] = limit;
-      }
-    }
+    const beforeEdit = pickEdit(cur);
+    const fitted = fitTravel(beforeEdit, entry.rangeMax);
+    const clamped: Clamped[] = fitted.clamped.map((c) => ({ id, ...c }));
     const triple: SwitchTriple = { axisV2Id: entry.id, axisRangeMax: entry.rangeMax, axisCoefficient: entry.coefficient };
     if (!clamped.length && sameTriple(triple, tripleOf(cur))) return null;
-    return { before: { triple: tripleOf(cur), edit: pickEdit(cur) }, after: { triple, edit }, clamped };
+    return { before: { triple: tripleOf(cur), edit: beforeEdit }, after: { triple, edit: fitted.edit }, clamped };
   }
 
   /** What applying `entry` to `ids` would do, for the warning before Apply. Writes nothing. */
@@ -380,7 +400,7 @@ export const usePerformanceStore = defineStore('performance', () => {
         clamped.push(...change.clamped);
       }
     }
-    return { keys, clamped, limitMm: entry.rangeMax / 1000 };
+    return { keys, clamped, limitMm: travelLimitMm(entry.rangeMax) };
   }
 
   function commitSwitch(map: Record<number, SwitchState>): void {

@@ -31,10 +31,10 @@ async function page() {
 }
 const status = () => w!.find('.swp__recal');
 
-/** The board sets the flag itself when a calibration ends; poke the mock's record byte 16 like the firmware does. */
+/** The board sets the flag itself when a calibration ends; poke the mock's global axis record like the firmware does. */
 function setFlag(mock: MockTransport, key: PhysicalKey, v: number) {
-  const m = mock as unknown as { profiles: { perf: Map<string, number[]> }[]; active: number };
-  m.profiles[m.active].perf.get(`${key.row}:${key.col}`)![16] = v;
+  const m = mock as unknown as { axis: Map<string, { calibrate: number }> };
+  m.axis.get(`${key.row}:${key.col}`)!.calibrate = v;
 }
 
 describe('switch change resets calibration', () => {

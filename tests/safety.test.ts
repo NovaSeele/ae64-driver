@@ -72,7 +72,7 @@ describe('checkFrame allow-list', () => {
 
 const base: Performance = {
   mode: 0, normalPress: 1.5, normalRelease: 1.5, rtFirstTouch: 0.5, rtPress: 0.3, rtRelease: 0.3,
-  pressDeadStroke: 0.1, releaseDeadStroke: 0.1, axis: 1, calibrate: 1, axisV2Id: 7, axisRangeMax: 3500, axisCoefficient: 120,
+  pressDeadStroke: 0.1, releaseDeadStroke: 0.1, axis: 1, calibrate: 1, axisV2Id: 7, axisRangeMax: 3500, axisCoefficient: 20000,
 };
 
 describe('checkPerformanceWrite', () => {
@@ -93,7 +93,7 @@ describe('checkPerformanceWrite', () => {
   });
 
   it('allows restoring sensor fields read earlier in the session', () => {
-    const reset = { ...base, axisCoefficient: 100, normalPress: 2 };
+    const reset = { ...base, axisCoefficient: 19000, normalPress: 2 };
     expect(checkPerformanceWrite(base, [base, reset])).toBeNull();
   });
 
@@ -138,19 +138,20 @@ describe('switch triple guard', () => {
     expect(checkPerformanceWrite({ ...ur, ...apollo }, [ur], { boardIdHex: '0030000D' })).toBeNull();
   });
 
-  it('refuses a mixed triple', () => {
-    const mixed = { ...ur, axisV2Id: 4208 }; // 阿波罗轴's id with UR冰磁轴's range and coefficient
-    expect(checkPerformanceWrite(mixed, [ur], { boardIdHex: BOARD })).toMatch(/switch fields/);
-    const mixed2 = { ...ur, ...apollo, axisRangeMax: 3310 };
-    expect(checkPerformanceWrite(mixed2, [ur], { boardIdHex: BOARD })).toMatch(/switch fields/);
+  it('accepts an in-bounds custom triple and refuses out-of-bounds range', () => {
+    const custom = { ...ur, axisV2Id: 4208 }; // Apollo's list id (≥ 0x1000) with UR's in-bounds range and coefficient
+    expect(checkPerformanceWrite(custom, [ur], { boardIdHex: BOARD })).toBeNull();
+    const outOfRange = { ...ur, ...apollo, axisRangeMax: 3129 };
+    expect(checkPerformanceWrite(outOfRange, [ur], { boardIdHex: BOARD })).toMatch(/switch fields/);
   });
 
   it('refuses an unknown id', () => {
     expect(checkPerformanceWrite({ ...ur, axisV2Id: 9999 }, [ur], { boardIdHex: BOARD })).toMatch(/switch fields/);
   });
 
-  it('refuses a known id with the wrong coefficient', () => {
-    expect(checkPerformanceWrite({ ...ur, ...apollo, axisCoefficient: 24501 }, [ur], { boardIdHex: BOARD })).toMatch(/switch fields/);
+  it('accepts a known id with an in-bounds coefficient and refuses out-of-bounds coefficient', () => {
+    expect(checkPerformanceWrite({ ...ur, ...apollo, axisCoefficient: 24501 }, [ur], { boardIdHex: BOARD })).toBeNull();
+    expect(checkPerformanceWrite({ ...ur, ...apollo, axisCoefficient: 26801 }, [ur], { boardIdHex: BOARD })).toMatch(/switch fields/);
   });
 
   it('refuses a smaller range with an unclamped actuation, even when it is unchanged', () => {

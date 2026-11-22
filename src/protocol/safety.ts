@@ -6,7 +6,7 @@
 
 import type { Performance } from './types';
 import { decodeCombo, isKnownKeycode } from './keycodes';
-import { isCatalogTriple, switchCatalogFor } from './switches';
+import { FW_AXIS, isCatalogTriple, isCustomTriple, switchCatalogFor } from './switches';
 import { isFwBoard } from './firmware';
 import {
   GP_BOARD_HEX, GP_BOARD_ID, GP_CAP, GP_CMD, GP_CONFIG_BYTES, GP_MAGIC, GP_MAX_DATA, GP_READ_CHUNK, GP_VERSION, crc32, decodeConfig,
@@ -326,15 +326,22 @@ const TRIPLE: readonly (keyof Performance)[] = ['axisV2Id', 'axisRangeMax', 'axi
 const sameTriple = (a: Performance, b: Performance): boolean => TRIPLE.every((f) => a[f] === b[f]);
 
 /** Upper bound for any travel distance (mm): the key's range, or 4.0 mm if the range is unknown. */
-const MAX_TRAVEL_MM = 4.0;
+export const MAX_TRAVEL_MM = 4.0;
+
+/** The seven distance fields checked by checkPerformanceWrite (shared with fitTravel so they cannot drift). */
+export const DIST_FIELDS = [
+  'normalPress', 'normalRelease', 'rtFirstTouch', 'rtPress', 'rtRelease', 'pressDeadStroke', 'releaseDeadStroke',
+] as const;
 
 /**
  * Checks a performance write against the records read from the same key during this connection
  * (`seen`, newest last). `axis` must equal a value the device reported for it: the firmware itself may change it
  * (advanced-key assignment), and restoring an earlier value is allowed. `calibrate` must equal the LATEST record
- * read from the key: the firmware resets it to 0 when the switch triple changes, so an older 1 is stale.
+ * read from the key: the firmware resets it to 0 when the switch id changes, so an older 1 is stale.
  * The switch triple (axisV2Id, axisRangeMax, axisCoefficient) is checked as one unit: it must equal the triple
- * of a record the device reported, or one exact entry of the catalog of the connected board (`boardIdHex`).
+ * of a record the device reported, one exact entry of the catalog of the connected board (`boardIdHex`), or a
+ * custom triple (key's own or a list id ≥ 0x1000, whole R and c within the list's bounds). Any changed triple
+ * must also satisfy the firmware's R ≥ 1000 and c ≥ 4096 floor, even when restoring a reported triple.
  * When the triple changes, every distance must fit the new range, changed or not.
  * Mode 2 (Rapid Trigger without Continuous RT) is written only when the firmware advertises it
  * (`intervalRt`: protocol ≥ 1.3.0.0, like the factory driver) or the key itself already reported mode 2.
@@ -354,21 +361,26 @@ export function checkPerformanceWrite(
     return `sensor field calibrate would change (${current.calibrate} → ${next.calibrate}): must equal the latest read`;
   }
   const tripleChanged = !sameTriple(next, current);
-  if (tripleChanged && !seen.some((s) => sameTriple(s, next)) && !isCatalogTriple(switchCatalogFor(opts.boardIdHex), next)) {
-    return `switch fields axisV2Id/axisRangeMax/axisCoefficient would change (${current.axisV2Id}/${current.axisRangeMax}/${current.axisCoefficient}`
-      + ` → ${next.axisV2Id}/${next.axisRangeMax}/${next.axisCoefficient}): not a triple the key reported or a catalog switch of this board`;
+  if (tripleChanged) {
+    const catalog = switchCatalogFor(opts.boardIdHex);
+    if (!seen.some((s) => sameTriple(s, next)) && !isCatalogTriple(catalog, next) && !isCustomTriple(catalog, next, current.axisV2Id)) {
+      return `switch fields axisV2Id/axisRangeMax/axisCoefficient would change (${current.axisV2Id}/${current.axisRangeMax}/${current.axisCoefficient}`
+        + ` → ${next.axisV2Id}/${next.axisRangeMax}/${next.axisCoefficient}): not a triple the key reported, a catalog switch of this board,`
+        + ` or a custom triple (key's own or a list id ≥ 0x1000, range and coefficient within the list's bounds)`;
+    }
   }
   if (next.mode !== 0 && next.mode !== 1 && next.mode !== 2) return `mode ${String(next.mode)} invalid`;
   if (next.mode === 2 && !opts.intervalRt && !seen.some((s) => s.mode === 2)) {
     return 'mode 2 (Rapid Trigger without Continuous RT) needs protocol 1.3.0.0 or later';
   }
-  if (tripleChanged && !(next.axisRangeMax > 0)) return `axisRangeMax ${next.axisRangeMax} must be above 0`;
+  if (tripleChanged && !(next.axisRangeMax >= FW_AXIS.rangeMin && next.axisCoefficient >= FW_AXIS.coefMin)) {
+    return `switch fields axisRangeMax/axisCoefficient (${next.axisRangeMax}/${next.axisCoefficient}) must be at least ${FW_AXIS.rangeMin}/${FW_AXIS.coefMin}`;
+  }
   const max = tripleChanged
     ? Math.min(next.axisRangeMax / 1000, MAX_TRAVEL_MM)
     : current.axisRangeMax > 0 ? Math.min(current.axisRangeMax / 1000, MAX_TRAVEL_MM) : MAX_TRAVEL_MM;
-  const dist: (keyof Performance)[] = ['normalPress', 'normalRelease', 'rtFirstTouch', 'rtPress', 'rtRelease', 'pressDeadStroke', 'releaseDeadStroke'];
-  for (const f of dist) {
-    const v = next[f] as number;
+  for (const f of DIST_FIELDS) {
+    const v = next[f];
     if (!tripleChanged && v === current[f]) continue; // unchanged from what the device reported
     if (!Number.isFinite(v) || v < 0 || v > max + 1e-9) return `${f} ${v} mm outside 0–${max} mm`;
   }
