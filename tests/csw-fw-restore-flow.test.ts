@@ -26,7 +26,7 @@ import { useHistoryStore } from '../src/stores/history';
 import { usePerformanceStore } from '../src/stores/performance';
 import { useSelectionStore } from '../src/stores/selection';
 import { useSyncStore } from '../src/stores/sync';
-import { locale } from '../src/i18n/locale';
+import { locale, setLocale } from '../src/i18n/locale';
 import { t as tr } from '../src/i18n/vi';
 import { CRC, demo, fileOf, makeFw, run, startWith } from './fw-helpers';
 
@@ -1064,5 +1064,58 @@ describe('CSW-R1: evaluateAxisBackup runs in non-done inactive phases (enterFail
     expect(s2.fw.axShowCard).toBe(true);
     expect(s2.fw.axCompare!.restore).toHaveLength(64);
     expect(s2.fw.axSame).toBe(false);
+  });
+});
+
+describe('CSW-R2: English singular/plural on firmware restore card', { timeout: 60_000 }, () => {
+  it('en restore card says 1 key, not 1 keys (CSW-R2)', async () => {
+    setLocale('en');
+    const s = await demo('max');
+    const perf = usePerformanceStore();
+    await loadPerf(perf);
+
+    const router = makeRouter();
+    await router.push('/firmware');
+    const page = keep(mount(FirmwarePage, { global: { plugins: [router] }, attachTo: document.body }));
+    await flushPromises();
+
+    await startWith(s.fw, MAX_FILE, { typed: 'AE64 Max' });
+    await until(() => s.fw.phase === 'done' && !s.fw.active);
+    for (let i = 0; i < 40 && perf.loading; i++) await run(50);
+
+    // Keep 63 keys matching the saved triple so only W (1 key) needs restoring
+    const postTransport = s.device.transport as MockTransport;
+    for (const k of PHYSICAL_KEYS) {
+      if (k.id !== W.id) setMockKey(postTransport, k, { axisV2Id: 12432, axisRangeMax: 3310, axisCoefficient: 20500 });
+    }
+    await loadPerf(perf);
+    await flushPromises();
+
+    expect(s.fw.phase).toBe('done');
+    expect(s.fw.axShowCard).toBe(true);
+    expect(s.fw.axCompare!.restore).toEqual([W.id]);
+
+    const card = page.find('[data-test="ax-card"]');
+    expect(card.exists()).toBe(true);
+    expect(card.text()).toContain('1 key');
+    expect(card.text()).not.toContain('1 keys');
+
+    const rowTexts = page.findAll('[data-test="ax-rows"] li').map((li) => li.text());
+    expect(rowTexts).toHaveLength(1);
+    expect(rowTexts[0]).toContain('1 key');
+    expect(rowTexts[0]).not.toContain('1 keys');
+
+    const goBtn = page.find('[data-test="ax-go"]');
+    expect(goBtn.text()).toBe('Restore 1 key');
+
+    // Pure translator check for all six fw.ax.* pluralized keys
+    const keys = ['fw.ax.row', 'fw.ax.go', 'fw.ax.lostBefore', 'fw.ax.done', 'fw.ax.fail', 'fw.ax.body'] as const;
+    for (const k of keys) {
+      const one = tr(k, { n: 1, keys: 'W', time: '12:00' });
+      expect(one, `${k} (n=1)`).toContain('1 key');
+      expect(one, `${k} (n=1)`).not.toContain('1 keys');
+      const two = tr(k, { n: 2, keys: 'W, A', time: '12:00' });
+      expect(two, `${k} (n=2)`).toContain('2 keys');
+    }
   });
 });
