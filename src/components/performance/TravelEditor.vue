@@ -16,6 +16,7 @@ const props = defineProps<{
   deadTop: number | null;
   deadBottom: number | null;
   label: string;
+  describedby?: string;
   disabled?: boolean;
 }>();
 const emit = defineEmits<{ update: [number]; commit: [number]; step: [number] }>();
@@ -91,6 +92,7 @@ const CAP_TRAVEL = 46; // px the illustrated cap moves at full travel
           :page-step="0.1"
           orientation="vertical"
           :label="label"
+          :describedby="describedby"
           :disabled="disabled"
           :range="value === null ? range : null"
           :format="(v) => `${formatMm(v, decimals)} mm`"

@@ -4,10 +4,11 @@
 import { computed } from 'vue';
 import type { ActuationSettings } from '../../stores/live';
 import { releasePoint } from '../../stores/live';
+import { fmtMm } from '../../data/keycapActuation';
 import { isRtMode } from '../../protocol';
 import { t } from '../../i18n/vi';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   travel: number;
   peak: number;
   range: number;
@@ -18,7 +19,8 @@ const props = defineProps<{
   /** Firmware status: the key is actuated. */
   actuated: boolean;
   label: string;
-}>();
+  decimals?: number;
+}>(), { decimals: 2 });
 
 // gauge geometry (viewBox units)
 const GY0 = 34;
@@ -52,7 +54,7 @@ interface Marker { mm: number; text: string; kind: Kind }
 const markers = computed<Marker[]>(() => {
   const s = props.settings;
   if (!s) return [];
-  const f = (v: number) => v.toFixed(2);
+  const f = (v: number) => fmtMm(v, props.decimals);
   const out: Marker[] = [];
   if (isRtMode(s.mode)) {
     out.push({ mm: s.rtFirstTouch, text: `${t('live.mFirst')} ${f(s.rtFirstTouch)}`, kind: 'act' });

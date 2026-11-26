@@ -190,6 +190,8 @@ const baseEn: Record<keyof typeof base, string> = {
   'perf.fineStepOn': '− / +, the arrow keys and the sliders below move 0.001 mm at a time.',
   'perf.fineStepOff': '− / +, the arrow keys and the sliders below move 0.01 mm at a time.',
   'perf.fineStepTip': 'Shift no longer changes the step. On a slider, PageUp / PageDown always move 0.1 mm. Type in a box to set any value.',
+  'perf.lowAct': 'Below 0.05 mm a key can fire from a light touch or a bump to the desk.',
+  'perf.lowRt': 'Below 0.05 mm Rapid Trigger can press and release on its own from small vibrations.',
   'perf.keyLabel': 'Travel {key}',
 
   // ui kit

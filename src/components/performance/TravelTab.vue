@@ -105,6 +105,8 @@ function loadFineStep(): boolean {
 }
 const fineStep = ref(loadFineStep());
 const fineStepDescId = useId();
+const lowActId = useId();
+const lowRtId = useId();
 watch(fineStep, (on) => {
   try {
     localStorage.setItem(FINE_STEP_KEY, on ? '1' : '0');
@@ -368,6 +370,9 @@ const stdRelease = computed(() => summary((p) => releasePoint(settingsFrom(p))))
 const rtRecs = computed(() => recs.value.filter((p) => isRtMode(p.mode)));
 const rtPress = computed(() => summary((p) => p.rtPress, rtRecs.value));
 const rtRelease = computed(() => summary((p) => p.rtRelease, rtRecs.value));
+const LOW_MM = 0.05;
+const lowAct = computed(() => recs.value.length > 0 && act.value.range[0] < LOW_MM - 1e-9);
+const lowRt = computed(() => rtRecs.value.length > 0 && (rtPress.value.range[0] < LOW_MM - 1e-9 || rtRelease.value.range[0] < LOW_MM - 1e-9));
 const deadTop = computed(() => summary((p) => p.pressDeadStroke));
 const deadBottom = computed(() => summary((p) => p.releaseDeadStroke));
 const deadFields = computed(() => [
@@ -741,6 +746,7 @@ const modeOptions = computed(() => [
               :dead-top="deadTop.value"
               :dead-bottom="deadBottom.value"
               :label="t('perf.actuation')"
+              :describedby="lowAct ? lowActId : undefined"
               :disabled="ro"
               @update="setActuation"
               @step="stepActuation"
@@ -761,6 +767,7 @@ const modeOptions = computed(() => [
                 :fine-step="stepMm"
                 :decimals="decimals"
                 :label="t('perf.actuation')"
+                :describedby="lowAct ? lowActId : undefined"
                 :disabled="ro"
                 relative
                 @update:model-value="setActuation($event, false)"
@@ -768,6 +775,9 @@ const modeOptions = computed(() => [
               />
               <span class="hint num">{{ t('perf.range', { max: fmt(maxTravel) }) }}</span>
             </div>
+          </div>
+          <div class="low-wrap" role="status">
+            <p v-if="lowAct" :id="lowActId" class="low-note">{{ t('perf.lowAct') }}</p>
           </div>
         </Card>
 
@@ -813,6 +823,7 @@ const modeOptions = computed(() => [
                 :fine-step="stepMm"
                 :decimals="decimals"
                 :label="t('perf.rtPress')"
+                :describedby="lowRt ? lowRtId : undefined"
                 :disabled="ro"
                 relative
                 @update:model-value="setRt('rtPress', $event, false)"
@@ -829,6 +840,7 @@ const modeOptions = computed(() => [
               :page-step="0.1"
               :format="sliderText"
               :label="t('perf.rtPress')"
+              :describedby="lowRt ? lowRtId : undefined"
               style="--sl-tone: var(--m-press)"
               :disabled="ro"
               relative
@@ -848,6 +860,7 @@ const modeOptions = computed(() => [
                 :fine-step="stepMm"
                 :decimals="decimals"
                 :label="t('perf.rtRelease')"
+                :describedby="lowRt ? lowRtId : undefined"
                 :disabled="ro"
                 relative
                 @update:model-value="setRt('rtRelease', $event, false)"
@@ -864,6 +877,7 @@ const modeOptions = computed(() => [
               :page-step="0.1"
               :format="sliderText"
               :label="t('perf.rtRelease')"
+              :describedby="lowRt ? lowRtId : undefined"
               style="--sl-tone: var(--m-release)"
               :disabled="ro"
               relative
@@ -871,6 +885,9 @@ const modeOptions = computed(() => [
               @update:model-value="setRt('rtRelease', $event)"
               @commit="endGesture"
             />
+          </div>
+          <div class="low-wrap" role="status">
+            <p v-if="lowRt" :id="lowRtId" class="low-note">{{ t('perf.lowRt') }}</p>
           </div>
         </Card>
 
@@ -1087,6 +1104,8 @@ const modeOptions = computed(() => [
   font-size: var(--fs-label);
 }
 .hint { color: var(--fg-3); font-size: var(--fs-label); }
+.low-wrap:empty { margin-top: calc(-1 * var(--s-4)); }
+.low-note { margin: 0; font-size: var(--fs-label); color: var(--fg-2); }
 /* Pinned to the bottom of the Mode card: the spare height opens above it, between the hint and the switch. */
 .continuous { display: grid; gap: var(--s-2); margin-top: auto; padding-top: var(--s-4); border-top: 1px solid var(--line-1); }
 /* In a grower the fields share the spare height, each centred in its share. */

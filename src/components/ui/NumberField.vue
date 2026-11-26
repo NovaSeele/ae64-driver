@@ -44,6 +44,8 @@ const props = withDefaults(defineProps<{
   disabled?: boolean;
   placeholder?: string;
   relative?: boolean;
+  /** id of a line that explains the value (aria-describedby on the input). */
+  describedby?: string;
 }>(), { step: 0.01, decimals: 2, unit: 'mm' });
 const emit = defineEmits<{ 'update:modelValue': [number]; step: [number] }>();
 
@@ -122,6 +124,7 @@ function onKey(e: KeyboardEvent) {
       class="nf__input num"
       inputmode="decimal"
       :aria-label="label"
+      :aria-describedby="describedby"
       :placeholder="placeholder ?? t('perf.mixed')"
       :disabled="disabled"
       :aria-invalid="invalidText ? true : undefined"

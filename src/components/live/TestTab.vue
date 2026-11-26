@@ -28,6 +28,7 @@ import { formatMm } from '../ui/NumberField.vue';
 import Segmented from '../ui/Segmented.vue';
 import Switch from '../ui/Switch.vue';
 import { recalBoardKey } from '../../data/customSwitch';
+import { capDecimals } from '../../data/keycapActuation';
 import { useDeviceStore } from '../../stores/device';
 import { useSelectionStore } from '../../stores/selection';
 import { DEFAULT_RANGE_MM, rangeMm, usePerformanceStore } from '../../stores/performance';
@@ -100,6 +101,7 @@ const focusKey = computed<PhysicalKey | null>(() => (live.focusId === null ? nul
 const focusPerf = computed(() => (live.focusId === null ? undefined : perf.values[live.focusId]));
 const settings = computed(() => (focusPerf.value ? settingsFrom(focusPerf.value) : null));
 const range = computed(() => (focusPerf.value ? rangeMm(focusPerf.value) : DEFAULT_RANGE_MM));
+const decimals = computed(() => capDecimals(device.rtPrecision));
 const keyName = computed(() => (focusKey.value ? device.legend(focusKey.value) : '—'));
 const modeLabel = computed(() => {
   const s = settings.value;
@@ -679,6 +681,7 @@ function onTypeKey(e: KeyboardEvent) {
           :travel="view.current"
           :peak="view.peak"
           :range="range"
+          :decimals="decimals"
           :settings="settings"
           :reset-at="view.resetAt"
           :reactuate-at="view.reactuateAt"

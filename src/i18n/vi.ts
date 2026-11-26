@@ -193,6 +193,8 @@ export const base = {
   'perf.fineStepOn': '− / +, phím mũi tên và các thanh kéo bên dưới chỉnh từng 0.001 mm.',
   'perf.fineStepOff': '− / +, phím mũi tên và các thanh kéo bên dưới chỉnh từng 0.01 mm.',
   'perf.fineStepTip': 'Shift không còn đổi bước. Trên thanh kéo, PageUp / PageDown luôn chỉnh 0.1 mm. Gõ thẳng vào ô để đặt giá trị bất kỳ.',
+  'perf.lowAct': 'Dưới 0.05 mm, phím có thể tự kích hoạt khi bàn rung hay chạm nhẹ.',
+  'perf.lowRt': 'Dưới 0.05 mm, Rapid Trigger có thể tự nhấn / nhả vì rung nhẹ.',
   'perf.keyLabel': 'Hành trình {key}',
 
   // ui kit
