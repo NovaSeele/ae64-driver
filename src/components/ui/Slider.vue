@@ -13,6 +13,7 @@ const props = withDefaults(defineProps<{
   max: number;
   step?: number;
   fineStep?: number;
+  pageStep?: number;
   orientation?: 'horizontal' | 'vertical';
   label: string;
   disabled?: boolean;
@@ -111,13 +112,14 @@ onBeforeUnmount(() => {
 function onKey(e: KeyboardEvent) {
   if (props.disabled) return;
   const step = e.shiftKey ? fine.value : props.step;
+  const page = props.pageStep ?? step * 10;
   const inc = vertical.value ? ['ArrowDown', 'ArrowRight'] : ['ArrowUp', 'ArrowRight'];
   const dec = vertical.value ? ['ArrowUp', 'ArrowLeft'] : ['ArrowDown', 'ArrowLeft'];
   if (props.relative && props.range) {
-    const d = inc.includes(e.key) ? step : dec.includes(e.key) ? -step : e.key === 'PageUp' ? step * 10 : e.key === 'PageDown' ? -step * 10 : 0;
+    const d = inc.includes(e.key) ? step : dec.includes(e.key) ? -step : e.key === 'PageUp' ? page : e.key === 'PageDown' ? -page : 0;
     if (d) {
       e.preventDefault();
-      const decimals = Math.max(0, -Math.floor(Math.log10(step)) + 1);
+      const decimals = Math.max(0, -Math.floor(Math.log10(Math.min(step, page))) + 1);
       emit('step', Number(d.toFixed(decimals)));
       emit('commit', props.modelValue);
       return;
@@ -126,8 +128,8 @@ function onKey(e: KeyboardEvent) {
   let v: number | null = null;
   if (inc.includes(e.key)) v = props.modelValue + step;
   else if (dec.includes(e.key)) v = props.modelValue - step;
-  else if (e.key === 'PageUp') v = props.modelValue + step * 10;
-  else if (e.key === 'PageDown') v = props.modelValue - step * 10;
+  else if (e.key === 'PageUp') v = props.modelValue + page;
+  else if (e.key === 'PageDown') v = props.modelValue - page;
   else if (e.key === 'Home') v = lowest.value;
   else if (e.key === 'End') v = props.max;
   if (v === null) return;

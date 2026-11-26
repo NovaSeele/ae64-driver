@@ -24,7 +24,7 @@ export function parseNumber(text: string, decimals: number): number | null {
 <script setup lang="ts">
 // Numeric input with unit suffix. `null` shows the mixed-values placeholder. Commits on Enter/blur once the text was changed
 // (U-05: tabbing through writes nothing, and a value outside min / max that nobody typed stays as it is), ArrowUp/Down step
-// (from the typed text when it reads as a number) and the − / + buttons (Shift = fine, a tenth of the step). The decimal mark
+// (from the typed text when it reads as a number) and the − / + buttons (Shift = fine, `fineStep` (default a tenth of the step)). The decimal mark
 // is "." or ","; text that is not one number shows the error state and writes nothing (parseNumber).
 // On a mixed value (null) − / + / arrows are off, since there is no base to step from, unless `relative`
 // is set: then they emit `step` with the signed delta and the parent moves each item from its own value.
@@ -37,6 +37,7 @@ const props = withDefaults(defineProps<{
   min: number;
   max: number;
   step?: number;
+  fineStep?: number;
   decimals?: number;
   unit?: string;
   label: string;
@@ -84,7 +85,7 @@ function commit() {
 const stepOff = computed(() => props.disabled || (props.modelValue === null && !props.relative));
 function nudge(dir: 1 | -1, fine = false) {
   if (props.disabled) return;
-  const delta = dir * (fine ? props.step / 10 : props.step);
+  const delta = dir * (fine ? (props.fineStep ?? props.step / 10) : props.step);
   // typed and not yet committed: step from what was typed when it reads as a number, else from the value
   const typed = clean.value ? null : parseNumber(text.value, props.decimals);
   const base = typed !== null && Number.isFinite(typed) ? typed : props.modelValue;
