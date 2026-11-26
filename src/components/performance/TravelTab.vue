@@ -711,11 +711,11 @@ const modeOptions = computed(() => [
 
       <!-- editors: row 1 is the column grid (its height is held); saved presets sit in their own row below -->
       <div v-else-if="hasKeys" class="editors">
-      <div v-if="decimals === 3" class="fst">
-        <Switch v-model="fineStep" :label="t('perf.fineStep')" :describedby="fineStepDescId" />
-        <span :id="fineStepDescId" class="fst__desc num">{{ fineStep ? t('perf.fineStepOn') : t('perf.fineStepOff') }}</span>
-        <InfoTip :text="t('perf.fineStepTip')" />
-      </div>
+        <div v-if="decimals === 3" class="fst">
+          <Switch v-model="fineStep" :label="t('perf.fineStep')" :describedby="fineStepDescId" />
+          <span :id="fineStepDescId" class="fst__desc num">{{ fineStep ? t('perf.fineStepOn') : t('perf.fineStepOff') }}</span>
+          <InfoTip :text="t('perf.fineStepTip')" />
+        </div>
       <div
         ref="gridEl"
         class="grid"

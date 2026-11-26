@@ -530,21 +530,50 @@ export const usePerformanceStore = defineStore('performance', () => {
     return Math.round(Math.round(mm / step) * step * 1000) / 1000;
   }
 
-  function clamp(p: Performance, e: PerfEdit): PerfEdit {
-    const max = rangeMm(p);
+  /**
+   * Clamps and rounds only the fields present in `p` (DESIGN FST §10.2 M3 / FST-R0).
+   * Unedited fields stay untouched even outside LIMITS or off the board's precision grid.
+   * When `p` sets `mode`, any field that mode puts into use and `p` does not set is raised to
+   * the minimum if below it (never lowered, never rounded); `normalRelease` stays tied to `normalPress` (SYNC-REL-1).
+   */
+  function clampSet(cur: Performance, p: Partial<PerfEdit>): Partial<PerfEdit> {
+    const max = rangeMm(cur);
     const c = (v: number, lo: number, hi: number) => round(Math.min(hi, Math.max(lo, v)));
-    const normalPress = c(e.normalPress, LIMITS.actuationMin, max);
-    return {
-      // Keep the mode as is (0, 1 or 2); anything else stays unchanged and the write guard refuses it.
-      mode: e.mode,
-      normalPress,
-      normalRelease: normalPress, // the firmware ties it to normalPress
-      rtFirstTouch: c(e.rtFirstTouch, LIMITS.actuationMin, max),
-      rtPress: c(e.rtPress, LIMITS.rtMin, LIMITS.rtMax),
-      rtRelease: c(e.rtRelease, LIMITS.rtMin, LIMITS.rtMax),
-      pressDeadStroke: c(e.pressDeadStroke, 0, LIMITS.deadMax),
-      releaseDeadStroke: c(e.releaseDeadStroke, 0, LIMITS.deadMax),
-    };
+    const out: Partial<PerfEdit> = {};
+    if (p.mode !== undefined) out.mode = p.mode;
+    if (p.normalPress !== undefined) {
+      out.normalPress = c(p.normalPress, LIMITS.actuationMin, max);
+      out.normalRelease = out.normalPress; // the firmware ties it to normalPress (SYNC-REL-1)
+    } else if (p.normalRelease !== undefined) {
+      out.normalRelease = cur.normalPress;
+    }
+    if (p.rtFirstTouch !== undefined) out.rtFirstTouch = c(p.rtFirstTouch, LIMITS.actuationMin, max);
+    if (p.rtPress !== undefined) out.rtPress = c(p.rtPress, LIMITS.rtMin, LIMITS.rtMax);
+    if (p.rtRelease !== undefined) out.rtRelease = c(p.rtRelease, LIMITS.rtMin, LIMITS.rtMax);
+    if (p.pressDeadStroke !== undefined) out.pressDeadStroke = c(p.pressDeadStroke, 0, LIMITS.deadMax);
+    if (p.releaseDeadStroke !== undefined) out.releaseDeadStroke = c(p.releaseDeadStroke, 0, LIMITS.deadMax);
+
+    if (p.mode !== undefined) {
+      if (isRtMode(p.mode)) {
+        const entering = !isRtMode(cur.mode);
+        if (out.rtFirstTouch === undefined && (entering ? cur.rtFirstTouch < LIMITS.actuationMin : cur.rtFirstTouch <= 0)) {
+          out.rtFirstTouch = LIMITS.actuationMin;
+        }
+        if (out.rtPress === undefined && (entering ? cur.rtPress < LIMITS.rtMin : cur.rtPress <= 0)) {
+          out.rtPress = LIMITS.rtMin;
+        }
+        if (out.rtRelease === undefined && (entering ? cur.rtRelease < LIMITS.rtMin : cur.rtRelease <= 0)) {
+          out.rtRelease = LIMITS.rtMin;
+        }
+      } else if (p.mode === 0) {
+        const entering = cur.mode !== 0;
+        if (out.normalPress === undefined && (entering ? cur.normalPress < LIMITS.actuationMin : cur.normalPress <= 0)) {
+          out.normalPress = LIMITS.actuationMin;
+          out.normalRelease = out.normalPress;
+        }
+      }
+    }
+    return out;
   }
 
   function jobFor(id: number, profile: number) {
@@ -672,7 +701,8 @@ export const usePerformanceStore = defineStore('performance', () => {
       const cur = values.value[id];
       if (!cur || !isKnownMode(cur.mode)) continue;
       const b = pickEdit(cur);
-      const a = clamp(cur, { ...b, ...patch(cur) });
+      const p = patch(cur);
+      const a = { ...b, ...clampSet(cur, p) };
       if (sameEdit(a, b)) continue;
       before[id] = b;
       after[id] = a;
