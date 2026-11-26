@@ -189,7 +189,10 @@ export const base = {
   'perf.switchLabel': 'Đổi switch · {name} ({n} phím)',
   'perf.travel': 'Hành trình phím',
   'perf.range': 'Tối đa {max} mm',
-  'perf.fineHint': 'Giữ Shift khi bấm − / +, phím mũi tên hoặc kéo để chỉnh từng 0.001 mm, hoặc gõ thẳng giá trị.',
+  'perf.fineStep': 'Bước 0.001 mm',
+  'perf.fineStepOn': '− / +, phím mũi tên và các thanh kéo bên dưới chỉnh từng 0.001 mm.',
+  'perf.fineStepOff': '− / +, phím mũi tên và các thanh kéo bên dưới chỉnh từng 0.01 mm.',
+  'perf.fineStepTip': 'Shift không còn đổi bước. Trên thanh kéo, PageUp / PageDown luôn chỉnh 0.1 mm. Gõ thẳng vào ô để đặt giá trị bất kỳ.',
   'perf.keyLabel': 'Hành trình {key}',
 
   // ui kit

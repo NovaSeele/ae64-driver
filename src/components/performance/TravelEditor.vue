@@ -3,6 +3,7 @@
 // with a mm ruler and dead-zone bands. 0 mm is at the top, deeper is lower.
 import { computed } from 'vue';
 import Slider from '../ui/Slider.vue';
+import { formatMm } from '../ui/NumberField.vue';
 
 const props = defineProps<{
   /** null = mixed (shows `range`). */
@@ -11,6 +12,7 @@ const props = defineProps<{
   min: number;
   max: number;
   step: number;
+  decimals: number;
   deadTop: number | null;
   deadBottom: number | null;
   label: string;
@@ -85,12 +87,13 @@ const CAP_TRAVEL = 46; // px the illustrated cap moves at full travel
           :min="min"
           :max="max"
           :step="step"
-          :fine-step="0.001"
+          :fine-step="step"
+          :page-step="0.1"
           orientation="vertical"
           :label="label"
           :disabled="disabled"
           :range="value === null ? range : null"
-          :format="(v) => `${v.toFixed(2)} mm`"
+          :format="(v) => `${formatMm(v, decimals)} mm`"
           relative
           @step="emit('step', $event)"
           @update:model-value="emit('update', $event)"

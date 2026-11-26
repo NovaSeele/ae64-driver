@@ -52,6 +52,7 @@ export const APP_SETTINGS: readonly AppSetting[] = [
   // how the Lighting page draws its effect buttons (FXP §3): display only
   { key: FX_VIEW_KEY, group: 'tabs', valid: isFxView },
   { key: 'ae64.perf.depthShading', group: 'toggles', valid: isFlag01 },
+  { key: 'ae64.perf.fineStep', group: 'toggles', valid: isFlag01 },
   { key: 'ae64.live.keyLock', group: 'toggles', valid: isFlag01 },
   { key: 'ae64.live.colorByResult', group: 'toggles', valid: isFlag01 },
   { key: 'ae64.calibration.showAdc', group: 'toggles', valid: isFlag01 },

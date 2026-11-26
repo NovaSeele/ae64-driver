@@ -186,7 +186,10 @@ const baseEn: Record<keyof typeof base, string> = {
   'perf.switchLabel': 'Switch · {name} ({n|# key|# keys})',
   'perf.travel': 'Key travel',
   'perf.range': 'Up to {max} mm',
-  'perf.fineHint': 'Hold Shift with − / +, the arrow keys or while dragging for 0.001 mm steps, or type a value.',
+  'perf.fineStep': '0.001 mm steps',
+  'perf.fineStepOn': '− / +, the arrow keys and the sliders below move 0.001 mm at a time.',
+  'perf.fineStepOff': '− / +, the arrow keys and the sliders below move 0.01 mm at a time.',
+  'perf.fineStepTip': 'Shift no longer changes the step. On a slider, PageUp / PageDown always move 0.1 mm. Type in a box to set any value.',
   'perf.keyLabel': 'Travel {key}',
 
   // ui kit

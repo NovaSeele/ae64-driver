@@ -322,7 +322,7 @@ describe('WX5 4 U-11: no app undo under an open Advanced editor; Save always mea
 });
 
 describe('WX5 5 U-12: an arrow key on a mixed slider moves each key from its own value', () => {
-  it('ArrowRight on the mixed top dead zone (0.05 and 0.60): 0.06 and 0.61; the slider says it is mixed', async () => {
+  it('ArrowRight on the mixed top dead zone (0.05 and 0.60): 0.051 and 0.601; the slider says it is mixed', async () => {
     const { device, perf, sync, sel } = await boot();
     await perf.load();
     const [a, b] = [device.keys[10].id, device.keys[11].id];
@@ -337,7 +337,7 @@ describe('WX5 5 U-12: an arrow key on a mixed slider moves each key from its own
     expect(thumb.attributes('aria-valuetext')).toContain(t('perf.mixed'));
     await thumb.trigger('keydown', { key: 'ArrowRight' });
     await flushPromises();
-    expect({ a: perf.values[a].pressDeadStroke, b: perf.values[b].pressDeadStroke }).toEqual({ a: 0.06, b: 0.61 });
+    expect({ a: perf.values[a].pressDeadStroke, b: perf.values[b].pressDeadStroke }).toEqual({ a: 0.051, b: 0.601 });
     await thumb.trigger('keydown', { key: 'ArrowLeft' });
     await flushPromises();
     expect({ a: perf.values[a].pressDeadStroke, b: perf.values[b].pressDeadStroke }).toEqual({ a: 0.05, b: 0.6 });
@@ -358,7 +358,7 @@ describe('WX5 5 U-12: an arrow key on a mixed slider moves each key from its own
     expect(thumb.attributes('aria-valuetext') ?? '').not.toContain(t('perf.mixed'));
     await thumb.trigger('keydown', { key: 'ArrowRight' });
     await flushPromises();
-    expect([perf.values[a].pressDeadStroke, perf.values[b].pressDeadStroke]).toEqual([0.21, 0.21]);
+    expect([perf.values[a].pressDeadStroke, perf.values[b].pressDeadStroke]).toEqual([0.201, 0.201]);
     await sync.flush();
   });
 });

@@ -58,7 +58,7 @@ const settle = async (n = 30) => { for (let i = 0; i < n; i++) await flushPromis
 const key = (device: ReturnType<typeof useDeviceStore>, name: string) => device.keys.find((k) => k.name === name)!.id;
 
 describe('WX6 0a.1 the vertical actuation slider on a mixed pair (SL1 #9, SL2 #10, TE1 #12, TT1 #13)', () => {
-  it('ArrowDown / ArrowUp step each key by one step, PageUp / PageDown by ten, from its own value', async () => {
+  it('ArrowDown / ArrowUp step each key by one step (0.001), PageUp / PageDown by 0.1, from its own value', async () => {
     const { device, perf, sync, sel } = await boot();
     await perf.load();
     const [a, b] = [key(device, 'Q'), key(device, 'W')];
@@ -74,7 +74,7 @@ describe('WX6 0a.1 the vertical actuation slider on a mixed pair (SL1 #9, SL2 #1
     const now = () => [perf.values[a].normalPress, perf.values[b].normalPress];
     await thumb.trigger('keydown', { key: 'ArrowDown' }); // deeper
     await flushPromises();
-    expect(now()).toEqual([1.01, 2.01]);
+    expect(now()).toEqual([1.001, 2.001]);
     await thumb.trigger('keydown', { key: 'ArrowUp' });
     await flushPromises();
     expect(now()).toEqual([1.0, 2.0]);
@@ -104,7 +104,7 @@ describe('WX6 0a.2 the RT press slider on a mixed pair (TT2 #14)', () => {
     expect(thumb.attributes('aria-valuetext')).toContain(t('perf.mixed'));
     await thumb.trigger('keydown', { key: 'ArrowRight' });
     await flushPromises();
-    expect([perf.values[a].rtPress, perf.values[b].rtPress]).toEqual([0.21, 0.51]);
+    expect([perf.values[a].rtPress, perf.values[b].rtPress]).toEqual([0.201, 0.501]);
     await sync.flush();
   });
 });

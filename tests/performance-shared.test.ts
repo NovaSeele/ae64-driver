@@ -114,7 +114,7 @@ describe('one actuation point for Standard and Rapid Trigger', () => {
     expect(new Set(shown).size).toBe(2);
     document.body.querySelector<HTMLButtonElement>(`.act button[aria-label="${t('ui.increase')} ${t('perf.actuation')}"]`)!.click();
     await flush();
-    [E, Q].forEach((k, i) => expect(both(perf, k)).toEqual([+(shown[i] + 0.01).toFixed(3), +(shown[i] + 0.01).toFixed(3)]));
+    [E, Q].forEach((k, i) => expect(both(perf, k)).toEqual([+(shown[i] + 0.001).toFixed(3), +(shown[i] + 0.001).toFixed(3)]));
     expect(setPerf).toHaveBeenCalledTimes(2);
   });
 

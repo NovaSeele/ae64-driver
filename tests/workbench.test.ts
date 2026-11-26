@@ -374,7 +374,7 @@ describe('W1: nothing selected means all keys', () => {
       thumb().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
       await flushPromises();
     }
-    for (const k of ALL) expect(perf.values[k].rtFirstTouch).toBe(1.06);
+    for (const k of ALL) expect(perf.values[k].rtFirstTouch).toBe(1.006);
     await sync.flush();
     expect(setPerf).toHaveBeenCalledTimes(64); // the sync queue coalesces per key (last wins), never 64 × 6
     expect(toasts().filter((x) => x.text === t('perf.appliedAll', { n: 64 }))).toHaveLength(1);

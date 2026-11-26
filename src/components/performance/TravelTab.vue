@@ -12,7 +12,7 @@ export function deriveRtLinked(recs: PerformanceRec[], isRt: (mode: number) => b
 // pattern (docs/ARCHITECTURE.md), laid out as a workbench: view tools (in the page's toolbar) → keyboard → scope bar →
 // the editor cards. With nothing selected the editors work on every key. Kept alive while the user visits the other tabs:
 // its window listeners and the profile hook follow activation, and its view tools are shown only while it is open.
-import { computed, inject, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
+import { computed, inject, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, useId, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { IconAlertTriangle, IconFlask, IconInfoCircle, IconLink, IconLinkOff, IconLock, IconRefresh, IconX } from '@tabler/icons-vue';
 import KeyboardView from '../keyboard/KeyboardView.vue';
@@ -89,6 +89,25 @@ const depthShading = ref(loadShading());
 watch(depthShading, (on) => {
   try {
     localStorage.setItem(SHADING_KEY, on ? '1' : '0');
+  } catch {
+    // ignore storage error
+  }
+});
+
+// Fine step preference (DESIGN FST §2): on by default, remembered per computer, never sent to the keyboard.
+const FINE_STEP_KEY = 'ae64.perf.fineStep';
+function loadFineStep(): boolean {
+  try {
+    return localStorage.getItem(FINE_STEP_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+const fineStep = ref(loadFineStep());
+const fineStepDescId = useId();
+watch(fineStep, (on) => {
+  try {
+    localStorage.setItem(FINE_STEP_KEY, on ? '1' : '0');
   } catch {
     // ignore storage error
   }
@@ -201,6 +220,8 @@ onBeforeUnmount(() => {
 });
 
 const decimals = computed(() => capDecimals(device.rtPrecision));
+const stepMm = computed(() => (decimals.value === 3 && fineStep.value ? 0.001 : 0.01));
+const sliderText = (v: number) => `${formatMm(v, decimals.value)} mm`;
 /** Editor value text: 2 decimals unless the value needs the third. */
 const fmtEdit = (v: number) => formatMm(v, decimals.value);
 const fmt = (v: number): string => fmtMm(v, decimals.value);
@@ -690,6 +711,11 @@ const modeOptions = computed(() => [
 
       <!-- editors: row 1 is the column grid (its height is held); saved presets sit in their own row below -->
       <div v-else-if="hasKeys" class="editors">
+      <div v-if="decimals === 3" class="fst">
+        <Switch v-model="fineStep" :label="t('perf.fineStep')" :describedby="fineStepDescId" />
+        <span :id="fineStepDescId" class="fst__desc num">{{ fineStep ? t('perf.fineStepOn') : t('perf.fineStepOff') }}</span>
+        <InfoTip :text="t('perf.fineStepTip')" />
+      </div>
       <div
         ref="gridEl"
         class="grid"
@@ -709,7 +735,8 @@ const modeOptions = computed(() => [
               :range="act.range"
               :min="LIMITS.actuationMin"
               :max="maxTravel"
-              :step="0.01"
+              :step="stepMm"
+              :decimals="decimals"
               :dead-top="deadTop.value"
               :dead-bottom="deadBottom.value"
               :label="t('perf.actuation')"
@@ -729,7 +756,8 @@ const modeOptions = computed(() => [
                 :model-value="act.value"
                 :min="LIMITS.actuationMin"
                 :max="maxTravel"
-                :step="0.01"
+                :step="stepMm"
+                :fine-step="stepMm"
                 :decimals="decimals"
                 :label="t('perf.actuation')"
                 :disabled="ro"
@@ -738,7 +766,6 @@ const modeOptions = computed(() => [
                 @step="stepActuation"
               />
               <span class="hint num">{{ t('perf.range', { max: fmt(maxTravel) }) }}</span>
-              <span v-if="decimals === 3" class="hint">{{ t('perf.fineHint') }}</span>
             </div>
           </div>
         </Card>
@@ -781,7 +808,8 @@ const modeOptions = computed(() => [
                 :model-value="rtPress.value"
                 :min="LIMITS.rtMin"
                 :max="LIMITS.rtMax"
-                :step="0.01"
+                :step="stepMm"
+                :fine-step="stepMm"
                 :decimals="decimals"
                 :label="t('perf.rtPress')"
                 :disabled="ro"
@@ -795,8 +823,10 @@ const modeOptions = computed(() => [
               :range="rtPress.value === null ? rtPress.range : null"
               :min="LIMITS.rtMin"
               :max="LIMITS.rtMax"
-              :step="0.01"
-              :fine-step="0.001"
+              :step="stepMm"
+              :fine-step="stepMm"
+              :page-step="0.1"
+              :format="sliderText"
               :label="t('perf.rtPress')"
               style="--sl-tone: var(--m-press)"
               :disabled="ro"
@@ -813,7 +843,8 @@ const modeOptions = computed(() => [
                 :model-value="rtRelease.value"
                 :min="LIMITS.rtMin"
                 :max="LIMITS.rtMax"
-                :step="0.01"
+                :step="stepMm"
+                :fine-step="stepMm"
                 :decimals="decimals"
                 :label="t('perf.rtRelease')"
                 :disabled="ro"
@@ -827,8 +858,10 @@ const modeOptions = computed(() => [
               :range="rtRelease.value === null ? rtRelease.range : null"
               :min="LIMITS.rtMin"
               :max="LIMITS.rtMax"
-              :step="0.01"
-              :fine-step="0.001"
+              :step="stepMm"
+              :fine-step="stepMm"
+              :page-step="0.1"
+              :format="sliderText"
               :label="t('perf.rtRelease')"
               style="--sl-tone: var(--m-release)"
               :disabled="ro"
@@ -848,7 +881,8 @@ const modeOptions = computed(() => [
                 :model-value="dz.s.value"
                 :min="0"
                 :max="LIMITS.deadMax"
-                :step="0.01"
+                :step="stepMm"
+                :fine-step="stepMm"
                 :decimals="decimals"
                 :label="dz.label"
                 :disabled="ro"
@@ -862,8 +896,10 @@ const modeOptions = computed(() => [
               :range="dz.s.value === null ? dz.s.range : null"
               :min="0"
               :max="LIMITS.deadMax"
-              :step="0.01"
-              :fine-step="0.001"
+              :step="stepMm"
+              :fine-step="stepMm"
+              :page-step="0.1"
+              :format="sliderText"
               :label="dz.label"
               :style="{ '--sl-tone': 'var(--m-deadzone)' }"
               :disabled="ro"
@@ -978,6 +1014,8 @@ const modeOptions = computed(() => [
 .grid--note { grid-template-rows: auto 1fr; }
 /* Saved presets: a second row with the same columns, so nothing in it can stretch row 1. */
 .editors { display: flex; flex-direction: column; gap: var(--s-4); }
+.fst { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--s-3); row-gap: var(--s-1); }
+.fst__desc { font-size: var(--fs-label); color: var(--fg-2); }
 .saved { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: var(--s-4); }
 .saved__card { grid-column: var(--cols, 3); }
 .pcol { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; }
