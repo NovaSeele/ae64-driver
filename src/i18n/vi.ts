@@ -195,6 +195,8 @@ export const base = {
   'perf.fineStepTip': 'Shift không còn đổi bước. Trên thanh kéo, PageUp / PageDown luôn chỉnh 0.1 mm. Gõ thẳng vào ô để đặt giá trị bất kỳ.',
   'perf.lowAct': 'Dưới 0.05 mm, phím có thể tự kích hoạt khi bàn rung hay chạm nhẹ.',
   'perf.lowRt': 'Dưới 0.05 mm, Rapid Trigger có thể tự nhấn / nhả vì rung nhẹ.',
+  'perf.kept': '{field}: bàn phím lưu {got} mm thay vì {wanted} mm trên {n} phím. Có lẽ đó là mức nhỏ nhất nó nhận.',
+  'perf.keptHide': 'Ẩn thông báo',
   'perf.keyLabel': 'Hành trình {key}',
 
   // ui kit

@@ -247,9 +247,26 @@ interface PendingSwitch {
   onRefuse?: (reason: string) => void;
 }
 
+/** Field group for a board-clamped read-back notice (DESIGN FST §10.3 M8). */
+export type KeptField = 'act' | 'rtPress' | 'rtRelease';
+export interface KeptNotice {
+  field: KeptField;
+  wanted: number;
+  got: number;
+  ids: number[];
+}
+
 function sameEdit(a: PerfEdit, b: PerfEdit): boolean {
   return EDIT_FIELDS.every((f) => Math.abs(a[f] - b[f]) < 0.0005);
 }
+
+type KeptEditField = 'normalPress' | 'normalRelease' | 'rtFirstTouch' | 'rtPress' | 'rtRelease';
+const KEPT_FIELDS: ReadonlySet<keyof PerfEdit> = new Set<KeptEditField>(['normalPress', 'normalRelease', 'rtFirstTouch', 'rtPress', 'rtRelease']);
+const isKeptField = (f: keyof PerfEdit): f is KeptEditField => KEPT_FIELDS.has(f);
+const KEPT_CEIL = 0.1;
+const KEPT_READ_MAX = 0.1005;
+const keptGroup = (f: KeptEditField): KeptField =>
+  (f === 'rtPress' ? 'rtPress' : f === 'rtRelease' ? 'rtRelease' : 'act');
 
 export const usePerformanceStore = defineStore('performance', () => {
   const device = useDeviceStore();
@@ -275,6 +292,11 @@ export const usePerformanceStore = defineStore('performance', () => {
   let switchSeq = 0;
   /** Keys whose read-back triple differed from what was written (the firmware normalised it). Cleared by the next applySwitch write. */
   const switchNotices = ref<{ id: number; wanted: SwitchTriple; got: SwitchTriple }[]>([]);
+  /** Notices from verify() when the board stored a raised floor value (< 0.1 -> <= 0.1005, DESIGN FST §10.3 M8). */
+  const keptNotices = ref<KeptNotice[]>([]);
+  function clearKeptNotices(): void {
+    keptNotices.value = [];
+  }
   /** Keys whose latest record read from the board (`fresh`) has calibrate 0. Kept in step with every fresh.set. Sorted. */
   const uncalibrated = ref<number[]>([]);
   function noteFresh(id: number, read: Performance): void {
@@ -450,6 +472,7 @@ export const usePerformanceStore = defineStore('performance', () => {
   let leftAt: number | null = null;
   watch(() => device.activeProfile, (now, old) => {
     leftAt = old === loadedProfile.value ? Date.now() : now === loadedProfile.value ? null : leftAt;
+    keptNotices.value = [];
   }, { flush: 'sync' });
   // Another keyboard (or the demo) was connected: nothing cached belongs to it.
   watch(() => device.connection, () => {
@@ -460,6 +483,7 @@ export const usePerformanceStore = defineStore('performance', () => {
     seenByKey.clear();
     switchKeys.clear();
     switchNotices.value = [];
+    keptNotices.value = [];
     uncalibrated.value = [];
     loadedProfile.value = null;
     loadedSerial.value = null;
@@ -485,6 +509,7 @@ export const usePerformanceStore = defineStore('performance', () => {
       loadError.value = null;
       loadedCount.value = 0;
       loadedSerial.value = null;
+      keptNotices.value = [];
       reloadCustomSwitches();
       // Keep the profile being left (with its latest edits) before its values go.
       if (loadedProfile.value !== null && Object.keys(values.value).length) {
@@ -582,10 +607,34 @@ export const usePerformanceStore = defineStore('performance', () => {
     return out;
   }
 
+  function recordKeptNotice(field: KeptField, wanted: number, got: number, id: number): void {
+    const list = keptNotices.value.slice();
+    const idx = list.findIndex((n) => n.field === field);
+    if (idx >= 0 && Math.abs(list[idx].wanted - wanted) < 0.0005 && Math.abs(list[idx].got - got) < 0.0005) {
+      if (!list[idx].ids.includes(id)) list[idx] = { ...list[idx], ids: [...list[idx].ids, id].sort((a, b) => a - b) };
+    } else if (idx >= 0) {
+      list[idx] = { field, wanted, got, ids: [id] };
+    } else {
+      list.push({ field, wanted, got, ids: [id] });
+    }
+    keptNotices.value = list;
+  }
+
+  function clearKeptKey(field: KeptField, id: number): void {
+    const idx = keptNotices.value.findIndex((n) => n.field === field && n.ids.includes(id));
+    if (idx < 0) return;
+    const ids = keptNotices.value[idx].ids.filter((k) => k !== id);
+    const next = keptNotices.value.slice();
+    if (ids.length) next[idx] = { ...next[idx], ids };
+    else next.splice(idx, 1);
+    keptNotices.value = next;
+  }
+
   function jobFor(id: number, profile: number) {
     const key = keyById(id);
     const createdSeq = switchKeys.get(id)?.seq;
     let written: PerfEdit | null = null;
+    let writtenBase: PerfEdit | null = null;
     let writtenTriple: SwitchTriple | null = null;
     let pending: PendingSwitch | undefined;
     return {
@@ -597,6 +646,7 @@ export const usePerformanceStore = defineStore('performance', () => {
       write: async (t: Ae64Transport) => {
         const current = values.value[id];
         const base = fresh.get(id) ?? current;
+        writtenBase = pickEdit(base);
         written = pickEdit(current);
         written.normalRelease = written.normalPress; // the firmware sets release = press on every write
         // Preserve axis / calibration metadata from the last fresh read; only a switch change writes its own triple.
@@ -612,12 +662,55 @@ export const usePerformanceStore = defineStore('performance', () => {
       verify: async (t: Ae64Transport) => {
         const read = await t.getPerformance(key);
         noteFresh(id, read);
-        // `write` ties release to press like the firmware, so a read-back of a saved write equals `written`.
-        const ok = written !== null && sameEdit(pickEdit(read), written);
-        if (!ok) return false;
+        if (written === null) return false;
+        // `write` ties release to press like the firmware, so a read-back of a saved write equals `written`,
+        // except for M8's narrow floor raise: one of the five actuation/RT fields, written < 0.1, written < read <= 0.1005.
+        const gotEdit = pickEdit(read);
+        const raised: { field: KeptEditField; wanted: number; got: number }[] = [];
+        for (const f of EDIT_FIELDS) {
+          const w = written[f];
+          const r = gotEdit[f];
+          if (Math.abs(r - w) < 0.0005) continue;
+          if (isKeptField(f) && w < KEPT_CEIL - 1e-9 && r > w && r <= KEPT_READ_MAX + 1e-9) {
+            raised.push({ field: f, wanted: w, got: r });
+          } else {
+            return false;
+          }
+        }
         const latest = pending !== undefined && switchKeys.get(id)?.seq === pending.seq;
         if (latest) switchKeys.delete(id);
         deleteTuningSnapshot(profile, id); // the hand edit is the truth now: an old snapshot must not overwrite it
+        if (loadedProfile.value === profile) {
+          // M8: apply raised read values only where the key's shown value still equals what was written (a newer edit wins).
+          if (raised.length && values.value[id]) {
+            const cur = values.value[id];
+            const patchShown: Partial<PerfEdit> = {};
+            for (const { field, wanted, got } of raised) {
+              if (Math.abs(cur[field] - wanted) < 0.0005) patchShown[field] = got;
+            }
+            if (Object.keys(patchShown).length) {
+              values.value = { ...values.value, [id]: { ...cur, ...patchShown } };
+            }
+          }
+          const raisedByGroup = new Map<KeptField, { wanted: number; got: number }>();
+          for (const item of raised) {
+            const g = keptGroup(item.field);
+            // Prefer the active mode's actuation field when multiple actuation fields are raised together.
+            const activeAct = isRtMode(written.mode) ? 'rtFirstTouch' : 'normalPress';
+            if (!raisedByGroup.has(g) || item.field === activeAct) {
+              raisedByGroup.set(g, { wanted: item.wanted, got: item.got });
+            }
+          }
+          for (const [g, { wanted, got }] of raisedByGroup) recordKeptNotice(g, wanted, got, id);
+          // Clear this key from a prior kept notice when a later write of that field reads back exactly.
+          if (writtenBase) {
+            for (const g of ['act', 'rtPress', 'rtRelease'] as const) {
+              if (raisedByGroup.has(g)) continue;
+              const fields: (keyof PerfEdit)[] = g === 'act' ? ['normalPress', 'normalRelease', 'rtFirstTouch'] : [g];
+              if (fields.some((f) => Math.abs(written![f] - writtenBase![f]) >= 0.0005)) clearKeptKey(g, id);
+            }
+          }
+        }
         const got = tripleOf(read);
         const tripleOk = !writtenTriple || sameTriple(got, writtenTriple);
         if (!tripleOk) {
@@ -1159,7 +1252,7 @@ export const usePerformanceStore = defineStore('performance', () => {
 
   return {
     values, loading, loadedCount, loadError, loadedProfile, loadedSerial, readSeq, uncalibrated, recalKeys, needsCal, profileSnapshots,
-    load, apply, catalog, switchOf, switchIdentity, keySwitch, planSwitch, applySwitch, switchNotices, noteRead, seenFor, restoreAxis,
+    load, apply, catalog, switchOf, switchIdentity, keySwitch, planSwitch, applySwitch, switchNotices, keptNotices, clearKeptNotices, noteRead, seenFor, restoreAxis,
     customSwitches, genericDecl, genericEntry, assignments, verify, staleKeys, lostKeys, deepKeys,
     saveCustomSwitch, addCustomSwitches, deleteCustomSwitch, setGenericRange, forgetKeys,
     clearRecal, clearVerify, markVerifyPassed, fixDeepTravel, reloadCustomSwitches,

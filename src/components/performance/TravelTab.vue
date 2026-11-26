@@ -23,6 +23,7 @@ import StdCycleCard from './StdCycleCard.vue';
 import InfoTip from '../ui/InfoTip.vue';
 import Card from '../ui/Card.vue';
 import Button from '../ui/Button.vue';
+import IconButton from '../ui/IconButton.vue';
 import Dialog from '../ui/Dialog.vue';
 import Segmented from '../ui/Segmented.vue';
 import Slider from '../ui/Slider.vue';
@@ -35,7 +36,7 @@ import { useSelectionStore } from '../../stores/selection';
 import { useHistoryStore } from '../../stores/history';
 import { useCalibrationStore } from '../../stores/calibration';
 import { LIMITS, PRESETS, actuationOf, isKnownMode, perfMinMm, rangeMm, usePerformanceStore } from '../../stores/performance';
-import type { PerfEdit } from '../../stores/performance';
+import type { KeptField, KeptNotice, PerfEdit } from '../../stores/performance';
 import { USER_PRESET_MAX, USER_PRESET_NAME_MAX, useUserPresetsStore } from '../../stores/userPresets';
 import type { UserPreset } from '../../stores/userPresets';
 import { releasePoint, settingsFrom } from '../../stores/live';
@@ -225,6 +226,17 @@ const decimals = computed(() => capDecimals(device.rtPrecision));
 const minMm = computed(() => perfMinMm(device.rtPrecision));
 const stepMm = computed(() => (decimals.value === 3 && fineStep.value ? 0.001 : 0.01));
 const sliderText = (v: number) => `${formatMm(v, decimals.value)} mm`;
+const KEPT_FIELD_LABEL: Record<KeptField, MessageKey> = {
+  act: 'perf.actuation',
+  rtPress: 'perf.rtPress',
+  rtRelease: 'perf.rtRelease',
+};
+const keptText = (n: KeptNotice) => t('perf.kept', {
+  field: t(KEPT_FIELD_LABEL[n.field]),
+  got: fmtMm(n.got, decimals.value),
+  wanted: fmtMm(n.wanted, decimals.value),
+  n: n.ids.length,
+});
 /** Editor value text: 2 decimals unless the value needs the third. */
 const fmtEdit = (v: number) => formatMm(v, decimals.value);
 const fmt = (v: number): string => fmtMm(v, decimals.value);
@@ -722,6 +734,10 @@ const modeOptions = computed(() => [
           <span :id="fineStepDescId" class="fst__desc num">{{ fineStep ? t('perf.fineStepOn') : t('perf.fineStepOff') }}</span>
           <InfoTip :text="t('perf.fineStepTip')" />
         </div>
+        <div v-if="perf.keptNotices.length" class="kept" role="status">
+          <span class="kept__text num">{{ perf.keptNotices.map(keptText).join(' · ') }}</span>
+          <IconButton :icon="IconX" size="sm" :label="t('perf.keptHide')" @click="perf.clearKeptNotices()" />
+        </div>
       <div
         ref="gridEl"
         class="grid"
@@ -1034,6 +1050,8 @@ const modeOptions = computed(() => [
 .editors { display: flex; flex-direction: column; gap: var(--s-4); }
 .fst { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--s-3); row-gap: var(--s-1); }
 .fst__desc { font-size: var(--fs-label); color: var(--fg-2); }
+.kept { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-label); color: var(--fg-2); }
+.kept__text { flex: 1 1 auto; min-width: 0; }
 .saved { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: var(--s-4); }
 .saved__card { grid-column: var(--cols, 3); }
 .pcol { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; }

@@ -225,17 +225,29 @@ describe('FST test 21: low-value status lines and aria-describedby (M7, N8)', ()
   });
 });
 
-describe('FST test 24 (step 3): i18n keys perf.lowAct, perf.lowRt, diagnostics.vBelowMin', () => {
-  it('all three step-2/3 keys exist in vi and en with exact DESIGN §10.4 texts', () => {
+describe('FST test 24: i18n keys of DESIGN §10.4 and perf.kept English plurals', () => {
+  it('all five §10.4 keys exist in vi and en, and perf.kept pluralizes 1 key vs 2 keys in en', () => {
     expect(viDict['perf.lowAct']).toBe('Dưới 0.05 mm, phím có thể tự kích hoạt khi bàn rung hay chạm nhẹ.');
     expect(enDict['perf.lowAct']).toBe('Below 0.05 mm a key can fire from a light touch or a bump to the desk.');
     expect(viDict['perf.lowRt']).toBe('Dưới 0.05 mm, Rapid Trigger có thể tự nhấn / nhả vì rung nhẹ.');
     expect(enDict['perf.lowRt']).toBe('Below 0.05 mm Rapid Trigger can press and release on its own from small vibrations.');
+    expect(viDict['perf.kept']).toBe('{field}: bàn phím lưu {got} mm thay vì {wanted} mm trên {n} phím. Có lẽ đó là mức nhỏ nhất nó nhận.');
+    expect(enDict['perf.kept']).toBe('{field}: the keyboard stored {got} mm instead of {wanted} mm on {n|# key|# keys}. That is probably the lowest value it takes.');
+    expect(viDict['perf.keptHide']).toBe('Ẩn thông báo');
+    expect(enDict['perf.keptHide']).toBe('Hide this note');
     expect(viDict['diagnostics.vBelowMin']).toBe(
       'giá trị hành trình {field} = {value} ở phím {key} nhỏ hơn mức thấp nhất bàn phím này nhận ({min} mm)',
     );
     expect(enDict['diagnostics.vBelowMin']).toBe(
       'travel value {field} = {value} at key {key} is below the lowest value this keyboard takes ({min} mm)',
+    );
+
+    setLocale('en');
+    expect(t('perf.kept', { field: 'Press sensitivity', got: '0.01', wanted: '0.001', n: 1 })).toBe(
+      'Press sensitivity: the keyboard stored 0.01 mm instead of 0.001 mm on 1 key. That is probably the lowest value it takes.',
+    );
+    expect(t('perf.kept', { field: 'Press sensitivity', got: '0.01', wanted: '0.001', n: 2 })).toBe(
+      'Press sensitivity: the keyboard stored 0.01 mm instead of 0.001 mm on 2 keys. That is probably the lowest value it takes.',
     );
   });
 });
