@@ -779,7 +779,7 @@ describe('user presets from localStorage are untrusted', () => {
   it('out-of-range numbers are clamped to the limits; more than 6 entries are cut', () => {
     const wild = { ...good, id: 'w', actuation: 99, rtPress: -5, rtRelease: 1e9, deadTop: -1, deadBottom: 50 };
     const [p] = load(JSON.stringify([wild]));
-    expect(p).toMatchObject({ actuation: 10, rtPress: 0.01, rtRelease: 2, deadTop: 0, deadBottom: 1 });
+    expect(p).toMatchObject({ actuation: 10, rtPress: 0.001, rtRelease: 2, deadTop: 0, deadBottom: 1 });
     const many = Array.from({ length: 9 }, (_, i) => ({ ...good, id: `m${i}` }));
     expect(load(JSON.stringify(many))).toHaveLength(USER_PRESET_MAX);
     expect(sanitizePreset({ ...good, actuation: Infinity })).toBeNull(); // not finite
@@ -808,7 +808,7 @@ describe('user presets from localStorage are untrusted', () => {
       expect(p.rtFirstTouch).toBeLessThanOrEqual(rangeMm(p));
       expect(p.normalPress).toBeLessThanOrEqual(rangeMm(p));
       expect(p.rtPress).toBeLessThanOrEqual(2);
-      expect(p.rtRelease).toBeGreaterThanOrEqual(0.01);
+      expect(p.rtRelease).toBeGreaterThanOrEqual(0.001);
       expect(p.pressDeadStroke).toBeLessThanOrEqual(1);
       expect(p.releaseDeadStroke).toBeGreaterThanOrEqual(0);
     }

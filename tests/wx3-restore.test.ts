@@ -176,7 +176,7 @@ describe('W-08: every write checked by the guards before the first one', () => {
   it('DG1 turned round: one key with normalPress 0 → refused, 0 writes of any family', async () => {
     const r = await refusedWith((p, keys) => { p.performance[keys[40].id].normalPress = 0; });
     expect(r.result).toBeInstanceOf(RestoreRefusedError); // d028465: keymap written + committed, travel half-written
-    expect(String((r.result as Error).message)).toContain('actuation point must be above 0 mm');
+    expect(String((r.result as Error).message)).toContain('below the lowest value this keyboard takes (0.001 mm)');
     expect(r.diff.refused).toBe((r.result as Error).message); // said at file pick already
     expect(r.writes).toEqual([]);
   });
@@ -201,7 +201,7 @@ describe('W-08: every write checked by the guards before the first one', () => {
       p.performance[keys[30].id].rtRelease = 0;
     });
     expect(r.result).toBeInstanceOf(RestoreRefusedError);
-    expect((r.result as Error).message).toContain('Rapid Trigger distances must be above 0 mm');
+    expect((r.result as Error).message).toContain('below the lowest value this keyboard takes (0.001 mm)');
     expect(r.writes).toEqual([]);
   });
 
@@ -218,7 +218,7 @@ describe('W-08: every write checked by the guards before the first one', () => {
     Object.defineProperty(input, 'files', { value: [new File([JSON.stringify(payload)], 'b.json')], configurable: true });
     input.dispatchEvent(new Event('change'));
     const toasts = useToast().items;
-    await vi.waitFor(() => expect(toasts.value.some((x) => x.kind === 'error' && x.text.includes('actuation point must be above 0 mm'))).toBe(true), { timeout: 15000 });
+    await vi.waitFor(() => expect(toasts.value.some((x) => x.kind === 'error' && x.text.includes('below the lowest value this keyboard takes (0.001 mm)'))).toBe(true), { timeout: 15000 });
     expect(toasts.value.find((x) => x.kind === 'error')!.text.startsWith(t('diagnostics.vRefused', { msg: '' }).trim())).toBe(true);
     expect(document.body.querySelector('.dlg__panel')).toBeNull();
     expect(writes).toEqual([]);

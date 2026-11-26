@@ -40,9 +40,9 @@ export function sanitizePreset(raw: unknown): UserPreset | null {
   if (!name || name.length > USER_PRESET_NAME_MAX) return null;
   if (r.mode !== 0 && r.mode !== 1) return null;
   if (typeof r.continuous !== 'boolean') return null;
-  const actuation = num(r.actuation, LIMITS.actuationMin, ACTUATION_CEIL);
-  const rtPress = num(r.rtPress, LIMITS.rtMin, LIMITS.rtMax);
-  const rtRelease = num(r.rtRelease, LIMITS.rtMin, LIMITS.rtMax);
+  const actuation = num(r.actuation, LIMITS.minMm, ACTUATION_CEIL);
+  const rtPress = num(r.rtPress, LIMITS.minMm, LIMITS.rtMax);
+  const rtRelease = num(r.rtRelease, LIMITS.minMm, LIMITS.rtMax);
   const deadTop = num(r.deadTop, 0, LIMITS.deadMax);
   const deadBottom = num(r.deadBottom, 0, LIMITS.deadMax);
   if (actuation === null || rtPress === null || rtRelease === null || deadTop === null || deadBottom === null) return null;

@@ -29,11 +29,16 @@ export type PerfEdit = Pick<Performance, 'mode' | 'normalPress' | 'normalRelease
 const EDIT_FIELDS: (keyof PerfEdit)[] = ['mode', 'normalPress', 'normalRelease', 'rtFirstTouch', 'rtPress', 'rtRelease', 'pressDeadStroke', 'releaseDeadStroke'];
 
 export const LIMITS = {
-  actuationMin: 0.1,
-  rtMin: 0.01,
+  minMm: 0.001,
   rtMax: 2.0,
   deadMax: 1.0,
 };
+
+/** Smallest actuation / RT distance (mm) the connected board takes: its own step (Max 0.001, Pro 0.01). */
+export function perfMinMm(rtPrecision: number): number {
+  if (!Number.isFinite(rtPrecision) || rtPrecision <= 0) return LIMITS.minMm;
+  return Math.max(LIMITS.minMm, Math.round(rtPrecision * 1000) / 1000);
+}
 
 /** Fallback travel range (mm) when a key reports no axisRangeMax. */
 export const DEFAULT_RANGE_MM = 3.31;
@@ -537,38 +542,39 @@ export const usePerformanceStore = defineStore('performance', () => {
    * the minimum if below it (never lowered, never rounded); `normalRelease` stays tied to `normalPress` (SYNC-REL-1).
    */
   function clampSet(cur: Performance, p: Partial<PerfEdit>): Partial<PerfEdit> {
+    const min = perfMinMm(device.rtPrecision);
     const max = rangeMm(cur);
     const c = (v: number, lo: number, hi: number) => round(Math.min(hi, Math.max(lo, v)));
     const out: Partial<PerfEdit> = {};
     if (p.mode !== undefined) out.mode = p.mode;
     if (p.normalPress !== undefined) {
-      out.normalPress = c(p.normalPress, LIMITS.actuationMin, max);
+      out.normalPress = c(p.normalPress, min, max);
       out.normalRelease = out.normalPress; // the firmware ties it to normalPress (SYNC-REL-1)
     } else if (p.normalRelease !== undefined) {
       out.normalRelease = cur.normalPress;
     }
-    if (p.rtFirstTouch !== undefined) out.rtFirstTouch = c(p.rtFirstTouch, LIMITS.actuationMin, max);
-    if (p.rtPress !== undefined) out.rtPress = c(p.rtPress, LIMITS.rtMin, LIMITS.rtMax);
-    if (p.rtRelease !== undefined) out.rtRelease = c(p.rtRelease, LIMITS.rtMin, LIMITS.rtMax);
+    if (p.rtFirstTouch !== undefined) out.rtFirstTouch = c(p.rtFirstTouch, min, max);
+    if (p.rtPress !== undefined) out.rtPress = c(p.rtPress, min, LIMITS.rtMax);
+    if (p.rtRelease !== undefined) out.rtRelease = c(p.rtRelease, min, LIMITS.rtMax);
     if (p.pressDeadStroke !== undefined) out.pressDeadStroke = c(p.pressDeadStroke, 0, LIMITS.deadMax);
     if (p.releaseDeadStroke !== undefined) out.releaseDeadStroke = c(p.releaseDeadStroke, 0, LIMITS.deadMax);
 
     if (p.mode !== undefined) {
       if (isRtMode(p.mode)) {
         const entering = !isRtMode(cur.mode);
-        if (out.rtFirstTouch === undefined && (entering ? cur.rtFirstTouch < LIMITS.actuationMin : cur.rtFirstTouch <= 0)) {
-          out.rtFirstTouch = LIMITS.actuationMin;
+        if (out.rtFirstTouch === undefined && (entering ? cur.rtFirstTouch < min : cur.rtFirstTouch <= 0)) {
+          out.rtFirstTouch = min;
         }
-        if (out.rtPress === undefined && (entering ? cur.rtPress < LIMITS.rtMin : cur.rtPress <= 0)) {
-          out.rtPress = LIMITS.rtMin;
+        if (out.rtPress === undefined && (entering ? cur.rtPress < min : cur.rtPress <= 0)) {
+          out.rtPress = min;
         }
-        if (out.rtRelease === undefined && (entering ? cur.rtRelease < LIMITS.rtMin : cur.rtRelease <= 0)) {
-          out.rtRelease = LIMITS.rtMin;
+        if (out.rtRelease === undefined && (entering ? cur.rtRelease < min : cur.rtRelease <= 0)) {
+          out.rtRelease = min;
         }
       } else if (p.mode === 0) {
         const entering = cur.mode !== 0;
-        if (out.normalPress === undefined && (entering ? cur.normalPress < LIMITS.actuationMin : cur.normalPress <= 0)) {
-          out.normalPress = LIMITS.actuationMin;
+        if (out.normalPress === undefined && (entering ? cur.normalPress < min : cur.normalPress <= 0)) {
+          out.normalPress = min;
           out.normalRelease = out.normalPress;
         }
       }

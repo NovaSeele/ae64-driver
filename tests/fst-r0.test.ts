@@ -12,7 +12,7 @@ import type { Performance, PhysicalKey } from '../src/protocol';
 import { mountPerformance } from './mountPerformance';
 import { useDeviceStore } from '../src/stores/device';
 import { useSelectionStore } from '../src/stores/selection';
-import { LIMITS, usePerformanceStore } from '../src/stores/performance';
+import { LIMITS, perfMinMm, usePerformanceStore } from '../src/stores/performance';
 import { useUserPresetsStore } from '../src/stores/userPresets';
 import { useHistoryStore } from '../src/stores/history';
 import { useSyncStore } from '../src/stores/sync';
@@ -33,10 +33,11 @@ beforeEach(() => {
   setActivePinia(createPinia());
 });
 
-afterEach(() => {
+afterEach(async () => {
   w?.unmount();
   w = null;
   document.body.innerHTML = '';
+  await useDeviceStore().disconnect();
   vi.restoreAllMocks();
   localStorage.clear();
   sessionStorage.clear();
@@ -277,13 +278,14 @@ describe('FST test 15: mode change M3 — raises below-floor in-use fields, neve
     await flush();
 
     expect(sync.state).toBe('saved');
+    const floor = perfMinMm(0.001);
     expect(perf.values[Q.id]).toMatchObject({
       mode: 1,
       normalPress: 2.0,
       normalRelease: 2.0,
-      rtFirstTouch: LIMITS.actuationMin,
-      rtPress: LIMITS.rtMin,
-      rtRelease: LIMITS.rtMin,
+      rtFirstTouch: floor,
+      rtPress: floor,
+      rtRelease: floor,
     });
     expect(ex.perfWritesFor(Q)).toHaveLength(1);
   });
@@ -336,12 +338,13 @@ describe('FST test 15: mode change M3 — raises below-floor in-use fields, neve
     expect(perf.values[Q.id]).toMatchObject({ mode: 0, normalPress: 1.0, normalRelease: 1.0, rtFirstTouch: 1.0, rtPress: 0.8, rtRelease: 0.3 });
     expect(ex.perfWritesFor(Q)).toHaveLength(1);
 
-    // Direct mode 0 on key A whose normalPress is 0 raises normalPress & normalRelease to LIMITS.actuationMin
+    // Direct mode 0 on key A whose normalPress is 0 raises normalPress & normalRelease to perfMinMm(0.001)
     ex.clear();
     perf.apply([A.id], () => ({ mode: 0 }), 'mode');
     await flush();
     expect(sync.state).toBe('saved');
-    expect(perf.values[A.id]).toMatchObject({ mode: 0, normalPress: LIMITS.actuationMin, normalRelease: LIMITS.actuationMin, rtFirstTouch: 1.0, rtPress: 0.3, rtRelease: 0.3 });
+    const floor = perfMinMm(0.001);
+    expect(perf.values[A.id]).toMatchObject({ mode: 0, normalPress: floor, normalRelease: floor, rtFirstTouch: 1.0, rtPress: 0.3, rtRelease: 0.3 });
     expect(ex.perfWritesFor(A)).toHaveLength(1);
   });
 });

@@ -86,6 +86,7 @@ export const diagnosticsEn: Record<keyof typeof diagnosticsVi, string> = {
   'diagnostics.vBadMode': 'invalid travel mode {mode} at key {key}',
   'diagnostics.vMode2': 'travel mode 2 at key {key} needs firmware protocol 1.3.0.0 or newer',
   'diagnostics.vBadDistance': 'invalid travel value {field} = {value} at key {key} (key travel {max} mm)',
+  'diagnostics.vBelowMin': 'travel value {field} = {value} at key {key} is below the lowest value this keyboard takes ({min} mm)',
   'diagnostics.vBadSetting': 'invalid {name} = {value}',
   'diagnostics.vGuardKey': 'the safety check refuses key {key} on {layer} ({why})',
   'diagnostics.vGuardPerf': 'the safety check refuses the travel of key {key} ({why})',

@@ -2,7 +2,7 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 import {
-  ALLOWED_BOARDS, FIRMWARE_ROWS, KEYCODE_GROUPS, LAYER_COUNT, MACRO_SLOTS, SAVE_GROUP, decodeCombo, supportsIntervalRt,
+  ALLOWED_BOARDS, FIRMWARE_ROWS, KEYCODE_GROUPS, LAYER_COUNT, MACRO_SLOTS, SAVE_GROUP, decodeCombo, isRtMode, supportsIntervalRt,
 } from '../protocol';
 import type {
   AdvancedRecord, KeyPos, LedRecord, LightingBase, MacroAction, MacroMeta,
@@ -14,7 +14,7 @@ import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
 import { useHistoryStore } from './history';
 import { LAYER_NAMES, breaksFnRule, useKeymapStore } from './keymap';
-import { isKnownMode, rangeMm, usePerformanceStore } from './performance';
+import { isKnownMode, perfMinMm, rangeMm, usePerformanceStore } from './performance';
 import { useSettingsStore } from './settings';
 import { useSyncStore } from './sync';
 
@@ -68,12 +68,12 @@ export function mergePerf(base: Performance, next: Performance): Performance {
 
 function perfChanged(cur: Performance, next: Performance): boolean {
   return cur.mode !== next.mode
-    || Math.abs(cur.normalPress - next.normalPress) > 0.001
-    || Math.abs(cur.rtFirstTouch - next.rtFirstTouch) > 0.001
-    || Math.abs(cur.rtPress - next.rtPress) > 0.001
-    || Math.abs(cur.rtRelease - next.rtRelease) > 0.001
-    || Math.abs(cur.pressDeadStroke - next.pressDeadStroke) > 0.001
-    || Math.abs(cur.releaseDeadStroke - next.releaseDeadStroke) > 0.001;
+    || Math.abs(cur.normalPress - next.normalPress) > 0.0005
+    || Math.abs(cur.rtFirstTouch - next.rtFirstTouch) > 0.0005
+    || Math.abs(cur.rtPress - next.rtPress) > 0.0005
+    || Math.abs(cur.rtRelease - next.rtRelease) > 0.0005
+    || Math.abs(cur.pressDeadStroke - next.pressDeadStroke) > 0.0005
+    || Math.abs(cur.releaseDeadStroke - next.releaseDeadStroke) > 0.0005;
 }
 
 type PlanKey = KeyPos & { id: number; name?: string };
@@ -90,7 +90,7 @@ export function planRestore(
   currentKeymap: Record<number, Record<number, number>>,
   currentPerf: Record<number, Performance>,
   currentSettings: { systemMode: number; rgbSleep: number; shakeOptimization: boolean },
-  opts: { intervalRt: boolean; boardIdHex?: string },
+  opts: { intervalRt: boolean; boardIdHex?: string; rtPrecision: number },
 ): RestorePlan {
   const plan: RestorePlan = { keys: [], factory: [], unrestorable: [], perf: [], perfSkipped: 0, settings: {} };
 
@@ -143,6 +143,7 @@ export function planRestore(
 
   // 2. Performance
   if (payload.performance) {
+    const min = perfMinMm(opts.rtPrecision);
     const distFields = [
       'normalPress', 'normalRelease', 'rtFirstTouch', 'rtPress', 'rtRelease', 'pressDeadStroke', 'releaseDeadStroke',
     ] as const;
@@ -160,6 +161,16 @@ export function planRestore(
         const val = perf[field];
         if (typeof val !== 'number' || !Number.isFinite(val) || val < 0 || val > max + 0.0005) {
           refuse(tr('diagnostics.vBadDistance', { field, value: String(val), key, max: String(max) }));
+        }
+      }
+      const minFields = isRtMode(perf.mode)
+        ? (['normalPress', 'rtFirstTouch', 'rtPress', 'rtRelease'] as const)
+        : (['normalPress'] as const);
+      for (const field of minFields) {
+        const val = perf[field];
+        if (cur && Math.abs(val - cur[field]) <= 0.0005) continue;
+        if (val < min - 1e-9) {
+          refuse(tr('diagnostics.vBelowMin', { field, value: String(val), key, min: String(min) }));
         }
       }
     }
@@ -383,7 +394,7 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     return planRestore(
       payload, device.keys, keymapStore.values, perfStore.values,
       { systemMode: settingsStore.systemMode, rgbSleep: settingsStore.rgbSleep, shakeOptimization: settingsStore.shakeOptimization },
-      { intervalRt: supportsIntervalRt(device.version), boardIdHex: device.info?.boardIdHex },
+      { intervalRt: supportsIntervalRt(device.version), boardIdHex: device.info?.boardIdHex, rtPrecision: device.rtPrecision },
     );
   }
 

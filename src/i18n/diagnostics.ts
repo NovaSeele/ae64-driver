@@ -84,6 +84,7 @@ export const diagnosticsVi = {
   'diagnostics.vBadMode': 'chế độ hành trình {mode} không hợp lệ ở phím {key}',
   'diagnostics.vMode2': 'chế độ hành trình 2 ở phím {key} cần firmware giao thức 1.3.0.0 trở lên',
   'diagnostics.vBadDistance': 'giá trị hành trình {field} = {value} không hợp lệ ở phím {key} (hành trình phím {max} mm)',
+  'diagnostics.vBelowMin': 'giá trị hành trình {field} = {value} ở phím {key} nhỏ hơn mức thấp nhất bàn phím này nhận ({min} mm)',
   'diagnostics.vBadSetting': 'giá trị {name} = {value} không hợp lệ',
   'diagnostics.vGuardKey': 'kiểm tra an toàn chặn phím {key} ở {layer} ({why})',
   'diagnostics.vGuardPerf': 'kiểm tra an toàn chặn hành trình của phím {key} ({why})',

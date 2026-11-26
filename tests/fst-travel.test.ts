@@ -31,11 +31,12 @@ beforeEach(() => {
   setActivePinia(createPinia());
 });
 
-afterEach(() => {
+afterEach(async () => {
   w?.unmount();
   w = null;
   document.body.innerHTML = '';
   vi.useRealTimers();
+  await useDeviceStore().disconnect();
   vi.restoreAllMocks();
   localStorage.clear();
   sessionStorage.clear();
@@ -180,14 +181,14 @@ describe('FST test 3: default on (Max demo, no stored key)', () => {
 
     // Track click on RT press slider lands on the 0.001 grid (non-0.01 value)
     const track = sliderTrack(LABELS().rtPress);
-    mockRect(track, { width: 1990, height: 20 }); // min 0.01, max 2.00 -> 1 px = 0.001 mm
-    await clickTrack(track, 1227, 10); // 0.01 + 1.227 = 1.237
+    mockRect(track, { width: 1999, height: 20 }); // min 0.001, max 2.00 -> 1 px = 0.001 mm
+    await clickTrack(track, 1236, 10); // 0.001 + 1.236 = 1.237
     expect(perf.values[W].rtPress).toBe(1.237);
 
     // Track click on vertical actuation slider lands on the 0.001 grid
     const actTrack = sliderTrack(LABELS().act);
-    mockRect(actTrack, { width: 20, height: 3210 }); // min 0.1, max 3.31 -> 1 px = 0.001 mm
-    await clickTrack(actTrack, 10, 1137); // 0.1 + 1.137 = 1.237
+    mockRect(actTrack, { width: 20, height: 3309 }); // min 0.001, max 3.31 -> 1 px = 0.001 mm
+    await clickTrack(actTrack, 10, 1236); // 0.001 + 1.236 = 1.237
     expect(perf.values[W].rtFirstTouch).toBe(1.237);
   });
 });
@@ -252,20 +253,20 @@ describe('FST test 5: Shift is ignored on all controls, both on and off (F1, F2)
 
       // Shift-drag on horizontal RT press slider and vertical actuation slider
       const rtTrack = sliderTrack(LABELS().rtPress);
-      mockRect(rtTrack, { width: 1990, height: 20 });
-      await clickTrack(rtTrack, 1227, 10, false);
+      mockRect(rtTrack, { width: 1999, height: 20 });
+      await clickTrack(rtTrack, 1236, 10, false);
       const plainRt = perf.values[W].rtPress;
       await clickTrack(rtTrack, 500, 10, false);
-      await clickTrack(rtTrack, 1227, 10, true);
+      await clickTrack(rtTrack, 1236, 10, true);
       expect(perf.values[W].rtPress, `${mode} RT Shift-drag`).toBe(plainRt);
       expect(plainRt).toBe(mode === 'on' ? 1.237 : 1.24);
 
       const actTrack = sliderTrack(LABELS().act);
-      mockRect(actTrack, { width: 20, height: 3210 });
-      await clickTrack(actTrack, 10, 1137, false);
+      mockRect(actTrack, { width: 20, height: 3309 });
+      await clickTrack(actTrack, 10, 1236, false);
       const plainAct = perf.values[W].rtFirstTouch;
       await clickTrack(actTrack, 10, 500, false);
-      await clickTrack(actTrack, 10, 1137, true);
+      await clickTrack(actTrack, 10, 1236, true);
       expect(perf.values[W].rtFirstTouch, `${mode} Act Shift-drag`).toBe(plainAct);
       expect(plainAct).toBe(mode === 'on' ? 1.237 : 1.24);
     }
@@ -326,9 +327,9 @@ describe('FST test 7: PageUp / PageDown always ±0.1 on every slider, Home / End
     const { perf } = await setup();
     const L = LABELS();
     const sliders: { label: string; field: 'rtFirstTouch' | 'rtPress' | 'rtRelease' | 'pressDeadStroke' | 'releaseDeadStroke'; min: number; max: number }[] = [
-      { label: L.act, field: 'rtFirstTouch', min: 0.1, max: 3.31 },
-      { label: L.rtPress, field: 'rtPress', min: 0.01, max: 2.0 },
-      { label: L.rtRelease, field: 'rtRelease', min: 0.01, max: 2.0 },
+      { label: L.act, field: 'rtFirstTouch', min: 0.001, max: 3.31 },
+      { label: L.rtPress, field: 'rtPress', min: 0.001, max: 2.0 },
+      { label: L.rtRelease, field: 'rtRelease', min: 0.001, max: 2.0 },
       { label: L.deadTop, field: 'pressDeadStroke', min: 0, max: 1.0 },
       { label: L.deadBottom, field: 'releaseDeadStroke', min: 0, max: 1.0 },
     ];
@@ -395,37 +396,76 @@ describe('FST test 8: Pro (0.01 mm precision) hides the row, steps 0.01, leaves 
   });
 });
 
-describe('FST test 9: limits and N-WX5-1 at 0.001 mm', () => {
-  it('holds min/max bounds with 0 writes when already at a bound, and obeys N-WX5-1 for out-of-range values', async () => {
+describe('FST test 16 (replaces test 9): minimums follow the board, limits and N-WX5-1 (N2, N3)', () => {
+  const typeVal = async (input: HTMLInputElement, val: string) => {
+    input.value = val;
+    input.dispatchEvent(new Event('input'));
+    input.dispatchEvent(new Event('blur'));
+    await flushPromises();
+  };
+
+  it('Max demo: floor is 0.001 on actuation and RT (buttons, typing, slider Home), deadzone 0, travel max, and N-WX5-1', async () => {
     const { mock, perf } = await setup();
     const L = LABELS();
     const ex = spyExchange(mock);
 
     const setVal = async (patch: Partial<typeof perf.values[number]>) => {
+      await flush();
       perf.values = { ...perf.values, [W]: { ...perf.values[W], ...patch } };
       await flushPromises();
       ex.clear();
     };
 
-    // RT press at 0.010, − -> stays 0.010, 0 HID
-    await setVal({ rtPress: 0.01 });
-    await clickBtn(nfMinus(L.rtPress));
+    // Actuation: 0.002 -> − gives 0.001; − again stays 0.001 and writes 0 HID
+    await setVal({ rtFirstTouch: 0.002, normalPress: 0.002 });
+    await clickBtn(nfMinus(L.act));
     await flush();
-    expect(perf.values[W].rtPress).toBe(0.01);
+    expect(perf.values[W].rtFirstTouch).toBe(0.001);
+    ex.clear();
+    await clickBtn(nfMinus(L.act));
+    await flush();
+    expect(perf.values[W].rtFirstTouch).toBe(0.001);
     expect(ex.frames).toHaveLength(0);
+
+    // Typing 0 or 0.0004 into actuation -> 0.001; slider Home -> 0.001
+    await setVal({ rtFirstTouch: 1.0, normalPress: 1.0 });
+    await typeVal(nfInput(L.act), '0');
+    expect(perf.values[W].rtFirstTouch).toBe(0.001);
+    await setVal({ rtFirstTouch: 1.0, normalPress: 1.0 });
+    await typeVal(nfInput(L.act), '0.0004');
+    expect(perf.values[W].rtFirstTouch).toBe(0.001);
+    await setVal({ rtFirstTouch: 1.0, normalPress: 1.0 });
+    await pressKey(sliderThumb(L.act), 'Home');
+    expect(perf.values[W].rtFirstTouch).toBe(0.001);
+
+    // Same for RT press and RT release: 0.002 -> 0.001, second − -> 0 HID, typing 0 / 0.0004 -> 0.001, Home -> 0.001
+    for (const [label, field] of [[L.rtPress, 'rtPress'], [L.rtRelease, 'rtRelease']] as const) {
+      await setVal({ [field]: 0.002 });
+      await clickBtn(nfMinus(label));
+      await flush();
+      expect(perf.values[W][field], `${field} 0.002 -> 0.001`).toBe(0.001);
+      ex.clear();
+      await clickBtn(nfMinus(label));
+      await flush();
+      expect(perf.values[W][field], `${field} stays 0.001`).toBe(0.001);
+      expect(ex.frames, `${field} 0 HID at floor`).toHaveLength(0);
+
+      await setVal({ [field]: 0.5 });
+      await typeVal(nfInput(label), '0');
+      expect(perf.values[W][field], `${field} type 0`).toBe(0.001);
+      await setVal({ [field]: 0.5 });
+      await typeVal(nfInput(label), '0.0004');
+      expect(perf.values[W][field], `${field} type 0.0004`).toBe(0.001);
+      await setVal({ [field]: 0.5 });
+      await pressKey(sliderThumb(label), 'Home');
+      expect(perf.values[W][field], `${field} Home`).toBe(0.001);
+    }
 
     // Deadzone top at 0.000, − -> stays 0.000, 0 HID
     await setVal({ pressDeadStroke: 0 });
     await clickBtn(nfMinus(L.deadTop));
     await flush();
     expect(perf.values[W].pressDeadStroke).toBe(0);
-    expect(ex.frames).toHaveLength(0);
-
-    // Actuation at 0.100, − -> stays 0.100, 0 HID
-    await setVal({ rtFirstTouch: 0.1, normalPress: 0.1 });
-    await clickBtn(nfMinus(L.act));
-    await flush();
-    expect(perf.values[W].rtFirstTouch).toBe(0.1);
     expect(ex.frames).toHaveLength(0);
 
     // Actuation at key's travel (3.310), + -> stays 3.310, 0 HID
@@ -435,29 +475,59 @@ describe('FST test 9: limits and N-WX5-1 at 0.001 mm', () => {
     expect(perf.values[W].rtFirstTouch).toBe(3.31);
     expect(ex.frames).toHaveLength(0);
 
-    // N-WX5-1: out-of-range below min (RT press 0.005 < 0.01)
-    await setVal({ rtPress: 0.005 });
+    // N-WX5-1: below min (0 < 0.001) — step further out does nothing (0 HID), step toward range lands on 0.001
+    await setVal({ rtPress: 0 });
     await clickBtn(nfMinus(L.rtPress));
     await flush();
-    expect(perf.values[W].rtPress).toBe(0.005);
+    expect(perf.values[W].rtPress).toBe(0);
     expect(ex.frames).toHaveLength(0);
-    // Step toward range lands on min (0.01)
     await clickBtn(nfPlus(L.rtPress));
     await flush();
-    expect(perf.values[W].rtPress).toBe(0.01);
+    expect(perf.values[W].rtPress).toBe(0.001);
     expect(ex.frames.length).toBeGreaterThan(0);
 
-    // N-WX5-1: out-of-range above max (actuation 3.50 > 3.31)
+    // N-WX5-1: above max (3.50 > 3.31) — step further out does nothing (0 HID), step toward range lands on 3.31
     await setVal({ rtFirstTouch: 3.5, normalPress: 3.5 });
     await clickBtn(nfPlus(L.act));
     await flush();
     expect(perf.values[W].rtFirstTouch).toBe(3.5);
     expect(ex.frames).toHaveLength(0);
-    // Step toward range lands on max (3.31)
     await clickBtn(nfMinus(L.act));
     await flush();
     expect(perf.values[W].rtFirstTouch).toBe(3.31);
     expect(ex.frames.length).toBeGreaterThan(0);
+  });
+
+  it('Pro demo (rtPrecision 0.01): floor is 0.01, typing 0.001 -> 0.01, Home -> 0.01, and 20 steps stay on 0.01 grid (N3)', async () => {
+    const { mock, perf } = await setup({ seed: 'pro', rtPrecision: 0.01 });
+    const L = LABELS();
+    const setPerf = vi.spyOn(mock, 'setPerformance');
+
+    for (const [label, field] of [[L.act, 'rtFirstTouch'], [L.rtPress, 'rtPress'], [L.rtRelease, 'rtRelease']] as const) {
+      await typeVal(nfInput(label), '0.001');
+      expect(perf.values[W][field], `Pro type 0.001 ${field}`).toBe(0.01);
+      await pressKey(sliderThumb(label), 'PageUp');
+      await pressKey(sliderThumb(label), 'Home');
+      expect(perf.values[W][field], `Pro Home ${field}`).toBe(0.01);
+    }
+
+    // 20 mixed steps stay on the 0.01 grid and never drop below 0.01
+    for (let i = 0; i < 5; i++) await clickBtn(nfPlus(L.act));
+    for (let i = 0; i < 5; i++) await clickBtn(nfMinus(L.act));
+    for (let i = 0; i < 5; i++) await pressKey(sliderThumb(L.rtPress), 'ArrowRight');
+    for (let i = 0; i < 5; i++) await clickBtn(nfMinus(L.rtRelease));
+    await flush();
+
+    expect(setPerf).toHaveBeenCalled();
+    for (const [, p] of setPerf.mock.calls) {
+      for (const v of [p.normalPress, p.rtFirstTouch, p.rtPress, p.rtRelease]) {
+        expect(v).toBeGreaterThanOrEqual(0.01);
+        expect(Math.abs(v * 100 - Math.round(v * 100))).toBeLessThan(1e-6);
+      }
+      for (const v of [p.pressDeadStroke, p.releaseDeadStroke]) {
+        expect(Math.abs(v * 100 - Math.round(v * 100))).toBeLessThan(1e-6);
+      }
+    }
   });
 });
 

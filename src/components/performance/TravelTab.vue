@@ -34,7 +34,7 @@ import { useDeviceStore } from '../../stores/device';
 import { useSelectionStore } from '../../stores/selection';
 import { useHistoryStore } from '../../stores/history';
 import { useCalibrationStore } from '../../stores/calibration';
-import { LIMITS, PRESETS, actuationOf, isKnownMode, rangeMm, usePerformanceStore } from '../../stores/performance';
+import { LIMITS, PRESETS, actuationOf, isKnownMode, perfMinMm, rangeMm, usePerformanceStore } from '../../stores/performance';
 import type { PerfEdit } from '../../stores/performance';
 import { USER_PRESET_MAX, USER_PRESET_NAME_MAX, useUserPresetsStore } from '../../stores/userPresets';
 import type { UserPreset } from '../../stores/userPresets';
@@ -220,6 +220,7 @@ onBeforeUnmount(() => {
 });
 
 const decimals = computed(() => capDecimals(device.rtPrecision));
+const minMm = computed(() => perfMinMm(device.rtPrecision));
 const stepMm = computed(() => (decimals.value === 3 && fineStep.value ? 0.001 : 0.01));
 const sliderText = (v: number) => `${formatMm(v, decimals.value)} mm`;
 /** Editor value text: 2 decimals unless the value needs the third. */
@@ -733,7 +734,7 @@ const modeOptions = computed(() => [
             <TravelEditor
               :value="act.value"
               :range="act.range"
-              :min="LIMITS.actuationMin"
+              :min="minMm"
               :max="maxTravel"
               :step="stepMm"
               :decimals="decimals"
@@ -754,7 +755,7 @@ const modeOptions = computed(() => [
               </div>
               <NumberField
                 :model-value="act.value"
-                :min="LIMITS.actuationMin"
+                :min="minMm"
                 :max="maxTravel"
                 :step="stepMm"
                 :fine-step="stepMm"
@@ -806,7 +807,7 @@ const modeOptions = computed(() => [
               <span class="field__label">{{ t('perf.rtPress') }}</span>
               <NumberField
                 :model-value="rtPress.value"
-                :min="LIMITS.rtMin"
+                :min="minMm"
                 :max="LIMITS.rtMax"
                 :step="stepMm"
                 :fine-step="stepMm"
@@ -821,7 +822,7 @@ const modeOptions = computed(() => [
             <Slider
               :model-value="rtPress.value ?? rtPress.range[0]"
               :range="rtPress.value === null ? rtPress.range : null"
-              :min="LIMITS.rtMin"
+              :min="minMm"
               :max="LIMITS.rtMax"
               :step="stepMm"
               :fine-step="stepMm"
@@ -841,7 +842,7 @@ const modeOptions = computed(() => [
               <span class="field__label">{{ t('perf.rtRelease') }}</span>
               <NumberField
                 :model-value="rtRelease.value"
-                :min="LIMITS.rtMin"
+                :min="minMm"
                 :max="LIMITS.rtMax"
                 :step="stepMm"
                 :fine-step="stepMm"
@@ -856,7 +857,7 @@ const modeOptions = computed(() => [
             <Slider
               :model-value="rtRelease.value ?? rtRelease.range[0]"
               :range="rtRelease.value === null ? rtRelease.range : null"
-              :min="LIMITS.rtMin"
+              :min="minMm"
               :max="LIMITS.rtMax"
               :step="stepMm"
               :fine-step="stepMm"
