@@ -28,6 +28,7 @@ export const base = {
   'nav.version': 'Phiên bản',
   'nav.updateAvailableSuffix': ', có bản mới',
   'nav.updatePill': 'Bản mới',
+  'nav.updateFoundSr': 'Có bản mới của AE64 Control. Mở “Cập nhật & phiên bản” ở cuối thanh bên để cập nhật.',
   'nav.collapse': 'Thu gọn thanh bên',
   'nav.expand': 'Mở thanh bên',
   'nav.groupDevice': 'Thiết bị',

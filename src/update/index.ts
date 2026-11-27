@@ -18,7 +18,7 @@ export interface AvailableVersion {
 }
 
 /** The desktop app never updates itself: the user installs a newer setup.exe. */
-const DESKTOP = typeof __DESKTOP__ !== 'undefined' && __DESKTOP__;
+export const DESKTOP = typeof __DESKTOP__ !== 'undefined' && __DESKTOP__;
 
 /** Minimum interval between quiet background update checks (30 minutes). */
 export const QUIET_CHECK_MIN_MS = 30 * 60 * 1000;
@@ -63,6 +63,8 @@ export const useUpdateStore = defineStore('update', () => {
   const currentVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
   const state = ref<UpdateState>('idle');
   const availableInfo = ref<AvailableVersion | null>(null);
+  /** True only when `checkQuietly()` moved the state to `available` (drives the one-shot screen-reader announcement). */
+  const foundQuietly = ref(false);
   const error = ref<string | null>(null);
   /** Version downloaded but not yet applied (state 'deferred'). */
   const deferredVersion = ref('');
@@ -165,8 +167,12 @@ export const useUpdateStore = defineStore('update', () => {
     return null;
   }
 
+  let checkEpoch = 0;
+
   async function check(): Promise<void> {
     if (DESKTOP) return;
+    checkEpoch++;
+    foundQuietly.value = false;
     state.value = 'checking';
     error.value = null;
     applyFailed.value = false;
@@ -191,16 +197,24 @@ export const useUpdateStore = defineStore('update', () => {
   async function checkQuietly(): Promise<void> {
     if (DESKTOP) return;
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-    if (state.value !== 'idle' && state.value !== 'upToDate') return;
+    const startState = state.value;
+    if (startState !== 'idle' && startState !== 'upToDate' && !(startState === 'error' && !applyFailed.value)) return;
     const now = Date.now();
     if (now - lastQuietCheckAt < QUIET_CHECK_MIN_MS) return;
     lastQuietCheckAt = now;
+    const epoch = checkEpoch;
 
     try {
       const next = await lookupLatest();
-      if (next && (state.value === 'idle' || state.value === 'upToDate')) {
+      if (checkEpoch !== epoch || state.value !== startState) return;
+      if (next) {
         state.value = 'available';
         availableInfo.value = next;
+        error.value = null;
+        foundQuietly.value = true;
+      } else if (startState === 'error') {
+        state.value = 'upToDate';
+        error.value = null;
       }
     } catch {
       // Quiet check: ignore network, SW timeout, or bad JSON without touching user-facing state.
@@ -252,6 +266,8 @@ export const useUpdateStore = defineStore('update', () => {
   }
 
   async function apply(): Promise<void> {
+    checkEpoch++;
+    foundQuietly.value = false;
     const sync = useSyncStore();
     const busy = busyNow;
     /** Re-checked right before reloading: the download can take a while and the user keeps working meanwhile. */
@@ -343,6 +359,7 @@ export const useUpdateStore = defineStore('update', () => {
     currentVersion,
     state,
     availableInfo,
+    foundQuietly,
     deferredVersion,
     applyFailed,
     chunkFailed,

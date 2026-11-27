@@ -2,9 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { flushPromises, mount } from '@vue/test-utils';
 import { QUIET_CHECK_MIN_MS, useUpdateStore, type UpdateState } from '../src/update';
+import { useSyncStore } from '../src/stores/sync';
+import { useCalibrationStore } from '../src/stores/calibration';
 import SidebarFooter from '../src/components/shell/SidebarFooter.vue';
 import { locale, setLocale } from '../src/i18n/locale';
-import { t as tr } from '../src/i18n/vi';
+import { t as tr, vi as viDict } from '../src/i18n/vi';
+import { en as enDict } from '../src/i18n/en';
+
+const flags = vi.hoisted(() => ({ desktop: false }));
+vi.mock('../src/update', async (orig) => {
+  const m = await orig<typeof import('../src/update')>();
+  return { ...m, get DESKTOP() { return flags.desktop; } };
+});
 
 const origOnLine = Object.getOwnPropertyDescriptor(Navigator.prototype, 'onLine');
 const origVisibility = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState');
@@ -29,6 +38,7 @@ describe('update quiet checks', () => {
   const savedLocale = locale.value;
 
   beforeEach(() => {
+    flags.desktop = false;
     setActivePinia(createPinia());
     vi.restoreAllMocks();
     Reflect.deleteProperty(navigator, 'serviceWorker');
@@ -37,6 +47,7 @@ describe('update quiet checks', () => {
   });
 
   afterEach(() => {
+    flags.desktop = false;
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -112,7 +123,7 @@ describe('update quiet checks', () => {
       expect(store1.error).toBeNull();
     });
 
-    it.each<UpdateState>(['available', 'deferred', 'downloading', 'checking', 'error'])(
+    it.each<UpdateState>(['available', 'deferred', 'downloading', 'checking'])(
       'does not fetch when state is %s',
       async (blockedState) => {
         const store = useUpdateStore();
@@ -339,5 +350,281 @@ describe('update quiet checks', () => {
         w.unmount();
       },
     );
+  });
+
+  describe('U1: screen-reader update announcement', () => {
+    it('(a) status region exists and is empty before any check (kills UM1)', () => {
+      setLocale('vi');
+      const w = mount(SidebarFooter, { attachTo: document.body });
+      const region = w.find('.side-foot > .sr-only[role="status"]');
+      expect(region.exists()).toBe(true);
+      expect(region.text()).toBe('');
+      w.unmount();
+    });
+
+    it('(b) after a quiet check finds a release, the status region holds nav.updateFoundSr', async () => {
+      setLocale('vi');
+      const store = useUpdateStore();
+      vi.stubGlobal('fetch', mockRelease('99.0.0+20261127120000'));
+      const w = mount(SidebarFooter, { attachTo: document.body });
+      const region = w.find('.side-foot > .sr-only[role="status"]');
+
+      await store.checkQuietly();
+      await flushPromises();
+
+      expect(store.foundQuietly).toBe(true);
+      expect(region.text()).toBe(tr('nav.updateFoundSr'));
+
+      setLocale('en');
+      await flushPromises();
+      expect(region.text()).toBe(tr('nav.updateFoundSr'));
+      w.unmount();
+    });
+
+    it('(c) after a manual check() finds a release, the status region is empty (kills UM2)', async () => {
+      setLocale('vi');
+      const store = useUpdateStore();
+      vi.stubGlobal('fetch', mockRelease('99.0.0+20261127120000'));
+      const w = mount(SidebarFooter, { attachTo: document.body });
+      const region = w.find('.side-foot > .sr-only[role="status"]');
+
+      // Manual check from idle
+      await store.check();
+      await flushPromises();
+      expect(store.state).toBe('available');
+      expect(store.foundQuietly).toBe(false);
+      expect(region.text()).toBe('');
+
+      // Quiet check sets foundQuietly; a subsequent manual check() must reset it (kills UM2)
+      setActivePinia(createPinia());
+      const store2 = useUpdateStore();
+      const w2 = mount(SidebarFooter, { attachTo: document.body });
+      const region2 = w2.find('.side-foot > .sr-only[role="status"]');
+      await store2.checkQuietly();
+      await flushPromises();
+      expect(store2.foundQuietly).toBe(true);
+      expect(region2.text()).toBe(tr('nav.updateFoundSr'));
+
+      await store2.check();
+      await flushPromises();
+      expect(store2.state).toBe('available');
+      expect(store2.foundQuietly).toBe(false);
+      expect(region2.text()).toBe('');
+
+      w.unmount();
+      w2.unmount();
+    });
+
+    it('(d) after apply() starts, the status region is empty', async () => {
+      setLocale('vi');
+      const store = useUpdateStore();
+      vi.stubGlobal('fetch', mockRelease('99.0.0+20261127120000'));
+      const w = mount(SidebarFooter, { attachTo: document.body });
+      const region = w.find('.side-foot > .sr-only[role="status"]');
+
+      await store.checkQuietly();
+      await flushPromises();
+      expect(region.text()).toBe(tr('nav.updateFoundSr'));
+
+      const origLocation = window.location;
+      const reloadMock = vi.fn();
+      Object.defineProperty(window, 'location', { value: { ...origLocation, reload: reloadMock }, writable: true, configurable: true });
+      try {
+        let resolveFlush!: () => void;
+        vi.spyOn(useSyncStore(), 'flush').mockImplementationOnce(() => new Promise<void>((r) => { resolveFlush = r; }));
+        const applyPromise = store.apply();
+        await flushPromises();
+
+        expect(store.state).toBe('downloading');
+        expect(store.foundQuietly).toBe(false);
+        expect(region.text()).toBe('');
+
+        resolveFlush();
+        await applyPromise;
+
+        // Also when apply() is refused because calibration is running (state stays 'available')
+        store.foundQuietly = true;
+        store.state = 'available';
+        await flushPromises();
+        expect(region.text()).toBe(tr('nav.updateFoundSr'));
+
+        useCalibrationStore().phase = 'running';
+        await store.apply();
+        await flushPromises();
+        expect(store.state).toBe('available');
+        expect(store.foundQuietly).toBe(false);
+        expect(region.text()).toBe('');
+      } finally {
+        Object.defineProperty(window, 'location', { value: origLocation, writable: true, configurable: true });
+        w.unmount();
+      }
+    });
+
+    it('(e) the update button and the dialog are not inside the status region', async () => {
+      const store = useUpdateStore();
+      store.availableInfo = { version: '99.0.0', builtAt: '' };
+      store.state = 'available';
+      store.foundQuietly = true;
+
+      const w = mount(SidebarFooter, { attachTo: document.body });
+      const btn = w.find('.side-foot__btn');
+      await btn.trigger('click');
+      await flushPromises();
+
+      const regionEl = w.find('.side-foot > .sr-only[role="status"]').element;
+      const dialogEl = document.querySelector('[role="dialog"]');
+      expect(dialogEl).toBeTruthy();
+      expect(regionEl.contains(btn.element)).toBe(false);
+      expect(regionEl.contains(dialogEl!)).toBe(false);
+      expect(btn.element.contains(regionEl)).toBe(false);
+      expect(dialogEl!.contains(regionEl)).toBe(false);
+      w.unmount();
+    });
+
+    it('(f) on desktop the status region stays empty', async () => {
+      flags.desktop = true;
+      setLocale('vi');
+      const store = useUpdateStore();
+      store.availableInfo = { version: '99.0.0', builtAt: '' };
+      store.state = 'available';
+      store.foundQuietly = true;
+
+      const w = mount(SidebarFooter, { attachTo: document.body });
+      await flushPromises();
+
+      const region = w.find('.side-foot > .sr-only[role="status"]');
+      expect(region.exists()).toBe(true);
+      expect(region.text()).toBe('');
+      expect(w.find('.side-foot__btn').classes()).not.toContain('side-foot__btn--pill');
+      w.unmount();
+    });
+
+    it('(g) nav.updateFoundSr exists in vi and en with the exact strings', () => {
+      expect(viDict['nav.updateFoundSr']).toBe(
+        'Có bản mới của AE64 Control. Mở “Cập nhật & phiên bản” ở cuối thanh bên để cập nhật.',
+      );
+      expect(enDict['nav.updateFoundSr']).toBe(
+        'A new version of AE64 Control is available. Open “Updates & version” at the bottom of the sidebar to update.',
+      );
+    });
+  });
+
+  describe('checkQuietly recovery from check error', () => {
+    it('(h) after a failed manual check, quiet check finding a newer release moves to available, clears error, and announces', async () => {
+      setLocale('vi');
+      const store = useUpdateStore();
+      const w = mount(SidebarFooter, { attachTo: document.body });
+      const region = w.find('.side-foot > .sr-only[role="status"]');
+
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Offline')));
+      await store.check();
+      expect(store.state).toBe('error');
+      expect(store.error).toBe('Offline');
+      expect(store.applyFailed).toBe(false);
+
+      vi.stubGlobal('fetch', mockRelease('99.0.0+20261127120000'));
+      await store.checkQuietly();
+      await flushPromises();
+
+      expect(store.state).toBe('available');
+      expect(store.availableInfo).toEqual({
+        version: '99.0.0+20261127120000',
+        builtAt: '2026-11-27T12:00:00Z',
+      });
+      expect(store.error).toBeNull();
+      expect(store.foundQuietly).toBe(true);
+      expect(region.text()).toBe(tr('nav.updateFoundSr'));
+      w.unmount();
+    });
+
+    it('(i) after a failed manual check, quiet check with no newer release moves to upToDate and clears error', async () => {
+      const store = useUpdateStore();
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('HTTP 503')));
+      await store.check();
+      expect(store.state).toBe('error');
+      expect(store.error).toBe('HTTP 503');
+
+      vi.stubGlobal('fetch', mockRelease(store.currentVersion));
+      await store.checkQuietly();
+
+      expect(store.state).toBe('upToDate');
+      expect(store.error).toBeNull();
+      expect(store.foundQuietly).toBe(false);
+    });
+
+    it('(j) after a failed manual check, a failed quiet lookup keeps state error and the original error string', async () => {
+      const store = useUpdateStore();
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Original check error')));
+      await store.check();
+      expect(store.state).toBe('error');
+      expect(store.error).toBe('Original check error');
+
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Quiet failure')));
+      await store.checkQuietly();
+
+      expect(store.state).toBe('error');
+      expect(store.error).toBe('Original check error');
+      expect(store.applyFailed).toBe(false);
+    });
+
+    it('(k) applyFailed true with state error: checkQuietly makes no fetch and no SW message and changes nothing', async () => {
+      const store = useUpdateStore();
+      store.state = 'error';
+      store.applyFailed = true;
+      store.error = 'Download failed';
+
+      // No SW controller -> must not call fetch
+      const fetchMock = mockRelease('99.0.0+20261127120000');
+      vi.stubGlobal('fetch', fetchMock);
+      await store.checkQuietly();
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(store.state).toBe('error');
+      expect(store.applyFailed).toBe(true);
+      expect(store.error).toBe('Download failed');
+
+      // With SW controller -> must not post SW message
+      const postMessage = vi.fn();
+      Object.defineProperty(navigator, 'serviceWorker', {
+        value: { controller: { postMessage }, ready: Promise.resolve({}) },
+        configurable: true,
+      });
+      await store.checkQuietly();
+      expect(postMessage).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(store.state).toBe('error');
+      expect(store.applyFailed).toBe(true);
+      expect(store.error).toBe('Download failed');
+    });
+
+    it('(l) quiet check started in error is dropped if a manual check starts and fails before the quiet answer arrives', async () => {
+      const store = useUpdateStore();
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('First failure')));
+      await store.check();
+      expect(store.state).toBe('error');
+
+      let resolveQuiet!: (v: unknown) => void;
+      const fetchMock = vi.fn()
+        .mockImplementationOnce(() => new Promise((r) => { resolveQuiet = r; }))
+        .mockRejectedValueOnce(new Error('Second failure'));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const quietPromise = store.checkQuietly();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await store.check();
+      expect(store.state).toBe('error');
+      expect(store.error).toBe('Second failure');
+
+      resolveQuiet({
+        ok: true,
+        status: 200,
+        json: async () => ({ version: '99.0.0+20261127120000', builtAt: '2026-11-27T12:00:00Z' }),
+      });
+      await quietPromise;
+
+      expect(store.state).toBe('error');
+      expect(store.error).toBe('Second failure');
+      expect(store.availableInfo).toBeNull();
+      expect(store.foundQuietly).toBe(false);
+    });
   });
 });

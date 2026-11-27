@@ -6,12 +6,12 @@ import Button from '../ui/Button.vue';
 import Segmented from '../ui/Segmented.vue';
 import { t } from '../../i18n/vi';
 import { locale, setLocale, type Locale } from '../../i18n/locale';
-import { useUpdateStore } from '../../update';
+import { DESKTOP, useUpdateStore } from '../../update';
 
 const compact = defineModel<boolean>('compact', { default: false });
 const update = useUpdateStore();
 /** The desktop app never updates itself (a newer setup.exe does): no check button. */
-const desktop = typeof __DESKTOP__ !== 'undefined' && __DESKTOP__;
+const desktop = DESKTOP;
 const help = ref(false);
 
 const currentLocale = computed({
@@ -30,6 +30,7 @@ const updatePending = computed(() => !desktop && (update.state === 'available' |
 const updatePill = computed(() => updatePending.value && !compact.value);
 const updateBusy = computed(() => update.state === 'checking' || update.state === 'downloading');
 const updateLabel = computed(() => desktop ? t('nav.version') : t('nav.update') + (updatePending.value ? t('nav.updateAvailableSuffix') : ''));
+const announce = computed(() => (!desktop && update.state === 'available' && update.foundQuietly ? t('nav.updateFoundSr') : ''));
 
 function formatUpdateDate(iso: string): string {
   try {
@@ -138,6 +139,8 @@ function formatUpdateDate(iso: string): string {
         </dl>
       </div>
     </Dialog>
+
+    <span class="sr-only" role="status">{{ announce }}</span>
   </div>
 </template>
 
@@ -194,6 +197,7 @@ function formatUpdateDate(iso: string): string {
   min-width: 0;
   overflow: hidden;
 }
+.side-foot__pill-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .side-foot__dot {
   position: absolute;
   top: 4px;
