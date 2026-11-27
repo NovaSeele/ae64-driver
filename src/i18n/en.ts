@@ -25,7 +25,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'nav.version': 'Version',
   'nav.updateAvailableSuffix': ', new version available',
   'nav.updateShort': 'Update',
-  'nav.updateFoundSr': 'A new version of AE64 Control is available. Open “Updates & version” at the bottom of the sidebar to update.',
+  'nav.updateFoundSr': 'A new version of AE64 Control is available. Use the “{label}” button at the bottom of the sidebar to see and install it.',
   'nav.collapse': 'Collapse sidebar',
   'nav.expand': 'Expand sidebar',
   'nav.groupDevice': 'Device',

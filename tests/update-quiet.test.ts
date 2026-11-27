@@ -37,6 +37,8 @@ function mockRelease(version: string, builtAt = '2026-11-27T12:00:00Z') {
 
 describe('update quiet checks', () => {
   const savedLocale = locale.value;
+  const spokenFound = () => tr('nav.updateFoundSr', { label: tr('nav.updateShort') });
+  const spokenFoundVi = () => viDict['nav.updateFoundSr'].replace('{label}', viDict['nav.updateShort']);
 
   beforeEach(() => {
     flags.desktop = false;
@@ -378,7 +380,7 @@ describe('update quiet checks', () => {
       await flushPromises();
 
       expect(store.foundQuietly).toBe(true);
-      expect(region.text()).toBe(tr('nav.updateFoundSr'));
+      expect(region.text()).toBe(spokenFound());
       w.unmount();
     });
 
@@ -404,7 +406,7 @@ describe('update quiet checks', () => {
       await store2.checkQuietly();
       await flushPromises();
       expect(store2.foundQuietly).toBe(true);
-      expect(region2.text()).toBe(tr('nav.updateFoundSr'));
+      expect(region2.text()).toBe(spokenFound());
 
       await store2.check();
       await flushPromises();
@@ -425,7 +427,7 @@ describe('update quiet checks', () => {
 
       await store.checkQuietly();
       await flushPromises();
-      expect(region.text()).toBe(tr('nav.updateFoundSr'));
+      expect(region.text()).toBe(spokenFound());
 
       const origLocation = window.location;
       const reloadMock = vi.fn();
@@ -447,7 +449,7 @@ describe('update quiet checks', () => {
         store.foundQuietly = true;
         store.state = 'available';
         await flushPromises();
-        expect(region.text()).toBe(tr('nav.updateFoundSr'));
+        expect(region.text()).toBe(spokenFound());
 
         useCalibrationStore().phase = 'running';
         await store.apply();
@@ -502,10 +504,10 @@ describe('update quiet checks', () => {
 
     it('(g) nav.updateFoundSr exists in vi and en with the exact strings', () => {
       expect(viDict['nav.updateFoundSr']).toBe(
-        'Có bản mới của AE64 Control. Mở “Cập nhật & phiên bản” ở cuối thanh bên để cập nhật.',
+        'Có bản mới của AE64 Control. Bấm nút “{label}” ở cuối thanh bên để xem và cài.',
       );
       expect(enDict['nav.updateFoundSr']).toBe(
-        'A new version of AE64 Control is available. Open “Updates & version” at the bottom of the sidebar to update.',
+        'A new version of AE64 Control is available. Use the “{label}” button at the bottom of the sidebar to see and install it.',
       );
     });
   });
@@ -534,7 +536,7 @@ describe('update quiet checks', () => {
       });
       expect(store.error).toBeNull();
       expect(store.foundQuietly).toBe(true);
-      expect(region.text()).toBe(tr('nav.updateFoundSr'));
+      expect(region.text()).toBe(spokenFound());
       w.unmount();
     });
 
@@ -740,15 +742,15 @@ describe('update quiet checks', () => {
 
       await store.checkQuietly();
       await flushPromises();
-      expect(region.text()).toBe(viDict['nav.updateFoundSr']);
+      expect(region.text()).toBe(spokenFoundVi());
 
       setLocale('en');
       await flushPromises();
-      expect(region.text()).toBe(viDict['nav.updateFoundSr']);
+      expect(region.text()).toBe(spokenFoundVi());
 
       setLocale('vi');
       await flushPromises();
-      expect(region.text()).toBe(viDict['nav.updateFoundSr']);
+      expect(region.text()).toBe(spokenFoundVi());
 
       // After 10 s clear, language switches leave it empty
       await vi.advanceTimersByTimeAsync(10_000);
@@ -776,11 +778,11 @@ describe('update quiet checks', () => {
 
       await store.checkQuietly();
       await flushPromises();
-      expect(region.text()).toBe(viDict['nav.updateFoundSr']);
+      expect(region.text()).toBe(spokenFoundVi());
 
       await vi.advanceTimersByTimeAsync(9_999);
       await flushPromises();
-      expect(region.text()).toBe(viDict['nav.updateFoundSr']);
+      expect(region.text()).toBe(spokenFoundVi());
 
       await vi.advanceTimersByTimeAsync(1);
       await flushPromises();
@@ -811,7 +813,7 @@ describe('update quiet checks', () => {
       setVisibility('visible');
       document.dispatchEvent(new Event('visibilitychange'));
       await flushPromises();
-      expect(region.text()).toBe(viDict['nav.updateFoundSr']);
+      expect(region.text()).toBe(spokenFoundVi());
 
       // Clears after 10 s
       await vi.advanceTimersByTimeAsync(10_000);
@@ -839,7 +841,7 @@ describe('update quiet checks', () => {
       const region1 = w1.find('.side-foot > .sr-only[role="status"]');
       await store1.checkQuietly();
       await flushPromises();
-      expect(region1.text()).toBe(viDict['nav.updateFoundSr']);
+      expect(region1.text()).toBe(spokenFoundVi());
 
       await vi.advanceTimersByTimeAsync(5_000);
       await store1.check();
@@ -854,7 +856,7 @@ describe('update quiet checks', () => {
       const region2 = w2.find('.side-foot > .sr-only[role="status"]');
       await store2.checkQuietly();
       await flushPromises();
-      expect(region2.text()).toBe(viDict['nav.updateFoundSr']);
+      expect(region2.text()).toBe(spokenFoundVi());
 
       await vi.advanceTimersByTimeAsync(5_000);
       useCalibrationStore().phase = 'running';
@@ -900,12 +902,31 @@ describe('update quiet checks', () => {
 
       await store2.checkQuietly();
       await flushPromises();
-      expect(region2.text()).toBe(viDict['nav.updateFoundSr']);
+      expect(region2.text()).toBe(spokenFoundVi());
       expect(vi.getTimerCount()).toBe(timersBefore + 1);
 
       await vi.advanceTimersByTimeAsync(5_000);
       w2.unmount();
       expect(vi.getTimerCount()).toBe(timersBefore);
+    });
+
+    it('(r) after a quiet find, vi and en status text names nav.updateShort in curly quotes with no unreplaced placeholder (kills R1a, R1b)', async () => {
+      for (const lang of ['vi', 'en'] as const) {
+        setActivePinia(createPinia());
+        setLocale(lang);
+        const store = useUpdateStore();
+        vi.stubGlobal('fetch', mockRelease('99.0.0+20261127120000'));
+        const w = mount(SidebarFooter, { attachTo: document.body });
+        const region = w.find('.side-foot > .sr-only[role="status"]');
+
+        await store.checkQuietly();
+        await flushPromises();
+
+        const text = region.text();
+        expect(text, lang).toContain(`“${tr('nav.updateShort')}”`);
+        expect(text, lang).not.toContain('{');
+        w.unmount();
+      }
     });
   });
 

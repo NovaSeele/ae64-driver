@@ -56,7 +56,7 @@ function clearAnnounce(): void {
 function speakOnce(): void {
   if (desktop || update.state !== 'available' || !update.foundQuietly) return;
   if (announceTimer !== null) clearTimeout(announceTimer);
-  announce.value = t('nav.updateFoundSr');
+  announce.value = t('nav.updateFoundSr', { label: t('nav.updateShort') });
   announceTimer = setTimeout(() => {
     announceTimer = null;
     announce.value = '';
