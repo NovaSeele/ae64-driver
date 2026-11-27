@@ -48,6 +48,10 @@ describe('I1: BaseTransport default identity fail-closed & concrete overrides (M
     }
 
     expect(matches.length).toBeGreaterThan(0);
+    const foundNames = matches.map((m) => m.className);
+    for (const expected of ['HidTransport', 'MockTransport', 'MockBootloader', 'GenericMockTransport']) {
+      expect(foundNames).toContain(expected);
+    }
 
     for (const { rel, className } of matches) {
       const mod = (await import(/* @vite-ignore */ `../src/${rel}`)) as Record<string, unknown>;

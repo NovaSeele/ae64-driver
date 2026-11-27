@@ -528,6 +528,26 @@ describe('generic init frames (R13), profiles clamp (M21), poll guard (M24), pre
     expect(device.connected).toBe(true);
   });
 
+  it('g60 with profileCount 0 (R10, M21): connects, profiles unknown, no 02 03 01 or 02 03 03 sent, no profile poll over 10 s', async () => {
+    vi.useFakeTimers({ toFake: [...FAKE_TIMERS] });
+    vi.spyOn(GenericMockTransport.prototype, 'getProfileCount').mockResolvedValue(0);
+    const out = captureOut();
+    const device = useDeviceStore();
+    await settle(device.connectGenericMock('g60', { latencyMs: 0 }));
+
+    expect(device.connected).toBe(true);
+    expect(device.support).toBe('generic');
+    expect(out.frames.some((f) => f[0] === 0x02 && f[1] === 0x03 && (f[2] === 0x01 || f[2] === 0x03))).toBe(false);
+    expect(device.unknown.profiles).toBe(true);
+    expect(device.profileCount).toBe(0);
+    expect(device.profileNames).toEqual([]);
+    out.frames.length = 0;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(out.frames.filter(isProfilePoll)).toEqual([]);
+    expect(out.frames.some((f) => f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)).toBe(false);
+    expect(device.connected).toBe(true);
+  });
+
   it('gmiss (R13/M24, S4/M7): precision unknown (no 0.001 fallback), row 3 missing, no profile poll starts and stays connected over 10 s', async () => {
     vi.useFakeTimers({ toFake: [...FAKE_TIMERS] });
     const out = captureOut();
