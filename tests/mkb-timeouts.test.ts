@@ -8,7 +8,7 @@ import type { VueWrapper } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import type { Router } from 'vue-router';
 import {
-  BaseTransport, GenericMockTransport, REQUEST_TIMEOUT_MS, TransportTimeoutError, WriteNotAllowedError,
+  BaseTransport, GenericMockTransport, TransportTimeoutError, WriteNotAllowedError,
 } from '../src/protocol';
 import type { Bytes } from '../src/protocol';
 import { installPerfTabGuard, routes } from '../src/router';
@@ -349,17 +349,21 @@ describe('TO1 Timeouts after the gates (DESIGN MKB §5.2, §9.2, §16.2)', () =>
     const infoBefore = device.info;
     const setSupportSpy = vi.spyOn(transport, 'setSupport');
     const getInfoSpy = vi.spyOn(transport, 'getDeviceInfo');
+
+    // Pause the periodic profile poll so only our 3 explicit reads run at any PROFILE_POLL_MS.
+    const releasePoll = device.holdExclusive();
+    await settle(device.checkKeyboardProfile());
     const out = captureOut();
 
-    // Stop profile poll interference by silencing 02 03 01 too, and silence 02 04 01; 01 02 still answers 0030000D runMode 0.
-    transport.setReplyOverride(([f, op, a]) => {
-      if (f === 0x02 && op === 0x04 && a === 0x01) return null;
-      if (f === 0x02 && op === 0x03 && a === 0x01) return null;
-      return undefined;
-    });
+    // Silence 02 04 01; 01 02 still answers 0030000D runMode 0.
+    transport.setReplyOverride(([f, op, a]) => (f === 0x02 && op === 0x04 && a === 0x01 ? null : undefined));
 
-    for (let i = 0; i < 3; i++) {
-      await expect(settle(device.withTransport((t) => t.getSystemMode()))).rejects.toThrow(TransportTimeoutError);
+    try {
+      for (let i = 0; i < 3; i++) {
+        await expect(settle(device.withTransport((t) => t.getSystemMode()))).rejects.toThrow(TransportTimeoutError);
+      }
+    } finally {
+      releasePoll();
     }
 
     expect(out.frames.filter((f) => f[0] === 0x01 && f[1] === 0x02)).toHaveLength(1);
@@ -396,6 +400,10 @@ describe('TO1 Timeouts after the gates (DESIGN MKB §5.2, §9.2, §16.2)', () =>
     await settle(device.connectGenericMock(mockName, { latencyMs: 0 }));
     const expectedName = device.displayName;
     const transport = device.transport as GenericMockTransport;
+
+    // Pause the periodic profile poll so only our 3 explicit reads trigger the liveness check at any PROFILE_POLL_MS.
+    const releasePoll = device.holdExclusive();
+    await settle(device.checkKeyboardProfile());
     const out = captureOut();
 
     transport.setReplyOverride(([f, op]) => {
@@ -403,8 +411,12 @@ describe('TO1 Timeouts after the gates (DESIGN MKB §5.2, §9.2, §16.2)', () =>
       return null;
     });
 
-    for (let i = 0; i < 3; i++) {
-      await expect(settle(device.withTransport((t) => t.getSystemMode()))).rejects.toThrow(TransportTimeoutError);
+    try {
+      for (let i = 0; i < 3; i++) {
+        await expect(settle(device.withTransport((t) => t.getSystemMode()))).rejects.toThrow(TransportTimeoutError);
+      }
+    } finally {
+      releasePoll();
     }
     await flushPromises();
 
@@ -429,12 +441,10 @@ describe('TO1 Timeouts after the gates (DESIGN MKB §5.2, §9.2, §16.2)', () =>
     await settle(device.connectGenericMock('g60', { latencyMs: 0 }));
     expect(device.connected).toBe(true);
     expect(device.unknown.profiles).toBe(false);
+    // Pre-load performance data so mounting ProfilesPage sends no 04 01 reads that would interleave with the poll at short intervals.
+    await settle(usePerformanceStore().load());
 
     const transport = device.transport as GenericMockTransport;
-    const out = captureOut();
-    // Silence ONLY 02 03 01; 01 02 still answers normally.
-    transport.setReplyOverride(([f, op, a]) => (f === 0x02 && op === 0x03 && a === 0x01 ? null : undefined));
-
     const router = makeRouter();
     await router.push('/profiles');
     await router.isReady();
@@ -443,10 +453,16 @@ describe('TO1 Timeouts after the gates (DESIGN MKB §5.2, §9.2, §16.2)', () =>
     mounted.push(ps, pp);
     await flushPromises();
 
-    // Advance enough for 3 profile polls + liveness + 10 s extra.
-    for (let i = 0; i < 4; i++) {
-      await vi.advanceTimersByTimeAsync(Math.max(PROFILE_POLL_MS, REQUEST_TIMEOUT_MS + 100));
-    }
+    // Drain any in-flight answered profile poll before silencing 02 03 01.
+    const releasePoll = device.holdExclusive();
+    await settle(device.checkKeyboardProfile());
+    const out = captureOut();
+    // Silence ONLY 02 03 01; 01 02 still answers normally.
+    transport.setReplyOverride(([f, op, a]) => (isProfilePoll([f, op, a]) ? null : undefined));
+    releasePoll();
+
+    // Advance until the 3rd consecutive poll miss triggers liveness, stops the poll, and marks profiles unknown.
+    await advanceUntil(() => device.unknown.profiles, 50, 1000);
     await flushPromises();
     const pollCountAtStop = out.frames.filter(isProfilePoll).length;
     const livenessCountAtStop = out.frames.filter((f) => f[0] === 0x01 && f[1] === 0x02).length;
@@ -514,6 +530,8 @@ describe('TO1 Timeouts after the gates (DESIGN MKB §5.2, §9.2, §16.2)', () =>
     const device = useDeviceStore();
     await settle(device.connectDemo('max'));
     const transport = device.transport!;
+    const releasePoll = device.holdExclusive();
+    await settle(device.checkKeyboardProfile());
     const out = captureOut();
 
     const origEx = (transport as unknown as { exchange(f: Uint8Array, ms?: number): Promise<Bytes> }).exchange.bind(transport);
@@ -524,8 +542,12 @@ describe('TO1 Timeouts after the gates (DESIGN MKB §5.2, §9.2, §16.2)', () =>
       return origEx(f, ms);
     };
 
-    for (let i = 0; i < 3; i++) {
-      await expect(settle(device.withTransport((t) => t.getSystemMode()))).rejects.toThrow(TransportTimeoutError);
+    try {
+      for (let i = 0; i < 3; i++) {
+        await expect(settle(device.withTransport((t) => t.getSystemMode()))).rejects.toThrow(TransportTimeoutError);
+      }
+    } finally {
+      releasePoll();
     }
 
     expect(out.frames.filter((f) => f[0] === 0x01 && f[1] === 0x02)).toHaveLength(0);
