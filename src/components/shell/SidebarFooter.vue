@@ -26,7 +26,8 @@ const LANG_OPTIONS = computed<{ value: Locale; label: string; title: string }[]>
   { value: 'en', label: 'EN', title: t('lang.en') },
 ]);
 
-const updatePending = computed(() => update.state === 'available' || update.state === 'deferred');
+const updatePending = computed(() => !desktop && (update.state === 'available' || update.state === 'deferred'));
+const updatePill = computed(() => updatePending.value && !compact.value);
 const updateBusy = computed(() => update.state === 'checking' || update.state === 'downloading');
 const updateLabel = computed(() => desktop ? t('nav.version') : t('nav.update') + (updatePending.value ? t('nav.updateAvailableSuffix') : ''));
 
@@ -49,10 +50,18 @@ function formatUpdateDate(iso: string): string {
 
     <div class="side-foot__gap" />
 
-    <button type="button" class="side-foot__btn" :aria-label="updateLabel" :title="updateLabel" @click="help = true">
+    <button
+      type="button"
+      class="side-foot__btn"
+      :class="{ 'side-foot__btn--update': updatePending, 'side-foot__btn--pill': updatePill }"
+      :aria-label="updateLabel"
+      :title="updateLabel"
+      @click="help = true"
+    >
       <IconInfoCircle v-if="desktop" :size="19" stroke-width="1.5" />
       <IconRefresh v-else class="side-foot__refresh" :class="{ 'side-foot__refresh--spin': updateBusy }" :size="19" stroke-width="1.5" />
-      <span v-if="updatePending" class="side-foot__dot" aria-hidden="true" />
+      <span v-if="updatePill" class="side-foot__pill-label">{{ t('nav.updatePill') }}</span>
+      <span v-else-if="updatePending" class="side-foot__dot" aria-hidden="true" />
     </button>
 
     <button
@@ -146,11 +155,13 @@ function formatUpdateDate(iso: string): string {
   background: var(--bg-1);
   border-top: 1px solid var(--line-1);
 }
+.side-foot__lang { flex-shrink: 0; }
 .side-foot__gap { flex: 1; }
 .side-foot__btn {
   position: relative;
   display: grid;
   place-items: center;
+  flex-shrink: 0;
   width: 32px;
   height: 32px;
   border: 0;
@@ -160,6 +171,29 @@ function formatUpdateDate(iso: string): string {
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 .side-foot__btn:hover { color: var(--fg-1); background: var(--bg-2); }
+.side-foot__btn--update {
+  color: var(--acc);
+  background: color-mix(in srgb, var(--acc) var(--soft-pct), transparent);
+}
+.side-foot__btn--update:hover {
+  color: var(--acc-hover);
+  background: color-mix(in srgb, var(--acc) calc(var(--soft-pct) * 1.8), transparent);
+}
+.side-foot__btn--pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border-radius: 999px;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+}
 .side-foot__dot {
   position: absolute;
   top: 4px;

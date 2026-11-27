@@ -35,3 +35,6 @@ if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', () => useCalibrationStore(pinia).onPageHide());
 }
 app.use(router).mount('#app');
+if (import.meta.env.PROD) {
+  useUpdateStore(pinia).startQuietChecks();
+}

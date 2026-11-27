@@ -190,7 +190,7 @@ describe('7. no reload while a session runs', { timeout: 60_000 }, () => {
     const foot = keep(mount(SidebarFooter, { global: { plugins: [router] }, attachTo: document.body }));
     await foot.find('button.side-foot__btn').trigger('click');
     await flushPromises();
-    const apply = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === tr('update.apply'))!;
+    const apply = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent?.trim() === tr('update.apply'))!;
     expect(apply).toBeTruthy();
     expect(apply.disabled).toBe(true);
     expect(apply.title).toBe(tr('update.busyFirmware'));

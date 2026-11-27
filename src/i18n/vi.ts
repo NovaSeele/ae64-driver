@@ -27,6 +27,7 @@ export const base = {
   'nav.update': 'Cập nhật & phiên bản',
   'nav.version': 'Phiên bản',
   'nav.updateAvailableSuffix': ', có bản mới',
+  'nav.updatePill': 'Bản mới',
   'nav.collapse': 'Thu gọn thanh bên',
   'nav.expand': 'Mở thanh bên',
   'nav.groupDevice': 'Thiết bị',

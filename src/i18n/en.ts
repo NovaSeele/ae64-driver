@@ -24,6 +24,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'nav.update': 'Updates & version',
   'nav.version': 'Version',
   'nav.updateAvailableSuffix': ', update available',
+  'nav.updatePill': 'Update',
   'nav.collapse': 'Collapse sidebar',
   'nav.expand': 'Expand sidebar',
   'nav.groupDevice': 'Device',

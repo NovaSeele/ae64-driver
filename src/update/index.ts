@@ -20,6 +20,11 @@ export interface AvailableVersion {
 /** The desktop app never updates itself: the user installs a newer setup.exe. */
 const DESKTOP = typeof __DESKTOP__ !== 'undefined' && __DESKTOP__;
 
+/** Minimum interval between quiet background update checks (30 minutes). */
+export const QUIET_CHECK_MIN_MS = 30 * 60 * 1000;
+const QUIET_CHECK_DELAY_MS = 10_000;
+const QUIET_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+
 export function registerServiceWorker(): void {
   if (DESKTOP || !import.meta.env.PROD || typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
   // After `load` and when idle: the first visit's precache must not compete with the page's own chunks and font.
@@ -116,6 +121,50 @@ export const useUpdateStore = defineStore('update', () => {
     });
   }
 
+  async function lookupLatest(): Promise<AvailableVersion | null> {
+    const hasSw =
+      typeof navigator !== 'undefined' &&
+      'serviceWorker' in navigator &&
+      Boolean(navigator.serviceWorker.controller);
+
+    if (hasSw) {
+      interface CheckReply {
+        ok: boolean;
+        current?: string;
+        latest?: string;
+        builtAt?: string;
+        available?: boolean;
+        error?: string;
+      }
+      const reply = await postSwMessage<CheckReply>({ type: 'check' });
+      if (!reply.ok) {
+        throw new Error(reply.error || 'Failed to check for updates');
+      }
+      if (reply.available && reply.latest && isNewerVersion(reply.latest, currentVersion)) {
+        return {
+          version: reply.latest,
+          builtAt: reply.builtAt || '',
+        };
+      }
+      return null;
+    }
+
+    // No SW controller (e.g. dev server or unsupported browser): fetch release.json directly
+    const res = await fetch('/release.json', { cache: 'no-store' });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch release.json (${res.status})`);
+    }
+    const data = await res.json();
+    const latest = data.version;
+    if (latest && isNewerVersion(latest, currentVersion)) {
+      return {
+        version: latest,
+        builtAt: data.builtAt || '',
+      };
+    }
+    return null;
+  }
+
   async function check(): Promise<void> {
     if (DESKTOP) return;
     state.value = 'checking';
@@ -123,57 +172,62 @@ export const useUpdateStore = defineStore('update', () => {
     applyFailed.value = false;
 
     try {
-      const hasSw =
-        typeof navigator !== 'undefined' &&
-        'serviceWorker' in navigator &&
-        Boolean(navigator.serviceWorker.controller);
-
-      if (hasSw) {
-        interface CheckReply {
-          ok: boolean;
-          current?: string;
-          latest?: string;
-          builtAt?: string;
-          available?: boolean;
-          error?: string;
-        }
-        const reply = await postSwMessage<CheckReply>({ type: 'check' });
-        if (!reply.ok) {
-          throw new Error(reply.error || 'Failed to check for updates');
-        }
-        if (reply.available && reply.latest && isNewerVersion(reply.latest, currentVersion)) {
-          state.value = 'available';
-          availableInfo.value = {
-            version: reply.latest,
-            builtAt: reply.builtAt || '',
-          };
-        } else {
-          state.value = 'upToDate';
-          availableInfo.value = null;
-        }
+      const next = await lookupLatest();
+      if (next) {
+        state.value = 'available';
+        availableInfo.value = next;
       } else {
-        // No SW controller (e.g. dev server or unsupported browser): fetch release.json directly
-        const res = await fetch('/release.json', { cache: 'no-store' });
-        if (!res.ok) {
-          throw new Error(`Failed to fetch release.json (${res.status})`);
-        }
-        const data = await res.json();
-        const latest = data.version;
-        if (latest && isNewerVersion(latest, currentVersion)) {
-          state.value = 'available';
-          availableInfo.value = {
-            version: latest,
-            builtAt: data.builtAt || '',
-          };
-        } else {
-          state.value = 'upToDate';
-          availableInfo.value = null;
-        }
+        state.value = 'upToDate';
+        availableInfo.value = null;
       }
     } catch (err) {
       state.value = 'error';
       error.value = err instanceof Error ? err.message : String(err);
     }
+  }
+
+  let lastQuietCheckAt = -Infinity;
+
+  async function checkQuietly(): Promise<void> {
+    if (DESKTOP) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    if (state.value !== 'idle' && state.value !== 'upToDate') return;
+    const now = Date.now();
+    if (now - lastQuietCheckAt < QUIET_CHECK_MIN_MS) return;
+    lastQuietCheckAt = now;
+
+    try {
+      const next = await lookupLatest();
+      if (next && (state.value === 'idle' || state.value === 'upToDate')) {
+        state.value = 'available';
+        availableInfo.value = next;
+      }
+    } catch {
+      // Quiet check: ignore network, SW timeout, or bad JSON without touching user-facing state.
+    }
+  }
+
+  function startQuietChecks(): () => void {
+    if (DESKTOP || typeof document === 'undefined') return () => {};
+    const firstTimer = setTimeout(() => {
+      void checkQuietly();
+    }, QUIET_CHECK_DELAY_MS);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void checkQuietly();
+      }
+    }, QUIET_CHECK_INTERVAL_MS);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void checkQuietly();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearTimeout(firstTimer);
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }
 
   /** Checked fresh (the computed may cache device.calibrationLocked(), which is not reactive). */
@@ -296,6 +350,8 @@ export const useUpdateStore = defineStore('update', () => {
     error,
     busyReason,
     check,
+    checkQuietly,
+    startQuietChecks,
     apply,
     reloadNow,
   };
