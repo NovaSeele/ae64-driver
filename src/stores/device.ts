@@ -2,7 +2,7 @@
 import { defineStore } from 'pinia';
 import { computed, markRaw, ref, shallowRef } from 'vue';
 import {
-  FIRMWARE_ROWS, GENERIC_ROWS, NoDeviceSelectedError, PHYSICAL_KEYS, TransportTimeoutError, VENDOR_ID,
+  FAMILY, FIRMWARE_ROWS, GENERIC_ROWS, NoDeviceSelectedError, PHYSICAL_KEYS, TransportTimeoutError, VENDOR_ID,
   buildGenericLayout, classify, connectHid, createMockTransport, genericDisplayName, hasReceiverCollection,
   isAe64, keycodeLabel, keysFromLayoutStyles, matchesPlatform, modelName as modelLabel, modelOf,
   reconnectGrantedHid, rememberDevice, webHidAvailable,
@@ -196,8 +196,17 @@ export const useDeviceStore = defineStore('device', () => {
   let lastStatsRequests = 0;
   let lastStatsTimeouts = 0;
   let pendingTimeoutClose: { t: Ae64Transport; promise: Promise<void> } | null = null;
+  let livenessCheck: { t: Ae64Transport; promise: Promise<void>; token: object } | null = null;
+  /** Generic profile-poll consecutive timeout count and per-connection stop flag (TO1, DESIGN MKB §5.2). */
+  let profilePollMisses = 0;
+  let profilePollStopped = false;
+  let detachProfileFocus: (() => void) | null = null;
 
-  const activeProfileName = computed(() => profileNames.value[activeProfile.value] ?? `Profile ${activeProfile.value + 1}`);
+  const activeProfileName = computed(() => (
+    support.value === 'generic' && unknown.value.profiles
+      ? tr('mkb.common.unknown')
+      : profileNames.value[activeProfile.value] ?? `Profile ${activeProfile.value + 1}`
+  ));
 
   function legend(key: PhysicalKey): string {
     const code = layer0.value[key.id];
@@ -214,6 +223,7 @@ export const useDeviceStore = defineStore('device', () => {
     consecutiveTimeouts = 0;
     lastStatsRequests = t?.stats.requests ?? 0;
     lastStatsTimeouts = t?.stats.timeouts ?? 0;
+    livenessCheck = null;
   }
 
   /** Closes a generic connection after GENERIC_TIMEOUT_LIMIT timeouts in a row (DESIGN MKB §5.2). */
@@ -234,11 +244,56 @@ export const useDeviceStore = defineStore('device', () => {
     return promise;
   }
 
+  /**
+   * Post-connect TO1 liveness check (DESIGN MKB §5.2): send one raw `01 02` through the normal queue and parse
+   * only board ID and run mode (never classify / setSupport / AE64 derivation / boardAllowed / device.info).
+   * Only one check runs in flight at a time.
+   */
+  function checkGenericLiveness(t: Ae64Transport): Promise<void> {
+    if (livenessCheck?.t === t) return livenessCheck.promise;
+    const mine = session;
+    const expectedBoardHex = info.value?.boardIdHex.toLowerCase();
+    const token = {};
+    const promise = (async () => {
+      try {
+        let alive = false;
+        try {
+          const reply = await t.raw([FAMILY.DEVICE, 0x02]);
+          if (mine !== session || transport.value !== t) return;
+          if (reply.length >= 17) {
+            const boardId = ((reply[4] << 24) | (reply[5] << 16) | (reply[6] << 8) | reply[7]) >>> 0;
+            const boardIdHex = boardId.toString(16).padStart(8, '0');
+            const runMode = reply[16];
+            alive = runMode === 0 && expectedBoardHex !== undefined && boardIdHex === expectedBoardHex;
+          }
+        } catch {
+          alive = false;
+        }
+        if (mine !== session || transport.value !== t) return;
+        if (alive) {
+          consecutiveTimeouts = 0;
+          lastStatsRequests = t.stats.requests;
+          lastStatsTimeouts = t.stats.timeouts;
+          return;
+        }
+        await closeAfterTimeouts(t);
+      } finally {
+        if (livenessCheck?.token === token) livenessCheck = null;
+      }
+    })();
+    livenessCheck = { t, promise, token };
+    return promise;
+  }
+
   /** `what`: for an exclusive job, its name in "Running {what}" (a profile switch refused meanwhile). */
   async function withTransport<T>(fn: (t: Ae64Transport) => Promise<T>, opts: { exclusive?: boolean; what?: string } = {}): Promise<T> {
     const t = transport.value;
     if (!t || status.value !== 'connected') throw new Error(tr('error.notConnected'));
     const mine = session;
+    if (livenessCheck?.t === t) {
+      await livenessCheck.promise;
+      if (mine !== session || transport.value !== t || status.value !== 'connected') throw new Error(tr('error.notConnected'));
+    }
     const beforeTo = t.stats.timeouts;
     if (opts.exclusive) exclusiveCount.value++;
     const what = opts.exclusive ? opts.what : undefined;
@@ -249,10 +304,11 @@ export const useDeviceStore = defineStore('device', () => {
     } catch (err) {
       if (mine === session && transport.value === t && t.support === 'generic' && err instanceof TransportTimeoutError && t.stats.timeouts === beforeTo) {
         consecutiveTimeouts++;
-        if (consecutiveTimeouts >= GENERIC_TIMEOUT_LIMIT) await closeAfterTimeouts(t);
+        if (consecutiveTimeouts >= GENERIC_TIMEOUT_LIMIT) await checkGenericLiveness(t);
       }
       throw err;
     } finally {
+      if (livenessCheck?.t === t) await livenessCheck.promise;
       if (pendingTimeoutClose?.t === t) await pendingTimeoutClose.promise;
       if (opts.exclusive && mine === session) exclusiveCount.value = Math.max(0, exclusiveCount.value - 1);
       if (what && mine === session) {
@@ -301,12 +357,12 @@ export const useDeviceStore = defineStore('device', () => {
     if (!cur || cur.support !== 'generic') return;
     if (cur.stats.requests > lastStatsRequests) {
       lastStatsRequests = cur.stats.requests;
-      consecutiveTimeouts = 0;
+      if (!livenessCheck || livenessCheck.t !== cur) consecutiveTimeouts = 0;
     } else if (cur.stats.timeouts > lastStatsTimeouts) {
       lastStatsTimeouts = cur.stats.timeouts;
       consecutiveTimeouts++;
       if (consecutiveTimeouts >= GENERIC_TIMEOUT_LIMIT && status.value === 'connected') {
-        void closeAfterTimeouts(cur);
+        void checkGenericLiveness(cur);
       }
     }
   }
@@ -382,6 +438,9 @@ export const useDeviceStore = defineStore('device', () => {
     latencyTimer = null;
     if (profileTimer) clearInterval(profileTimer);
     profileTimer = null;
+    profilePollMisses = 0;
+    profilePollStopped = false;
+    detachProfileFocus = null;
     busyWith.length = 0;
     transport.value = null;
     info.value = null;
@@ -971,19 +1030,35 @@ export const useDeviceStore = defineStore('device', () => {
     return typeof document === 'undefined' || document.visibilityState !== 'hidden';
   }
 
+  function stopProfilePoll(): void {
+    profilePollStopped = true;
+    if (profileTimer) clearInterval(profileTimer);
+    profileTimer = null;
+    detachProfileFocus?.();
+    detachProfileFocus = null;
+  }
+
   let profileCheck: Promise<void> | null = null;
   /** Read the keyboard's active profile once (when idle) and follow it if it changed. */
   function checkKeyboardProfile(): Promise<void> {
-    if (profileCheck || !idleForProfilePoll()) return profileCheck ?? Promise.resolve();
+    if (profilePollStopped || profileCheck || !idleForProfilePoll()) return profileCheck ?? Promise.resolve();
     const mine = session;
     const seen = activeProfile.value;
     const run = (async () => {
       try {
         const real = await withTransport((t) => t.getActiveProfile());
+        if (mine === session) profilePollMisses = 0;
         // Anything that started meanwhile (a write batch reads it itself, a sidebar switch) wins over this read.
         if (mine !== session || activeProfile.value !== seen || !idleForProfilePoll()) return;
         if (real !== seen) await profileChangedOnKeyboard(real, 0, seen);
-      } catch {
+      } catch (err) {
+        if (mine === session && support.value === 'generic' && err instanceof TransportTimeoutError) {
+          profilePollMisses++;
+          if (profilePollMisses >= GENERIC_TIMEOUT_LIMIT) {
+            stopProfilePoll();
+            unknown.value = { ...unknown.value, profiles: true };
+          }
+        }
         // busy or lost: the next tick reads again
       } finally {
         profileCheck = null;
@@ -995,6 +1070,8 @@ export const useDeviceStore = defineStore('device', () => {
 
   /** Follow the keyboard while connected: every PROFILE_POLL_MS when idle, and when the window gets focus. Undone by reset(). */
   function watchKeyboardProfile(t: Ae64Transport): void {
+    profilePollMisses = 0;
+    profilePollStopped = false;
     if (profileTimer) clearInterval(profileTimer);
     profileTimer = setInterval(() => {
       if (transport.value === t) void checkKeyboardProfile();
@@ -1002,7 +1079,9 @@ export const useDeviceStore = defineStore('device', () => {
     if (typeof window !== 'undefined') {
       const onFocus = (): void => { if (transport.value === t) void checkKeyboardProfile(); };
       window.addEventListener('focus', onFocus);
-      detach.push(() => window.removeEventListener('focus', onFocus));
+      const off = () => window.removeEventListener('focus', onFocus);
+      detachProfileFocus = off;
+      detach.push(off);
     }
   }
 

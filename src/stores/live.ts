@@ -6,8 +6,9 @@
 // rarely-changing state (focus, running/paused) is reactive.
 import { defineStore } from 'pinia';
 import { markRaw, ref, watch } from 'vue';
-import { isRtMode } from '../protocol';
+import { TransportTimeoutError, isRtMode } from '../protocol';
 import type { AxisDataType, Performance, PhysicalKey } from '../protocol';
+import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
 import { rangeMm, usePerformanceStore } from './performance';
 
@@ -230,6 +231,8 @@ const FOLLOW_MARGIN = 0.1;
 /** A press starts (peak resets) when travel leaves this band at the top (mm). */
 const REST_MM = 0.05;
 const PAUSE_POLL_MS = 40;
+/** Consecutive `04 03` timeouts that stop the live poller on a generic connection (TO1, DESIGN MKB §5.2). */
+const GENERIC_LIVE_TIMEOUT_LIMIT = 3;
 const RATE_WINDOW_MS = 500;
 /** Auto-follow switches kept for undoAutoFollow. */
 const SWITCH_LOG_CAP = 64; // Shift held + n Tabs logs 2 links per Tab; keep the chain back to the reviewed key
@@ -361,6 +364,8 @@ export const useLiveStore = defineStore('live', () => {
   const running = ref(false);
   /** Why the poller stopped on its own (a failed read); null while it runs or after a stop() by a page. */
   const lastError = ref<string | null>(null);
+  /** True on a generic connection when `04 03` timed out 3 times in a row (TO1, DESIGN MKB §5.2). */
+  const noAnswer = ref(false);
   /** Polling is held while a write job runs, the tab is hidden or the device is busy. */
   const paused = ref(false);
 
@@ -724,6 +729,7 @@ export const useLiveStore = defineStore('live', () => {
   async function loop(gen: number): Promise<void> {
     let tick = 0;
     let rr = 0;
+    let misses = 0;
     while (gen === generation) {
       if (!device.connected) { stop(); return; }
       if (shouldPause()) {
@@ -747,6 +753,35 @@ export const useLiveStore = defineStore('live', () => {
         }
       }
       tick++;
+      if (device.support === 'generic') {
+        for (const [type, row] of plan) {
+          if (gen !== generation || !device.connected) { stop(); return; }
+          if (shouldPause()) break;
+          try {
+            const r = await device.withTransport((t) => t.getAxisData(type, row));
+            if (gen !== generation) return;
+            misses = 0;
+            ingest(type, row, r.values, performance.now());
+          } catch (err) {
+            if (gen !== generation) return;
+            if (err instanceof TransportTimeoutError) {
+              misses++;
+              if (!device.connected) { stop(); return; }
+              if (misses >= GENERIC_LIVE_TIMEOUT_LIMIT) {
+                stop();
+                noAnswer.value = true;
+                lastError.value = tr('mkb.common.noAnswer');
+                return;
+              }
+              continue;
+            }
+            stop();
+            lastError.value = err instanceof Error ? err.message : String(err);
+            return;
+          }
+        }
+        continue;
+      }
       try {
         // Sequential requests in one call: exactly one request in flight at any time.
         await device.withTransport(async (t) => {
@@ -771,6 +806,7 @@ export const useLiveStore = defineStore('live', () => {
     if (running.value || !device.connected) return;
     running.value = true;
     lastError.value = null;
+    noAnswer.value = false;
     paused.value = false;
     const gen = ++generation;
     rateCount = 0;
@@ -785,6 +821,7 @@ export const useLiveStore = defineStore('live', () => {
     uiPressed.clear();
     generation++;
     running.value = false;
+    noAnswer.value = false;
     paused.value = false;
     data.rateHz = 0;
   }
@@ -891,7 +928,7 @@ export const useLiveStore = defineStore('live', () => {
   }, { flush: 'sync' });
 
   return {
-    data, focusId, follow, allKeys, running, lastError, paused, start, stop, reset, clear: clearByUser, pin, setFocus, setFollow,
+    data, focusId, follow, allKeys, running, lastError, noAnswer, paused, start, stop, reset, clear: clearByUser, pin, setFocus, setFollow,
     suspendFollow, ingest, undoAutoFollow, keysForCodes, markUiPressed, resetPeaks, drainReleased,
   };
 });

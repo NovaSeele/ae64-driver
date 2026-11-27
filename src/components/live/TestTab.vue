@@ -635,11 +635,15 @@ function onTypeKey(e: KeyboardEvent) {
       </template>
     </TabKeyboard>
 
-    <p v-if="!view.touched" class="start" aria-live="polite">
+    <p v-if="!view.touched && !live.noAnswer" class="start" aria-live="polite">
       <span class="start__dot" />
       {{ device.demo && !isGeneric && demoKeys ? t('live.startHintDemo') : t('live.startHint') }}
     </p>
     <p v-if="live.paused" class="status num">{{ t('live.paused') }}</p>
+    <p v-else-if="live.noAnswer" class="status" role="status" data-testid="live-no-answer">
+      {{ t('mkb.common.noAnswer') }}
+      <Button size="sm" variant="ghost" :icon="IconRefresh" @click="live.start()">{{ t('live.restart') }}</Button>
+    </p>
     <p v-else-if="!live.running" class="status">
       {{ t('live.stopped') }}
       <Button size="sm" variant="ghost" :icon="IconRefresh" @click="live.start()">{{ t('live.restart') }}</Button>

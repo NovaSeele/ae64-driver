@@ -346,6 +346,8 @@ export interface GenericMockOptions {
   latencyMs?: number;
   /** Override VID (used for the `gboot` 38A6:F008 variant, DESIGN §15). */
   vendorId?: number;
+  /** Test-only reply override (returns null for no answer / timeout; undefined to fall through). */
+  overrideReply?: (req: readonly number[]) => number[] | null | undefined;
 }
 
 const DEFAULT_SERIAL: readonly number[] = [0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0, 0xc0];
@@ -364,6 +366,7 @@ export class GenericMockTransport extends BaseTransport {
   private readonly latencyMs: number;
   private readonly keysByPos = new Map<string, MockKeyDef>();
   private readonly liveTravel = new Map<string, { travelUm: number; pressed: boolean }>();
+  private replyOverride?: (req: readonly number[]) => number[] | null | undefined;
   private activeProfile = 0;
   private open = true;
 
@@ -373,6 +376,7 @@ export class GenericMockTransport extends BaseTransport {
     this.mockName = name;
     this.spec = spec;
     this.latencyMs = opts.latencyMs ?? 2;
+    this.replyOverride = opts.overrideReply;
     this.productName = spec.productName;
     this.productId = spec.productId;
     this._identity = {
@@ -396,6 +400,11 @@ export class GenericMockTransport extends BaseTransport {
   async close(): Promise<void> {
     this.open = false;
     await this.backing.close();
+  }
+
+  /** Test helper: override replies dynamically (return null for no answer / timeout; undefined to fall through). */
+  setReplyOverride(fn?: (req: readonly number[]) => number[] | null | undefined): void {
+    this.replyOverride = fn;
   }
 
   /** Test helper: simulate hardware profile switch (e.g. Fn profile key mid-export). */
@@ -425,6 +434,9 @@ export class GenericMockTransport extends BaseTransport {
   private handleGeneric(req: number[]): Uint8Array | null {
     const out = new Uint8Array(REPORT_LENGTH);
     const set = (bytes: readonly number[]) => { out.set(bytes.slice(0, REPORT_LENGTH)); return out; };
+    const dyn = this.replyOverride?.(req);
+    if (dyn === null) return null;
+    if (dyn !== undefined) return set(dyn);
     const override = this.spec.overrideReply?.(req);
     if (override === null) return null;
     if (override !== undefined) return set(override);

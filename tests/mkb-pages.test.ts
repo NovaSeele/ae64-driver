@@ -560,17 +560,16 @@ describe('S9 Per-page rules (DESIGN MKB §9.2, §7, §8, §11)', () => {
     expect(w.text()).toContain(t('mkb.common.unknown'));
   });
 
-  it('Settings: 3 consecutive real timeouts while loading closes generic connection with error.protocolUnknown and sends no frame after the 3rd miss', async () => {
+  it('Settings (TO1 test 1): 3 consecutive missing settings trigger one 01 02 liveness check, stay connected, hide polling-rate & RGB-sleep, and show the rest', async () => {
     vi.useFakeTimers({ toFake: [...FAKE_TIMERS] });
     const device = useDeviceStore();
     // Use gmiss (no periodic profile poll) so only Settings reads run on the wire.
     await settle(device.connectGenericMock('gmiss', { latencyMs: 0 }));
     expect(device.status).toBe('connected');
-    const expectedName = device.displayName;
     const transport = device.transport as GenericMockTransport;
     const frames = spyExchange(transport);
-    // Drop 02 05 00, 02 05 01, 02 0D 01 (3 consecutive reads after 02 04 01).
-    withReplyOverride(transport, ([f, op, a]) => {
+    // Drop 02 05 00, 02 05 01, 02 0D 01 (3 consecutive reads after 02 04 01); 01 02 still answers.
+    transport.setReplyOverride(([f, op, a]) => {
       if (
         (f === 0x02 && op === 0x05 && (a === 0x00 || a === 0x01))
         || (f === 0x02 && op === 0x0d && a === 0x01)
@@ -583,24 +582,34 @@ describe('S9 Per-page rules (DESIGN MKB §9.2, §7, §8, §11)', () => {
     await router.isReady();
     const w = mount(SettingsPage, { global: { plugins: [router, pinia] }, attachTo: document.body });
     mounted.push(w);
-    await advanceUntil(() => !useSettingsStore().loading);
+    await advanceUntil(() => !useSettingsStore().loading && useSettingsStore().loaded);
     await flushPromises();
 
-    expect(device.status).toBe('error');
-    expect(device.connected).toBe(false);
-    expect(device.error).toBe(t('error.protocolUnknown', { name: expectedName }));
-    expect(device.refusal?.reason).toBe('protocol');
-    expect(frames.map((f) => [f[0], f[1], f[2]])).toEqual([
+    expect(device.status).toBe('connected');
+    expect(device.connected).toBe(true);
+    expect(frames.map((f) => (f[0] === 0x01 ? [f[0], f[1]] : [f[0], f[1], f[2]]))).toEqual([
       [0x02, 0x04, 0x01],
       [0x02, 0x05, 0x00],
       [0x02, 0x05, 0x01],
       [0x02, 0x0d, 0x01],
+      [0x01, 0x02],
+      [0x02, 0x10, 0x01],
+      [0x02, 0x0e, 0x00],
+      [0x02, 0x08, 0x00],
     ]);
+    expect(frames.filter((f) => f[0] === 0x01 && f[1] === 0x02)).toHaveLength(1);
 
-    // Confirm no stray frames are sent after the 3rd miss.
-    await vi.advanceTimersByTimeAsync(5000);
-    await flushPromises();
-    expect(frames).toHaveLength(4);
+    const s = useSettingsStore();
+    expect(s.answered.systemMode).toBe(true);
+    expect(s.answered.pollingRate).toBe(false);
+    expect(s.answered.rgbSleep).toBe(false);
+    expect(s.answered.shakeOptimization).toBe(true);
+    expect(s.answered.macroSpace).toBe(true);
+    expect(s.answered.lightingAreas).toBe(true);
+    expect(w.find('[data-setting="systemMode"]').exists()).toBe(true);
+    expect(w.find('[data-setting="pollingRate"]').exists()).toBe(false);
+    expect(w.find('[data-setting="rgbSleep"]').exists()).toBe(false);
+    expect(w.find('[data-setting="shakeOptimization"]').exists()).toBe(true);
   });
 
   it('Key test & rows on g75: polls row 0 and sees row-0 key press (kills M20); keymap loads all 6 rows; selection selects 81 keys', async () => {

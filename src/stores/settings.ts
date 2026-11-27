@@ -101,59 +101,56 @@ export const useSettingsStore = defineStore('settings', () => {
       resetAnswered(false);
       try {
         if (device.support === 'generic') {
-          await device.withTransport(async (t) => {
-            const next = {
-              systemMode: false,
-              pollingRate: false,
-              rgbSleep: false,
-              shakeOptimization: false,
-              macroSpace: false,
-              lightingAreas: false,
-            };
-            if (!device.connected) return;
+          const conn = device.connection;
+          const next = {
+            systemMode: false,
+            pollingRate: false,
+            rgbSleep: false,
+            shakeOptimization: false,
+            macroSpace: false,
+            lightingAreas: false,
+          };
+          // Each optional read uses its own withTransport so a TO1 liveness check triggered on the 3rd miss settles before the next read.
+          const tryRead = async <T>(fn: (t: Ae64Transport) => Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> => {
+            if (!device.connected || device.connection !== conn) return { ok: false };
             try {
-              systemMode.value = await t.getSystemMode();
-              next.systemMode = true;
-            } catch { /* hidden when unanswered */ }
-            if (!device.connected) return;
-            let gotRates = false;
-            try {
-              const rates = await t.getPollingRates();
-              if (rates.length) {
-                supportedRates.value = rates;
-                gotRates = true;
-              }
-            } catch { /* fall back to answered polling rate alone */ }
-            if (!device.connected) return;
-            try {
-              pollingRate.value = await t.getPollingRate();
-              next.pollingRate = true;
-              if (!gotRates) supportedRates.value = [pollingRate.value];
-              else if (!supportedRates.value.includes(pollingRate.value)) supportedRates.value = [...supportedRates.value, pollingRate.value];
-            } catch { /* hidden when unanswered */ }
-            if (!device.connected) return;
-            try {
-              rgbSleep.value = await t.getRgbSleep();
-              next.rgbSleep = true;
-            } catch { /* hidden when unanswered */ }
-            if (!device.connected) return;
-            try {
-              shakeOptimization.value = await t.getShakeOptimization();
-              next.shakeOptimization = true;
-            } catch { /* hidden when unanswered */ }
-            if (!device.connected) return;
-            try {
-              macroSpace.value = await t.getMacroSpace();
-              next.macroSpace = true;
-            } catch { /* hidden when unanswered */ }
-            if (!device.connected) return;
-            try {
-              lightingAreas.value = await t.getLightingAreas();
-              next.lightingAreas = true;
-            } catch { /* hidden when unanswered */ }
-            answered.value = next;
-          });
-          if (device.connected) loaded.value = true;
+              return { ok: true, value: await device.withTransport(fn) };
+            } catch {
+              return { ok: false };
+            }
+          };
+          const sys = await tryRead((t) => t.getSystemMode());
+          if (sys.ok) { systemMode.value = sys.value; next.systemMode = true; }
+          if (!device.connected || device.connection !== conn) return;
+          let gotRates = false;
+          const rates = await tryRead((t) => t.getPollingRates());
+          if (rates.ok && rates.value.length) {
+            supportedRates.value = rates.value;
+            gotRates = true;
+          }
+          if (!device.connected || device.connection !== conn) return;
+          const rate = await tryRead((t) => t.getPollingRate());
+          if (rate.ok) {
+            pollingRate.value = rate.value;
+            next.pollingRate = true;
+            if (!gotRates) supportedRates.value = [pollingRate.value];
+            else if (!supportedRates.value.includes(pollingRate.value)) supportedRates.value = [...supportedRates.value, pollingRate.value];
+          }
+          if (!device.connected || device.connection !== conn) return;
+          const sleepMin = await tryRead((t) => t.getRgbSleep());
+          if (sleepMin.ok) { rgbSleep.value = sleepMin.value; next.rgbSleep = true; }
+          if (!device.connected || device.connection !== conn) return;
+          const shake = await tryRead((t) => t.getShakeOptimization());
+          if (shake.ok) { shakeOptimization.value = shake.value; next.shakeOptimization = true; }
+          if (!device.connected || device.connection !== conn) return;
+          const macro = await tryRead((t) => t.getMacroSpace());
+          if (macro.ok) { macroSpace.value = macro.value; next.macroSpace = true; }
+          if (!device.connected || device.connection !== conn) return;
+          const areas = await tryRead((t) => t.getLightingAreas());
+          if (areas.ok) { lightingAreas.value = areas.value; next.lightingAreas = true; }
+          if (!device.connected || device.connection !== conn) return;
+          answered.value = next;
+          loaded.value = true;
           return;
         }
 

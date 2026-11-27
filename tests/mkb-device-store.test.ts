@@ -311,39 +311,52 @@ describe('S6 clean refusal gates G0–G4 and 3-timeout close (M10)', () => {
     expect(device.refusal?.reason).toBe('protocol');
   });
 
-  it('after init on generic: 2 timeouts + 1 success resets counter; 3 timeouts in a row via withTransport closes with error.protocolUnknown', async () => {
+  it('after init on generic (TO1): 2 timeouts + 1 success resets counter; 3 timeouts run one 01 02 liveness check (alive stays open; silent 01 02 closes with error.protocolUnknown)', async () => {
     vi.useFakeTimers({ toFake: [...FAKE_TIMERS] });
     const device = useDeviceStore();
     // Use gmiss (no periodic profile poll) so only our explicit withTransport reads run on the wire.
     await settle(device.connectGenericMock('gmiss', { latencyMs: 0 }));
     expect(device.connected).toBe(true);
     const t = device.transport as GenericMockTransport;
+    const out = captureOut();
 
-    // Make 02 04 01 (getSystemMode) time out while 02 05 01 (getPollingRate) succeeds.
-    const origEx = (t as unknown as { exchange(f: Uint8Array, ms: number): Promise<Bytes> }).exchange.bind(t);
-    (t as unknown as { exchange(f: Uint8Array, ms: number): Promise<Bytes> }).exchange = (f, ms) => {
-      if (f[0] === 0x02 && f[1] === 0x04 && f[2] === 0x01) {
-        return new Promise((_, reject) => setTimeout(() => reject(new TransportTimeoutError([0x02, 0x04])), ms));
-      }
-      return origEx(f, ms);
-    };
+    // Make 02 04 01 (getSystemMode) time out while 02 05 01 and 01 02 still answer.
+    let dropLiveness = false;
+    t.setReplyOverride(([f, op, a]) => {
+      if (f === 0x02 && op === 0x04 && a === 0x01) return null;
+      if (dropLiveness && f === 0x01 && op === 0x02) return null;
+      return undefined;
+    });
 
-    // 2 timeouts -> stays connected.
+    // 2 timeouts -> stays connected, no liveness 01 02 yet.
     await expect(settle(device.withTransport((trp) => trp.getSystemMode()))).rejects.toThrow(TransportTimeoutError);
     await expect(settle(device.withTransport((trp) => trp.getSystemMode()))).rejects.toThrow(TransportTimeoutError);
     expect(device.connected).toBe(true);
+    expect(out.frames.filter((f) => f[0] === 0x01 && f[1] === 0x02)).toHaveLength(0);
 
     // 1 successful read resets the consecutive timeout count.
     await settle(device.withTransport((trp) => trp.getPollingRate()));
     expect(device.connected).toBe(true);
 
-    // Now 2 more timeouts still stay connected.
+    // Now 2 more timeouts still stay connected with no liveness 01 02.
     await expect(settle(device.withTransport((trp) => trp.getSystemMode()))).rejects.toThrow(TransportTimeoutError);
     await expect(settle(device.withTransport((trp) => trp.getSystemMode()))).rejects.toThrow(TransportTimeoutError);
     expect(device.connected).toBe(true);
+    expect(out.frames.filter((f) => f[0] === 0x01 && f[1] === 0x02)).toHaveLength(0);
 
-    // 3rd consecutive timeout closes the connection cleanly with error.protocolUnknown.
+    // 3rd consecutive timeout sends one 01 02; board answers -> count resets and stays connected.
     await expect(settle(device.withTransport((trp) => trp.getSystemMode()))).rejects.toThrow(TransportTimeoutError);
+    expect(out.frames.filter((f) => f[0] === 0x01 && f[1] === 0x02)).toHaveLength(1);
+    expect(device.connected).toBe(true);
+    expect(t.connected).toBe(true);
+
+    // Now board stops answering 01 02 too: 3 consecutive timeouts -> liveness fails -> closes with error.protocolUnknown.
+    dropLiveness = true;
+    await expect(settle(device.withTransport((trp) => trp.getSystemMode()))).rejects.toThrow(TransportTimeoutError);
+    await expect(settle(device.withTransport((trp) => trp.getSystemMode()))).rejects.toThrow(TransportTimeoutError);
+    expect(device.connected).toBe(true);
+    await expect(settle(device.withTransport((trp) => trp.getSystemMode()))).rejects.toThrow(TransportTimeoutError);
+    expect(out.frames.filter((f) => f[0] === 0x01 && f[1] === 0x02)).toHaveLength(2);
     expect(device.connected).toBe(false);
     expect(device.status).toBe('error');
     expect(device.error).toBe(tr('error.protocolUnknown', { name: 'Bàn phím 1CA6:F004' }));
@@ -371,12 +384,13 @@ describe('S6 clean refusal gates G0–G4 and 3-timeout close (M10)', () => {
     expect(t.connected).toBe(true);
   });
 
-  it('grouped profile-poll answers reset the 3-timeout counter (alternating over 6 polls stays open; 3 in a row closes)', async () => {
+  it('grouped profile-poll answers reset the 3-timeout counter (TO1: 3 consecutive poll timeouts while alive stop the poll & mark profiles unknown; dead board closes)', async () => {
     vi.useFakeTimers({ toFake: [...FAKE_TIMERS] });
     const device = useDeviceStore();
     await settle(device.connectGenericMock('g60', { latencyMs: 0 }));
     expect(device.connected).toBe(true);
     const t = device.transport as GenericMockTransport;
+    const out = captureOut();
 
     const origEx = (t as unknown as { exchange(f: Uint8Array, ms: number): Promise<Bytes> }).exchange.bind(t);
     let pollIdx = 0;
@@ -391,30 +405,54 @@ describe('S6 clean refusal gates G0–G4 and 3-timeout close (M10)', () => {
       return origEx(f, ms);
     };
 
-    // 6 polls alternating timeout / answered (3 total timeouts, never consecutive): must stay connected.
+    // 6 polls alternating timeout / answered (3 total timeouts, never consecutive): must stay connected with no liveness 01 02.
     for (let i = 0; i < 6; i++) {
       await vi.advanceTimersByTimeAsync(Math.max(PROFILE_POLL_MS, REQUEST_TIMEOUT_MS + 100));
     }
     expect(pollIdx).toBeGreaterThanOrEqual(6);
     expect(device.connected).toBe(true);
     expect(t.connected).toBe(true);
+    expect(device.unknown.profiles).toBe(false);
+    expect(out.frames.filter((f) => f[0] === 0x01 && f[1] === 0x02)).toHaveLength(0);
 
     // Start the forced run right after an answered poll (any poll interval), so the count starts from 0.
     while (pollIdx % 2 === 1) await vi.advanceTimersByTimeAsync(10);
     await vi.advanceTimersByTimeAsync(0);
-    // Now exactly 3 consecutive poll timeouts must close the connection with error.protocolUnknown.
+    // 3 consecutive poll timeouts while 01 02 still answers -> one 01 02, stays connected, poll stops, profiles marked unknown.
     forceAllTimeouts = true;
     const pollsBefore = pollIdx;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       await vi.advanceTimersByTimeAsync(Math.max(PROFILE_POLL_MS, REQUEST_TIMEOUT_MS + 100));
     }
-    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS + 100);
     expect(pollIdx - pollsBefore).toBe(3);
+    expect(out.frames.filter((f) => f[0] === 0x01 && f[1] === 0x02)).toHaveLength(1);
+    expect(device.connected).toBe(true);
+    expect(t.connected).toBe(true);
+    expect(device.unknown.profiles).toBe(true);
+    expect(device.activeProfileName).toBe(tr('mkb.common.unknown'));
+
+    // Poll stays stopped over 10 s of fake time on this connection.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(pollIdx - pollsBefore).toBe(3);
+    expect(out.frames.filter((f) => f[0] === 0x01 && f[1] === 0x02)).toHaveLength(1);
+
+    // On a fresh connection where the board stops answering everything (02 03 01 and 01 02), 3 consecutive poll timeouts close it.
+    await settle(device.connectGenericMock('g60', { latencyMs: 0 }));
+    const t2 = device.transport as GenericMockTransport;
+    out.frames.length = 0;
+    t2.setReplyOverride(() => null);
+    for (let i = 0; i < 4; i++) {
+      await vi.advanceTimersByTimeAsync(Math.max(PROFILE_POLL_MS, REQUEST_TIMEOUT_MS + 100));
+    }
+    // Poll 3 fires at 6000 ms, times out at 7500 ms -> liveness 01 02 runs until 9000 ms.
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS + 100);
+    expect(out.frames.filter(isProfilePoll)).toHaveLength(3);
+    expect(out.frames.filter((f) => f[0] === 0x01 && f[1] === 0x02)).toHaveLength(1);
     expect(device.connected).toBe(false);
     expect(device.status).toBe('error');
     expect(device.error).toBe(tr('error.protocolUnknown', { name: 'Mock 60' }));
     expect(device.refusal?.reason).toBe('protocol');
-    expect(t.connected).toBe(false);
+    expect(t2.connected).toBe(false);
   });
 
   it('tryAutoReconnect returns true for an AE64 identity even when init ends without connected or rescue (S8)', async () => {
