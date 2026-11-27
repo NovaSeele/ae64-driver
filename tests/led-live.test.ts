@@ -23,6 +23,9 @@ import { resolvedTheme, setTheme, themeChoice } from '../src/theme';
 import { isProfilePoll } from './helpers/profilePoll';
 
 vi.setConfig({ testTimeout: 30000 });
+/** "Eventually" waits on the live loop: real timers, so a CPU spike (parallel workers) can stretch 3 frames past
+ * vi.waitFor's 1 s default (seen once on "a write is not starved"). The pace itself is checked elsewhere. */
+const LIVE_WAIT = { timeout: 5000 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const nextPaint = () => new Promise((r) => requestAnimationFrame(() => r(undefined)));
@@ -84,7 +87,7 @@ describe('LED60 read loop', () => {
     const { lighting } = await demo();
     lighting.startLivePolling();
     stop = () => lighting.stopLivePolling();
-    await vi.waitFor(() => expect(lighting.liveHasFrame).toBe(true));
+    await vi.waitFor(() => expect(lighting.liveHasFrame).toBe(true), LIVE_WAIT);
     const seq0 = lighting.liveFrame.seq;
     await sleep(1000);
     // paced by the display frame (jsdom: ~16–25 ms) and the replies; with a 100 ms wait it was at most 10
@@ -100,7 +103,7 @@ describe('LED60 read loop', () => {
     raf(tick);
     lighting.startLivePolling();
     stop = () => { counting = false; lighting.stopLivePolling(); };
-    await vi.waitFor(() => expect(lighting.liveHasFrame).toBe(true));
+    await vi.waitFor(() => expect(lighting.liveHasFrame).toBe(true), LIVE_WAIT);
     const [s0, r0] = [lighting.liveFrame.seq, rafs];
     await sleep(800);
     expect(lighting.liveFrame.seq - s0).toBeLessThanOrEqual(rafs - r0 + 1);
@@ -131,7 +134,7 @@ describe('LED60 read loop', () => {
     const first = expectedPages(device.keys)[0];
     lighting.startLivePolling();
     stop = () => { lighting.stopLivePolling(); running = false; ch.port1.close(); vi.unstubAllGlobals(); };
-    await vi.waitFor(() => expect(lighting.liveFrame.seq).toBeGreaterThanOrEqual(2));
+    await vi.waitFor(() => expect(lighting.liveFrame.seq).toBeGreaterThanOrEqual(2), LIVE_WAIT);
     out.length = 0;
     await sleep(600);
     const starts = out.filter((p) => p.bytes[2] === 0 && p.bytes[3] === first).map((p) => p.t);
@@ -198,7 +201,7 @@ describe('LED60 read loop', () => {
       expect(lighting.livePages).toEqual(pages);
       lighting.startLivePolling();
       stop = () => lighting.stopLivePolling();
-      await vi.waitFor(() => expect(lighting.liveFrame.seq).toBeGreaterThanOrEqual(6));
+      await vi.waitFor(() => expect(lighting.liveFrame.seq).toBeGreaterThanOrEqual(6), LIVE_WAIT);
       lighting.stopLivePolling();
       await sleep(50);
       const frames = lighting.liveFrame.seq;
@@ -222,7 +225,7 @@ describe('LED60 read loop', () => {
     const { device, mock, lighting } = await demo();
     lighting.startLivePolling();
     stop = () => lighting.stopLivePolling();
-    await vi.waitFor(() => expect(lighting.liveFrame.seq).toBeGreaterThanOrEqual(2));
+    await vi.waitFor(() => expect(lighting.liveFrame.seq).toBeGreaterThanOrEqual(2), LIVE_WAIT);
     lighting.stopLivePolling();
     await sleep(30);
     // a custom LED answers its own colour (not the moving pattern): compare with a direct read
@@ -275,7 +278,7 @@ describe('LED60 read loop', () => {
       const c = await demo();
       c.lighting.startLivePolling();
       stop = () => c.lighting.stopLivePolling();
-      await vi.waitFor(() => expect(c.lighting.liveFrame.seq).toBeGreaterThanOrEqual(2));
+      await vi.waitFor(() => expect(c.lighting.liveFrame.seq).toBeGreaterThanOrEqual(2), LIVE_WAIT);
       const undo = set(c);
       await sleep(40); // the packet in flight
       const n = c.out.length;
@@ -294,7 +297,7 @@ describe('LED60 read loop', () => {
   it('leaving the page (stop): no packet after the one in flight, no timer left', async () => {
     const { lighting, out } = await demo();
     lighting.startLivePolling();
-    await vi.waitFor(() => expect(lighting.liveFrame.seq).toBeGreaterThanOrEqual(2));
+    await vi.waitFor(() => expect(lighting.liveFrame.seq).toBeGreaterThanOrEqual(2), LIVE_WAIT);
     lighting.stopLivePolling();
     await sleep(40);
     const n = out.length;
@@ -315,7 +318,7 @@ describe('LED60 read loop', () => {
     });
     lighting.startLivePolling();
     stop = () => lighting.stopLivePolling();
-    await vi.waitFor(() => expect(lighting.liveError).toBe(true));
+    await vi.waitFor(() => expect(lighting.liveError).toBe(true), LIVE_WAIT);
     expect(lighting.liveHasFrame).toBe(false);
     await sleep(1300);
     expect(tries.length).toBeGreaterThanOrEqual(2);
@@ -333,7 +336,7 @@ describe('LED60 read loop', () => {
     const sync = useSyncStore();
     lighting.startLivePolling();
     stop = () => lighting.stopLivePolling();
-    await vi.waitFor(() => expect(lighting.liveFrame.seq).toBeGreaterThanOrEqual(3));
+    await vi.waitFor(() => expect(lighting.liveFrame.seq).toBeGreaterThanOrEqual(3), LIVE_WAIT);
     let atPending = -1;
     const off = sync.$subscribe(() => { if (sync.state === 'pending' && atPending < 0) atPending = out.length; }, { flush: 'sync' });
     lighting.applyKeyColors([device.keys[10].id], { r: 1, g: 2, b: 3 }, 'test');
@@ -355,7 +358,7 @@ describe('LED60 writes during live preview (the sync debounce, no explicit flush
     const sync = useSyncStore();
     lighting.startLivePolling();
     try {
-      await vi.waitFor(() => expect(lighting.liveFrame.seq).toBeGreaterThanOrEqual(3));
+      await vi.waitFor(() => expect(lighting.liveFrame.seq).toBeGreaterThanOrEqual(3), LIVE_WAIT);
       let atPending = -1;
       const off = sync.$subscribe(() => { if (sync.state === 'pending' && atPending < 0) atPending = out.length; }, { flush: 'sync' });
       // mid-frame: the write is made just after an area-0 read went out, before its reply
@@ -366,7 +369,7 @@ describe('LED60 writes during live preview (the sync debounce, no explicit flush
         armed = true;
         queueMicrotask(() => { sentAt = out.length; lighting.applyKeyColors([device.keys[10].id], { r: 9, g: 8, b: 7 }, 'test'); });
       });
-      await vi.waitFor(() => expect(sentAt).toBeGreaterThan(-1));
+      await vi.waitFor(() => expect(sentAt).toBeGreaterThan(-1), LIVE_WAIT);
       offHook();
       expect(out[sentAt - 1].bytes.slice(0, 3)).toEqual([0x05, 0x03, 0x00]);
       await vi.waitFor(() => expect(sync.state).toBe('saved'), { timeout: 5000 });
