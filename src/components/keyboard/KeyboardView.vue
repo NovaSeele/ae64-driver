@@ -425,6 +425,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
   overflow-x: auto;
   overflow-y: hidden;
   scroll-padding-inline: 10px; /* focus scrolling keeps the ring and padding in view */
+  overscroll-behavior-x: contain; /* a sideways swipe at the end never chains to the page or browser back/forward */
 }
 .kb__scroll > .kb__plate { margin-inline: auto; }
 .kb__scroll + .kb__note { margin-top: 10px; }
@@ -434,7 +435,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
 .kb.kb--overflow .kb__scroll,
 .kb.kb--overflow .kb__plate,
 .kb.kb--overflow .kb__key {
-  touch-action: pan-x;
+  touch-action: pan-x pan-y; /* sideways scrolls the board, up/down chains to the page; no pinch-zoom (KB1b) */
 }
 .kb__plate { position: relative; flex: none; }
 .kb__key {

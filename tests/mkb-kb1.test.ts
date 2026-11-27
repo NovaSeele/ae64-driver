@@ -1,7 +1,7 @@
 // MKB-V narrow-window keyboard (DESIGN MKB §8.8 KB1, §16.2):
 // - minimum unit 24 px on generic (no 12 px shrink), still capped at MAX_UNIT (72 px)
 // - horizontal scroll container rendered on generic only, leaving AE64 DOM unchanged
-// - touch-action: pan-x on .kb, scroller, plate and keys while overflowing; none when not overflowing
+// - touch-action: pan-x pan-y on .kb, scroller, plate and keys while overflowing; none when not overflowing
 // - Esc from a NumberField scrolls only the keyboard scroller horizontally, never the page
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -141,7 +141,7 @@ describe('MKB-V KB1: narrow-window generic keyboard', () => {
     expect(getComputedStyle(plateEl).marginInline).toBe('auto');
   });
 
-  it('toggles touch-action: pan-x across .kb, scroller, plate and keys only while overflowing', async () => {
+  it('toggles touch-action: pan-x pan-y across .kb, scroller, plate and keys only while overflowing', async () => {
     const device = useDeviceStore();
     await device.connectGenericMock('g75', { latencyMs: 0 });
     resizeWidth = 300;
@@ -161,14 +161,15 @@ describe('MKB-V KB1: narrow-window generic keyboard', () => {
     Object.defineProperty(scrollerEl, 'scrollWidth', { get: () => stubScrollWidth, configurable: true });
     Object.defineProperty(scrollerEl, 'clientWidth', { get: () => stubClientWidth, configurable: true });
 
-    // Overflowing (scrollWidth > clientWidth): whole path computes touch-action: pan-x.
+    // Overflowing (scrollWidth > clientWidth): whole path computes touch-action: pan-x pan-y (KB1b: vertical swipes chain to the page).
     triggerResize(294);
     await nextTick();
     expect(root.classList.contains('kb--overflow')).toBe(true);
-    expect(getComputedStyle(root).touchAction).toBe('pan-x');
-    expect(getComputedStyle(scrollerEl).touchAction).toBe('pan-x');
-    expect(getComputedStyle(plateEl).touchAction).toBe('pan-x');
-    expect(getComputedStyle(keyEl).touchAction).toBe('pan-x');
+    expect(getComputedStyle(root).touchAction).toBe('pan-x pan-y');
+    expect(getComputedStyle(scrollerEl).touchAction).toBe('pan-x pan-y');
+    expect(getComputedStyle(plateEl).touchAction).toBe('pan-x pan-y');
+    expect(getComputedStyle(keyEl).touchAction).toBe('pan-x pan-y');
+    expect(getComputedStyle(scrollerEl).getPropertyValue('overscroll-behavior-x')).toBe('contain');
 
     // While overflowing: mouse box-drag still draws .kb__box; touch drag does not.
     root.setPointerCapture = () => undefined;
