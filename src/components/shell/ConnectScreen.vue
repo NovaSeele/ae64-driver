@@ -1,14 +1,42 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { IconAlertTriangle, IconPlayerPlay, IconRefresh, IconUsb } from '@tabler/icons-vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { IconAlertTriangle, IconCheck, IconCopy, IconPlayerPlay, IconRefresh, IconUsb } from '@tabler/icons-vue';
 import Button from '../ui/Button.vue';
+import { useToast } from '../ui/toast';
+import { formatRefusalInfo } from '../../data/keyboardExport';
 import { useDeviceStore } from '../../stores/device';
 import { useSettingsStore } from '../../stores/settings';
 import { t } from '../../i18n/vi';
 
 const device = useDeviceStore();
 const settings = useSettingsStore();
+const toast = useToast();
 const usbRestarting = computed(() => settings.pollingState === 'applying' || settings.pollingState === 'reconnecting');
+
+const refusalCopied = ref(false);
+let copyTimer: ReturnType<typeof setTimeout> | undefined;
+
+watch(() => device.refusal, () => {
+  refusalCopied.value = false;
+  clearTimeout(copyTimer);
+});
+
+onBeforeUnmount(() => clearTimeout(copyTimer));
+
+async function copyRefusalInfo() {
+  if (!device.refusal) return;
+  const text = formatRefusalInfo(device.refusal);
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('no clipboard');
+    await navigator.clipboard.writeText(text);
+    refusalCopied.value = true;
+    clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => { refusalCopied.value = false; }, 2000);
+    toast.show(t('info.copiedToast'), 'success');
+  } catch {
+    toast.show(t('diagnostics.copyFailed'), 'error');
+  }
+}
 </script>
 
 <template>
@@ -62,9 +90,20 @@ const usbRestarting = computed(() => settings.pollingState === 'applying' || set
           {{ t('device.otherTabRetry') }}
         </Button>
       </div>
-      <p v-else-if="device.status === 'error' && device.error" class="cs__note cs__note--error" role="alert">
-        <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />{{ t('connect.failed') }}: {{ device.error }}
-      </p>
+      <div v-else-if="device.status === 'error' && device.error" class="cs__other" role="alert">
+        <p class="cs__note cs__note--error">
+          <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />{{ t('connect.failed') }}: {{ device.error }}
+        </p>
+        <Button
+          v-if="device.refusal"
+          size="sm"
+          :icon="refusalCopied ? IconCheck : IconCopy"
+          data-test="refusal-copy"
+          @click="copyRefusalInfo"
+        >
+          {{ refusalCopied ? t('info.copied') : t('mkb.refuse.copy') }}
+        </Button>
+      </div>
       <p v-if="settings.pollingState === 'error' && settings.pollingError" class="cs__note cs__note--error" role="alert">
         <IconAlertTriangle :size="16" stroke-width="1.5" aria-hidden="true" />{{ settings.pollingError }}
       </p>

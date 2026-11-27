@@ -4,7 +4,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
-  IconCopy, IconCheck, IconDownload, IconUpload, IconPlayerPause, IconPlayerPlay,
+  IconCopy, IconCheck, IconDownload, IconExternalLink, IconUpload, IconPlayerPause, IconPlayerPlay,
 } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
 import Card from '../components/ui/Card.vue';
@@ -16,6 +16,7 @@ import { useToast } from '../components/ui/toast';
 import { pollKind, useDeviceStore } from '../stores/device';
 import { formatBuildTime, useDiagnosticsStore } from '../stores/diagnostics';
 import type { ImportDiff, RestoreKey } from '../stores/diagnostics';
+import { GITHUB_KEYBOARD_INFO_ISSUE_URL, downloadKeyboardExport } from '../data/keyboardExport';
 import { LAYER_NAMES } from '../stores/keymap';
 import { keycodeLabel } from '../protocol';
 import { locksAvailable } from '../protocol/tabLock';
@@ -86,6 +87,24 @@ const stats = computed(() => {
   return { lastLatencyMs: 0, avgLatencyMs: 0, requests: 0, timeouts: 0, ...device.transport?.stats };
 });
 const readOnly = computed(() => !device.boardAllowed);
+const isGeneric = computed(() => device.support === 'generic');
+const canExportInfo = computed(() => (
+  device.connected && (device.support === 'ae64' || device.support === 'ae64-unlisted' || device.support === 'generic')
+));
+const exportDialogOpen = ref(false);
+const exportedFileName = ref('');
+
+async function exportKeyboardInfoFile() {
+  if (!canExportInfo.value || diag.isExportingInfo) return;
+  try {
+    const result = await diag.exportKeyboardInfo();
+    downloadKeyboardExport(result.fileName, result.json);
+    exportedFileName.value = result.fileName;
+    exportDialogOpen.value = true;
+  } catch (err) {
+    toast.show(err instanceof Error ? err.message : String(err), 'error');
+  }
+}
 /** W-11: without Web Locks the page cannot tell whether the keyboard is also open in another tab (said once, here). */
 const noTabCheck = !locksAvailable();
 
@@ -245,7 +264,21 @@ async function doRestore() {
     <div class="diag-container">
       <!-- 1. Device Info & Protocol Version -->
       <Card :title="t('diagnostics.deviceTitle')" :subtitle="t('diagnostics.deviceDesc')">
-        <template #actions><CopyInfo /></template>
+        <template #actions>
+          <CopyInfo />
+          <Button
+            v-if="canExportInfo"
+            size="sm"
+            variant="secondary"
+            :icon="IconDownload"
+            :loading="diag.isExportingInfo"
+            :disabled="diag.isExporting || diag.isRestoring"
+            data-test="export-keyboard-info"
+            @click="exportKeyboardInfoFile"
+          >
+            {{ diag.isExportingInfo ? t('mkb.export.exporting') : t('mkb.export.button') }}
+          </Button>
+        </template>
         <dl class="diag-meta-grid">
           <div class="diag-meta-item">
             <dt class="micro">{{ t('settings.firmwareVersion') }}</dt>
@@ -280,6 +313,10 @@ async function doRestore() {
           <div class="diag-meta-item">
             <dt class="micro">{{ t('diagnostics.type') }}</dt>
             <dd class="num">{{ device.info ? `${device.info.type} / ${device.info.subType}` : '—' }}</dd>
+          </div>
+          <div class="diag-meta-item" data-test="diag-support">
+            <dt class="micro">{{ t('mkb.export.support') }}</dt>
+            <dd class="num">{{ device.support ?? '—' }}</dd>
           </div>
         </dl>
         <p v-if="noTabCheck && !device.demo" class="diag-warn" data-test="no-tab-lock">{{ t('diagnostics.noTabLock') }}</p>
@@ -376,14 +413,14 @@ async function doRestore() {
         </div>
       </Card>
 
-      <!-- 5. Backup & Restore (JSON) -->
-      <Card :subtitle="t('diagnostics.backupDesc')">
+      <!-- 5. Backup & Restore (JSON) — AE64 only (DESIGN MKB §9.2) -->
+      <Card v-if="!isGeneric" :subtitle="t('diagnostics.backupDesc')" data-test="diag-backup-card">
         <template #title><span id="diag-backup-title" tabindex="-1">{{ t('diagnostics.backupTitle') }}</span></template>
         <div class="diag-backup-actions">
           <Button
             variant="primary"
             :loading="diag.isExporting"
-            :disabled="diag.isRestoring"
+            :disabled="diag.isRestoring || diag.isExportingInfo"
             @click="exportBackup"
           >
             <IconDownload :size="16" />
@@ -391,7 +428,7 @@ async function doRestore() {
           </Button>
           <Button
             variant="secondary"
-            :disabled="diag.isRestoring || diag.isExporting || readOnly"
+            :disabled="diag.isRestoring || diag.isExporting || diag.isExportingInfo || readOnly"
             @click="triggerImport"
           >
             <IconUpload :size="16" />
@@ -466,6 +503,31 @@ async function doRestore() {
           </Button>
         </div>
       </div>
+    </Dialog>
+
+    <!-- Export Keyboard Info Saved Dialog (DESIGN MKB §13) -->
+    <Dialog
+      v-model:open="exportDialogOpen"
+      :title="t('mkb.export.button')"
+      :width="480"
+      describe
+    >
+      <p class="diag-export-notice" data-test="export-saved-notice">
+        {{ t('mkb.export.savedDialog', { file: exportedFileName }) }}
+      </p>
+      <template #footer>
+        <Button variant="ghost" @click="exportDialogOpen = false">
+          {{ t('ui.close') }}
+        </Button>
+        <Button
+          variant="primary"
+          :href="GITHUB_KEYBOARD_INFO_ISSUE_URL"
+          :icon="IconExternalLink"
+          data-test="export-open-github"
+        >
+          {{ t('mkb.export.openGithub') }}
+        </Button>
+      </template>
     </Dialog>
   </PageLayout>
 </template>
@@ -706,5 +768,11 @@ async function doRestore() {
   justify-content: flex-end;
   gap: var(--s-2);
   margin-top: var(--s-2);
+}
+.diag-export-notice {
+  margin: 0;
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  color: var(--fg-1);
 }
 </style>

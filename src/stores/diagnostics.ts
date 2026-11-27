@@ -17,6 +17,8 @@ import { LAYER_NAMES, breaksFnRule, useKeymapStore } from './keymap';
 import { isKnownMode, perfMinMm, rangeMm, usePerformanceStore } from './performance';
 import { useSettingsStore } from './settings';
 import { useSyncStore } from './sync';
+import { exportKeyboardInfo as runKeyboardExport } from '../data/keyboardExport';
+import type { KeyboardExportResult } from '../data/keyboardExport';
 
 const ASSIGNABLE_KEYCODES = new Set<number>();
 for (const g of KEYCODE_GROUPS) {
@@ -293,6 +295,7 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
   const settingsStore = useSettingsStore();
 
   const isExporting = ref(false);
+  const isExportingInfo = ref(false);
   const isRestoring = ref(false);
   const importDiff = ref<ImportDiff | null>(null);
   // A diff was computed against another profile: it no longer describes what a restore would change.
@@ -627,8 +630,17 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     }
   }
 
+  async function exportKeyboardInfo(opts?: { now?: Date }): Promise<KeyboardExportResult> {
+    isExportingInfo.value = true;
+    try {
+      return await runKeyboardExport(opts);
+    } finally {
+      isExportingInfo.value = false;
+    }
+  }
+
   return {
-    isExporting, isRestoring, importDiff,
-    generateBackup, parseAndDiffBackup, applyRestore,
+    isExporting, isExportingInfo, isRestoring, importDiff,
+    generateBackup, exportKeyboardInfo, parseAndDiffBackup, applyRestore,
   };
 });

@@ -311,6 +311,8 @@ const baseEn: Record<keyof typeof base, string> = {
   'mkb.export.exporting': 'Exporting keyboard info…',
   'mkb.export.savedDialog': 'Saved {file}. Want to help support this keyboard? Send the file through GitHub Issues (attach it yourself). The issue and the attached file are public.',
   'mkb.export.openGithub': 'Open GitHub Issues',
+  'mkb.export.what': 'keyboard info export',
+  'mkb.export.support': 'Support level',
 };
 
 export const en = {

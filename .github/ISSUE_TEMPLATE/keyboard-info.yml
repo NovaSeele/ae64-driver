@@ -1,0 +1,48 @@
+name: Keyboard info (view mode / support request)
+description: Share a keyboard info JSON exported from AE64 Control to help add support for a keyboard.
+title: "[Keyboard] "
+labels: ["keyboard-info"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Public notice:** This GitHub issue, any attached JSON file, and any photo you upload are **public**.
+        The exported JSON file omits your keyboard serial number, profile names, and macros, but please review it before attaching if you want to be sure.
+
+        **Lưu ý công khai:** Issue này, file JSON và ảnh đính kèm đều sẽ **công khai**.
+        File JSON xuất ra đã bỏ số serial, tên profile và macro.
+
+  - type: input
+    id: brand-model
+    attributes:
+      label: Brand and model (as sold) / Hãng và tên mẫu bàn phím
+      description: The brand, model name, and layout/variant printed on the box or product page (e.g., Everglide SU75 Pro, AULA AG75, Wuque BABAO60 HE).
+      placeholder: e.g. Everglide SU75 Pro
+    validations:
+      required: true
+
+  - type: textarea
+    id: export-file
+    attributes:
+      label: Exported keyboard info file / File thông tin bàn phím đã xuất
+      description: Drag and drop the `ae64control-keyboard-*.json` file exported from Diagnostics here (or paste the copied device info if connection was refused).
+      placeholder: Drag and drop ae64control-keyboard-<board>-<date>.json here...
+    validations:
+      required: true
+
+  - type: textarea
+    id: photo
+    attributes:
+      label: Photo of the keyboard (optional) / Ảnh bàn phím (không bắt buộc)
+      description: Optional top-down photo taken by you so we can verify key sizes and layout (ISO/ANSI, split keys, knob, light strip). Do not upload vendor or press images. Remember this issue and any uploaded photo are public.
+      placeholder: Drag and drop a photo here (optional)...
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes (optional) / Ghi chú thêm (không bắt buộc)
+      description: Anything you noticed in view mode (wrong key widths, missing rows, Key test behaviour, lighting areas, etc.).
+    validations:
+      required: false

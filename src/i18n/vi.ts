@@ -314,6 +314,8 @@ export const base = {
   'mkb.export.exporting': 'Đang xuất thông tin bàn phím…',
   'mkb.export.savedDialog': 'Đã lưu {file}. Muốn giúp hỗ trợ bàn phím này? Gửi file qua GitHub Issues (đính kèm thủ công). Issue và file đính kèm sẽ công khai.',
   'mkb.export.openGithub': 'Mở GitHub Issues',
+  'mkb.export.what': 'xuất thông tin bàn phím',
+  'mkb.export.support': 'Mức hỗ trợ',
 } as const;
 
 export const vi = {
