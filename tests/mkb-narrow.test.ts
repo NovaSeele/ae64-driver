@@ -58,6 +58,76 @@ function collectVueFiles(dir: string): string[] {
   return out;
 }
 
+interface MediaRule {
+  media: string;
+  selector: string;
+  body: string;
+}
+
+/** Extract every style rule inside any `@media` block whose prelude contains `max-width:`. */
+function extractMaxWidthMediaRules(css: string): MediaRule[] {
+  const clean = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const out: MediaRule[] = [];
+  let i = 0;
+  while (i < clean.length) {
+    const at = clean.indexOf('@media', i);
+    if (at === -1) break;
+    const open = clean.indexOf('{', at);
+    if (open === -1) break;
+    const prelude = clean.slice(at + 6, open).replace(/\s+/g, ' ').trim();
+    let depth = 1;
+    let j = open + 1;
+    while (j < clean.length && depth > 0) {
+      if (clean[j] === '{') depth++;
+      else if (clean[j] === '}') depth--;
+      j++;
+    }
+    const inner = clean.slice(open + 1, j - 1);
+    if (/max-width\s*:/i.test(prelude)) {
+      for (const match of inner.matchAll(/([^{}@]+)\{([^{}]*)\}/g)) {
+        const body = match[2].replace(/\s+/g, ' ').trim();
+        for (const rawSel of match[1].split(',')) {
+          const selector = rawSel.replace(/\s+/g, ' ').trim();
+          if (selector) out.push({ media: prelude, selector, body });
+        }
+      }
+    }
+    i = j;
+  }
+  return out;
+}
+
+// Explicit exceptions for `@media (max-width: ...)` rules that pre-existed on base commit eeab422
+// (no MKB exception: every MKB narrow rule is scoped under .shell--generic).
+// Keyed by `${rel} | ${media} | ${unscopedSelector}` so any new max-width rule in any file is caught.
+const MAX_WIDTH_EXCEPTIONS = new Set<string>([
+  // Pre-existing in base eeab422:
+  'src/components/advanced/AdvancedTab.vue | (max-width: 1000px) | .cols',
+  'src/components/advanced/AdvancedTab.vue | (max-width: 1000px) | .cfg',
+  'src/components/advanced/DksEditor.vue | (max-width: 1100px) | .dks__thresholds',
+  'src/components/advanced/PairEditor.vue | (max-width: 1100px) | .modes__grid',
+  'src/components/firmware/AxisRestoreCard.vue | (max-width: 860px) | .ax__warn',
+  'src/components/firmware/AxisRestoreCard.vue | (max-width: 860px) | .ax__warn > .btn',
+  'src/components/live/TestTab.vue | (max-width: 1100px) | .checkrow',
+  'src/components/live/TestTab.vue | (max-width: 1100px) | .grid',
+  'src/components/live/TestTab.vue | (max-width: 1100px) | .typetest',
+  'src/components/live/TestTab.vue | (max-width: 1100px) | .typetest__box',
+  'src/components/shell/PageLayout.vue | (max-width: 1400px) | .page',
+  'src/components/shell/PageLayout.vue | (max-width: 1400px) | .page__kbrow',
+  'src/components/shell/PageLayout.vue | (max-width: 1400px) | .page__aside',
+  'src/components/shell/PageLayout.vue | (max-width: 1400px) | .page__board',
+  'src/pages/FirmwarePage.vue | (max-width: 1100px) | .fw',
+  'src/pages/FirmwarePage.vue | (max-width: 1100px) | .fw__main',
+  'src/pages/FirmwarePage.vue | (max-width: 1100px) | .fw-head',
+  'src/pages/FirmwarePage.vue | (max-width: 1100px) | .fw__side',
+  'src/pages/FirmwarePage.vue | (max-width: 860px) | .fw__side',
+  'src/pages/MacroPage.vue | (max-width: 1000px) | .cols',
+  'src/pages/MacroPage.vue | (max-width: 1000px) | .main > .seqcard',
+  'src/pages/MacroPage.vue | (max-width: 1000px) | .main .at',
+  'src/pages/MacroPage.vue | (max-width: 1200px) | .modes',
+  'src/pages/MacroPage.vue | (min-width: 1001px) and (max-width: 1200px) | .main .at__body',
+]);
+
 describe('mkb narrow-viewport CSS scoping', () => {
   for (const f of FILES) {
     it(`${f.path} scopes all narrow rules under .shell--generic inside @media (max-width: 899px)`, () => {
@@ -122,5 +192,38 @@ describe('mkb narrow-viewport CSS scoping', () => {
     expect(src).toContain("'shell--generic': device.support === 'generic'");
     expect(src).toMatch(/\.shell\s*\{[^}]*min-width:\s*1044px/s);
     expect(src).toMatch(/@media\s*\(max-width:\s*899px\)\s*\{[^}]*\.shell--generic\s*\{\s*min-width:\s*0;\s*\}/s);
+  });
+
+  it('RV9: every @media (max-width: ...) rule across all src/**/*.vue files is a .shell--generic descendant', () => {
+    const srcRoot = resolve('src');
+    const vueFiles = collectVueFiles(srcRoot);
+    expect(vueFiles.length).toBeGreaterThan(0);
+
+    const violations: string[] = [];
+    for (const file of vueFiles) {
+      const rel = `src/${file.slice(srcRoot.length + 1).replace(/\\/g, '/')}`;
+      const src = readFileSync(file, 'utf8');
+      const { descriptor } = parse(src);
+      for (const style of descriptor.styles) {
+        const compiled = compileStyle({
+          source: style.content,
+          filename: rel,
+          id: 'data-v-test',
+          scoped: !!style.scoped,
+        });
+        expect(compiled.errors).toEqual([]);
+        for (const rule of extractMaxWidthMediaRules(compiled.code)) {
+          if (rule.selector.startsWith('.shell--generic ')) continue;
+          const unscoped = rule.selector.replace(/\[data-v-test\]/g, '');
+          // Single allowed non-descendant rule: App.vue's `.shell--generic { min-width: 0; }`.
+          if (rel === 'src/App.vue' && unscoped === '.shell--generic' && /^min-width:\s*0;?$/.test(rule.body)) {
+            continue;
+          }
+          if (MAX_WIDTH_EXCEPTIONS.has(`${rel} | ${rule.media} | ${unscoped}`)) continue;
+          violations.push(`${rel} @media ${rule.media} -> ${rule.selector}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
   });
 });

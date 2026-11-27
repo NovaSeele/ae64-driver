@@ -2,8 +2,8 @@
 // Scalable keyboard on a case panel. Selection is wired to the selection store:
 // click = replace, Ctrl/⌘-click = toggle, Shift-click = range, drag = box select (Ctrl/Shift adds),
 // click on the case clears, Esc clears. Arrow keys move focus between keys, Space/Enter selects.
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue';
-import type { Component } from 'vue';
+import { computed, h, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
+import type { Component, FunctionalComponent } from 'vue';
 import Keycap from './Keycap.vue';
 import type { SubLine } from './Keycap.vue';
 import type { LedGlow } from '../../ledGlow';
@@ -65,6 +65,7 @@ const props = defineProps<{
 const emit = defineEmits<{ picked: [id: number] }>();
 
 const MAX_UNIT = 72;
+const MIN_UNIT = 24;
 const DRAG_THRESHOLD = 5;
 
 const sel = useSelectionStore();
@@ -72,16 +73,38 @@ const device = useDeviceStore();
 const flashStore = useFlashStore();
 const isGeneric = computed(() => device.support === 'generic');
 const root = ref<HTMLElement | null>(null);
+const scroller = ref<HTMLElement | null>(null);
 const plate = ref<HTMLElement | null>(null);
 const width = ref(0);
+const overflowing = ref(false);
 const bounds = computed(() => layoutBounds(props.keys));
 const unit = computed(() => {
   if (!bounds.value.width) return MAX_UNIT;
-  const minU = isGeneric.value && width.value > 0 ? 12 : 24;
-  return Math.max(minU, Math.min(MAX_UNIT, width.value / bounds.value.width));
+  return Math.max(MIN_UNIT, Math.min(MAX_UNIT, width.value / bounds.value.width));
 });
 const box = ref<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
 const focusId = ref<number | null>(null);
+
+/** Wraps the plate in a horizontal scroll container on generic boards only, leaving AE64's DOM unchanged (DESIGN MKB §8.8 KB1). */
+const PlateWrap: FunctionalComponent<{ wrap: boolean }> = (p, { slots }) => {
+  const child = slots.default?.()[0];
+  return p.wrap
+    ? h('div', { class: 'kb__scroll', ref: (el) => { scroller.value = el as HTMLElement | null; } }, child)
+    : child;
+};
+PlateWrap.props = ['wrap'];
+
+function updateOverflow() {
+  const el = scroller.value;
+  if (!isGeneric.value || !el) {
+    overflowing.value = false;
+    return;
+  }
+  overflowing.value = el.clientWidth > 0
+    ? el.scrollWidth > el.clientWidth
+    : width.value > 0 && bounds.value.width * unit.value > width.value;
+}
+watch([isGeneric, unit, bounds, scroller], updateOverflow, { flush: 'post' });
 
 /** Combines caller's flag (e.g. uncalibrated) with generic unknown-width ratio note (DESIGN MKB §8.3). */
 function keyFlag(k: PhysicalKey): { label: string } | undefined {
@@ -113,6 +136,10 @@ function cancelDrag() {
 
 function onPointerDown(e: PointerEvent) {
   if (!props.selectable || e.button !== 0) return;
+  // Let native mouse drags on the generic scroller's horizontal scrollbar work without starting a box select.
+  if (scroller.value && e.target === scroller.value && scroller.value.clientHeight > 0) {
+    if (e.clientY > scroller.value.getBoundingClientRect().top + scroller.value.clientHeight) return;
+  }
   const keyEl = (e.target as HTMLElement).closest<HTMLElement>('[data-key]');
   const p = local(e);
   start = { ...p, id: keyEl ? Number(keyEl.dataset.key) : null, mods: modeOf(e) };
@@ -140,6 +167,11 @@ function onPointerMove(e: PointerEvent) {
   if (!start) return;
   const p = local(e);
   if (!box.value && Math.hypot(p.x - start.x, p.y - start.y) < DRAG_THRESHOLD) return;
+  // While the generic plate overflows horizontally, touch swipes pan the scroller instead of box-selecting.
+  if (overflowing.value && e.pointerType === 'touch') {
+    cancelDrag();
+    return;
+  }
   boxAdds.value = start.mods !== 'replace';
   box.value = { x0: start.x, y0: start.y, x1: p.x, y1: p.y };
 }
@@ -188,6 +220,7 @@ function onKeyDown(e: KeyboardEvent, key: PhysicalKey) {
     const n = neighbour(key, e.key);
     if (n) {
       focusKey(n.id);
+      revealInScroller(n.id);
       if (e.shiftKey && props.selectable) sel.select(n.id, 'range');
     }
   } else if ((e.key === ' ' || e.key === 'Enter') && props.selectable) {
@@ -211,14 +244,35 @@ function onWindowKey(e: KeyboardEvent) {
   }
 }
 
-/** The page may be scrolled so the tab-stop key is off screen; preventScroll kept the page still, so bring the
- *  board into view (instantly, nearest edge) only in that case. Otherwise the next arrow would make the browser jump. */
-function revealBoard(id: number) {
-  const keyEl = root.value?.querySelector<HTMLElement>(`[data-key="${id}"]`);
-  const scroller = root.value?.closest('.main__scroll');
-  if (!keyEl || !scroller) return;
+/** On generic boards, scroll only the keyboard's horizontal scroller (never the page) so the key and its inner
+ *  padding margin are fully visible. */
+function revealInScroller(id: number) {
+  const kbScroller = isGeneric.value ? scroller.value : null;
+  const keyEl = kbScroller ? root.value?.querySelector<HTMLElement>(`[data-key="${id}"]`) : null;
+  if (!kbScroller || !keyEl) return;
   const k = keyEl.getBoundingClientRect();
-  const s = scroller.getBoundingClientRect();
+  const s = kbScroller.getBoundingClientRect();
+  const style = getComputedStyle(kbScroller);
+  const padLeft = parseFloat(style.paddingLeft) || 0;
+  const padRight = parseFloat(style.paddingRight) || 0;
+  const visibleRight = s.left + (kbScroller.clientWidth || s.width);
+  if (k.left < s.left + padLeft) {
+    kbScroller.scrollLeft = Math.max(0, kbScroller.scrollLeft + (k.left - (s.left + padLeft)));
+  } else if (k.right > visibleRight - padRight) {
+    kbScroller.scrollLeft = kbScroller.scrollLeft + (k.right - (visibleRight - padRight));
+  }
+}
+
+/** The page may be scrolled so the tab-stop key is off screen; preventScroll kept the page still, so bring the
+ *  board into view (instantly, nearest edge) only in that case. Otherwise the next arrow would make the browser jump.
+ *  On generic boards, also scroll the keyboard's own horizontal scroller (never the page) so the tab-stop key is visible. */
+function revealBoard(id: number) {
+  revealInScroller(id);
+  const keyEl = root.value?.querySelector<HTMLElement>(`[data-key="${id}"]`);
+  const pageScroller = root.value?.closest('.main__scroll');
+  if (!keyEl || !pageScroller) return;
+  const k = keyEl.getBoundingClientRect();
+  const s = pageScroller.getBoundingClientRect();
   if (k.top >= s.top && k.bottom <= s.bottom) return;
   // the frame: a Performance tab's (E) or Lighting's
   (root.value!.closest('.tk__board, .wb__board') ?? root.value!).scrollIntoView({ block: 'nearest', behavior: 'instant' });
@@ -236,8 +290,12 @@ function unlisten(): void {
   cancelDrag();
 }
 onMounted(() => {
-  ro = new ResizeObserver(([entry]) => { width.value = entry.contentRect.width; });
+  ro = new ResizeObserver(([entry]) => {
+    width.value = entry.contentRect.width;
+    void nextTick(updateOverflow);
+  });
   ro.observe(root.value!);
+  updateOverflow();
   listen();
 });
 onActivated(listen);
@@ -264,7 +322,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
   <div
     ref="root"
     class="kb"
-    :class="{ 'kb--selectable': selectable, 'kb--pick': !selectable && !!pick }"
+    :class="{ 'kb--selectable': selectable, 'kb--pick': !selectable && !!pick, 'kb--overflow': overflowing }"
     role="group"
     :aria-label="t('keyboard.label', { model: device.displayName })"
     :aria-describedby="describedby"
@@ -275,7 +333,8 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
     @lostpointercapture="cancelDrag"
   >
     <p v-if="isGeneric && !keys.length" class="kb__empty" role="status" data-testid="kb-empty">{{ t('mkb.layout.empty') }}</p>
-    <div v-else ref="plate" class="kb__plate" :style="{ '--u': `${unit}px`, width: `${bounds.width * unit}px`, height: `${bounds.height * unit}px` }">
+    <PlateWrap v-else :wrap="isGeneric">
+      <div ref="plate" class="kb__plate" :style="{ '--u': `${unit}px`, width: `${bounds.width * unit}px`, height: `${bounds.height * unit}px` }">
       <button
         v-for="k in keys"
         :key="k.id"
@@ -322,7 +381,8 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
           height: `${Math.abs(box.y1 - box.y0)}px`,
         }"
       />
-    </div>
+      </div>
+    </PlateWrap>
     <p v-if="isGeneric && device.unknown.layoutOverlap" class="kb__note" role="note" data-testid="kb-overlap">{{ t('mkb.layout.overlap') }}</p>
   </div>
 </template>
@@ -354,6 +414,27 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
   color: var(--warn);
   font-size: var(--fs-label);
   text-align: center;
+}
+/* Generic-only horizontal scroll container (DESIGN MKB §8.8 KB1): expands 10px into .kb's 16px padding on each side
+   so the inner 10px padding holds focus/selection rings and the 5px dashed glow outline without adding inner scroll at wide widths. */
+.kb__scroll {
+  display: flex;
+  width: calc(100% + 20px);
+  margin: -10px;
+  padding: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-padding-inline: 10px; /* focus scrolling keeps the ring and padding in view */
+}
+.kb__scroll > .kb__plate { margin-inline: auto; }
+.kb__scroll + .kb__note { margin-top: 10px; }
+/* A scroll container turns panning back on below .kb's none: without overflow, keep touch box-drag (as AE64). */
+.kb:not(.kb--overflow) .kb__scroll { touch-action: none; }
+.kb.kb--overflow,
+.kb.kb--overflow .kb__scroll,
+.kb.kb--overflow .kb__plate,
+.kb.kb--overflow .kb__key {
+  touch-action: pan-x;
 }
 .kb__plate { position: relative; flex: none; }
 .kb__key {

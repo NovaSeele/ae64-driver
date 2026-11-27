@@ -99,7 +99,7 @@ watch(
   color: var(--fg-2);
 }
 @media (max-width: 768px) {
-  .vmb {
+  .shell--generic .vmb {
     padding: 8px var(--s-4) 8px calc(var(--s-4) - 3px);
   }
 }
