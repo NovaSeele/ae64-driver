@@ -45,7 +45,14 @@ async function setup(select: number[] = [], opts: { realKeyboard?: boolean; mode
   ({ w } = await mountPerformance('travel', {}, { stubs: opts.realKeyboard ? {} : { KeyboardView: true } }));
   await flushPromises();
   const setPerf = vi.spyOn(mock, 'setPerformance');
-  const exchange = vi.spyOn(mock as unknown as { exchange: () => unknown }, 'exchange');
+  const exchange = vi.fn();
+  const target = mock as unknown as { exchange: (f: Uint8Array) => Promise<unknown> };
+  const orig = target.exchange.bind(mock);
+  // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
+  vi.spyOn(target, 'exchange').mockImplementation((f: Uint8Array) => {
+    if (!(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)) exchange(f);
+    return orig(f);
+  });
   return { device, mock, perf, setPerf, exchange, history: useHistoryStore(), sync: useSyncStore() };
 }
 const snapshot = (perf: ReturnType<typeof usePerformanceStore>) => Object.fromEntries(ALL.map((k) => [k, pickEdit(perf.values[k])]));

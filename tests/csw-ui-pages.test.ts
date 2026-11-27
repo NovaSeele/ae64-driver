@@ -63,7 +63,10 @@ const until = async (cond: () => boolean, ms = 10_000, what?: () => string) => {
 const settle = async () => { for (let i = 0; i < 6; i++) await flushPromises(); };
 const spyExchange = (mock: MockTransport) => vi.spyOn(mock as unknown as { exchange: (f: Uint8Array) => Promise<Uint8Array> }, 'exchange');
 const cmdOf = (f: Uint8Array) => `${f[0].toString(16).padStart(2, '0')} ${f[1].toString(16).padStart(2, '0')}`;
-const cmdsOf = (spy: ReturnType<typeof spyExchange>) => spy.mock.calls.map(([f]) => cmdOf(f));
+// Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
+const cmdsOf = (spy: ReturnType<typeof spyExchange>) => spy.mock.calls
+  .filter(([f]) => !(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01))
+  .map(([f]) => cmdOf(f));
 
 function setProfilePerfBytes(mock: MockTransport, profile: number, k: PhysicalKey, byteOffset: number, valueUm: number) {
   const m = mock as unknown as { profiles: { perf: Map<string, number[]> }[] };

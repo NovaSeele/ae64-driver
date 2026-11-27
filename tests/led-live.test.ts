@@ -61,7 +61,12 @@ async function demo(model: 'max' | 'pro' = 'max') {
   // the browser demo's replies for LED reads (a MessageChannel task): jsdom timers here take ~15 ms each
   (mock as unknown as { fastLedReplies: boolean }).fastLedReplies = true;
   const out: Pkt[] = [];
-  mock.onPacketRaw((dir, bytes) => { if (dir === 'out') out.push({ t: performance.now(), bytes: Array.from(bytes.slice(0, 4)) }); });
+  // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
+  mock.onPacketRaw((dir, bytes) => {
+    if (dir === 'out' && !(bytes[0] === 0x02 && bytes[1] === 0x03 && bytes[2] === 0x01)) {
+      out.push({ t: performance.now(), bytes: Array.from(bytes.slice(0, 4)) });
+    }
+  });
   const lighting = useLightingStore();
   await lighting.load();
   out.length = 0;

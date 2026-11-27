@@ -75,7 +75,10 @@ const pencil = (w: VueWrapper, i: number) => cards(w)[i].find('.pfc__top .ibtn')
 const seg = (w: VueWrapper, n: 0 | 1) => w.findAll('.cmp__pick [role="radiogroup"]')[n];
 const checked = (w: VueWrapper, n: 0 | 1) => Number(seg(w, n).find('[aria-checked="true"]').attributes('data-v'));
 const spyExchange = (mock: MockTransport) => vi.spyOn(mock as unknown as { exchange: (f: Uint8Array) => Promise<unknown> }, 'exchange');
-const sent = (spy: ReturnType<typeof spyExchange>) => spy.mock.calls.map(([f]) => [...f.slice(0, 3)].map((b) => b.toString(16).padStart(2, '0')).join(' '));
+// Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
+const sent = (spy: ReturnType<typeof spyExchange>) => spy.mock.calls
+  .filter(([f]) => !(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01))
+  .map(([f]) => [...f.slice(0, 3)].map((b) => b.toString(16).padStart(2, '0')).join(' '));
 const keyId = (name: string) => PHYSICAL_KEYS.find((k) => k.name === name)!.id;
 /** Type into an input the way a browser does (an `input` event; `composing` = an IME is still composing). */
 async function type(el: Pick<DOMWrapper<Element>, 'element'>, value: string, composing = false) {
@@ -235,15 +238,13 @@ describe('Profiles: switching (§5, items 8, 9)', () => {
     const { device, mock } = await connect();
     const spy = spyExchange(mock);
     const { w } = await mountPage();
-    // '02 03 01': the idle active-profile poll (every 2 s, W-01) may land in a long run; it is no part of the page's reads.
-    const pageSent = () => sent(spy).filter((f) => f !== '02 03 01');
-    expect(pageSent().filter((f) => f.startsWith('04 01'))).toHaveLength(64);
-    expect(pageSent()).toHaveLength(64);
+    expect(sent(spy).filter((f) => f.startsWith('04 01'))).toHaveLength(64);
+    expect(sent(spy)).toHaveLength(64);
     spy.mockClear();
     await useBtn(w, 2).trigger('click');
     await vi.waitFor(() => expect(device.activeProfile).toBe(2), { timeout: 15000, interval: 5 });
     await idle();
-    const frames = pageSent();
+    const frames = sent(spy);
     expect(frames.filter((f) => f.startsWith('02 03 02'))).toEqual(['02 03 02']); // setActiveProfile, once
     expect(frames.filter((f) => f.startsWith('04 01'))).toHaveLength(64);
     expect(frames.filter((f) => !f.startsWith('04 01') && !f.startsWith('03 01') && f !== '02 03 02')).toEqual([]); // + layer-0 keymap reads

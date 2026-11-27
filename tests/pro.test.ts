@@ -254,7 +254,10 @@ describe('changing keyboard', () => {
     await device.connectDemo('pro');
     const pro = device.transport as MockTransport;
     const out: number[][] = [];
-    pro.onPacket((e) => { if (e.dir === 'out') out.push(e.bytes); });
+    // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
+    pro.onPacket((e) => {
+      if (e.dir === 'out' && !(e.bytes[0] === 0x02 && e.bytes[1] === 0x03 && e.bytes[2] === 0x01)) out.push(e.bytes);
+    });
 
     expect(device.model).toBe('pro');
     expect(history.canUndo).toBe(false);

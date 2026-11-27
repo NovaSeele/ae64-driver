@@ -70,7 +70,10 @@ async function mountPage(o: MountOpts = {}) {
   }
   const driver = gate.mock.contexts[0] as TileDriver;
   const out: number[][] = [];
-  mock.onPacketRaw((dir, bytes) => { if (dir === 'out') out.push(Array.from(bytes)); });
+  // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
+  mock.onPacketRaw((dir, bytes) => {
+    if (dir === 'out' && !(bytes[0] === 0x02 && bytes[1] === 0x03 && bytes[2] === 0x01)) out.push(Array.from(bytes));
+  });
   return { device, mock, lighting, sync: useSyncStore(), driver, out };
 }
 

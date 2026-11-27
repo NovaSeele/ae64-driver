@@ -86,7 +86,11 @@ function spyWrites(mock: MockTransport) {
 }
 const called = (spies: ReturnType<typeof spyWrites>) => spies.filter(([, s]) => s.mock.calls.length).map(([n]) => n);
 const spyExchange = (mock: MockTransport) => vi.spyOn(mock as unknown as { exchange: (f: Uint8Array) => Promise<unknown> }, 'exchange');
-const sent = (spy: ReturnType<typeof spyExchange>) => spy.mock.calls.map(([f]) => [...f.slice(0, 2)].map((b) => b.toString(16).padStart(2, '0')).join(' '));
+// Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
+const isProfilePoll = (f: Uint8Array) => f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01;
+const sent = (spy: ReturnType<typeof spyExchange>) => spy.mock.calls
+  .filter(([f]) => !isProfilePoll(f))
+  .map(([f]) => [...f.slice(0, 2)].map((b) => b.toString(16).padStart(2, '0')).join(' '));
 
 /** A key press the way the browser does it on a focused <button>: Enter clicks on keydown, Space on keyup, unless the
  *  page prevented the key. */
@@ -342,6 +346,20 @@ describe('Overview: reads (DESIGN F §3.10)', () => {
     expect(again.w.find('.ovk .kb').exists()).toBe(true);
     expect(called(writes)).toEqual([]);
     expect(device.connected).toBe(true);
+  });
+
+  it('sent(ex) ignores the periodic active-profile poll (02 03 01) while still counting other frames', async () => {
+    const { device, mock } = await mountOv();
+    const ex = spyExchange(mock);
+    ex.mockClear();
+
+    await device.checkKeyboardProfile();
+    expect(sent(ex)).toEqual([]);
+    expect(ex.mock.calls.some(([f]) => f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)).toBe(true);
+
+    // Non-poll frame in the same window (02 03 00 getProfileCount) is still counted
+    await mock.getProfileCount();
+    expect(sent(ex)).toEqual(['02 03']);
   });
 
   it('item 4: a profile change reads again (tiles wait meanwhile); after unmount the listener is gone', async () => {

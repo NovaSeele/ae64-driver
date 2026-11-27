@@ -22,8 +22,17 @@ let w: VueWrapper | null = null;
 const body = () => document.body;
 const footBtn = (text: string) =>
   [...body().querySelectorAll<HTMLButtonElement>('.dlg__foot button')].find((b) => b.textContent?.trim() === text);
-const spyExchange = (mock: MockTransport) =>
-  vi.spyOn(mock as unknown as { exchange: (f: Uint8Array) => Promise<unknown> }, 'exchange');
+function spyExchange(mock: MockTransport) {
+  const seen = vi.fn();
+  const target = mock as unknown as { exchange: (f: Uint8Array) => Promise<unknown> };
+  const orig = target.exchange.bind(mock);
+  // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
+  vi.spyOn(target, 'exchange').mockImplementation((f: Uint8Array) => {
+    if (!(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)) seen(f);
+    return orig(f);
+  });
+  return seen;
+}
 
 async function openPackPanel() {
   const device = useDeviceStore();

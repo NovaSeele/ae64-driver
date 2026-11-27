@@ -35,7 +35,14 @@ async function setup() {
   useSelectionStore().selectMany([]);
   ({ w } = await mountPerformance('travel', {}, { stubs: { KeyboardView: true } }));
   await flushPromises();
-  const exchange = vi.spyOn(device.transport as MockTransport as unknown as { exchange: () => unknown }, 'exchange');
+  const exchange = vi.fn();
+  const target = device.transport as MockTransport as unknown as { exchange: (f: Uint8Array) => Promise<unknown> };
+  const orig = target.exchange.bind(device.transport);
+  // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
+  vi.spyOn(target, 'exchange').mockImplementation((f: Uint8Array) => {
+    if (!(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)) exchange(f);
+    return orig(f);
+  });
   return { perf, exchange, history: useHistoryStore() };
 }
 const rows = () => [...document.body.querySelectorAll<HTMLElement>('.preset-row')];

@@ -488,12 +488,14 @@ describe('lighting page', () => {
     lighting.stopLivePolling(); // the poll reads the LED matrix on its own; only the zone switch is under test
     await new Promise((r) => setTimeout(r, 300)); // let a poll already in flight finish
     await flushPromises();
-    const spy = vi.spyOn(mock as any, 'exchange');
+    const spy = vi.spyOn(mock as unknown as { exchange: (f: Uint8Array) => Promise<unknown> }, 'exchange');
     await page.findAll('[role="tab"]')[1].trigger('click');
     await flushPromises();
     await page.findAll('[role="tab"]')[0].trigger('click');
     await flushPromises();
-    expect(spy).not.toHaveBeenCalled();
+    // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
+    const frames = spy.mock.calls.filter(([f]) => !(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01));
+    expect(frames).toHaveLength(0);
     page.unmount();
   });
 });

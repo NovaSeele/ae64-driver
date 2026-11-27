@@ -58,7 +58,17 @@ const led = (n: number) => page!.find(`.led[data-led="${n}"]`);
 const sorted = (a: number[]) => [...a].sort((x, y) => x - y);
 const selectedLeds = () => sorted(leds().filter((l) => l.attributes('aria-pressed') === 'true').map((l) => Number(l.attributes('data-led'))));
 const popover = () => document.body.querySelector<HTMLElement>('.pop');
-const spyExchange = (mock: MockTransport) => vi.spyOn(mock as unknown as { exchange: () => unknown }, 'exchange');
+function spyExchange(mock: MockTransport) {
+  const seen = vi.fn();
+  const target = mock as unknown as { exchange: (f: Uint8Array) => Promise<unknown> };
+  const orig = target.exchange.bind(mock);
+  // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
+  vi.spyOn(target, 'exchange').mockImplementation((f: Uint8Array) => {
+    if (!(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)) seen(f);
+    return orig(f);
+  });
+  return seen;
+}
 const keyIds = (...names: string[]) => names.map((n) => PHYSICAL_KEYS.find((k) => k.name === n)!.id);
 const activeLed = () => Number((document.activeElement as HTMLElement | null)?.dataset.led);
 

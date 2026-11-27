@@ -58,7 +58,12 @@ async function page(opts: { model?: 'max' | 'pro'; before?: () => void } = {}) {
   await vi.waitFor(() => expect(useSettingsStore().loaded).toBe(true));
   await flushPromises();
   const out: string[] = [];
-  mock.onPacket((e) => { if (e.dir === 'out' && !(e.bytes[0] === 4 && e.bytes[1] === 3)) out.push([...e.bytes.slice(0, 3)].map((b) => b.toString(16).padStart(2, '0')).join(' ')); });
+  // Ignore live-travel reads (04 03) and the PROFILE_POLL_MS poll of watchKeyboardProfile (02 03 01).
+  mock.onPacket((e) => {
+    if (e.dir === 'out' && !(e.bytes[0] === 4 && e.bytes[1] === 3) && !(e.bytes[0] === 2 && e.bytes[1] === 3 && e.bytes[2] === 1)) {
+      out.push([...e.bytes.slice(0, 3)].map((b) => b.toString(16).padStart(2, '0')).join(' '));
+    }
+  });
   const reload = vi.spyOn(pageReload, 'reload').mockImplementation(() => undefined);
   const w = wrapper;
   const card = () => w.get('.dl-card');

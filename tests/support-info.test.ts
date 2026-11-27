@@ -105,6 +105,17 @@ describe('item 9: the text block', () => {
   });
 });
 
+/** Record outgoing packets, ignoring live-travel reads (04 03) and the PROFILE_POLL_MS poll of watchKeyboardProfile (02 03 01). */
+function recordOut(mock: MockTransport): string[] {
+  const out: string[] = [];
+  mock.onPacket((e) => {
+    if (e.dir === 'out' && !(e.bytes[0] === 4 && e.bytes[1] === 3) && !(e.bytes[0] === 2 && e.bytes[1] === 3 && e.bytes[2] === 1)) {
+      out.push([...e.bytes.slice(0, 3)].map((b) => b.toString(16).padStart(2, '0')).join(' '));
+    }
+  });
+  return out;
+}
+
 async function settingsPage() {
   const device = useDeviceStore();
   await device.connectDemo('max');
@@ -114,8 +125,7 @@ async function settingsPage() {
   wrapper = mount(SettingsPage, { global: { plugins: [router] }, attachTo: document.body });
   await vi.waitFor(() => expect(useSettingsStore().loaded).toBe(true));
   await flushPromises();
-  const out: string[] = [];
-  mock.onPacket((e) => { if (e.dir === 'out' && !(e.bytes[0] === 4 && e.bytes[1] === 3)) out.push([...e.bytes.slice(0, 3)].map((b) => b.toString(16).padStart(2, '0')).join(' ')); });
+  const out = recordOut(mock);
   const hw = wrapper.findAll('.card').find((c) => c.find('.card__title').text() === t('settings.deviceInfo'))!;
   return { device, out, w: wrapper, hw, button: () => hw.find('.card__actions button') };
 }
@@ -216,8 +226,7 @@ describe('item 10: Copy info on the Diagnostics device card', () => {
     const mock = device.transport as MockTransport;
     const router = createRouter({ history: createMemoryHistory(), routes });
     await router.push('/diagnostics');
-    const out: string[] = [];
-    mock.onPacket((e) => { if (e.dir === 'out' && !(e.bytes[0] === 4 && e.bytes[1] === 3)) out.push([...e.bytes.slice(0, 3)].map((b) => b.toString(16)).join(' ')); });
+    const out = recordOut(mock);
     wrapper = mount(DiagnosticsPage, { global: { plugins: [router] }, attachTo: document.body });
     await flushPromises();
     const card = wrapper.findAll('.card').find((c) => c.find('.card__title').text() === t('diagnostics.deviceTitle'))!;

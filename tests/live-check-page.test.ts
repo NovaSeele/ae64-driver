@@ -365,11 +365,14 @@ describe('key check on the live page', () => {
     await device.connectDemo();
     await usePerformanceStore().load();
     // every command goes through exchange(): count the frames that are not the existing `04 03` axis-data read
+    // (ignore the periodic active-profile read `02 03 01` sent by watchKeyboardProfile every PROFILE_POLL_MS)
     const tr = device.transport as unknown as { exchange: (f: Uint8Array) => Promise<unknown> };
     const orig = tr.exchange.bind(tr);
     const frames: string[] = [];
     tr.exchange = (f: Uint8Array) => {
-      frames.push(Array.from(f.slice(0, 2), (x) => x.toString(16).padStart(2, '0')).join(' '));
+      if (!(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)) {
+        frames.push(Array.from(f.slice(0, 2), (x) => x.toString(16).padStart(2, '0')).join(' '));
+      }
       return orig(f);
     };
     await open();

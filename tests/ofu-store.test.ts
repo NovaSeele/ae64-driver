@@ -91,14 +91,22 @@ afterEach(() => {
   locale.value = 'vi';
 });
 
+/** Record outgoing reports, ignoring the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS. */
+function recordOut(t: MockTransport): number[][] {
+  const frames: number[][] = [];
+  t.onPacketRaw((dir, b) => {
+    if (dir === 'out' && !(b[0] === 0x02 && b[1] === 0x03 && b[2] === 0x01)) frames.push(Array.from(b));
+  });
+  return frames;
+}
+
 /** A demo keyboard with real timers; `frames`: every report the app sent from here on. */
 async function setup(seed: DemoSeed) {
   setActivePinia(createPinia());
   const device = useDeviceStore();
   await device.connectDemo(seed);
   const t = device.transport as MockTransport;
-  const frames: number[][] = [];
-  t.onPacketRaw((dir, b) => { if (dir === 'out') frames.push(Array.from(b)); });
+  const frames = recordOut(t);
   const fw = useFirmwareStore();
   fw.setEnabled(true);
   return { device, t, frames, fw, gp: useGamepadStore() };
@@ -156,8 +164,7 @@ describe('OFU §8: what the page sends', () => {
     await s.device.switchDemoModel('max');
     await s.device.switchDemoModel('pro');
     expect(s.fw.kind).toBeNull();
-    const again: number[][] = [];
-    (s.device.transport as MockTransport).onPacketRaw((dir, b) => { if (dir === 'out') again.push(Array.from(b)); });
+    const again = recordOut(s.device.transport as MockTransport);
     await s.fw.readKind();
     expect(infos(again)).toBe(1);
     expect(again.length).toBe(1);

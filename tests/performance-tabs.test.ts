@@ -87,8 +87,10 @@ function spyWrites(mock: MockTransport, except: string[] = []) {
 const called = (spies: ReturnType<typeof spyWrites>) => spies.filter(([, s]) => s.mock.calls.length).map(([n]) => n);
 /** Every HID frame the mock answers. */
 const spyExchange = (mock: MockTransport) => vi.spyOn(mock as unknown as { exchange: (f: Uint8Array) => Promise<unknown> }, 'exchange');
-/** The command bytes of each frame sent, e.g. "05 03". */
-const sent = (spy: ReturnType<typeof spyExchange>) => spy.mock.calls.map(([f]) => [...f.slice(0, 2)].map((b) => b.toString(16).padStart(2, '0')).join(' '));
+/** The command bytes of each frame sent, e.g. "05 03", ignoring the PROFILE_POLL_MS poll of watchKeyboardProfile (02 03 01). */
+const sent = (spy: ReturnType<typeof spyExchange>) => spy.mock.calls
+  .filter(([f]) => !(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01))
+  .map(([f]) => [...f.slice(0, 2)].map((b) => b.toString(16).padStart(2, '0')).join(' '));
 /** Entries the router writes to its history. */
 function spyHistory() {
   return { push: vi.spyOn(router.options.history, 'push'), replace: vi.spyOn(router.options.history, 'replace') };

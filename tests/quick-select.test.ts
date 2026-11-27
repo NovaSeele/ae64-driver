@@ -176,7 +176,14 @@ describe('SelectionBar quick-select buttons', () => {
     const device = await demo();
     const mock = device.transport as MockTransport;
     // every command of the transport goes through exchange(): selecting keys must never reach it
-    const exchange = vi.spyOn(mock as unknown as { exchange: (f: Uint8Array) => Promise<unknown> }, 'exchange');
+    // (ignore the periodic active-profile read 02 03 01 sent by watchKeyboardProfile every PROFILE_POLL_MS)
+    const exchange = vi.fn();
+    const target = mock as unknown as { exchange: (f: Uint8Array) => Promise<unknown> };
+    const orig = target.exchange.bind(mock);
+    vi.spyOn(target, 'exchange').mockImplementation((f: Uint8Array) => {
+      if (!(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)) exchange(f);
+      return orig(f);
+    });
     w = mount(SelectionBar, { attachTo: document.body });
     await flushPromises();
     const sel = useSelectionStore();

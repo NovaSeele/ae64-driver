@@ -63,13 +63,15 @@ async function flush() {
   await flushPromises();
 }
 
-/** Count frames passing through transport.exchange. */
+/** Count frames passing through transport.exchange, ignoring the PROFILE_POLL_MS poll of watchKeyboardProfile (02 03 01). */
 function spyExchange(mock: MockTransport) {
   const frames: number[][] = [];
   const target = mock as unknown as { exchange: (frame: Uint8Array, timeoutMs?: number) => Promise<Uint8Array> };
   const orig = target.exchange.bind(mock);
   const spy = vi.spyOn(target, 'exchange').mockImplementation((frame: Uint8Array, timeoutMs?: number) => {
-    frames.push(Array.from(frame));
+    if (!(frame[0] === 0x02 && frame[1] === 0x03 && frame[2] === 0x01)) {
+      frames.push(Array.from(frame));
+    }
     return orig(frame, timeoutMs);
   });
   return { frames, spy, clear: () => { frames.length = 0; } };
@@ -498,6 +500,22 @@ describe('FST test 16 (replaces test 9): minimums follow the board, limits and N
     expect(ex.frames.length).toBeGreaterThan(0);
   });
 
+  it('0-HID recorder ignores the periodic active-profile poll (02 03 01) while still counting other frames', async () => {
+    const { device, mock } = await setup();
+    const ex = spyExchange(mock);
+    ex.clear();
+    ex.spy.mockClear();
+
+    await device.checkKeyboardProfile();
+    expect(ex.frames).toHaveLength(0);
+    expect(ex.spy.mock.calls.some(([f]) => f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)).toBe(true);
+
+    // Non-poll frame in the same window (even another 02 03 command: 02 03 00 getProfileCount) is still counted
+    await mock.getProfileCount();
+    expect(ex.frames).toHaveLength(1);
+    expect(ex.frames[0].slice(0, 3)).toEqual([0x02, 0x03, 0x00]);
+  });
+
   it('Pro demo (rtPrecision 0.01): floor is 0.01, typing 0.001 -> 0.01, Home -> 0.01, and 20 steps stay on 0.01 grid (N3)', async () => {
     const { mock, perf } = await setup({ seed: 'pro', rtPrecision: 0.01 });
     const L = LABELS();
@@ -584,9 +602,8 @@ describe('FST test 10: HID writes and history coalescing (F7, F8)', () => {
       }
       await flushFake();
 
-      const isProfilePoll = (f: number[]) => f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01;
       const tag = (f: number[]) => `${f[0].toString(16).padStart(2, '0')} ${f[1].toString(16).padStart(2, '0')}`;
-      const heldFrames = ex.frames.filter((f) => !isProfilePoll(f)).map(tag);
+      const heldFrames = ex.frames.map(tag);
       const heldExpectedEnd = Number((startRt + 30 * (fineOn ? 0.001 : 0.01)).toFixed(3));
       expect(perf.values[W].rtPress).toBe(heldExpectedEnd);
       // One history entry: one undo returns to startRt and empties the stack
@@ -613,7 +630,7 @@ describe('FST test 10: HID writes and history coalescing (F7, F8)', () => {
       await flushPromises();
       await flushFake();
 
-      const dragFrames = ex.frames.filter((f) => !isProfilePoll(f)).map(tag);
+      const dragFrames = ex.frames.map(tag);
       // One history entry: one undo returns to startRt and empties the stack
       history.undo();
       await flushFake();

@@ -41,11 +41,16 @@ let wrappers: VueWrapper[] = [];
 const keep = <T extends VueWrapper>(w: T): T => { wrappers.push(w); return w; };
 
 const toasts = () => useToast().items.value;
-/** Every frame sent by any transport from now on, as "ff cc xx" (read with `()`; `.mark()` starts again from now). */
+/** Every frame sent by any transport from now on, as "ff cc xx" (read with `()`; `.mark()` starts again from now).
+ *  Ignores the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS. */
 function outFrames(): (() => string[]) & { mark(): void } {
   const spy = vi.spyOn(BaseTransport.prototype as unknown as { log: (d: string, b: Uint8Array) => void }, 'log');
   let from = spy.mock.calls.length;
-  const list = () => spy.mock.calls.slice(from).filter((c) => c[0] === 'out')
+  const list = () => spy.mock.calls.slice(from)
+    .filter((c) => {
+      const b = c[1] as Uint8Array;
+      return c[0] === 'out' && !(b[0] === 0x02 && b[1] === 0x03 && b[2] === 0x01);
+    })
     .map((c) => [...(c[1] as Uint8Array).slice(0, 3)].map((x) => x.toString(16).padStart(2, '0')).join(' '));
   return Object.assign(list, { mark: () => { from = spy.mock.calls.length; } });
 }
