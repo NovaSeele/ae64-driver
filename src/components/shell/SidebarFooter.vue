@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { IconLayoutSidebarLeftCollapse, IconInfoCircle, IconLayoutSidebarLeftExpand, IconRefresh } from '@tabler/icons-vue';
 import Dialog from '../ui/Dialog.vue';
 import Button from '../ui/Button.vue';
@@ -30,7 +30,69 @@ const updatePending = computed(() => !desktop && (update.state === 'available' |
 const updatePill = computed(() => updatePending.value && !compact.value);
 const updateBusy = computed(() => update.state === 'checking' || update.state === 'downloading');
 const updateLabel = computed(() => desktop ? t('nav.version') : t('nav.update') + (updatePending.value ? t('nav.updateAvailableSuffix') : ''));
-const announce = computed(() => (!desktop && update.state === 'available' && update.foundQuietly ? t('nav.updateFoundSr') : ''));
+
+const ANNOUNCE_CLEAR_MS = 10_000;
+const announce = ref('');
+let announceTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingVisibleListener: (() => void) | null = null;
+
+function stopVisibleWait(): void {
+  if (pendingVisibleListener && typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', pendingVisibleListener);
+  }
+  pendingVisibleListener = null;
+}
+
+function clearAnnounce(): void {
+  if (announceTimer !== null) {
+    clearTimeout(announceTimer);
+    announceTimer = null;
+  }
+  stopVisibleWait();
+  announce.value = '';
+}
+
+function speakOnce(): void {
+  if (desktop || update.state !== 'available' || !update.foundQuietly) return;
+  if (announceTimer !== null) clearTimeout(announceTimer);
+  announce.value = t('nav.updateFoundSr');
+  announceTimer = setTimeout(() => {
+    announceTimer = null;
+    announce.value = '';
+  }, ANNOUNCE_CLEAR_MS);
+}
+
+function scheduleAnnounce(): void {
+  if (desktop || update.state !== 'available' || !update.foundQuietly) return;
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+    stopVisibleWait();
+    pendingVisibleListener = () => {
+      if (document.visibilityState !== 'visible') return;
+      stopVisibleWait();
+      speakOnce();
+    };
+    document.addEventListener('visibilitychange', pendingVisibleListener);
+    return;
+  }
+  speakOnce();
+}
+
+watch(
+  () => update.foundQuietly,
+  (found) => {
+    if (found) scheduleAnnounce();
+    else clearAnnounce();
+  },
+);
+
+watch(
+  () => update.state,
+  (st) => {
+    if (st !== 'available') clearAnnounce();
+  },
+);
+
+onBeforeUnmount(clearAnnounce);
 
 function formatUpdateDate(iso: string): string {
   try {

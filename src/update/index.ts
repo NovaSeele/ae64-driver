@@ -6,9 +6,11 @@ import { useSyncStore } from '../stores/sync';
 import { useFirmwareStore } from '../stores/firmware';
 import { t as tr } from '../i18n/vi';
 import { isNewerVersion } from './version';
+import { DESKTOP } from './desktop';
 
 export * from './version';
 export { installChunkGuard, isChunkLoadError } from './chunkGuard';
+export { DESKTOP };
 
 export type UpdateState = 'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'deferred' | 'error';
 
@@ -16,9 +18,6 @@ export interface AvailableVersion {
   version: string;
   builtAt: string;
 }
-
-/** The desktop app never updates itself: the user installs a newer setup.exe. */
-export const DESKTOP = typeof __DESKTOP__ !== 'undefined' && __DESKTOP__;
 
 /** Minimum interval between quiet background update checks (30 minutes). */
 export const QUIET_CHECK_MIN_MS = 30 * 60 * 1000;

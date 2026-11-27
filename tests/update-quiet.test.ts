@@ -10,10 +10,11 @@ import { t as tr, vi as viDict } from '../src/i18n/vi';
 import { en as enDict } from '../src/i18n/en';
 
 const flags = vi.hoisted(() => ({ desktop: false }));
-vi.mock('../src/update', async (orig) => {
-  const m = await orig<typeof import('../src/update')>();
-  return { ...m, get DESKTOP() { return flags.desktop; } };
-});
+vi.mock('../src/update/desktop', () => ({
+  get DESKTOP() {
+    return flags.desktop;
+  },
+}));
 
 const origOnLine = Object.getOwnPropertyDescriptor(Navigator.prototype, 'onLine');
 const origVisibility = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState');
@@ -374,10 +375,6 @@ describe('update quiet checks', () => {
 
       expect(store.foundQuietly).toBe(true);
       expect(region.text()).toBe(tr('nav.updateFoundSr'));
-
-      setLocale('en');
-      await flushPromises();
-      expect(region.text()).toBe(tr('nav.updateFoundSr'));
       w.unmount();
     });
 
@@ -625,6 +622,241 @@ describe('update quiet checks', () => {
       expect(store.error).toBe('Second failure');
       expect(store.availableInfo).toBeNull();
       expect(store.foundQuietly).toBe(false);
+    });
+  });
+
+  describe('mutant guards (QM1, QM2, QM6)', () => {
+    it('QM1: checkQuietly() on desktop makes no fetch and no SW message from idle or check-error', async () => {
+      flags.desktop = true;
+      const store = useUpdateStore();
+
+      for (const startState of ['idle', 'error'] as const) {
+        store.state = startState;
+        store.applyFailed = false;
+        store.error = startState === 'error' ? 'Prev check error' : null;
+
+        // Without SW controller
+        Reflect.deleteProperty(navigator, 'serviceWorker');
+        const fetchMock = mockRelease('99.0.0+20261127120000');
+        vi.stubGlobal('fetch', fetchMock);
+        await store.checkQuietly();
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(store.state).toBe(startState);
+
+        // With SW controller
+        const postMessage = vi.fn();
+        Object.defineProperty(navigator, 'serviceWorker', {
+          value: { controller: { postMessage }, ready: Promise.resolve({}) },
+          configurable: true,
+        });
+        await store.checkQuietly();
+        expect(postMessage).not.toHaveBeenCalled();
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(store.state).toBe(startState);
+      }
+    });
+
+    it('QM2: startQuietChecks() on desktop sets no timers or listener and never checks', async () => {
+      flags.desktop = true;
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-11-27T12:00:00Z'));
+
+      const store = useUpdateStore();
+      const fetchMock = mockRelease('99.0.0+20261127120000');
+      vi.stubGlobal('fetch', fetchMock);
+      const postMessage = vi.fn();
+      Object.defineProperty(navigator, 'serviceWorker', {
+        value: { controller: { postMessage }, ready: Promise.resolve({}) },
+        configurable: true,
+      });
+      const addListenerSpy = vi.spyOn(document, 'addEventListener');
+
+      const stop = store.startQuietChecks();
+      try {
+        expect(vi.getTimerCount()).toBe(0);
+        expect(addListenerSpy).not.toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+
+        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.advanceTimersByTimeAsync(61 * 60 * 1000);
+        setVisibility('visible');
+        document.dispatchEvent(new Event('visibilitychange'));
+        await flushPromises();
+
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(postMessage).not.toHaveBeenCalled();
+        expect(store.state).toBe('idle');
+      } finally {
+        stop();
+      }
+    });
+
+    it.each([
+      ['rejected fetch', () => vi.fn().mockRejectedValue(new Error('Network down'))],
+      ['HTTP 500', () => vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) })],
+    ])('QM6: failed quiet lookup (%s) is still throttled for 30 min', async (_label, makeFetch) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-11-27T12:00:00Z'));
+
+      const store = useUpdateStore();
+      const fetchMock = makeFetch();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const stop = store.startQuietChecks();
+      try {
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(store.state).toBe('idle');
+
+        // 1 min later, visibilitychange to visible -> throttled, no second fetch
+        vi.advanceTimersByTime(60 * 1000);
+        setVisibility('visible');
+        document.dispatchEvent(new Event('visibilitychange'));
+        await flushPromises();
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        // 31 min after the initial check -> allowed, exactly one more fetch
+        vi.advanceTimersByTime(30 * 60 * 1000);
+        document.dispatchEvent(new Event('visibilitychange'));
+        await flushPromises();
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      } finally {
+        stop();
+      }
+    });
+  });
+
+  describe('U1b: spoken once, cleared after 10 s, deferred while hidden', () => {
+    it('(m) VI->EN->VI after a find keeps the vi text unchanged, and an empty span stays empty on switch (kills UM3)', async () => {
+      vi.useFakeTimers();
+      setLocale('vi');
+      const store = useUpdateStore();
+      vi.stubGlobal('fetch', mockRelease('99.0.0+20261127120000'));
+      const w = mount(SidebarFooter, { attachTo: document.body });
+      const region = w.find('.side-foot > .sr-only[role="status"]');
+
+      await store.checkQuietly();
+      await flushPromises();
+      expect(region.text()).toBe(viDict['nav.updateFoundSr']);
+
+      setLocale('en');
+      await flushPromises();
+      expect(region.text()).toBe(viDict['nav.updateFoundSr']);
+
+      setLocale('vi');
+      await flushPromises();
+      expect(region.text()).toBe(viDict['nav.updateFoundSr']);
+
+      // After 10 s clear, language switches leave it empty
+      await vi.advanceTimersByTimeAsync(10_000);
+      await flushPromises();
+      expect(region.text()).toBe('');
+
+      setLocale('en');
+      await flushPromises();
+      expect(region.text()).toBe('');
+
+      setLocale('vi');
+      await flushPromises();
+      expect(region.text()).toBe('');
+      w.unmount();
+    });
+
+    it('(n) span is empty after 10 s while pill and aria-label suffix stay (kills UM4)', async () => {
+      vi.useFakeTimers();
+      setLocale('vi');
+      const store = useUpdateStore();
+      vi.stubGlobal('fetch', mockRelease('99.0.0+20261127120000'));
+      const w = mount(SidebarFooter, { props: { compact: false }, attachTo: document.body });
+      const region = w.find('.side-foot > .sr-only[role="status"]');
+      const btn = w.find('.side-foot__btn');
+
+      await store.checkQuietly();
+      await flushPromises();
+      expect(region.text()).toBe(viDict['nav.updateFoundSr']);
+
+      await vi.advanceTimersByTimeAsync(9_999);
+      await flushPromises();
+      expect(region.text()).toBe(viDict['nav.updateFoundSr']);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await flushPromises();
+      expect(region.text()).toBe('');
+      expect(btn.classes()).toContain('side-foot__btn--pill');
+      expect(btn.text().trim()).toBe('Bản mới');
+      expect(btn.attributes('aria-label')).toContain(viDict['nav.updateAvailableSuffix']);
+      w.unmount();
+    });
+
+    it('(o) find while hidden waits for first visible event and does not refill on a second visible event (kills UM5, UM6)', async () => {
+      vi.useFakeTimers();
+      setLocale('vi');
+      setVisibility('hidden');
+      const store = useUpdateStore();
+      vi.stubGlobal('fetch', mockRelease('99.0.0+20261127120000'));
+      const w = mount(SidebarFooter, { attachTo: document.body });
+      const region = w.find('.side-foot > .sr-only[role="status"]');
+
+      await store.checkQuietly();
+      await flushPromises();
+      expect(store.state).toBe('available');
+      expect(store.foundQuietly).toBe(true);
+      expect(region.text()).toBe('');
+
+      // First switch to visible fills it
+      setVisibility('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+      await flushPromises();
+      expect(region.text()).toBe(viDict['nav.updateFoundSr']);
+
+      // Clears after 10 s
+      await vi.advanceTimersByTimeAsync(10_000);
+      await flushPromises();
+      expect(region.text()).toBe('');
+
+      // Second hidden -> visible does NOT refill it
+      setVisibility('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+      setVisibility('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+      await flushPromises();
+      expect(region.text()).toBe('');
+      w.unmount();
+    });
+
+    it('(p) check() or apply() within 10 s empties the span at once', async () => {
+      vi.useFakeTimers();
+      setLocale('vi');
+      vi.stubGlobal('fetch', mockRelease('99.0.0+20261127120000'));
+
+      // Case 1: manual check() within 10 s
+      const store1 = useUpdateStore();
+      const w1 = mount(SidebarFooter, { attachTo: document.body });
+      const region1 = w1.find('.side-foot > .sr-only[role="status"]');
+      await store1.checkQuietly();
+      await flushPromises();
+      expect(region1.text()).toBe(viDict['nav.updateFoundSr']);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await store1.check();
+      await flushPromises();
+      expect(region1.text()).toBe('');
+      w1.unmount();
+
+      // Case 2: apply() within 10 s
+      setActivePinia(createPinia());
+      const store2 = useUpdateStore();
+      const w2 = mount(SidebarFooter, { attachTo: document.body });
+      const region2 = w2.find('.side-foot > .sr-only[role="status"]');
+      await store2.checkQuietly();
+      await flushPromises();
+      expect(region2.text()).toBe(viDict['nav.updateFoundSr']);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      useCalibrationStore().phase = 'running';
+      await store2.apply();
+      await flushPromises();
+      expect(region2.text()).toBe('');
+      w2.unmount();
     });
   });
 });
