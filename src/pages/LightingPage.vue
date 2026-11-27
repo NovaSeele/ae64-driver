@@ -1632,4 +1632,10 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
   .wb--generic .col { padding: var(--s-3) 0 0; border-left: 0; border-top: 1px solid var(--line-1); }
   .wb--generic .col:first-child { padding-top: 0; border-top: 0; }
 }
+
+@media (max-width: 899px) {
+  .shell--generic .wb__group { flex: 0 1 auto; flex-wrap: wrap; min-width: 0; max-width: 100%; white-space: normal; }
+  .shell--generic .sb { flex-wrap: wrap; }
+  .shell--generic .sb__actions { flex: 1 1 auto; flex-wrap: wrap; min-width: 0; max-width: 100%; }
+}
 </style>

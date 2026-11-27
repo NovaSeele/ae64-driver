@@ -178,6 +178,12 @@ onBeforeUnmount(offGate);
 .ph__lock svg { flex: none; color: var(--warn); }
 .ph__tools { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-2) var(--s-3); margin-left: auto; }
 .ph__tools:empty { display: none; }
+
+@media (max-width: 899px) {
+  .shell--generic .ph__info { min-width: 0; max-width: 100%; }
+  .shell--generic .ph__scope { min-width: 0; max-width: 100%; overflow: hidden; }
+  .shell--generic .ph__tools { flex: 1 1 auto; min-width: 0; max-width: 100%; margin-left: 0; }
+}
 </style>
 
 <style>

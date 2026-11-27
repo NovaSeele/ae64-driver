@@ -1183,4 +1183,18 @@ const modeOptions = computed(() => [
 .save { display: grid; gap: var(--s-3); }
 .save__label { display: grid; gap: var(--s-2); color: var(--fg-2); }
 .save__input { height: 34px; padding: 0 10px; border: 1px solid var(--line-2); border-radius: var(--r-control); background: var(--bg-1); color: var(--fg-1); }
+
+@media (max-width: 899px) {
+  .shell--generic .wb__bar { white-space: normal; max-width: 100%; }
+  .shell--generic .wb__group { flex: 0 1 auto; flex-wrap: wrap; min-width: 0; max-width: 100%; }
+  .shell--generic .chips { flex-wrap: wrap; max-width: 100%; }
+  .shell--generic .editors,
+  .shell--generic .grid,
+  .shell--generic .pcol,
+  .shell--generic .saved { min-width: 0; max-width: 100%; }
+  .shell--generic .continuous { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+  .shell--generic .continuous :deep(.sw),
+  .shell--generic .continuous :deep(.sw__label) { white-space: normal; max-width: 100%; }
+  .shell--generic .field__row { flex-wrap: wrap; }
+}
 </style>

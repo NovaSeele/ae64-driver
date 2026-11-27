@@ -282,4 +282,12 @@ defineExpose({ fit, measure });
 
 /* Performance's own lead keeps its classes */
 .sb :deep(.scope) { flex: none; }
+
+@media (max-width: 899px) {
+  .shell--generic .sb { flex-wrap: wrap; }
+  .shell--generic .sb__lead { flex: 0 1 auto; flex-wrap: wrap; min-width: 0; max-width: 100%; }
+  .shell--generic .sb__actions { flex: 1 1 auto; flex-wrap: wrap; min-width: 0; max-width: 100%; }
+  .shell--generic .sb__grp { flex-wrap: wrap; max-width: 100%; }
+  .shell--generic .sb__ghost { width: 100%; max-width: 100%; overflow: clip; }
+}
 </style>
