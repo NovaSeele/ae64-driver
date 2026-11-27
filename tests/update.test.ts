@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { buildVersionString, computeReleaseFileList, formatUtcStamp } from '../build/release';
+import { buildVersionString, computeReleaseFileList, formatUtcStamp, resolveBuildVersion } from '../build/release';
 import { compareVersions, isNewerVersion, useUpdateStore } from '../src/update';
 import { useDeviceStore } from '../src/stores/device';
 import { useCalibrationStore } from '../src/stores/calibration';
@@ -78,6 +78,24 @@ describe('update', () => {
       expect(isNewerVersion('0.1.0+202611082200', '0.1.0+20261109002016')).toBe(false);
       expect(isNewerVersion('0.1.0+20261109002016', '0.1.0+20261109002016')).toBe(false);
       expect(isNewerVersion('0.2.0+20261109002016', '0.1.0+20261109002016')).toBe(true);
+    });
+
+    it('resolveBuildVersion validates BUILD_VERSION or falls back to buildVersionString', () => {
+      const fixedDate = new Date('2026-11-26T20:34:09Z');
+      expect(resolveBuildVersion(undefined, '0.3.0', fixedDate)).toBe(buildVersionString('0.3.0', fixedDate));
+      expect(resolveBuildVersion('', '0.3.0', fixedDate)).toBe(buildVersionString('0.3.0', fixedDate));
+      expect(resolveBuildVersion('0.3.0+20261126203409', '0.3.0', fixedDate)).toBe('0.3.0+20261126203409');
+
+      for (const bad of ['r141', '0.3.0', '0.2.0+20261126203409', '0.3.0+2026112620340']) {
+        expect(() => resolveBuildVersion(bad, '0.3.0', fixedDate)).toThrow();
+        try {
+          resolveBuildVersion(bad, '0.3.0', fixedDate);
+        } catch (err) {
+          const msg = (err as Error).message;
+          expect(msg).toContain(bad);
+          expect(msg).toContain('0.3.0');
+        }
+      }
     });
   });
 

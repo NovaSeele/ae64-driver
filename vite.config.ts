@@ -4,9 +4,9 @@ import vue from '@vitejs/plugin-vue';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import pkg from './package.json' with { type: 'json' };
-import { buildVersionString, releasePlugin } from './build/release';
+import { releasePlugin, resolveBuildVersion } from './build/release';
 
-const appVersion = process.env.BUILD_VERSION || buildVersionString(pkg.version);
+const appVersion = resolveBuildVersion(process.env.BUILD_VERSION, pkg.version);
 
 /** Preload the Latin Inter subset: otherwise it is found only once the CSS has been parsed. */
 function preloadLatinFont(): Plugin {

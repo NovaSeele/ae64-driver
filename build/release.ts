@@ -23,6 +23,20 @@ export function buildVersionString(pkgVersion: string, date: Date = new Date()):
   return `${pkgVersion}+${formatUtcStamp(date)}`;
 }
 
+const BUILD_VERSION_RE = /^\d+\.\d+\.\d+\+\d{14}$/;
+
+export function resolveBuildVersion(env: string | undefined, pkgVersion: string, now?: Date): string {
+  if (!env) return buildVersionString(pkgVersion, now);
+  const plusIdx = env.indexOf('+');
+  const core = plusIdx === -1 ? '' : env.slice(0, plusIdx);
+  if (!BUILD_VERSION_RE.test(env) || core !== pkgVersion) {
+    throw new Error(
+      `Invalid BUILD_VERSION "${env}": expected <package.json version>+YYYYMMDDHHMMSS (UTC) matching package version ${pkgVersion} (for example, ${pkgVersion}+20261126203409).`,
+    );
+  }
+  return env;
+}
+
 /**
  * Pure function: takes a list of bundle keys or a bundle object,
  * excludes release.json and sw.js, normalises paths, and ensures "./" and "index.html" are present.
