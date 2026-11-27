@@ -294,19 +294,12 @@ export const useDeviceStore = defineStore('device', () => {
       await livenessCheck.promise;
       if (mine !== session || transport.value !== t || status.value !== 'connected') throw new Error(tr('error.notConnected'));
     }
-    const beforeTo = t.stats.timeouts;
     if (opts.exclusive) exclusiveCount.value++;
     const what = opts.exclusive ? opts.what : undefined;
     if (what) busyWith.push(what);
     try {
-      // An answered read resets the generic timeout count in trackGenericIn; a call that sent nothing is not a read.
+      // trackGenericIn is the only place that counts generic timeouts (answers reset it, timeouts add to it).
       return await fn(t);
-    } catch (err) {
-      if (mine === session && transport.value === t && t.support === 'generic' && err instanceof TransportTimeoutError && t.stats.timeouts === beforeTo) {
-        consecutiveTimeouts++;
-        if (consecutiveTimeouts >= GENERIC_TIMEOUT_LIMIT) await checkGenericLiveness(t);
-      }
-      throw err;
     } finally {
       if (livenessCheck?.t === t) await livenessCheck.promise;
       if (pendingTimeoutClose?.t === t) await pendingTimeoutClose.promise;
@@ -543,7 +536,6 @@ export const useDeviceStore = defineStore('device', () => {
     resetTimeoutTracker(t);
 
     const tryRead = async <T>(fn: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> => {
-      const beforeTo = t.stats.timeouts;
       try {
         const value = await fn();
         consecutiveTimeouts = 0;
@@ -551,7 +543,6 @@ export const useDeviceStore = defineStore('device', () => {
         return { ok: true, value };
       } catch (err) {
         if (err instanceof TransportTimeoutError) {
-          if (t.stats.timeouts === beforeTo) consecutiveTimeouts++;
           if (consecutiveTimeouts >= GENERIC_TIMEOUT_LIMIT) throw TIMEOUT_LIMIT_EXCEEDED;
           return { ok: false };
         }
