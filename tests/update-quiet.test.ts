@@ -294,20 +294,22 @@ describe('update quiet checks', () => {
   });
 
   describe('SidebarFooter update button', () => {
-    it('idle: no --update class, no pill, no dot, no label text', () => {
+    it('idle expanded: pill with neutral look, no --update class, no dot, label text, no aria-label', () => {
       setLocale('vi');
       const w = mount(SidebarFooter, { attachTo: document.body });
       const btn = w.find('.side-foot__btn');
       expect(btn.classes()).not.toContain('side-foot__btn--update');
-      expect(btn.classes()).not.toContain('side-foot__btn--pill');
+      expect(btn.classes()).toContain('side-foot__btn--pill');
       expect(btn.find('.side-foot__dot').exists()).toBe(false);
-      expect(btn.text().trim()).toBe('');
-      expect(btn.attributes('aria-label')).toBe(tr('nav.update'));
+      expect(btn.text().trim()).toBe(tr('nav.updateShort'));
+      expect(btn.attributes('aria-label')).toBeUndefined();
+      expect(btn.attributes('title')).toBeUndefined();
+      expect(btn.attributes('aria-haspopup')).toBe('dialog');
       w.unmount();
     });
 
     it.each<'available' | 'deferred'>(['available', 'deferred'])(
-      '%s expanded: pill with label text and accessible name keeping the suffix',
+      '%s expanded: accent pill with dot on icon, label text, and sr-only suffix',
       async (pendingState) => {
         setLocale('vi');
         const store = useUpdateStore();
@@ -319,15 +321,17 @@ describe('update quiet checks', () => {
         const btn = w.find('.side-foot__btn');
         expect(btn.classes()).toContain('side-foot__btn--update');
         expect(btn.classes()).toContain('side-foot__btn--pill');
-        expect(btn.find('.side-foot__dot').exists()).toBe(false);
-        expect(btn.text().trim()).toBe('Bản mới');
-        expect(btn.attributes('aria-label')).toContain(', có bản mới');
+        expect(btn.find('.side-foot__icon .side-foot__dot').exists()).toBe(true);
+        expect(btn.find('.side-foot__pill-label').text().trim()).toBe(tr('nav.updateShort'));
+        expect(btn.text().trim()).toBe(tr('nav.updateShort') + tr('nav.updateAvailableSuffix'));
+        expect(btn.attributes('aria-label')).toBeUndefined();
 
         // Also check English locale
         setLocale('en');
         await flushPromises();
-        expect(btn.text().trim()).toBe('Update');
-        expect(btn.attributes('aria-label')).toContain(', update available');
+        expect(btn.find('.side-foot__pill-label').text().trim()).toBe(tr('nav.updateShort'));
+        expect(btn.text().trim()).toBe(tr('nav.updateShort') + tr('nav.updateAvailableSuffix'));
+        expect(btn.attributes('aria-label')).toBeUndefined();
         w.unmount();
       },
     );
@@ -782,8 +786,9 @@ describe('update quiet checks', () => {
       await flushPromises();
       expect(region.text()).toBe('');
       expect(btn.classes()).toContain('side-foot__btn--pill');
-      expect(btn.text().trim()).toBe('Bản mới');
-      expect(btn.attributes('aria-label')).toContain(viDict['nav.updateAvailableSuffix']);
+      expect(btn.classes()).toContain('side-foot__btn--update');
+      expect(btn.find('.side-foot__pill-label').text().trim()).toBe(viDict['nav.updateShort']);
+      expect(btn.text().trim()).toBe(viDict['nav.updateShort'] + viDict['nav.updateAvailableSuffix']);
       w.unmount();
     });
 
@@ -901,6 +906,174 @@ describe('update quiet checks', () => {
       await vi.advanceTimersByTimeAsync(5_000);
       w2.unmount();
       expect(vi.getTimerCount()).toBe(timersBefore);
+    });
+  });
+
+  describe('UPD2: always-visible update label', () => {
+    const ALL_STATES: UpdateState[] = [
+      'idle',
+      'checking',
+      'upToDate',
+      'available',
+      'downloading',
+      'deferred',
+      'error',
+    ];
+    const ACCENT_STATES = new Set<UpdateState>(['available', 'downloading', 'deferred']);
+    const DOT_STATES = new Set<UpdateState>(['available', 'deferred']);
+
+    function setUpdateState(state: UpdateState): void {
+      const store = useUpdateStore();
+      store.availableInfo = { version: '99.0.0', builtAt: '2026-11-27T12:00:00Z' };
+      store.deferredVersion = '99.0.0';
+      store.error = state === 'error' ? 'Network error' : null;
+      store.state = state;
+    }
+
+    it('(u1) expanded web has the pill box and shows nav.updateShort in all 7 states (vi and en, kills L1)', async () => {
+      for (const lang of ['vi', 'en'] as const) {
+        setLocale(lang);
+        for (const st of ALL_STATES) {
+          setUpdateState(st);
+          const w = mount(SidebarFooter, { props: { compact: false }, attachTo: document.body });
+          const btn = w.find('.side-foot__btn');
+          const label = btn.find('.side-foot__pill-label');
+          expect(btn.classes(), `${lang}/${st}`).toContain('side-foot__btn--pill');
+          expect(label.exists(), `${lang}/${st}`).toBe(true);
+          expect(label.text().trim(), `${lang}/${st}`).toBe(tr('nav.updateShort'));
+          w.unmount();
+        }
+      }
+    });
+
+    it('(u2) accent class is present in exactly available, downloading and deferred, expanded and rail (kills L5)', () => {
+      for (const compact of [false, true]) {
+        for (const st of ALL_STATES) {
+          setUpdateState(st);
+          const w = mount(SidebarFooter, { props: { compact }, attachTo: document.body });
+          const btn = w.find('.side-foot__btn');
+          expect(btn.classes().includes('side-foot__btn--update'), `compact=${compact}/${st}`).toBe(
+            ACCENT_STATES.has(st),
+          );
+          w.unmount();
+        }
+      }
+    });
+
+    it('(u3) dot is present in exactly available and deferred, expanded (inside .side-foot__icon) and rail (kills L3)', () => {
+      for (const compact of [false, true]) {
+        for (const st of ALL_STATES) {
+          setUpdateState(st);
+          const w = mount(SidebarFooter, { props: { compact }, attachTo: document.body });
+          const btn = w.find('.side-foot__btn');
+          const dot = btn.find('.side-foot__dot');
+          const expectDot = DOT_STATES.has(st);
+          expect(dot.exists(), `compact=${compact}/${st}`).toBe(expectDot);
+          if (expectDot) {
+            expect(dot.attributes('aria-hidden'), `compact=${compact}/${st}`).toBe('true');
+          }
+          if (!compact) {
+            expect(btn.find('.side-foot__icon').exists(), `expanded/${st}`).toBe(true);
+            expect(btn.find('.side-foot__icon .side-foot__dot').exists(), `expanded/${st}`).toBe(expectDot);
+          } else {
+            expect(btn.find('.side-foot__icon').exists(), `rail/${st}`).toBe(false);
+          }
+          w.unmount();
+        }
+      }
+    });
+
+    it('(u4) expanded web has no aria-label/title, content holds label (+ suffix), icon/dot aria-hidden, aria-haspopup=dialog (kills L2)', () => {
+      for (const lang of ['vi', 'en'] as const) {
+        setLocale(lang);
+        for (const st of ALL_STATES) {
+          setUpdateState(st);
+          const w = mount(SidebarFooter, { props: { compact: false }, attachTo: document.body });
+          const btn = w.find('.side-foot__btn');
+          expect(btn.attributes('aria-label'), `${lang}/${st}`).toBeUndefined();
+          expect(btn.attributes('title'), `${lang}/${st}`).toBeUndefined();
+          expect(btn.attributes('aria-haspopup'), `${lang}/${st}`).toBe('dialog');
+          const expectedName = tr('nav.updateShort') + (DOT_STATES.has(st) ? tr('nav.updateAvailableSuffix') : '');
+          expect(btn.text().trim(), `${lang}/${st}`).toBe(expectedName);
+          expect(btn.find('.side-foot__icon').attributes('aria-hidden'), `${lang}/${st}`).toBe('true');
+          expect(btn.find('.side-foot__refresh').attributes('aria-hidden'), `${lang}/${st}`).toBe('true');
+          if (DOT_STATES.has(st)) {
+            expect(btn.find('.side-foot__dot').attributes('aria-hidden'), `${lang}/${st}`).toBe('true');
+          }
+          w.unmount();
+        }
+      }
+    });
+
+    it('(u5) rail web has no label span, aria-label and title equal nav.update (+ suffix), and aria-haspopup=dialog', () => {
+      for (const lang of ['vi', 'en'] as const) {
+        setLocale(lang);
+        for (const st of ALL_STATES) {
+          setUpdateState(st);
+          const w = mount(SidebarFooter, { props: { compact: true }, attachTo: document.body });
+          const btn = w.find('.side-foot__btn');
+          expect(btn.classes(), `${lang}/${st}`).not.toContain('side-foot__btn--pill');
+          expect(btn.find('.side-foot__pill-label').exists(), `${lang}/${st}`).toBe(false);
+          expect(btn.text().trim(), `${lang}/${st}`).toBe('');
+          const expectedLabel = tr('nav.update') + (DOT_STATES.has(st) ? tr('nav.updateAvailableSuffix') : '');
+          expect(btn.attributes('aria-label'), `${lang}/${st}`).toBe(expectedLabel);
+          expect(btn.attributes('title'), `${lang}/${st}`).toBe(expectedLabel);
+          expect(btn.attributes('aria-haspopup'), `${lang}/${st}`).toBe('dialog');
+          w.unmount();
+        }
+      }
+    });
+
+    it('(u6) desktop expanded and rail have no label, no pill box, aria-label nav.version, info icon, aria-haspopup=dialog (kills L4)', () => {
+      flags.desktop = true;
+      for (const lang of ['vi', 'en'] as const) {
+        setLocale(lang);
+        for (const compact of [false, true]) {
+          for (const st of ['idle', 'available', 'deferred'] as const) {
+            setUpdateState(st);
+            const w = mount(SidebarFooter, { props: { compact }, attachTo: document.body });
+            const btn = w.find('.side-foot__btn');
+            expect(btn.classes(), `${lang}/compact=${compact}/${st}`).not.toContain('side-foot__btn--pill');
+            expect(btn.classes(), `${lang}/compact=${compact}/${st}`).not.toContain('side-foot__btn--update');
+            expect(btn.find('.side-foot__pill-label').exists(), `${lang}/compact=${compact}/${st}`).toBe(false);
+            expect(btn.find('.side-foot__dot').exists(), `${lang}/compact=${compact}/${st}`).toBe(false);
+            expect(btn.text().trim(), `${lang}/compact=${compact}/${st}`).toBe('');
+            expect(btn.attributes('aria-label'), `${lang}/compact=${compact}/${st}`).toBe(tr('nav.version'));
+            expect(btn.attributes('title'), `${lang}/compact=${compact}/${st}`).toBe(tr('nav.version'));
+            expect(btn.attributes('aria-haspopup'), `${lang}/compact=${compact}/${st}`).toBe('dialog');
+            expect(btn.find('svg.tabler-icon-info-circle').exists(), `${lang}/compact=${compact}/${st}`).toBe(true);
+            expect(btn.find('.side-foot__refresh').exists(), `${lang}/compact=${compact}/${st}`).toBe(false);
+            w.unmount();
+          }
+        }
+      }
+    });
+
+    it('(u7) i18n has nav.updateShort, removes nav.updatePill, and updates en nav.updateAvailableSuffix', () => {
+      expect(viDict['nav.updateShort']).toBe('Cập Nhật');
+      expect(enDict['nav.updateShort']).toBe('Update');
+      expect(viDict['nav.update']).toBe('Cập nhật & phiên bản');
+      expect(viDict['update.apply']).toBe('Cập nhật');
+      expect('nav.updatePill' in viDict).toBe(false);
+      expect('nav.updatePill' in enDict).toBe(false);
+      expect(viDict['nav.updateAvailableSuffix']).toBe(', có bản mới');
+      expect(enDict['nav.updateAvailableSuffix']).toBe(', new version available');
+    });
+
+    it('(u8) .side-foot__refresh--spin is present in exactly checking and downloading, expanded and rail (kills L7a, L7b)', () => {
+      const SPIN_STATES = new Set<UpdateState>(['checking', 'downloading']);
+      for (const compact of [false, true]) {
+        for (const st of ALL_STATES) {
+          setUpdateState(st);
+          const w = mount(SidebarFooter, { props: { compact }, attachTo: document.body });
+          const icon = w.find('.side-foot__btn .side-foot__refresh');
+          expect(icon.exists(), `compact=${compact}/${st}`).toBe(true);
+          expect(icon.classes().includes('side-foot__refresh--spin'), `compact=${compact}/${st}`).toBe(
+            SPIN_STATES.has(st),
+          );
+          w.unmount();
+        }
+      }
     });
   });
 });

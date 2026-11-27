@@ -27,7 +27,8 @@ const LANG_OPTIONS = computed<{ value: Locale; label: string; title: string }[]>
 ]);
 
 const updatePending = computed(() => !desktop && (update.state === 'available' || update.state === 'deferred'));
-const updatePill = computed(() => updatePending.value && !compact.value);
+const updateAccent = computed(() => !desktop && (update.state === 'available' || update.state === 'downloading' || update.state === 'deferred'));
+const updatePill = computed(() => !desktop && !compact.value);
 const updateBusy = computed(() => update.state === 'checking' || update.state === 'downloading');
 const updateLabel = computed(() => desktop ? t('nav.version') : t('nav.update') + (updatePending.value ? t('nav.updateAvailableSuffix') : ''));
 
@@ -116,15 +117,25 @@ function formatUpdateDate(iso: string): string {
     <button
       type="button"
       class="side-foot__btn"
-      :class="{ 'side-foot__btn--update': updatePending, 'side-foot__btn--pill': updatePill }"
-      :aria-label="updateLabel"
-      :title="updateLabel"
+      :class="{ 'side-foot__btn--pill': updatePill, 'side-foot__btn--update': updateAccent }"
+      :aria-label="updatePill ? undefined : updateLabel"
+      :title="updatePill ? undefined : updateLabel"
+      aria-haspopup="dialog"
       @click="help = true"
     >
-      <IconInfoCircle v-if="desktop" :size="19" stroke-width="1.5" />
-      <IconRefresh v-else class="side-foot__refresh" :class="{ 'side-foot__refresh--spin': updateBusy }" :size="19" stroke-width="1.5" />
-      <span v-if="updatePill" class="side-foot__pill-label">{{ t('nav.updatePill') }}</span>
-      <span v-else-if="updatePending" class="side-foot__dot" aria-hidden="true" />
+      <IconInfoCircle v-if="desktop" :size="19" stroke-width="1.5" aria-hidden="true" />
+      <template v-else-if="updatePill">
+        <span class="side-foot__icon" aria-hidden="true">
+          <IconRefresh class="side-foot__refresh" :class="{ 'side-foot__refresh--spin': updateBusy }" :size="19" stroke-width="1.5" aria-hidden="true" />
+          <span v-if="updatePending" class="side-foot__dot" aria-hidden="true" />
+        </span>
+        <span class="side-foot__pill-label">{{ t('nav.updateShort') }}</span>
+        <span v-if="updatePending" class="sr-only">{{ t('nav.updateAvailableSuffix') }}</span>
+      </template>
+      <template v-else>
+        <IconRefresh class="side-foot__refresh" :class="{ 'side-foot__refresh--spin': updateBusy }" :size="19" stroke-width="1.5" aria-hidden="true" />
+        <span v-if="updatePending" class="side-foot__dot" aria-hidden="true" />
+      </template>
     </button>
 
     <button
@@ -236,14 +247,6 @@ function formatUpdateDate(iso: string): string {
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 .side-foot__btn:hover { color: var(--fg-1); background: var(--bg-2); }
-.side-foot__btn--update {
-  color: var(--acc);
-  background: color-mix(in srgb, var(--acc) var(--soft-pct), transparent);
-}
-.side-foot__btn--update:hover {
-  color: var(--acc-hover);
-  background: color-mix(in srgb, var(--acc) calc(var(--soft-pct) * 1.8), transparent);
-}
 .side-foot__btn--pill {
   display: inline-flex;
   align-items: center;
@@ -251,13 +254,35 @@ function formatUpdateDate(iso: string): string {
   width: auto;
   height: 28px;
   padding: 0 10px 0 8px;
+  border: 1px solid var(--line-1);
   border-radius: 999px;
+  box-sizing: border-box;
+  background: transparent;
+  color: var(--fg-2);
   font-size: var(--fs-label);
   font-weight: 600;
   white-space: nowrap;
   flex-shrink: 1;
   min-width: 0;
   overflow: hidden;
+}
+.side-foot__btn--pill:hover {
+  background: var(--bg-2);
+  color: var(--fg-1);
+}
+.side-foot__btn--update {
+  color: var(--acc);
+  background: color-mix(in srgb, var(--acc) var(--soft-pct), transparent);
+  border-color: transparent;
+}
+.side-foot__btn--update:hover {
+  color: var(--acc-hover);
+  background: color-mix(in srgb, var(--acc) calc(var(--soft-pct) * 1.8), transparent);
+}
+.side-foot__icon {
+  position: relative;
+  display: inline-grid;
+  flex-shrink: 0;
 }
 .side-foot__pill-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .side-foot__dot {
@@ -269,6 +294,14 @@ function formatUpdateDate(iso: string): string {
   border-radius: 50%;
   background: var(--acc);
   box-shadow: 0 0 0 2px var(--bg-1);
+}
+.side-foot__icon .side-foot__dot {
+  top: -3px;
+  right: -3px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc) var(--soft-pct), var(--bg-1));
+}
+.side-foot__btn--update:hover .side-foot__icon .side-foot__dot {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc) calc(var(--soft-pct) * 1.8), var(--bg-1));
 }
 .side-foot__refresh--spin { animation: side-foot-spin 1s linear infinite; }
 @keyframes side-foot-spin { to { transform: rotate(360deg); } }

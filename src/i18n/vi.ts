@@ -27,7 +27,7 @@ export const base = {
   'nav.update': 'Cập nhật & phiên bản',
   'nav.version': 'Phiên bản',
   'nav.updateAvailableSuffix': ', có bản mới',
-  'nav.updatePill': 'Bản mới',
+  'nav.updateShort': 'Cập Nhật',
   'nav.updateFoundSr': 'Có bản mới của AE64 Control. Mở “Cập nhật & phiên bản” ở cuối thanh bên để cập nhật.',
   'nav.collapse': 'Thu gọn thanh bên',
   'nav.expand': 'Mở thanh bên',
