@@ -61,12 +61,15 @@ export function frameOf(payload: number[], opts?: CheckFrameOptions): Uint8Array
   return frame;
 }
 
+/** Max LEDs addressable by `05 03` pages 0–8 (safety.ts: 9 × 15 = 135; DESIGN MKB §10.2). */
+const MAX_STRIP_LEDS = 9 * LED_RECORDS_PER_PACKET;
+
 /** Number of LED records for a lighting area: AE64 kinds keep 6×21 / 38; generic uses `02 08 00` shapes (DESIGN MKB §10.2). */
 export function ledCount(area: number, opts?: { support?: SupportLevel; areas?: LightingAreas | null }): number {
   if (opts?.support === 'generic') {
-    const shape = opts.areas?.shapes.find((s) => s.id === area) ?? opts.areas?.shapes[area];
+    const shape = opts.areas?.shapes.find((s) => s.id === area);
     if (!shape) return 0;
-    if (shape.rows === 1) return shape.cols;
+    if (shape.rows === 1) return shape.cols > MAX_STRIP_LEDS ? 0 : shape.cols;
     if (shape.rows > LED_MATRIX_ROWS || shape.cols > LED_MATRIX_COLS) return 0;
     return shape.rows * LED_MATRIX_COLS;
   }
@@ -109,10 +112,13 @@ export abstract class BaseTransport implements Ae64Transport {
   abstract get connected(): boolean;
 
   /**
-   * Default AE64 identity for pre-MKB test subclasses; production transports must override `identity`,
-   * and the guard test enforces it.
+   * Default AE64 identity for pre-MKB test subclasses (`MODE === 'test'` only; DESIGN MKB §3.1).
+   * Outside tests this throws so a transport that forgets its override fails closed before sending any frame.
    */
   get identity(): TransportIdentity {
+    if (import.meta.env.MODE !== 'test') {
+      throw new Error('BaseTransport subclass must override identity');
+    }
     return {
       vendorId: VENDOR_ID,
       productId: this.productId === PRODUCT_ID_PRO ? PRODUCT_ID_PRO : PRODUCT_ID_MAX,

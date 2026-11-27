@@ -283,7 +283,7 @@ export function rememberDevice(vendorId: number | undefined, productId: number |
   }
 }
 
-/** Re-open an already-granted keyboard (no permission prompt): AE64 first (unchanged), else remembered platform, else first platform. */
+/** Re-open an already-granted keyboard (no permission prompt): AE64 in its app, else 1CA6 probe, else 38A6/36B5 platform (DESIGN MKB §4). */
 export async function reconnectGrantedHid(): Promise<Ae64Transport | null> {
   if (!webHidAvailable()) return null;
   const all = await navigator.hid.getDevices();
@@ -291,6 +291,9 @@ export async function reconnectGrantedHid(): Promise<Ae64Transport | null> {
   const last = readLastDevice();
   const device = (last && granted.find((d) => d.vendorId === last.vendorId && d.productId === last.productId)) || granted[0];
   if (device) return openDevice(device);
+  // No AE64 in its app: a granted 1CA6 device (e.g. an AE64 bootloader) keeps today's exact pick before 38A6/36B5.
+  const probe = all.find(matchesProbe);
+  if (probe) return openDevice(probe, { probeOnly: true });
   const platform = all.filter(matchesPlatform);
   const remembered = last && platform.find((d) => d.vendorId === last.vendorId && d.productId === last.productId);
   const other = remembered || platform[0];
