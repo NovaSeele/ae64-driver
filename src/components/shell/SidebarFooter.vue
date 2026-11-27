@@ -31,6 +31,11 @@ const updateAccent = computed(() => !desktop && (update.state === 'available' ||
 const updatePill = computed(() => !desktop && !compact.value);
 const updateBusy = computed(() => update.state === 'checking' || update.state === 'downloading');
 const updateLabel = computed(() => desktop ? t('nav.version') : t('nav.update') + (updatePending.value ? t('nav.updateAvailableSuffix') : ''));
+const updateAriaLabel = computed(() =>
+  updatePill.value
+    ? (updatePending.value ? t('nav.updateShort') + t('nav.updateAvailableSuffix') : undefined)
+    : updateLabel.value,
+);
 
 const ANNOUNCE_CLEAR_MS = 10_000;
 const announce = ref('');
@@ -118,7 +123,7 @@ function formatUpdateDate(iso: string): string {
       type="button"
       class="side-foot__btn"
       :class="{ 'side-foot__btn--pill': updatePill, 'side-foot__btn--update': updateAccent }"
-      :aria-label="updatePill ? undefined : updateLabel"
+      :aria-label="updateAriaLabel"
       :title="updatePill ? undefined : updateLabel"
       aria-haspopup="dialog"
       @click="help = true"
@@ -130,7 +135,6 @@ function formatUpdateDate(iso: string): string {
           <span v-if="updatePending" class="side-foot__dot" aria-hidden="true" />
         </span>
         <span class="side-foot__pill-label">{{ t('nav.updateShort') }}</span>
-        <span v-if="updatePending" class="sr-only">{{ t('nav.updateAvailableSuffix') }}</span>
       </template>
       <template v-else>
         <IconRefresh class="side-foot__refresh" :class="{ 'side-foot__refresh--spin': updateBusy }" :size="19" stroke-width="1.5" aria-hidden="true" />
