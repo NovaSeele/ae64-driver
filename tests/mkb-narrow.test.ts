@@ -64,6 +64,16 @@ interface MediaRule {
   body: string;
 }
 
+function normalizeDeclBody(raw: string): string {
+  return raw
+    .replace(/\s+/g, ' ')
+    .replace(/\s*;\s*/g, '; ')
+    .replace(/\s*:\s*/g, ': ')
+    .trim()
+    .replace(/;+$/, '')
+    .trim();
+}
+
 /** Extract every style rule inside any `@media` block whose prelude contains `max-width:`. */
 function extractMaxWidthMediaRules(css: string): MediaRule[] {
   const clean = css.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -85,7 +95,7 @@ function extractMaxWidthMediaRules(css: string): MediaRule[] {
     const inner = clean.slice(open + 1, j - 1);
     if (/max-width\s*:/i.test(prelude)) {
       for (const match of inner.matchAll(/([^{}@]+)\{([^{}]*)\}/g)) {
-        const body = match[2].replace(/\s+/g, ' ').trim();
+        const body = normalizeDeclBody(match[2]);
         for (const rawSel of match[1].split(',')) {
           const selector = rawSel.replace(/\s+/g, ' ').trim();
           if (selector) out.push({ media: prelude, selector, body });
@@ -99,34 +109,35 @@ function extractMaxWidthMediaRules(css: string): MediaRule[] {
 
 // Explicit exceptions for `@media (max-width: ...)` rules that pre-existed on base commit eeab422
 // (no MKB exception: every MKB narrow rule is scoped under .shell--generic).
-// Keyed by `${rel} | ${media} | ${unscopedSelector}` so any new max-width rule in any file is caught.
-const MAX_WIDTH_EXCEPTIONS = new Set<string>([
+// Keyed by `${rel} | ${media} | ${unscopedSelector} | ${body}` so any new or modified max-width rule is caught,
+// and every entry must match a rule during the scan.
+const MAX_WIDTH_EXCEPTIONS: readonly string[] = [
   // Pre-existing in base eeab422:
-  'src/components/advanced/AdvancedTab.vue | (max-width: 1000px) | .cols',
-  'src/components/advanced/AdvancedTab.vue | (max-width: 1000px) | .cfg',
-  'src/components/advanced/DksEditor.vue | (max-width: 1100px) | .dks__thresholds',
-  'src/components/advanced/PairEditor.vue | (max-width: 1100px) | .modes__grid',
-  'src/components/firmware/AxisRestoreCard.vue | (max-width: 860px) | .ax__warn',
-  'src/components/firmware/AxisRestoreCard.vue | (max-width: 860px) | .ax__warn > .btn',
-  'src/components/live/TestTab.vue | (max-width: 1100px) | .checkrow',
-  'src/components/live/TestTab.vue | (max-width: 1100px) | .grid',
-  'src/components/live/TestTab.vue | (max-width: 1100px) | .typetest',
-  'src/components/live/TestTab.vue | (max-width: 1100px) | .typetest__box',
-  'src/components/shell/PageLayout.vue | (max-width: 1400px) | .page',
-  'src/components/shell/PageLayout.vue | (max-width: 1400px) | .page__kbrow',
-  'src/components/shell/PageLayout.vue | (max-width: 1400px) | .page__aside',
-  'src/components/shell/PageLayout.vue | (max-width: 1400px) | .page__board',
-  'src/pages/FirmwarePage.vue | (max-width: 1100px) | .fw',
-  'src/pages/FirmwarePage.vue | (max-width: 1100px) | .fw__main',
-  'src/pages/FirmwarePage.vue | (max-width: 1100px) | .fw-head',
-  'src/pages/FirmwarePage.vue | (max-width: 1100px) | .fw__side',
-  'src/pages/FirmwarePage.vue | (max-width: 860px) | .fw__side',
-  'src/pages/MacroPage.vue | (max-width: 1000px) | .cols',
-  'src/pages/MacroPage.vue | (max-width: 1000px) | .main > .seqcard',
-  'src/pages/MacroPage.vue | (max-width: 1000px) | .main .at',
-  'src/pages/MacroPage.vue | (max-width: 1200px) | .modes',
-  'src/pages/MacroPage.vue | (min-width: 1001px) and (max-width: 1200px) | .main .at__body',
-]);
+  'src/components/advanced/AdvancedTab.vue | (max-width: 1000px) | .cols | grid-template-columns: 1fr',
+  'src/components/advanced/AdvancedTab.vue | (max-width: 1000px) | .cfg | flex: none; overflow-y: visible',
+  'src/components/advanced/DksEditor.vue | (max-width: 1100px) | .dks__thresholds | grid-template-columns: 1fr',
+  'src/components/advanced/PairEditor.vue | (max-width: 1100px) | .modes__grid | grid-template-columns: repeat(2, 1fr)',
+  'src/components/firmware/AxisRestoreCard.vue | (max-width: 860px) | .ax__warn | flex-wrap: wrap',
+  'src/components/firmware/AxisRestoreCard.vue | (max-width: 860px) | .ax__warn > .btn | margin-left: 24px',
+  'src/components/live/TestTab.vue | (max-width: 1100px) | .checkrow | grid-template-columns: 1fr',
+  'src/components/live/TestTab.vue | (max-width: 1100px) | .grid | grid-template-columns: 1fr',
+  'src/components/live/TestTab.vue | (max-width: 1100px) | .typetest | flex: none',
+  'src/components/live/TestTab.vue | (max-width: 1100px) | .typetest__box | flex: none',
+  'src/components/shell/PageLayout.vue | (max-width: 1400px) | .page | padding: var(--s-5) var(--s-6) var(--s-7)',
+  'src/components/shell/PageLayout.vue | (max-width: 1400px) | .page__kbrow | flex-direction: column-reverse; align-items: stretch',
+  'src/components/shell/PageLayout.vue | (max-width: 1400px) | .page__aside | width: auto; flex-direction: row; flex-wrap: wrap; justify-content: flex-end',
+  'src/components/shell/PageLayout.vue | (max-width: 1400px) | .page__board | width: 100%',
+  'src/pages/FirmwarePage.vue | (max-width: 1100px) | .fw | grid-template-columns: minmax(0, 1fr)',
+  'src/pages/FirmwarePage.vue | (max-width: 1100px) | .fw__main | display: contents',
+  'src/pages/FirmwarePage.vue | (max-width: 1100px) | .fw-head | order: -2',
+  'src/pages/FirmwarePage.vue | (max-width: 1100px) | .fw__side | order: -1; display: grid; grid-template-columns: 1fr 1fr; align-items: start',
+  'src/pages/FirmwarePage.vue | (max-width: 860px) | .fw__side | grid-template-columns: minmax(0, 1fr)',
+  'src/pages/MacroPage.vue | (max-width: 1000px) | .cols | grid-template-columns: 1fr',
+  'src/pages/MacroPage.vue | (max-width: 1000px) | .main > .seqcard | flex: none',
+  'src/pages/MacroPage.vue | (max-width: 1000px) | .main .at | flex: none; min-height: 0',
+  'src/pages/MacroPage.vue | (max-width: 1200px) | .modes | grid-template-columns: 1fr',
+  'src/pages/MacroPage.vue | (min-width: 1001px) and (max-width: 1200px) | .main .at__body | max-height: 320px',
+];
 
 describe('mkb narrow-viewport CSS scoping', () => {
   for (const f of FILES) {
@@ -199,6 +210,13 @@ describe('mkb narrow-viewport CSS scoping', () => {
     const vueFiles = collectVueFiles(srcRoot);
     expect(vueFiles.length).toBeGreaterThan(0);
 
+    const remaining = new Map<string, number>();
+    for (const entry of MAX_WIDTH_EXCEPTIONS) {
+      const parts = entry.split(' | ');
+      const key = `${parts[0]} | ${parts[1]} | ${parts[2]} | ${normalizeDeclBody(parts.slice(3).join(' | '))}`;
+      remaining.set(key, (remaining.get(key) ?? 0) + 1);
+    }
+
     const violations: string[] = [];
     for (const file of vueFiles) {
       const rel = `src/${file.slice(srcRoot.length + 1).replace(/\\/g, '/')}`;
@@ -219,11 +237,19 @@ describe('mkb narrow-viewport CSS scoping', () => {
           if (rel === 'src/App.vue' && unscoped === '.shell--generic' && /^min-width:\s*0;?$/.test(rule.body)) {
             continue;
           }
-          if (MAX_WIDTH_EXCEPTIONS.has(`${rel} | ${rule.media} | ${unscoped}`)) continue;
-          violations.push(`${rel} @media ${rule.media} -> ${rule.selector}`);
+          const key = `${rel} | ${rule.media} | ${unscoped} | ${rule.body}`;
+          const left = remaining.get(key) ?? 0;
+          if (left > 0) {
+            if (left === 1) remaining.delete(key);
+            else remaining.set(key, left - 1);
+            continue;
+          }
+          violations.push(`${rel} @media ${rule.media} -> ${rule.selector} { ${rule.body} }`);
         }
       }
     }
     expect(violations).toEqual([]);
+    const unmatched = [...remaining.entries()].flatMap(([k, n]) => Array<string>(n).fill(k));
+    expect(unmatched, 'Unmatched MAX_WIDTH_EXCEPTIONS (base rule removed or modified)').toEqual([]);
   });
 });
