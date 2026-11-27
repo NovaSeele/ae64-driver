@@ -326,7 +326,7 @@ export const useDeviceStore = defineStore('device', () => {
       latencyMs.value = t.stats.lastLatencyMs;
       status.value = 'connected';
       watchKeyboardProfile(t);
-      if (!isDemo) rememberDevice(t.productId);
+      if (!isDemo) rememberDevice(t.identity.vendorId, t.productId);
       if (!boardAllowed.value) useToast().show(tr('device.notAllowed', { board: info.value.boardIdHex.toUpperCase() }), 'warn');
     } catch (err) {
       reset();
@@ -428,7 +428,7 @@ export const useDeviceStore = defineStore('device', () => {
   function armReplug(productId: number): void {
     disarmReplug();
     if (!webHidAvailable() || usbRestarting()) return;
-    rememberDevice(productId); // reconnectGrantedHid prefers the lost keyboard
+    rememberDevice(VENDOR_ID, productId); // reconnectGrantedHid prefers the lost keyboard
     replugProductId = productId;
     const listener = (e: HIDConnectionEvent): void => {
       if (transport.value || status.value === 'connecting' || usbRestarting()) return;
@@ -510,7 +510,7 @@ export const useDeviceStore = defineStore('device', () => {
 
   /** W-11: the keyboard is open in another tab or window: nothing was opened or sent; "Try again" reconnects to it. */
   function lockedByOtherTab(err: TabLockedError): void {
-    rememberDevice(err.productId); // "Try again" (tryAutoReconnect) takes this keyboard first
+    rememberDevice(err.vendorId, err.productId); // "Try again" (tryAutoReconnect) takes this keyboard first
     status.value = 'error';
     error.value = tr('device.otherTab');
     otherTab.value = true;

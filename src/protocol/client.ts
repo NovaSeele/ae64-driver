@@ -5,15 +5,16 @@
 import type {
   AdvancedRecord, Ae64Transport, AxisDataType, AxisRow, Bytes, DeviceInfo, FeatureBitmap, KeyPos,
   LedRecord, LightingAreas, LightingBase, MacroAction, MacroMeta, PacketLogEntry, PaletteEntry,
-  Performance, ProtocolVersion, SaveGroup, TransportStats,
+  Performance, ProtocolVersion, SaveGroup, SupportLevel, TransportIdentity, TransportStats,
 } from './types';
 import {
-  ALLOWED_BOARDS, AXIS_DATA_TYPE, FAMILY, FIRMWARE_FAMILY, LED_MATRIX_COLS, LED_MATRIX_ROWS,
-  LED_RECORDS_PER_PACKET, LED_STRIP_COUNT, REPORT_LENGTH, REQUEST_TIMEOUT_MS,
+  ALLOWED_BOARDS, AXIS_DATA_TYPE, CONFIG_USAGE, CONFIG_USAGE_PAGE, FAMILY, FIRMWARE_FAMILY, LED_MATRIX_COLS, LED_MATRIX_ROWS,
+  LED_RECORDS_PER_PACKET, LED_STRIP_COUNT, PRODUCT_ID_MAX, PRODUCT_ID_PRO, REPORT_LENGTH, REQUEST_TIMEOUT_MS, VENDOR_ID,
 } from './constants';
 import * as c from './codec';
 import { checkFirmwareFrame, checkFrame, checkGamepadFrame, checkPerformanceWrite, isWriteCommand, UnsafeCommandError } from './safety';
-import type { FwStep, GamepadStaging } from './safety';
+import type { CheckFrameOptions, FwStep, GamepadStaging } from './safety';
+import { classify, isAe64 } from './classify';
 import { FW_CHUNK, checkFile, chunks, isFwBoard, parseHeader, serialReadable } from './firmware';
 import type { FwCheck, KnownFw } from './firmware';
 import * as gp from './gamepad';
@@ -51,17 +52,24 @@ export class WriteNotAllowedError extends Error {
 }
 
 /** Zero-padded 64-byte report. Rejects firmware-family packets and anything not on the safety allow-list. */
-export function frameOf(payload: number[]): Uint8Array {
+export function frameOf(payload: number[], opts?: CheckFrameOptions): Uint8Array {
   if (payload[0] === FIRMWARE_FAMILY) throw new Error(t('error.firmwareBlocked'));
-  checkFrame(payload);
+  checkFrame(payload, opts);
   if (payload.length > REPORT_LENGTH) throw new RangeError(t('error.hidLength', { max: REPORT_LENGTH }));
   const frame = new Uint8Array(REPORT_LENGTH);
   payload.forEach((b, i) => { frame[i] = c.byte(b, `byte ${i}`); });
   return frame;
 }
 
-/** Number of LED records for a lighting area: keyboard matrix 6×21, strip 38. */
-export function ledCount(area: number): number {
+/** Number of LED records for a lighting area: AE64 kinds keep 6×21 / 38; generic uses `02 08 00` shapes (DESIGN MKB §10.2). */
+export function ledCount(area: number, opts?: { support?: SupportLevel; areas?: LightingAreas | null }): number {
+  if (opts?.support === 'generic') {
+    const shape = opts.areas?.shapes.find((s) => s.id === area) ?? opts.areas?.shapes[area];
+    if (!shape) return 0;
+    if (shape.rows === 1) return shape.cols;
+    if (shape.rows > LED_MATRIX_ROWS || shape.cols > LED_MATRIX_COLS) return 0;
+    return shape.rows * LED_MATRIX_COLS;
+  }
   return area === 0 ? LED_MATRIX_ROWS * LED_MATRIX_COLS : LED_STRIP_COUNT;
 }
 
@@ -99,6 +107,60 @@ export abstract class BaseTransport implements Ae64Transport {
   abstract readonly productName: string;
   abstract readonly productId?: number;
   abstract get connected(): boolean;
+
+  /**
+   * Default AE64 identity for pre-MKB test subclasses; production transports must override `identity`,
+   * and the guard test enforces it.
+   */
+  get identity(): TransportIdentity {
+    return {
+      vendorId: VENDOR_ID,
+      productId: this.productId === PRODUCT_ID_PRO ? PRODUCT_ID_PRO : PRODUCT_ID_MAX,
+      productName: this.productName,
+      collections: [{ usagePage: CONFIG_USAGE_PAGE, usage: CONFIG_USAGE, inputReports: [], outputReports: [] }],
+    };
+  }
+
+  #lastInfo: DeviceInfo | null = null;
+  #support: SupportLevel | undefined = undefined;
+  private lightingAreas: LightingAreas | null = null;
+
+  /**
+   * Connection support level (DESIGN MKB §3.3):
+   * - AE64 identity: derived from the latest `01 02` (undefined before the first `01 02`).
+   * - Non-AE64 identity: undefined until `setSupport('generic')` is called once after G4.
+   */
+  get support(): SupportLevel | undefined {
+    if (isAe64(this.identity)) {
+      if (!this.#lastInfo) return undefined;
+      const cls = classify(this.identity, this.#lastInfo);
+      return cls.ok ? cls.support : undefined;
+    }
+    return this.#support;
+  }
+
+  /** Marks a non-AE64 connection as `'generic'` once after G4 (DESIGN MKB §3.3). Throws on an AE64 identity or a second call. */
+  setSupport(support: 'generic'): void {
+    if (isAe64(this.identity)) throw new Error('support is derived for an AE64 identity');
+    if (this.#support !== undefined) throw new Error('support is already set for this connection');
+    if (support !== 'generic') throw new Error(`unsupported support level: ${String(support)}`);
+    this.#support = support;
+  }
+
+  /** Per-connection LED count for `area` (DESIGN MKB §10.2). */
+  ledCount(area: number): number {
+    return ledCount(area, { support: this.support, areas: this.lightingAreas });
+  }
+
+  /**
+   * Frame-checking options for this connection: generic is read-only with rows 0–5; any other non-AE64 identity
+   * (pre-G4 gates, non-AE64 1CA6 devices/bootloaders) is read-only with default AE64 rows; AE64 keeps `undefined`.
+   */
+  protected frameOptions(): CheckFrameOptions | undefined {
+    if (this.support === 'generic') return { readOnly: true, rows: 'generic' };
+    if (!isAe64(this.identity)) return { readOnly: true };
+    return undefined;
+  }
 
   readonly stats: TransportStats = { lastLatencyMs: 0, avgLatencyMs: 0, requests: 0, timeouts: 0 };
   /** Set by getDeviceInfo(): writes are refused until the board ID is in ALLOWED_BOARDS. */
@@ -150,6 +212,7 @@ export abstract class BaseTransport implements Ae64Transport {
         throw new UnsafeCommandError(payload, `the keyboard is not running its app (run mode ${this.#runModeSeen ?? 'restarting'}): only 01 02 is sent`);
       }
       if (payload[0] === gp.GP_FAMILY) {
+        if (this.support !== 'ae64') throw new UnsafeCommandError(payload, 'family 10 only on an AE64 connection');
         const why = checkGamepadFrame(payload, { boardIdHex: this.boardIdHex, caps: this.gamepad?.caps ?? null, staging: this.gamepadStaging });
         if (why) throw new UnsafeCommandError(payload, why);
       }
@@ -157,7 +220,7 @@ export abstract class BaseTransport implements Ae64Transport {
       if (this.calibrationLock && isWriteCommand(payload) && !isCalibrationControl(payload)) {
         throw new UnsafeCommandError(payload, 'the keyboard is calibrating; only "stop calibration" may be sent');
       }
-      const frame = frameOf(payload);
+      const frame = frameOf(payload, this.frameOptions());
       this.log('out', frame);
       const t0 = performance.now();
       let reply: Bytes;
@@ -213,8 +276,9 @@ export abstract class BaseTransport implements Ae64Transport {
   /** `timeoutMs`: a firmware probe waits FW_PROBE_TIMEOUT_MS (or 3 s for the check after `08 01`). */
   async getDeviceInfo(timeoutMs?: number): Promise<DeviceInfo> {
     const info = c.decodeDeviceInfo(await this.request([FAMILY.DEVICE, 0x02], timeoutMs));
+    this.#lastInfo = info;
     if (info.runMode !== 0) this.#runModeSeen = info.runMode;
-    this.boardAllowed = ALLOWED_BOARDS.includes(info.boardIdHex);
+    if (isAe64(this.identity)) this.boardAllowed = ALLOWED_BOARDS.includes(info.boardIdHex);
     this.boardIdHex = info.boardIdHex.toLowerCase();
     return info;
   }
@@ -294,7 +358,8 @@ export abstract class BaseTransport implements Ae64Transport {
   }
 
   async getLightingAreas(): Promise<LightingAreas> {
-    return c.decodeLightingAreas(await this.request([FAMILY.GLOBAL, 0x08, 0x00]));
+    this.lightingAreas = c.decodeLightingAreas(await this.request([FAMILY.GLOBAL, 0x08, 0x00]));
+    return this.lightingAreas;
   }
 
   async getRtPrecision(): Promise<number> {
@@ -403,7 +468,7 @@ export abstract class BaseTransport implements Ae64Transport {
   }
 
   async readLedMatrix(area: number, pages?: readonly number[]): Promise<LedRecord[]> {
-    const n = ledCount(area);
+    const n = this.ledCount(area);
     if (pages) {
       // Only these packets (the live preview reads the ones that hold LEDs): the full length, holes where not read.
       const out: LedRecord[] = new Array(n);
@@ -422,7 +487,7 @@ export abstract class BaseTransport implements Ae64Transport {
   }
 
   async writeLedMatrix(area: number, leds: LedRecord[]): Promise<void> {
-    const n = ledCount(area);
+    const n = this.ledCount(area);
     for (let p = 0; p * LED_RECORDS_PER_PACKET < n; p++) {
       const slice = leds.slice(p * LED_RECORDS_PER_PACKET, Math.min(n, (p + 1) * LED_RECORDS_PER_PACKET));
       await this.write([FAMILY.LIGHTING, 0x04, area, p, ...c.encodeColors(slice)]);
@@ -599,9 +664,11 @@ export abstract class BaseTransport implements Ae64Transport {
     if (!serialReadable(info.serialHex)) throw new FirmwareSessionError('serial');
     const check = checkFile(copy, info.boardId);
     if (!check.ok) throw new FirmwareSessionError('file');
+    const cls = classify(this.identity, info);
+    if (!cls.ok || cls.support !== 'ae64') throw new FirmwareSessionError('kind');
     return newSession({
       bytes: copy, check, board: info.boardId, serialHex: info.serialHex, appSerialHex: info.serialHex, step: 'open', app: this, boot: null,
-      rescue: false,
+      rescue: false, support: cls.support,
     });
   }
 
@@ -620,10 +687,13 @@ export abstract class BaseTransport implements Ae64Transport {
     const check = checkFile(copy, info.boardId);
     if (!check.ok) throw new FirmwareSessionError('file');
     if (opts.officialOnly && check.known?.kind !== 'official') throw new FirmwareSessionError('official');
+    const cls = classify(this.identity, info);
+    if (!cls.ok || cls.support !== 'rescue') throw new FirmwareSessionError('kind');
     const serial = serialReadable(info.serialHex) ? info.serialHex : null;
     const appSerialHex = opts.appSerialHex && serialReadable(opts.appSerialHex) ? opts.appSerialHex : serial;
     return newSession({
       bytes: copy, check, board: info.boardId, serialHex: serial, appSerialHex, step: 'attached', app: null, boot: this, rescue: true,
+      support: cls.support,
     });
   }
 
@@ -712,6 +782,9 @@ export abstract class BaseTransport implements Ae64Transport {
    * (the step change), then the same queue as every other request.
    */
   #fwRequest(st: FwState, payload: number[], timeoutMs: number, before?: () => void): Promise<Bytes> {
+    if (st.support !== 'ae64' && st.support !== 'rescue') {
+      return Promise.reject(new UnsafeCommandError(payload, 'firmware only in an AE64 or rescue session'));
+    }
     const sender = this === st.app ? 'app' : this === st.boot ? 'boot' : 'other';
     const why = checkFirmwareFrame(payload, { board: st.board, step: st.step, sender, nextOffset: st.nextOffset, size: st.bytes.length });
     if (why) return Promise.reject(new UnsafeCommandError(payload, why));
@@ -768,6 +841,8 @@ interface FwState {
   app: BaseTransport | null;
   boot: BaseTransport | null;
   rescue: boolean;
+  /** Support level classified when the session opened (DESIGN MKB §6.4). */
+  support: SupportLevel;
   nextOffset: number;
   /** Devices that got their `01 02` while looking for the bootloader / the keyboard, and what they answered (null: nothing yet). */
   probedBoot: Map<BaseTransport, DeviceInfo | null>;
@@ -784,13 +859,16 @@ function newSession(s: Omit<FwState, 'nextOffset' | 'probedBoot' | 'probedApp' |
   return ticket;
 }
 
+/** Test-only seam to exercise `#fwRequest`'s session-support lock (DESIGN MKB §6.4). Stripped outside `MODE === 'test'`. */
+export const __fwTestSeam = import.meta.env.MODE === 'test' ? { newSession } : undefined;
+
 function sessionOf(ticket: FwTicket): FwState {
   const st = fwSessions.get(ticket);
   if (!st) throw new UnsafeCommandError([FIRMWARE_FAMILY], 'not a firmware session of this app');
   return st;
 }
 
-export type FwSessionReason = 'file' | 'mode' | 'board' | 'serial' | 'official';
+export type FwSessionReason = 'file' | 'mode' | 'board' | 'serial' | 'official' | 'kind';
 
 export class FirmwareSessionError extends Error {
   constructor(readonly reason: FwSessionReason, readonly board?: number) {

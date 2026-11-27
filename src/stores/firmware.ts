@@ -858,7 +858,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
       ticket = await t.beginFirmwareSession(bytes);
     } catch (err) {
       const reason: MessageKey = err instanceof FirmwareSessionError
-        ? ({ mode: 'fw.why.mode', serial: 'fw.why.serial', board: 'fw.why.board', file: 'fw.why.file', official: 'fw.why.file' } as const)[err.reason]
+        ? ({ mode: 'fw.why.mode', serial: 'fw.why.serial', board: 'fw.why.board', file: 'fw.why.file', official: 'fw.why.file', kind: 'fw.why.mode' } as const)[err.reason]
         : 'fw.why.mode';
       const dev = err instanceof FirmwareSessionError && err.board !== undefined ? err.board.toString(16).toUpperCase().padStart(8, '0') : '';
       return preflightFail({ key: 'fw.err.recheck', params: { dev }, paramKeys: { reason } });

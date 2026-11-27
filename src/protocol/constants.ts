@@ -5,10 +5,17 @@ export const REPORT_LENGTH = 64;
 export const REQUEST_TIMEOUT_MS = 1500;
 
 export const VENDOR_ID = 0x1ca6;
+export const VENDOR_ID_AULA = 0x38a6; // HallJoy: AULA AG75, SparkLink template
+export const VENDOR_ID_WUQUE = 0x36b5; // OpenMouse: Wuque BABAO80 HE
 export const PRODUCT_ID_MAX = 0x300d;
 export const PRODUCT_ID_PRO = 0x300a;
 export const CONFIG_USAGE_PAGE = 0xffb0;
 export const CONFIG_USAGE = 0x01;
+/** Wireless receiver vendor collection refused before sending any command (DESIGN MKB §4, G0). */
+export const RECEIVER_USAGE_PAGE = 0xff80;
+
+/** Vendor IDs accepted by the platform view-mode filter (DESIGN MKB §4). */
+export const PLATFORM_VENDOR_IDS: readonly number[] = Object.freeze([VENDOR_ID, VENDOR_ID_AULA, VENDOR_ID_WUQUE]);
 
 /** Board IDs (lower-case hex, as decoded from 01 02) that may receive writes. */
 export const ALLOWED_BOARDS: readonly string[] = Object.freeze(['0030000d', '0030000a']);
@@ -24,6 +31,19 @@ export const HID_FILTERS: readonly HIDDeviceFilter[] = Object.freeze([
  * dongle). Only the firmware page and the connect screen's probe use it; HID_FILTERS stays the normal path.
  */
 export const FW_PROBE_FILTER: Readonly<HIDDeviceFilter> = Object.freeze({ vendorId: VENDOR_ID, usagePage: CONFIG_USAGE_PAGE, usage: CONFIG_USAGE });
+
+/** Additional platform vendor filters for Connect (DESIGN MKB §4). Never used by FwPort. */
+export const PLATFORM_EXTRA_FILTERS: readonly HIDDeviceFilter[] = Object.freeze([
+  Object.freeze({ vendorId: VENDOR_ID_AULA, usagePage: CONFIG_USAGE_PAGE, usage: CONFIG_USAGE }),
+  Object.freeze({ vendorId: VENDOR_ID_WUQUE, usagePage: CONFIG_USAGE_PAGE, usage: CONFIG_USAGE }),
+]);
+
+/** Full WebHID chooser filter order for Connect (DESIGN MKB §4): AE64 PIDs, 1CA6 probe, 38A6, 36B5. */
+export const CONNECT_HID_FILTERS: readonly HIDDeviceFilter[] = Object.freeze([
+  ...HID_FILTERS,
+  FW_PROBE_FILTER,
+  ...PLATFORM_EXTRA_FILTERS,
+]);
 
 /** Command families. Family 08 (firmware upgrade) is deliberately absent and refused by the transport. */
 export const FAMILY = Object.freeze({
@@ -44,6 +64,7 @@ export const SOCD_PAIR_MODES: readonly (readonly [number, number])[] = [[0, 0], 
 
 export const LAYER_COUNT = 4;
 export const FIRMWARE_ROWS = [1, 2, 3, 4, 5] as const;
+export const GENERIC_ROWS = [0, 1, 2, 3, 4, 5] as const;
 
 /** Keyboard LED address space (area 0) is 6 × 21; the strip (area 1) is 1 × 38. */
 export const LED_MATRIX_ROWS = 6;

@@ -28,7 +28,7 @@ export const FIRMWARE_LOCK = 'ae64-firmware';
 
 /** The keyboard is open in another tab or window of this app (its lock is held there). */
 export class TabLockedError extends Error {
-  constructor(readonly productId: number) {
+  constructor(readonly vendorId: number, readonly productId: number) {
     super('tab-locked');
     this.name = 'TabLockedError';
   }

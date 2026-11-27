@@ -4,8 +4,9 @@
 //
 // Reviewers drive the failure branches from the console: `device.transport.fwMock.flags` (FwMockFlags below), and read
 // `fwMock.received` (every command each device got), `fwMock.violations` (must stay empty) and `fwMock.writes` (the `08 02` frames).
-import type { Bytes } from './types';
+import type { Bytes, TransportIdentity } from './types';
 import { BaseTransport, TransportTimeoutError, replyMatches } from './client';
+import { CONFIG_USAGE, CONFIG_USAGE_PAGE, REPORT_LENGTH, VENDOR_ID } from './constants';
 import { MockTransport } from './mock';
 import type { DemoSeed } from './mock';
 import type { FwPort } from './fwPort';
@@ -110,6 +111,7 @@ export class MockBootloader extends BaseTransport {
   readonly kind = 'mock' as const;
   readonly productName: string;
   readonly productId = 0x0000;
+  private readonly _identity: TransportIdentity;
   private plugged = true;
   private pending: { frame: Uint8Array; resolve: (b: Bytes) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> } | null = null;
   private busyUntil = 0;
@@ -125,6 +127,16 @@ export class MockBootloader extends BaseTransport {
   ) {
     super();
     this.productName = board[3] === MAX_BOARD[3] ? 'AE64 Max (update mode, demo)' : 'AE64 Pro (update mode, demo)';
+    this._identity = {
+      vendorId: VENDOR_ID,
+      productId: this.productId,
+      productName: this.productName,
+      collections: [{ usagePage: CONFIG_USAGE_PAGE, usage: CONFIG_USAGE, inputReports: [REPORT_LENGTH], outputReports: [REPORT_LENGTH] }],
+    };
+  }
+
+  override get identity(): TransportIdentity {
+    return this._identity;
   }
 
   get connected(): boolean {

@@ -95,18 +95,29 @@ export function decodeFeatures(d: Bytes): FeatureBitmap {
 
 // ---------------------------------------------------------------- 02 global
 
+/** Maximum area entries that fit in one 64-byte `02 08 00` report: 4 header bytes + 15 × 4 = 64. */
+const MAX_LIGHTING_AREAS = 15;
+
 /** Reply `02 08 00 count {index, modes, rows, cols}…`. The keyboard matrix (area 0) has a fixed
- *  6×21 LED address space, so `leds` is only reported for single-row areas (the 38-LED strip). */
+ *  6×21 LED address space, so `leds` is only reported for single-row areas (the 38-LED strip).
+ *  `shapes` and `truncated` carry per-area geometry for generic connections (DESIGN MKB §10.1). */
 export function decodeLightingAreas(d: Bytes): LightingAreas {
-  const count = d[3];
+  const count = d[3] ?? 0;
+  const cap = Math.min(MAX_LIGHTING_AREAS, Math.max(0, Math.floor((d.length - 4) / 4)));
+  const n = Math.min(count, cap);
+  const truncated = count > n;
   const areas: LightingAreas['areas'] = [];
-  for (let i = 0; i < count; i++) {
+  const shapes: LightingAreas['shapes'] = [];
+  for (let i = 0; i < n; i++) {
     const o = 4 + i * 4;
+    const id = d[o];
+    const modes = d[o + 1];
     const rows = d[o + 2];
     const cols = d[o + 3];
-    areas.push(rows === 1 ? { modes: d[o + 1], leds: cols } : { modes: d[o + 1] });
+    areas.push(rows === 1 ? { modes, leds: cols } : { modes });
+    shapes.push({ id, rows, cols });
   }
-  return { count, areas, raw: Array.from(d.slice(3, 4 + count * 4)) };
+  return { count, areas, shapes, truncated, raw: Array.from(d.slice(3, 4 + n * 4)) };
 }
 
 export function decodeProfileName(d: Bytes): string {

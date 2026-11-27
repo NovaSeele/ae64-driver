@@ -26,9 +26,9 @@ function hex(bytes: readonly number[]): string {
 
 const inRange = (v: number | undefined, lo: number, hi: number): boolean => v !== undefined && v >= lo && v <= hi;
 
-/** Firmware rows 1–5 (row 0 does not exist on the wire), columns 0–20. */
-const keyPos = (p: readonly number[], i: number): string | null =>
-  inRange(p[i], 1, 5) && inRange(p[i + 1], 0, 20) ? null : `key position ${p[i]},${p[i + 1]} out of range`;
+/** Firmware rows 1–5 by default (0–5 on generic connections), columns 0–20. */
+const keyPos = (p: readonly number[], i: number, minRow: number): string | null =>
+  inRange(p[i], minRow, 5) && inRange(p[i + 1], 0, 20) ? null : `key position ${p[i]},${p[i + 1]} out of range`;
 
 const oneOf = (v: number | undefined, allowed: readonly number[], what: string): string | null =>
   v !== undefined && allowed.includes(v) ? null : `${what} ${v} not allowed`;
@@ -95,7 +95,7 @@ interface Rule {
   prefix: readonly number[];
   write: boolean;
   /** Extra argument checks; returns a reason to refuse, or null. */
-  check?: (p: readonly number[]) => string | null;
+  check?: (p: readonly number[], minRow: number) => string | null;
 }
 
 /** Every command the app sends. Keep in sync with client.ts; anything missing here is refused. */
@@ -126,27 +126,27 @@ const RULES: readonly Rule[] = [
   { prefix: [0x02, 0x10, 0x00], write: true, check: (p) => oneOf(p[3], [0, 1], 'shake optimization') },
   { prefix: [0x02, 0x10, 0x01], write: false },
   // 03 layout
-  { prefix: [0x03, 0x01], write: false, check: (p) => range(p[2], 0, 3, 'layer') ?? range(p[3], 1, 5, 'row') },
-  { prefix: [0x03, 0x03], write: false, check: (p) => range(p[2], 0, 3, 'layer') ?? keyPos(p, 3) },
-  { prefix: [0x03, 0x04], write: true, check: (p) => range(p[2], 0, 3, 'layer') ?? keyPos(p, 3) ?? keycodesAt(p, [5]) },
-  { prefix: [0x03, 0x05], write: false, check: (p) => range(p[2], 1, 5, 'row') },
-  { prefix: [0x03, 0x06], write: false, check: (p) => range(p[2] & 15, 0, 3, 'layer') ?? range(p[3], 1, 5, 'row') },
+  { prefix: [0x03, 0x01], write: false, check: (p, minRow) => range(p[2], 0, 3, 'layer') ?? range(p[3], minRow, 5, 'row') },
+  { prefix: [0x03, 0x03], write: false, check: (p, minRow) => range(p[2], 0, 3, 'layer') ?? keyPos(p, 3, minRow) },
+  { prefix: [0x03, 0x04], write: true, check: (p, minRow) => range(p[2], 0, 3, 'layer') ?? keyPos(p, 3, minRow) ?? keycodesAt(p, [5]) },
+  { prefix: [0x03, 0x05], write: false, check: (p, minRow) => range(p[2], minRow, 5, 'row') },
+  { prefix: [0x03, 0x06], write: false, check: (p, minRow) => range(p[2] & 15, 0, 3, 'layer') ?? range(p[3], minRow, 5, 'row') },
   // 04 performance
-  { prefix: [0x04, 0x01], write: false, check: (p) => keyPos(p, 2) },
+  { prefix: [0x04, 0x01], write: false, check: (p, minRow) => keyPos(p, 2, minRow) },
   // Mode 2 (RT without Continuous RT) is further gated by protocol version in checkPerformanceWrite.
-  { prefix: [0x04, 0x02], write: true, check: (p) => keyPos(p, 2) ?? oneOf(p[4], [0, 1, 2], 'mode') },
-  { prefix: [0x04, 0x03], write: false, check: (p) => range(p[2], 0, 3, 'axis data type') ?? range(p[3], 1, 5, 'row') },
+  { prefix: [0x04, 0x02], write: true, check: (p, minRow) => keyPos(p, 2, minRow) ?? oneOf(p[4], [0, 1, 2], 'mode') },
+  { prefix: [0x04, 0x03], write: false, check: (p, minRow) => range(p[2], 0, 3, 'axis data type') ?? range(p[3], minRow, 5, 'row') },
   // 05 lighting
   { prefix: [0x05, 0x01], write: false, check: (p) => range(p[2], 0, 1, 'area') ?? range(p[3], 0, 1, 'kind') },
   { prefix: [0x05, 0x02], write: true, check: (p) => range(p[2], 0, 1, 'area') ?? range(p[3], 0, 1, 'kind') },
   { prefix: [0x05, 0x03], write: false, check: (p) => range(p[2], 0, 1, 'area') ?? range(p[3], 0, 8, 'LED page') },
   { prefix: [0x05, 0x04], write: true, check: (p) => range(p[2], 0, 1, 'area') ?? range(p[3], 0, 8, 'LED page') },
   // 06 advanced
-  { prefix: [0x06, 0x01], write: false, check: (p) => keyPos(p, 2) },
+  { prefix: [0x06, 0x01], write: false, check: (p, minRow) => keyPos(p, 2, minRow) },
   {
     prefix: [0x06, 0x02], write: true,
-    check: (p) => keyPos(p, 2) ?? oneOf(p[4], [0, 1, 2, 6, 7], 'advanced type')
-      ?? (p[4] === 6 || p[4] === 7 ? keyPos(p, 5) : null) ?? advancedKeycodes(p),
+    check: (p, minRow) => keyPos(p, 2, minRow) ?? oneOf(p[4], [0, 1, 2, 6, 7], 'advanced type')
+      ?? (p[4] === 6 || p[4] === 7 ? keyPos(p, 5, minRow) : null) ?? advancedKeycodes(p),
   },
   // 07 macro
   { prefix: [0x07, 0x01], write: false, check: (p) => range(p[2], 0, 15, 'macro id') },
@@ -193,13 +193,20 @@ function ruleFor(p: readonly number[]): Rule | undefined {
   return RULES.find((r) => r.prefix.every((b, i) => p[i] === b));
 }
 
+export interface CheckFrameOptions {
+  readOnly?: boolean;
+  /** Default (omitted or `'ae64'`) accepts AE64 rows 1–5 only; `'generic'` accepts rows 0–5 (DESIGN MKB §6.1). */
+  rows?: 'ae64' | 'generic';
+}
+
 /** Throws UnsafeCommandError unless the payload is an allowed command with valid arguments. */
-export function checkFrame(payload: readonly number[], opts: { readOnly?: boolean } = {}): void {
+export function checkFrame(payload: readonly number[], opts: CheckFrameOptions = {}): void {
   if (payload[0] === 0x08) throw new UnsafeCommandError(payload, 'firmware family 08 is never sent');
   const rule = ruleFor(payload);
   if (!rule) throw new UnsafeCommandError(payload, 'command is not on the allow-list');
   if (opts.readOnly && rule.write) throw new UnsafeCommandError(payload, 'write command on a read-only path');
-  const why = rule.check?.(payload);
+  const minRow = opts.rows === 'generic' ? 0 : 1;
+  const why = rule.check?.(payload, minRow);
   if (why) throw new UnsafeCommandError(payload, why);
 }
 

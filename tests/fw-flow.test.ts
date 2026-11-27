@@ -653,7 +653,7 @@ describe('FW-TEST-1. real WebHID: HidTransport and HidFwPort on a fake navigator
 
   it('1. list() opens each device of FW_PROBE_FILTER once; another vendor and another collection are never opened; nothing is sent', async () => {
     const s = await hidKeyboard();
-    expect(s.hid.requests[0].filters).toEqual([...HID_FILTERS, FW_PROBE_FILTER]); // Connect: the bootloader's filter too
+    expect(s.hid.requests[0].filters).toEqual([...HID_FILTERS, FW_PROBE_FILTER, { vendorId: 0x38a6, usagePage: 0xffb0, usage: 0x01 }, { vendorId: 0x36b5, usagePage: 0xffb0, usage: 0x01 }]); // Connect: the bootloader's filter too, then the platform VIDs (MKB §4)
     expect(s.appDev.opens).toBe(1);
     const otherVendor = s.hid.addStray({ vendorId: 0x046d, productId: 0xc52b }); // its collection is FFB0:0001 too
     const ff80 = s.hid.addStray({ productId: 0x300a, collections: [{ usagePage: 0xff80, usage: 1 }] });
@@ -831,7 +831,7 @@ describe('FW-TEST-1. real WebHID: HidTransport and HidFwPort on a fake navigator
     const c = await bare(true);
     c.hid.next = (all) => all.filter((d) => d.label === 'boot');
     await c.device.connect();
-    expect(c.hid.requests[0].filters).toEqual([...HID_FILTERS, FW_PROBE_FILTER]);
+    expect(c.hid.requests[0].filters).toEqual([...HID_FILTERS, FW_PROBE_FILTER, { vendorId: 0x38a6, usagePage: 0xffb0, usage: 0x01 }, { vendorId: 0x36b5, usagePage: 0xffb0, usage: 0x01 }]);
     const boot = c.hid.find('boot')!;
     expect(sends(boot)).toEqual(['1 2']);
     expect(c.fw.rescue).toBe(true);

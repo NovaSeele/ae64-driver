@@ -5,7 +5,7 @@
 // Requests go through the same codecs as WebHID; this class only answers 64-byte frames.
 // Writes persist in memory for the session; commits are acknowledged and otherwise no-ops.
 
-import type { Bytes, Performance, PhysicalKey } from './types';
+import type { Bytes, Performance, PhysicalKey, TransportIdentity } from './types';
 import { BaseTransport, TransportTimeoutError } from './client';
 import { MockGamepadFirmware } from './mockGamepad';
 import { MockFwBus } from './mockFirmware';
@@ -13,7 +13,10 @@ import { GP_CONTROLS, GP_FAMILY, GP_KEY_COUNT, decodeConfig, defaultBinding, emp
 import type { GamepadConfig, StandardGamepadState } from './gamepad';
 import { encodeLayoutStyleEntry, encodePerformance, le16, mmToUm, read16 } from './codec';
 import { frame, rgb } from '../data/ledPatterns';
-import { LED_MATRIX_COLS, PRODUCT_ID_MAX, PRODUCT_ID_PRO, LED_RECORDS_PER_PACKET, LED_STRIP_COUNT, MACRO_ACTIONS_PER_PAGE, RATIO_UNITS } from './constants';
+import {
+  CONFIG_USAGE, CONFIG_USAGE_PAGE, LED_MATRIX_COLS, PRODUCT_ID_MAX, PRODUCT_ID_PRO, LED_RECORDS_PER_PACKET,
+  LED_STRIP_COUNT, MACRO_ACTIONS_PER_PAGE, RATIO_UNITS, REPORT_LENGTH, VENDOR_ID,
+} from './constants';
 import { PHYSICAL_KEYS } from './layout';
 import { FW_AXIS } from './switches';
 
@@ -156,6 +159,7 @@ export class MockTransport extends BaseTransport {
   readonly kind = 'mock' as const;
   readonly productName: string;
   readonly productId: number;
+  private readonly _identity: TransportIdentity;
   private readonly snapshot: Record<string, number[]>;
   private open = true;
   private readonly latencyMs: number;
@@ -201,6 +205,12 @@ export class MockTransport extends BaseTransport {
     const pro = opts.seed === 'pro' || opts.seed === 'pro-xinput';
     this.productName = pro ? 'AE64 Pro (demo)' : 'AE64-MAX (demo)';
     this.productId = pro ? PRODUCT_ID_PRO : PRODUCT_ID_MAX;
+    this._identity = {
+      vendorId: VENDOR_ID,
+      productId: this.productId,
+      productName: this.productName,
+      collections: [{ usagePage: CONFIG_USAGE_PAGE, usage: CONFIG_USAGE, inputReports: [REPORT_LENGTH], outputReports: [REPORT_LENGTH] }],
+    };
     this.snapshot = pro ? { ...SNAPSHOT, ...PRO_SNAPSHOT } : SNAPSHOT;
     if (opts.serial || opts.firmware) {
       const info = this.snapshot['01:02'].slice();
@@ -285,6 +295,10 @@ export class MockTransport extends BaseTransport {
       id: cfg.transport === 'xinput' ? 'AE64 Pro XInput (demo)' : 'AE64 Pro HID gamepad (demo)',
       index: 0, connected: true, mapping: 'standard', timestamp: performance.now(), ...toStandardGamepad(out),
     };
+  }
+
+  override get identity(): TransportIdentity {
+    return this._identity;
   }
 
   get connected(): boolean {
@@ -412,7 +426,8 @@ export class MockTransport extends BaseTransport {
     });
   }
 
-  private handle(req: number[]): Uint8Array {
+  /** Byte-level command emulator shared with mockGeneric.ts. */
+  handle(req: number[]): Uint8Array {
     const out = new Uint8Array(64);
     const set = (bytes: number[]) => { out.set(bytes.slice(0, 64)); return out; };
     const [f, op, a = 0, b = 0, c2 = 0] = req;

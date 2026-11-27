@@ -9,15 +9,26 @@ import { KEYCODE_GROUPS, keycodeLabel } from './keycodes';
 export * from './types';
 export * from './constants';
 export { PHYSICAL_KEYS, SENSOR_COLUMNS, layoutBounds, keysFromLayoutStyles } from './layout';
-export { connectHid, reconnectGrantedHid, rememberDevice, isAe64, webHidAvailable, HidTransport, NoDeviceSelectedError } from './hid';
+export { buildGenericLayout } from './genericLayout';
+export type { GenericLayoutResult } from './genericLayout';
+export { classify, hasConfigCollection, hasReceiverCollection } from './classify';
+export type { ClassifyResult, HidDeviceLike, RefusalReason } from './classify';
+export { PUBLIC_BOARD_NAMES, genericDisplayName } from './genericName';
+export {
+  connectHid, reconnectGrantedHid, rememberDevice, isAe64, matchesPlatform, identityFromHid,
+  webHidAvailable, HidTransport, NoDeviceSelectedError,
+} from './hid';
 export { STRIP_SIDES, STRIP_ORDER } from './ledLayout';
 export { createMockTransport, MockTransport } from './mock';
+export { GENERIC_MOCK_NAMES, GenericMockTransport, createGenericMock, devMockNameFromSearch, isGenericMockName } from './mockGeneric';
+export type { GenericMockName, GenericMockOptions } from './mockGeneric';
 export { modelOf, modelName } from './model';
 export type { Ae64Model } from './model';
 export { KEYCODE_GROUPS, keycodeLabel, COMBO_MODIFIERS, comboKeycode, decodeCombo, isComboTrigger } from './keycodes';
 export type { KeycodeEntry, KeycodeGroup } from './keycodes';
-export { BaseTransport, TransportTimeoutError, WriteNotAllowedError } from './client';
+export { BaseTransport, TransportTimeoutError, WriteNotAllowedError, ledCount } from './client';
 export { UnsafeCommandError, BLOCKED_KEYCODES } from './safety';
+export type { CheckFrameOptions } from './safety';
 export { mmToUm, umToMm, isRtMode, supportsIntervalRt } from './codec';
 
 // Compile-time check that this module satisfies the pinned ProtocolModule contract.

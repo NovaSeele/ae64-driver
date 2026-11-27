@@ -10,12 +10,30 @@ export interface KeyPos { row: number; col: number } // firmware row 1–5, spar
 export interface PhysicalKey {
   id: number;            // 0..63, stable order: row-major as in foundation.js layout
   uiRow: number;         // 0..4
-  row: number;           // firmware row 1..5
+  row: number;           // firmware row 1..5 (0..5 on generic)
   col: number;           // firmware (sensor) column
   x: number; y: number;  // position in key units (from 03 05 or fallback table)
-  w: number;             // width in units (1, 1.25, 1.5, 1.75, 2, 2.25, 6.25)
+  w: number;             // width in units (1, 1.25, 1.5, 1.75, 2, 2.25, 6.25; or gap/1u on generic)
   name: string;          // physical fallback legend ("Esc", "Q", "Space"...)
+  /** Generic layout (DESIGN MKB §8.3): raw `03 05` ratio code when it is not in RATIO_UNITS. */
+  unknownRatio?: number;
 }
+
+export interface TransportCollection {
+  usagePage: number;
+  usage: number;
+  inputReports: number[];
+  outputReports: number[];
+}
+
+export interface TransportIdentity {
+  vendorId: number;
+  productId: number;
+  productName: string;
+  collections: TransportCollection[];
+}
+
+export type SupportLevel = 'ae64' | 'ae64-unlisted' | 'generic' | 'rescue';
 
 export interface DeviceInfo {
   type: number; subType: number; boardId: number; boardIdHex: string;
@@ -56,7 +74,14 @@ export interface LightingBase {
 export interface Rgb { r: number; g: number; b: number }
 export interface PaletteEntry extends Rgb { hue: number }
 export interface LedRecord extends Rgb { custom: boolean }
-export interface LightingAreas { count: number; areas: { modes: number; leds?: number }[]; raw: number[] }
+export interface LightingAreaShape { id: number; rows: number; cols: number }
+export interface LightingAreas {
+  count: number;
+  areas: { modes: number; leds?: number }[];
+  shapes: LightingAreaShape[];
+  truncated: boolean;
+  raw: number[];
+}
 
 export type AdvancedRecord =
   | { mode: 0; row: number; col: number; type: 'NONE' }
@@ -82,11 +107,17 @@ export interface PacketLogEntry { t: number; dir: 'out' | 'in'; bytes: number[];
 /** Implemented by HidTransport (WebHID) and MockTransport (demo). Requests are serialised. */
 export interface Ae64Transport {
   readonly kind: 'hid' | 'mock';
+  readonly identity: TransportIdentity;
+  readonly support: SupportLevel | undefined;
   readonly connected: boolean;
   readonly productName: string;
   /** USB product ID (0x300d Max, 0x300a Pro); undefined if the transport cannot tell. */
   readonly productId?: number;
   readonly stats: TransportStats;
+  /** Non-AE64 identity only, once per connection after G4 (DESIGN MKB §3.3). Throws on an AE64 identity or a second call. */
+  setSupport(support: 'generic'): void;
+  /** Per-connection LED count for `area`: 126 / 38 on AE64 kinds; rows×21 / strip cols from `02 08 00` on generic (DESIGN MKB §10.2). */
+  ledCount(area: number): number;
   onDisconnect(cb: () => void): () => void;
   onPacket(cb: (e: PacketLogEntry) => void): () => void;   // diagnostics log
   /** Allocation-free variant of onPacket: `bytes` is the transport's own buffer, valid only during the call (copy to keep). */
