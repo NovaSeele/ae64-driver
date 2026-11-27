@@ -26,18 +26,19 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 function supportText(): string {
   const v = device.version;
   const read = settings.loaded && !settings.loadError;
+  const isGeneric = device.support === 'generic';
   return buildSupportInfo({
     version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0',
     keyboard: device.connected
       ? {
-          model: device.modelName,
+          model: isGeneric ? device.displayName : device.modelName,
           demo: device.demo,
           boardIdHex: device.info?.boardIdHex,
           firmware: device.info?.firmware,
           protocol: v ? `${v.main}.${v.sub}.${v.hardware}.${v.software}` : null,
-          rtPrecision: device.rtPrecision,
-          pollingHz: read ? POLLING_RATE_HZ[settings.pollingRate] ?? null : null,
-          macro: read ? settings.macroSpace : null,
+          rtPrecision: isGeneric && device.unknown.rtPrecision ? null : device.rtPrecision,
+          pollingHz: read && (!isGeneric || settings.answered.pollingRate) ? POLLING_RATE_HZ[settings.pollingRate] ?? null : null,
+          macro: read && (!isGeneric || settings.answered.macroSpace) ? settings.macroSpace : null,
         }
       : null,
     browser: browserLabel(typeof navigator === 'undefined' ? undefined : (navigator as never)),

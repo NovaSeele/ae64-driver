@@ -15,7 +15,7 @@ import { useDeviceStore } from '../stores/device';
 import { useSelectionStore } from '../stores/selection';
 import { BULK_CONFIRM_KEYS, LAYER_NAMES, isFnSwitch, needsAssignConfirm, useKeymapStore } from '../stores/keymap';
 import type { DefaultDiff, FactoryKey, KeycodePlan, LayerIndex } from '../stores/keymap';
-import { FIRMWARE_ROWS, LAYER_COUNT, keycodeLabel } from '../protocol';
+import { LAYER_COUNT, keycodeLabel } from '../protocol';
 import { t } from '../i18n/vi';
 
 const device = useDeviceStore();
@@ -39,6 +39,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => offProfile?.());
 
+const isGeneric = computed(() => device.support === 'generic');
 const readOnly = computed(() => !device.boardAllowed);
 const ready = computed(() => !keymap.loading && !keymap.loadError && keymap.loadedProfile === device.activeProfile);
 
@@ -55,7 +56,7 @@ function legendFor(layer: LayerIndex): LegendItem[] | undefined {
 const shows = computed(() => legendFor(keymap.activeLayer));
 /** The other layers' legends: switching the layer keeps the bar's row count. */
 const showsAlt = computed(() => ([0, 1, 2, 3] as LayerIndex[]).filter((l) => l !== keymap.activeLayer).map(legendFor).filter((l): l is LegendItem[] => !!l));
-const totalRows = LAYER_COUNT * FIRMWARE_ROWS.length;
+const totalRows = computed(() => LAYER_COUNT * device.rows.length);
 
 const layerOptions = computed(() =>
   LAYER_NAMES.map((name, i) => ({
@@ -223,7 +224,7 @@ function doRestoreDefault() {
     </template>
 
     <div class="km-content">
-      <p v-if="readOnly" class="km-warn">{{ t('keymap.readOnly') }}</p>
+      <p v-if="readOnly && !isGeneric" class="km-warn">{{ t('keymap.readOnly') }}</p>
 
       <Card v-if="keymap.loadError" :title="t('keymap.loadFailed')" :subtitle="keymap.loadError">
         <div><Button :icon="IconRefresh" :loading="keymap.loading" @click="keymap.load(true)">{{ t('keymap.reload') }}</Button></div>

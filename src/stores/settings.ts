@@ -61,12 +61,32 @@ export const useSettingsStore = defineStore('settings', () => {
   /** True once the values above were read from the connected keyboard (not the built-in defaults). */
   const loaded = ref(false);
   const loadError = ref<string | null>(null);
+  /** Per-setting answer flags for generic boards (DESIGN MKB §9.2: answered values shown read-only, unanswered hidden). */
+  const answered = ref({
+    systemMode: false,
+    pollingRate: false,
+    rgbSleep: false,
+    shakeOptimization: false,
+    macroSpace: false,
+    lightingAreas: false,
+  });
   let loadPromise: Promise<void> | null = null;
   /** Last value of each undoable setting read from the keyboard (load or verify): what a dropped write puts back. */
   const boardValue = new Map<string, unknown>();
 
+  const resetAnswered = (val: boolean) => {
+    answered.value = {
+      systemMode: val,
+      pollingRate: val,
+      rgbSleep: val,
+      shakeOptimization: val,
+      macroSpace: val,
+      lightingAreas: val,
+    };
+  };
+
   // New connection: the defaults above are not this keyboard's values until load() has run.
-  watch(() => device.transport, () => { loaded.value = false; loadError.value = null; boardValue.clear(); });
+  watch(() => device.transport, () => { loaded.value = false; loadError.value = null; resetAnswered(false); boardValue.clear(); });
   // A failed polling change is only worth showing until the keyboard is connected again.
   watch(() => device.connected, (c) => {
     if (c && pollingState.value === 'error') { pollingState.value = 'idle'; pollingError.value = null; }
@@ -78,7 +98,65 @@ export const useSettingsStore = defineStore('settings', () => {
       loading.value = true;
       loaded.value = false;
       loadError.value = null;
+      resetAnswered(false);
       try {
+        if (device.support === 'generic') {
+          await device.withTransport(async (t) => {
+            const next = {
+              systemMode: false,
+              pollingRate: false,
+              rgbSleep: false,
+              shakeOptimization: false,
+              macroSpace: false,
+              lightingAreas: false,
+            };
+            if (!device.connected) return;
+            try {
+              systemMode.value = await t.getSystemMode();
+              next.systemMode = true;
+            } catch { /* hidden when unanswered */ }
+            if (!device.connected) return;
+            let gotRates = false;
+            try {
+              const rates = await t.getPollingRates();
+              if (rates.length) {
+                supportedRates.value = rates;
+                gotRates = true;
+              }
+            } catch { /* fall back to answered polling rate alone */ }
+            if (!device.connected) return;
+            try {
+              pollingRate.value = await t.getPollingRate();
+              next.pollingRate = true;
+              if (!gotRates) supportedRates.value = [pollingRate.value];
+              else if (!supportedRates.value.includes(pollingRate.value)) supportedRates.value = [...supportedRates.value, pollingRate.value];
+            } catch { /* hidden when unanswered */ }
+            if (!device.connected) return;
+            try {
+              rgbSleep.value = await t.getRgbSleep();
+              next.rgbSleep = true;
+            } catch { /* hidden when unanswered */ }
+            if (!device.connected) return;
+            try {
+              shakeOptimization.value = await t.getShakeOptimization();
+              next.shakeOptimization = true;
+            } catch { /* hidden when unanswered */ }
+            if (!device.connected) return;
+            try {
+              macroSpace.value = await t.getMacroSpace();
+              next.macroSpace = true;
+            } catch { /* hidden when unanswered */ }
+            if (!device.connected) return;
+            try {
+              lightingAreas.value = await t.getLightingAreas();
+              next.lightingAreas = true;
+            } catch { /* hidden when unanswered */ }
+            answered.value = next;
+          });
+          if (device.connected) loaded.value = true;
+          return;
+        }
+
         await device.withTransport(async (t) => {
           systemMode.value = await t.getSystemMode();
           try {
@@ -96,6 +174,7 @@ export const useSettingsStore = defineStore('settings', () => {
         boardValue.set('systemMode', systemMode.value);
         boardValue.set('rgbSleep', rgbSleep.value);
         boardValue.set('shakeOptimization', shakeOptimization.value);
+        resetAnswered(true);
         loaded.value = true;
       } catch (err) {
         loadError.value = err instanceof Error ? err.message : String(err);
@@ -197,7 +276,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   return {
     systemMode, pollingRate, supportedRates, rgbSleep, shakeOptimization, macroSpace, lightingAreas,
-    pollingState, pollingError, pollingTarget,
+    pollingState, pollingError, pollingTarget, answered,
     loading, loaded, loadError, load, setSystemMode, setPollingRate, setRgbSleep, setShakeOptimization,
   };
 });

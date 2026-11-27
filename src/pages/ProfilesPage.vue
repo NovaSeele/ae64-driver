@@ -6,6 +6,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { IconLock } from '@tabler/icons-vue';
 import PageLayout from '../components/shell/PageLayout.vue';
+import Card from '../components/ui/Card.vue';
 import ProfileCard from '../components/profiles/ProfileCard.vue';
 import ProfileCompare from '../components/profiles/ProfileCompare.vue';
 import type { CompareProfile } from '../components/profiles/ProfileCompare.vue';
@@ -20,6 +21,8 @@ const device = useDeviceStore();
 const perf = usePerformanceStore();
 const calibration = useCalibrationStore();
 const toast = useToast();
+const isGeneric = computed(() => device.support === 'generic');
+const profilesUnknown = computed(() => isGeneric.value && device.unknown.profiles);
 
 // ----- data (§3.2): the active profile is read once (cached); a switch from anywhere reads the new one
 let offProfile: (() => void) | undefined;
@@ -55,11 +58,11 @@ const profiles = computed<CompareProfile[]>(() => names.value.map((name, i) => (
 const calibrating = computed(() => calibration.phase !== 'idle' || device.calibrationLocked());
 const switching = ref<number | null>(null);
 /** No switch (≈ 70 commands) queued behind a 64-key read, nothing during calibration or another switch. */
-const busy = computed(() => calibrating.value || switching.value !== null || perf.loading);
+const busy = computed(() => calibrating.value || switching.value !== null || perf.loading || isGeneric.value);
 const editing = ref<number | null>(null);
 
 async function use(i: number) {
-  if (busy.value || i === device.activeProfile) return;
+  if (isGeneric.value || busy.value || i === device.activeProfile) return;
   switching.value = i;
   try {
     await device.switchProfile(i);
@@ -88,7 +91,10 @@ async function use(i: number) {
           <IconLock :size="15" stroke-width="1.75" aria-hidden="true" />
           <span>{{ t('pf.locked') }}</span>
         </p>
-        <ul class="pfs__grid">
+        <Card v-if="profilesUnknown" data-testid="profiles-unknown">
+          <p class="pfs__unknown">{{ t('ov.statProfile') }}: {{ t('mkb.common.unknown') }}</p>
+        </Card>
+        <ul v-else class="pfs__grid">
           <li v-for="p in profiles" :key="p.index">
             <ProfileCard
               :index="p.index"
@@ -111,7 +117,7 @@ async function use(i: number) {
         </ul>
       </section>
 
-      <section class="cmp" aria-labelledby="cmp-title">
+      <section v-if="!profilesUnknown" class="cmp" aria-labelledby="cmp-title">
         <div class="pf__head">
           <h2 id="cmp-title" class="pf__title">{{ t('cmp.title') }}</h2>
           <p class="pf__sub">{{ t('cmp.sub') }}</p>
@@ -138,6 +144,7 @@ async function use(i: number) {
 .pfs__lock { display: flex; align-items: flex-start; gap: 6px; margin: 0; padding: var(--s-2) var(--s-3); border-radius: var(--r-control); background: var(--warn-soft); color: var(--warn); font-size: var(--fs-label); line-height: 18px; }
 .pfs__lock svg { flex: none; margin-top: 1px; }
 .pfs__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-3); margin: 0; padding: 0; list-style: none; }
+.pfs__unknown { margin: 0; font-size: var(--fs-body); color: var(--fg-2); }
 .pfs__grid > li { display: flex; min-width: 0; }
 @container (max-width: 759.98px) { .pfs__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 

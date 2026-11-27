@@ -4,6 +4,7 @@ import { installDropGuard } from './composables/dropGuard';
 import { IconLoader2 } from '@tabler/icons-vue';
 import Sidebar from './components/shell/Sidebar.vue';
 import TopBar from './components/shell/TopBar.vue';
+import ViewModeBanner from './components/shell/ViewModeBanner.vue';
 import ConnectScreen from './components/shell/ConnectScreen.vue';
 import Wallpaper from './components/shell/Wallpaper.vue';
 import { startWallpaper } from './data/wallpaperState';
@@ -37,6 +38,14 @@ const update = useUpdateStore();
 watch(() => firmware.rescue, (on) => {
   if (on) void router.push({ path: '/firmware', query: { rescue: '1' } });
 });
+// A generic board connected while on an AE64-only page leaves it at once (DESIGN MKB §9.2).
+watch(() => device.support, (s) => {
+  if (s !== 'generic') return;
+  if (route.path === '/gamepad') void router.replace('/overview');
+  else if (route.path === '/performance' && route.query.tab === 'calibration') {
+    void router.replace({ path: '/performance', query: { ...route.query, tab: 'travel' } });
+  }
+}, { immediate: true });
 // Storage may throw (blocked site data, some private windows): the sidebar then opens expanded and is not remembered (W-14).
 function readCollapsed(): boolean {
   try {
@@ -110,7 +119,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="shell" :class="{ 'shell--collapsed': collapsed }">
+  <div class="shell" :class="{ 'shell--collapsed': collapsed, 'shell--generic': device.support === 'generic' }">
     <Sidebar v-model:compact="collapsed" />
     <main class="main">
       <Wallpaper />
@@ -120,16 +129,15 @@ onBeforeUnmount(() => {
           {{ t('update.reloadNow') }}
         </Button>
       </div>
-      <template v-if="device.connected || keepPage">
-        <TopBar />
-        <div ref="scroller" class="main__scroll" :style="{ paddingBottom: `${safePad}px`, scrollPaddingBottom: `${toastSafeTarget}px` }">
-          <RouterView v-slot="{ Component, route }">
-            <Transition name="page" mode="out-in" @before-enter="pageToTop">
-              <component :is="Component" :key="route.path" />
-            </Transition>
-          </RouterView>
-        </div>
-      </template>
+      <TopBar v-if="device.connected || keepPage" />
+      <ViewModeBanner />
+      <div v-if="device.connected || keepPage" ref="scroller" class="main__scroll" :style="{ paddingBottom: `${safePad}px`, scrollPaddingBottom: `${toastSafeTarget}px` }">
+        <RouterView v-slot="{ Component, route }">
+          <Transition name="page" mode="out-in" @before-enter="pageToTop">
+            <component :is="Component" :key="route.path" />
+          </Transition>
+        </RouterView>
+      </div>
       <ConnectScreen v-else />
       <div v-if="usbRestarting" class="main__wait" role="status" aria-live="polite">
         <IconLoader2 class="main__spin" :size="22" stroke-width="1.5" aria-hidden="true" />
@@ -147,6 +155,10 @@ onBeforeUnmount(() => {
   min-width: 1044px;
 }
 .shell--collapsed { min-width: 900px; }
+/* Generic boards must fit 75%/80% grids at 360 and 768 px without horizontal page scroll (DESIGN MKB §8.8). */
+@media (max-width: 899px) {
+  .shell--generic { min-width: 0; }
+}
 .main {
   position: relative;
   flex: 1;

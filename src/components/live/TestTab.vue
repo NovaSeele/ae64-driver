@@ -45,6 +45,7 @@ const perf = usePerformanceStore();
 const live = useLiveStore();
 const route = useRoute();
 const router = useRouter();
+const isGeneric = computed(() => device.support === 'generic');
 defineOptions({ name: 'TestTab' });
 
 // ----- focus: selection on the keyboard = pinned key, empty selection = auto-follow
@@ -97,7 +98,7 @@ function setFollow(v: 'auto' | 'pin' | null) {
   else if (live.focusId !== null) sel.select(live.focusId);
 }
 
-const focusKey = computed<PhysicalKey | null>(() => (live.focusId === null ? null : device.keys[live.focusId]));
+const focusKey = computed<PhysicalKey | null>(() => (live.focusId === null ? null : device.keys[live.focusId] ?? null));
 const focusPerf = computed(() => (live.focusId === null ? undefined : perf.values[live.focusId]));
 const settings = computed(() => (focusPerf.value ? settingsFrom(focusPerf.value) : null));
 const range = computed(() => (focusPerf.value ? rangeMm(focusPerf.value) : DEFAULT_RANGE_MM));
@@ -185,10 +186,10 @@ function heatSub(k: PhysicalKey) {
 /** In auto-follow there is no selection ring, so the followed key gets an accent bar. */
 const heatColor = (k: PhysicalKey) => (live.follow && k.id === live.focusId ? 'var(--acc)' : undefined);
 
-// ----- demo: PC keyboard drives the emulator
+// ----- demo: PC keyboard drives the emulator (AE64 only, DESIGN MKB §8.8)
 const demoKeys = ref(true);
 let detachDemo: (() => void) | null = null;
-watch(() => device.demo && demoKeys.value && device.transport?.kind === 'mock', (on) => {
+watch(() => device.demo && !isGeneric.value && demoKeys.value && device.transport?.kind === 'mock', (on) => {
   detachDemo?.();
   detachDemo = on ? attachDemoPress(device.transport as MockTransport) : null;
 }, { immediate: true });
@@ -349,7 +350,7 @@ function refreshCheck(now = false) {
 
 /** Put the next batched sentence in the live region (emptied first, so the same sentence twice is read twice). */
 function announce() {
-  const base = announcer.tick(live.data, checkView.value, live.drainReleased(), (id) => device.legend(device.keys[id]), performance.now(), t);
+  const base = announcer.tick(live.data, checkView.value, live.drainReleased(), (id) => (device.keys[id] ? device.legend(device.keys[id]) : String(id)), performance.now(), t);
   const watchLines = drainWatchAnnouncements();
   const s = [base, ...watchLines].filter(Boolean).join('\n');
   if (!s) return;
@@ -511,7 +512,7 @@ onMounted(() => {
   const q = Number(route.query.key);
   if (route.query.key !== undefined && Number.isInteger(q) && device.keys[q]) sel.select(q);
   syncFocusFromSelection();
-  if (live.focusId === null) live.setFocus(device.keys.find((k) => k.name === 'W')?.id ?? 0);
+  if (live.focusId === null) live.setFocus(device.keys.find((k) => k.name === 'W')?.id ?? device.keys[0]?.id ?? null);
   live.clear();
   live.resetPeaks(); // the check lives as long as the page: coming back starts it over
   if (route.query.check === '1') live.allKeys = true; // §7.9: keep "Đo mọi phím" on so every watched key is read even while pinned
@@ -628,7 +629,7 @@ function onTypeKey(e: KeyboardEvent) {
             @update:model-value="setFollow"
           />
           <Switch v-if="!live.follow" v-model="live.allKeys" class="toggle" :label="t('live.allKeys')" :title="t('live.allKeysHint')" />
-          <Switch v-if="device.demo" v-model="demoKeys" class="toggle" :label="t('live.demoKeys')" :title="t('live.demoKeysHint')" />
+          <Switch v-if="device.demo && !isGeneric" v-model="demoKeys" class="toggle" :label="t('live.demoKeys')" :title="t('live.demoKeysHint')" />
         </div>
       </Teleport>
       </template>
@@ -636,7 +637,7 @@ function onTypeKey(e: KeyboardEvent) {
 
     <p v-if="!view.touched" class="start" aria-live="polite">
       <span class="start__dot" />
-      {{ device.demo && demoKeys ? t('live.startHintDemo') : t('live.startHint') }}
+      {{ device.demo && !isGeneric && demoKeys ? t('live.startHintDemo') : t('live.startHint') }}
     </p>
     <p v-if="live.paused" class="status num">{{ t('live.paused') }}</p>
     <p v-else-if="!live.running" class="status">

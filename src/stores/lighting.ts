@@ -6,7 +6,7 @@ import {
   LED_MATRIX_COLS, LED_MATRIX_ROWS, LED_RECORDS_PER_PACKET, LED_STRIP_COUNT, PALETTE_SIZE, SAVE_GROUP,
 } from '../protocol';
 import type {
-  Ae64Transport, LedRecord, LightingBase, PaletteEntry, PhysicalKey,
+  Ae64Transport, LedRecord, LightingAreaShape, LightingAreas, LightingBase, PaletteEntry, PhysicalKey,
 } from '../protocol';
 import { t as tr } from '../i18n/vi';
 import { useDeviceStore } from './device';
@@ -46,11 +46,11 @@ export function hexToRgb(hex: string): RgbColor {
 }
 
 /**
- * Returns matrix cell indices for key. Space maps to 5 cells: [-2, -1, 0, 1, 2] around row 5, col 6.
- * Normal keys map to row * 21 + col.
+ * Returns matrix cell indices for key. On AE64, Space maps to 5 cells: [-2, -1, 0, 1, 2] around row 5, col 6.
+ * On generic boards (DESIGN MKB §8.8, §10.3; mutant K3) and normal keys, each key maps to its single cell row * 21 + col.
  */
-export function keyMatrixIndices(key: PhysicalKey): number[] {
-  if (key.name === 'Space') {
+export function keyMatrixIndices(key: PhysicalKey, generic = false): number[] {
+  if (!generic && key.name === 'Space') {
     return [-2, -1, 0, 1, 2]
       .map((off) => key.row * LED_MATRIX_COLS + (key.col + off))
       .filter((idx) => idx >= 0 && idx < LED_MATRIX_TOTAL);
@@ -87,6 +87,24 @@ export const useLightingStore = defineStore('lighting', () => {
   const area1Matrix = shallowRef<LedRecord[]>([]);
   const area1ModeCount = ref(5);
 
+  // Generic area metadata from `02 08 00` (DESIGN MKB §10.1–§10.3).
+  const areasInfo = shallowRef<LightingAreas | null>(null);
+  const area0Available = ref(true);
+  const area0Unsupported = ref(false);
+  const area1Available = ref(true);
+  const area1Unsupported = ref(false);
+
+  const area0Shape = computed<LightingAreaShape | null>(() => areasInfo.value?.shapes.find((s) => s.id === 0) ?? null);
+  const area1Shape = computed<LightingAreaShape | null>(() => areasInfo.value?.shapes.find((s) => s.id === 1) ?? null);
+  const extraAreas = computed<{ id: number; modes: number; rows: number; cols: number }[]>(() => {
+    const info = areasInfo.value;
+    if (!info) return [];
+    return info.shapes
+      .map((s, i) => ({ ...s, modes: info.areas[i]?.modes ?? 0 }))
+      .filter((s) => s.id >= 2);
+  });
+  const areasTruncated = computed(() => Boolean(areasInfo.value?.truncated));
+
   // Fresh hardware snapshots for verification & safety
   const freshBase = new Map<number, LightingBase>();
   const freshPalette = new Map<number, PaletteEntry[]>();
@@ -98,6 +116,11 @@ export const useLightingStore = defineStore('lighting', () => {
     area1ModeCount.value = 5;
     area0Matrix.value = [];
     area1Matrix.value = [];
+    areasInfo.value = null;
+    area0Available.value = true;
+    area0Unsupported.value = false;
+    area1Available.value = true;
+    area1Unsupported.value = false;
     freshBase.clear();
     freshPalette.clear();
     freshMatrix.clear();
@@ -125,9 +148,10 @@ export const useLightingStore = defineStore('lighting', () => {
   const keyCustomColors = computed<Record<number, { custom: boolean; colorHex: string }>>(() => {
     const res: Record<number, { custom: boolean; colorHex: string }> = {};
     const matrix = area0Matrix.value;
+    const isGeneric = device.support === 'generic';
     for (const key of device.keys) {
-      const indices = keyMatrixIndices(key);
-      if (key.name === 'Space') {
+      const indices = keyMatrixIndices(key, isGeneric);
+      if (!isGeneric && key.name === 'Space') {
         const records = indices.map((i) => matrix[i]).filter(Boolean);
         const custom = records.some((r) => r?.custom);
         const center = records[2] ?? records[0];
@@ -146,10 +170,13 @@ export const useLightingStore = defineStore('lighting', () => {
     return res;
   });
 
-  // Strip custom color statuses (38 LEDs)
+  // Strip custom color statuses (AE64: 38 LEDs; generic: per-connection count from `02 08 00`, 0 is valid)
   const stripCustomColors = computed<{ custom: boolean; colorHex: string }[]>(() => {
     const matrix = area1Matrix.value;
-    return Array.from({ length: LED_STRIP_COUNT }, (_, i) => {
+    const count = device.support === 'generic'
+      ? (device.transport?.ledCount(1) ?? matrix.length)
+      : LED_STRIP_COUNT;
+    return Array.from({ length: Math.max(0, count) }, (_, i) => {
       const rec = matrix[i];
       return {
         custom: Boolean(rec?.custom),
@@ -162,10 +189,14 @@ export const useLightingStore = defineStore('lighting', () => {
     return device.keys[id];
   }
 
+  const isUnsupportedMatrix = (s: LightingAreaShape): boolean =>
+    s.rows !== 1 && (s.rows === 0 || s.rows > LED_MATRIX_ROWS || s.cols > LED_MATRIX_COLS);
+
   // ------------------------------------------------------------------ Load
   function load(force = false): Promise<void> {
     if (loadPromise) return force ? loadPromise.then(() => load(true)) : loadPromise;
-    if (!force && loadedProfile.value === device.activeProfile && area0Matrix.value.length > 0) {
+    const isGeneric = device.support === 'generic';
+    if (!force && loadedProfile.value === device.activeProfile && (isGeneric ? areasInfo.value !== null : area0Matrix.value.length > 0)) {
       return Promise.resolve();
     }
 
@@ -177,10 +208,70 @@ export const useLightingStore = defineStore('lighting', () => {
       const profile = device.activeProfile;
       try {
         await device.withTransport(async (t) => {
+          if (device.support === 'generic') {
+            const areas = await t.getLightingAreas();
+            if (gen !== device.connection || device.activeProfile !== profile) return;
+            areasInfo.value = areas;
+            area0Available.value = false;
+            area0Unsupported.value = false;
+            area1Available.value = false;
+            area1Unsupported.value = false;
+            area0Palette.value = [];
+            area0Matrix.value = [];
+            area1Palette.value = [];
+            area1Matrix.value = [];
+
+            const readArea = async (id: 0 | 1) => {
+              const idx = areas.shapes.findIndex((s) => s.id === id);
+              if (idx < 0 || !device.connected || gen !== device.connection || device.activeProfile !== profile) return;
+              const shape = areas.shapes[idx];
+              const modes = areas.areas[idx]?.modes ?? 0;
+              if (id === 0) area0ModeCount.value = modes;
+              else area1ModeCount.value = modes;
+
+              if (isUnsupportedMatrix(shape)) {
+                if (id === 0) area0Unsupported.value = true;
+                else area1Unsupported.value = true;
+                return;
+              }
+              let baseRec: LightingBase;
+              try {
+                baseRec = await t.getLightingBase(id);
+              } catch {
+                return; // unanswered area (e.g. gmiss area 1) is hidden without failing the page
+              }
+              if (gen !== device.connection || device.activeProfile !== profile || !device.connected) return;
+              const palRec = await t.getPalette(id).catch(() => [] as PaletteEntry[]);
+              if (gen !== device.connection || device.activeProfile !== profile || !device.connected) return;
+              const matRec = await t.readLedMatrix(id).catch(() => [] as LedRecord[]);
+              if (gen !== device.connection || device.activeProfile !== profile) return;
+
+              if (id === 0) {
+                area0Base.value = { ...baseRec };
+                area0Palette.value = palRec.map((e) => ({ ...e }));
+                area0Matrix.value = matRec.map((e) => ({ ...e }));
+                area0Available.value = true;
+              } else {
+                area1Base.value = { ...baseRec };
+                area1Palette.value = palRec.map((e) => ({ ...e }));
+                area1Matrix.value = matRec.map((e) => ({ ...e }));
+                area1Available.value = true;
+              }
+              freshBase.set(id, { ...baseRec });
+              freshPalette.set(id, palRec.map((e) => ({ ...e })));
+              freshMatrix.set(id, matRec.map((e) => ({ ...e })));
+            };
+
+            await readArea(0);
+            await readArea(1);
+            return;
+          }
+
           try {
             const areas = await t.getLightingAreas();
             if (gen !== device.connection) return;
             if (device.activeProfile !== profile) return;
+            areasInfo.value = areas;
             if (areas.areas[0]?.modes) area0ModeCount.value = areas.areas[0].modes;
             if (areas.areas[1]?.modes) area1ModeCount.value = areas.areas[1].modes;
           } catch {
@@ -202,6 +293,8 @@ export const useLightingStore = defineStore('lighting', () => {
           area0Base.value = { ...b0 };
           area0Palette.value = p0.map((e) => ({ ...e }));
           area0Matrix.value = m0.map((e) => ({ ...e }));
+          area0Available.value = true;
+          area0Unsupported.value = false;
           freshBase.set(0, { ...b0 });
           freshPalette.set(0, p0.map((e) => ({ ...e })));
           freshMatrix.set(0, m0.map((e) => ({ ...e })));
@@ -209,6 +302,8 @@ export const useLightingStore = defineStore('lighting', () => {
           area1Base.value = { ...b1 };
           area1Palette.value = p1.map((e) => ({ ...e }));
           area1Matrix.value = m1.map((e) => ({ ...e }));
+          area1Available.value = true;
+          area1Unsupported.value = false;
           freshBase.set(1, { ...b1 });
           freshPalette.set(1, p1.map((e) => ({ ...e })));
           freshMatrix.set(1, m1.map((e) => ({ ...e })));
@@ -406,11 +501,12 @@ export const useLightingStore = defineStore('lighting', () => {
     const before = area0Matrix.value.map((e) => ({ ...e }));
     const after = area0Matrix.value.map((e) => ({ ...e }));
 
+    const isGeneric = device.support === 'generic';
     const targetIndices = new Set<number>();
     for (const id of keyIds) {
       const k = keyById(id);
       if (!k) continue;
-      for (const idx of keyMatrixIndices(k)) targetIndices.add(idx);
+      for (const idx of keyMatrixIndices(k, isGeneric)) targetIndices.add(idx);
     }
 
     const r = Math.max(0, Math.min(255, Math.round(color.r)));
@@ -448,11 +544,12 @@ export const useLightingStore = defineStore('lighting', () => {
     const before = area0Matrix.value.map((e) => ({ ...e }));
     const after = area0Matrix.value.map((e) => ({ ...e }));
 
+    const isGeneric = device.support === 'generic';
     const targetIndices = new Set<number>();
     for (const id of keyIds) {
       const k = keyById(id);
       if (!k) continue;
-      for (const idx of keyMatrixIndices(k)) targetIndices.add(idx);
+      for (const idx of keyMatrixIndices(k, isGeneric)) targetIndices.add(idx);
     }
 
     let changed = false;
@@ -588,7 +685,7 @@ export const useLightingStore = defineStore('lighting', () => {
 
   const tabHidden = () => typeof document !== 'undefined' && document.hidden;
   function canRead(): boolean {
-    return polling.value && !tabHidden() && device.connected && livePreview.value && !device.exclusiveActive &&
+    return polling.value && device.support !== 'generic' && !tabHidden() && device.connected && livePreview.value && !device.exclusiveActive &&
       sync.state !== 'writing' && sync.state !== 'pending';
   }
 
@@ -676,6 +773,7 @@ export const useLightingStore = defineStore('lighting', () => {
   }
 
   function startLivePolling() {
+    if (device.support === 'generic') return; // live preview is AE64 only (DESIGN MKB §10.2)
     if (polling.value) return;
     polling.value = true;
     tickLivePreview();
@@ -710,6 +808,16 @@ export const useLightingStore = defineStore('lighting', () => {
     area1Palette,
     area1Matrix,
     area1ModeCount,
+
+    areasInfo,
+    area0Available,
+    area0Unsupported,
+    area1Available,
+    area1Unsupported,
+    area0Shape,
+    area1Shape,
+    extraAreas,
+    areasTruncated,
 
     keyCustomColors,
     stripCustomColors,

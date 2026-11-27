@@ -6,7 +6,7 @@
 // rarely-changing state (focus, running/paused) is reactive.
 import { defineStore } from 'pinia';
 import { markRaw, ref, watch } from 'vue';
-import { FIRMWARE_ROWS, isRtMode } from '../protocol';
+import { isRtMode } from '../protocol';
 import type { AxisDataType, Performance, PhysicalKey } from '../protocol';
 import { useDeviceStore } from './device';
 import { rangeMm, usePerformanceStore } from './performance';
@@ -370,7 +370,7 @@ export const useLiveStore = defineStore('live', () => {
   let stash: FocusStash | null = null;
   let autoSwitching = false;
   /** Last time (ingest clock) each key was at rest: travel below FOLLOW_MIN and firmware status 0. */
-  const lastRest = new Float64Array(64).fill(-Infinity);
+  let lastRest = new Float64Array(64).fill(-Infinity);
   /** Samples pushed into the focused ring so far, and the state when the focused key's current press began (null at rest). */
   let ringPushes = 0;
   /** Events pushed so far (the array is capped, so its length cannot tell how many a press added). */
@@ -381,6 +381,26 @@ export const useLiveStore = defineStore('live', () => {
   let rateCount = 0;
   let rateFrom = 0;
 
+  // Key check state that is not shown: went deeper than REST_ARM_MM since the key was last near 0, and is above PRESSED_MM.
+  let armed = new Uint8Array(64);
+  let down = new Uint8Array(64);
+
+  /** Resize per-key typed buffers when a keyboard has more than 64 keys (AE64 stays 64). */
+  function resizeBuffers(count: number): void {
+    const cap = Math.max(64, count);
+    if (data.travel.length === cap) return;
+    data.travel = new Float32Array(cap);
+    data.ratio = new Float32Array(cap);
+    data.status = new Uint8Array(cap);
+    data.peakMm = new Float32Array(cap);
+    data.peakRatio = new Float32Array(cap);
+    data.restOffMm = new Float32Array(cap);
+    data.offSince = new Float64Array(cap).fill(-1);
+    lastRest = new Float64Array(cap).fill(-Infinity);
+    armed = new Uint8Array(cap);
+    down = new Uint8Array(cap);
+  }
+
   // row/col → key, rebuilt when the layout changes (ingest runs ~1,700 times a second).
   let keyIndex = new Map<number, PhysicalKey>();
   /**
@@ -389,8 +409,9 @@ export const useLiveStore = defineStore('live', () => {
    */
   let focusMoving = new Set<number>();
   watch(() => device.keys, (keys) => {
+    resizeBuffers(keys.length);
     keyIndex = new Map(keys.map((k) => [k.row * 256 + k.col, k]));
-  }, { immediate: true });
+  }, { immediate: true, flush: 'sync' });
   watch([() => device.keys, () => device.layer0], () => {
     focusMoving = keysForCodes(FOCUS_CODES);
   }, { immediate: true, flush: 'sync' });
@@ -565,10 +586,7 @@ export const useLiveStore = defineStore('live', () => {
     }
   }
 
-  // Key check state that is not shown: went deeper than REST_ARM_MM since the key was last near 0, and is above PRESSED_MM.
-  const armed = new Uint8Array(64);
-  const down = new Uint8Array(64);
-  /** Keys that just came back above PRESSED_MM after a press (the page drains it for its announcements). At most 64. */
+  /** Keys that just came back above PRESSED_MM after a press (the page drains it for its announcements). */
   const releasedIds = new Set<number>();
 
   /** Peak, pressed and "not back to 0" bookkeeping for one route sample of key `id`. */
@@ -714,14 +732,19 @@ export const useLiveStore = defineStore('live', () => {
         continue;
       }
       paused.value = false;
-      const focusRow = focusId.value === null ? FIRMWARE_ROWS[0] : device.keys[focusId.value].row;
+      const rows = device.rows;
+      if (!rows.length) { stop(); return; }
+      const focusKey = focusId.value === null ? undefined : device.keys[focusId.value];
+      const focusRow = focusKey ? focusKey.row : rows[0];
       const plan: [AxisDataType, number][] = [['route', focusRow]];
       if (tick % STATUS_EVERY === 0) plan.push(['keyStatus', focusRow]);
       if (follow.value || allKeys.value) {
         // Other rows round-robin: route and status alternate per row.
-        const others = FIRMWARE_ROWS.filter((r) => r !== focusRow);
-        const step = rr++ % (others.length * 2);
-        plan.push([step % 2 === 0 ? 'route' : 'keyStatus', others[step >> 1]]);
+        const others = rows.filter((r) => r !== focusRow);
+        if (others.length) {
+          const step = rr++ % (others.length * 2);
+          plan.push([step % 2 === 0 ? 'route' : 'keyStatus', others[step >> 1]]);
+        }
       }
       tick++;
       try {

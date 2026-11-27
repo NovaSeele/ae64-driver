@@ -284,7 +284,12 @@ export const useFirmwareStore = defineStore('firmware', () => {
   }
   const busy = computed(() => (active.value ? null : busyKey()));
 
-  const deviceBoard = computed<number | null>(() => (rescue.value ? rescueBoard.value : useDeviceStore().info?.boardId ?? null));
+  const deviceBoard = computed<number | null>(() => {
+    if (rescue.value) return rescueBoard.value;
+    const device = useDeviceStore();
+    if (device.support === 'generic') return null; // DESIGN MKB §3.4: generic boards never match AE64 firmware tables
+    return device.info?.boardId ?? null;
+  });
   /** The keyboard's board is one this app writes (AE64 Pro or AE64 Max). */
   const boardOk = computed(() => isFwBoard(deviceBoard.value));
   /** "AE64 Pro" / "AE64 Max": the word step 2 asks for. */
@@ -397,7 +402,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
   function makeRestoreCheck(): RestoreCheck {
     const device = useDeviceStore();
     const perf = usePerformanceStore();
-    const boardIdHex = device.info?.boardIdHex?.toLowerCase();
+    const boardIdHex = device.support === 'generic' ? undefined : device.info?.boardIdHex?.toLowerCase();
     const catalog = switchCatalogFor(boardIdHex);
     const intervalRt = supportsIntervalRt(device.version);
     return {
@@ -422,6 +427,11 @@ export const useFirmwareStore = defineStore('firmware', () => {
     }
     const inDone = DONE_PHASES.includes(phase.value);
     const device = useDeviceStore();
+    if (device.support === 'generic') {
+      axBackup.value = null;
+      axCompare.value = null;
+      return;
+    }
     const serial = device.info?.serialHex;
     const board = device.info?.boardId;
     if (!device.connected || device.info?.runMode !== 0 || !serialReadable(serial) || board === undefined) {
@@ -619,6 +629,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
 
   /** Fetches the list (the page opened with Trực tuyến, "Thử lại", "Kiểm tra lại"). The fixed relative URL only. */
   async function loadList(): Promise<void> {
+    if (useDeviceStore().support === 'generic') return; // DESIGN MKB §3.4, §9.2: no manifest request on generic
     if (listState.value === 'loading') return;
     const mine = ++listGen;
     listState.value = 'loading';
@@ -637,7 +648,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
   /** On an AE64 Pro running its app: official or XInput, through the gamepad store (once per connection; `force`: "Đọc lại"). */
   async function readKind(force = false): Promise<void> {
     const device = useDeviceStore();
-    if (active.value || rescue.value || !device.connected || device.model !== 'pro' || device.info?.runMode !== 0) return;
+    if (active.value || rescue.value || !device.connected || device.support === 'generic' || device.model !== 'pro' || device.info?.runMode !== 0) return;
     const mine = ++kindGen;
     const gen = device.connection;
     kind.value = null;
@@ -722,6 +733,7 @@ export const useFirmwareStore = defineStore('firmware', () => {
 
   /** The page opens: Trực tuyến, the list (unless it is loaded or loading), the Pro's kind. Nothing is downloaded. */
   function openPage(): void {
+    if (useDeviceStore().support === 'generic') return; // DESIGN MKB §9.2: notice only on generic, no manifest or perf reads
     if (canChoose.value) source.value = 'online';
     if (source.value === 'online' && listState.value !== 'ok' && listState.value !== 'loading') void loadList();
     if (kind.value === null) void readKind();

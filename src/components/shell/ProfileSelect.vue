@@ -28,8 +28,13 @@ const jobBusy = computed(() => device.exclusiveActive && sync.state !== 'writing
 /** Other profiles look off (as while calibrating); a click still reaches switchProfile, whose refusal says why. */
 const locked = computed(() => calibrating.value || jobBusy.value);
 const lockedTip = computed(() => (calibrating.value ? t('device.calibrating') : t('device.busy')));
+const isGeneric = computed(() => device.support === 'generic');
+const profilesUnknown = computed(() => isGeneric.value && device.unknown.profiles);
 const active = computed(() => device.activeProfile);
-const activeName = computed(() => device.profileNames[device.activeProfile] ?? '');
+const activeName = computed(() => (profilesUnknown.value ? t('mkb.common.unknown') : device.profileNames[device.activeProfile] ?? ''));
+const triggerLabel = computed(() => (profilesUnknown.value
+  ? `${t('device.profile')} · ${t('mkb.common.unknown')}`
+  : `${t('device.profile')} ${active.value + 1} · ${activeName.value}`));
 const editing = ref<number | null>(null);
 const draft = ref('');
 const busy = ref<number | null>(null);
@@ -83,11 +88,13 @@ function close(refocus = false) {
 }
 
 function toggle() {
+  if (isGeneric.value) return;
   if (open.value) close();
   else void openPop(false);
 }
 
 function onTriggerKey(e: KeyboardEvent) {
+  if (isGeneric.value) return;
   if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
     void openPop(true);
@@ -282,14 +289,14 @@ async function finishRename(save: boolean) {
       aria-haspopup="listbox"
       :aria-expanded="open"
       :aria-controls="listId"
-      :aria-label="`${t('device.profile')} ${active + 1} · ${activeName}`"
-      :title="compact ? `${t('device.profile')} ${active + 1} · ${activeName}` : undefined"
+      :aria-label="triggerLabel"
+      :title="compact ? triggerLabel : undefined"
       :aria-busy="busy !== null || undefined"
-      :disabled="firmware.active"
+      :disabled="firmware.active || isGeneric"
       @click="toggle"
       @keydown="onTriggerKey"
     >
-      <span class="ps__chip num">{{ active + 1 }}</span>
+      <span class="ps__chip num">{{ profilesUnknown ? '?' : active + 1 }}</span>
       <span class="ps__tname">{{ activeName }}</span>
       <IconChevronDown class="ps__chev" :size="14" stroke-width="1.8" aria-hidden="true" />
     </button>

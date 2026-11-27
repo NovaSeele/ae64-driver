@@ -180,7 +180,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'perf.tryNow': 'Try now',
   'perf.tryNowHint': 'Open Live Travel for the selected key',
   'perf.mixed': 'Mixed',
-  'perf.loading': 'Loading settings from {n}/64 keys…',
+  'perf.loading': 'Loading settings from {n}/{total} keys…',
   'perf.loadFailed': 'Failed to load travel settings.',
   'perf.reload': 'Reload',
   'perf.readOnly': 'Board is not in write allowlist — view only, key travel cannot be changed.',
@@ -313,6 +313,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'mkb.export.openGithub': 'Open GitHub Issues',
   'mkb.export.what': 'keyboard info export',
   'mkb.export.support': 'Support level',
+  'mkb.overview.features': 'Features',
 };
 
 export const en = {

@@ -25,7 +25,7 @@ const body = computed(() => {
 });
 const facts = computed<MessageKey[]>(() => (props.kind === 'max' ? ['gp.factKeymap'] : props.kind === 'stock' ? ['gp.factThirdParty', 'gp.factUntested', 'gp.factKeymap'] : []));
 const tone = computed(() => (props.kind === 'error' ? 'var(--danger)' : props.kind === 'stock' ? 'var(--warn)' : 'var(--fg-3)'));
-const meta = computed(() => t('gp.meta', { model: device.modelName ?? '—', fw: device.info?.firmware ?? '—', board: device.info?.boardIdHex.toUpperCase() ?? '—' }));
+const meta = computed(() => t('gp.meta', { model: device.support === 'generic' ? device.displayName : (device.modelName ?? '—'), fw: device.info?.firmware ?? '—', board: device.info?.boardIdHex.toUpperCase() ?? '—' }));
 const reload = () => window.location.reload();
 const canDemo = computed(() => device.demo && (props.kind === 'max' || props.kind === 'stock'));
 // A Pro on its factory firmware (DESIGN FW §3.8, review K fix 4): the Firmware page, or where to turn it on. Navigation only.

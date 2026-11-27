@@ -327,8 +327,8 @@ export const usePerformanceStore = defineStore('performance', () => {
     const cur = values.value[id];
     if (cur) values.value = { ...values.value, [id]: { ...cur, calibrate: read.calibrate, axis: read.axis } };
   }
-  /** Catalog for the connected board, or null (selector read-only). */
-  const catalog = computed(() => switchCatalogFor(device.info?.boardIdHex));
+  /** Catalog for the connected board, or null (generic or unlisted board; DESIGN MKB §3.4, §11). */
+  const catalog = computed(() => (device.support === 'generic' ? null : switchCatalogFor(device.info?.boardIdHex)));
 
   // ---- Custom switches, generic switch, per-board assignments, recal list, and post-Apply verify (§5.7, §7.9, §9, §10, §11, §13)
   const customSwitches = shallowRef<CustomSwitch[]>(readCustomSwitches());
@@ -500,7 +500,7 @@ export const usePerformanceStore = defineStore('performance', () => {
   function load(force = false): Promise<void> {
     // A forced reload requested mid-load (profile switched) runs again once the current load ends.
     if (loadPromise) return force ? loadPromise.then(() => load(true)) : loadPromise;
-    if (!force && loadedProfile.value === device.activeProfile && Object.keys(values.value).length) return Promise.resolve();
+    if (!force && loadedProfile.value === device.activeProfile && (Object.keys(values.value).length || !device.keys.length)) return Promise.resolve();
     const gen = device.connection;
     const readSerial = serialReadable(device.info?.serialHex) ? device.info!.serialHex : null;
     let mine: Promise<void> | null = null;
@@ -1200,7 +1200,7 @@ export const usePerformanceStore = defineStore('performance', () => {
       return { restored: [], failed: ids, refused: [] };
     }
 
-    const boardIdHex = device.info?.boardIdHex?.toLowerCase();
+    const boardIdHex = device.support === 'generic' ? undefined : device.info?.boardIdHex?.toLowerCase();
     const intervalRt = supportsIntervalRt(device.version);
     const edits: Record<number, PerfEdit> = {};
     const triples: Record<number, SwitchTriple> = {};

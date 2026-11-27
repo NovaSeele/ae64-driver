@@ -22,6 +22,8 @@ import { t } from '../i18n/vi';
 
 const device = useDeviceStore();
 const settings = useSettingsStore();
+const isGeneric = computed(() => device.support === 'generic');
+const profilesUnknown = computed(() => isGeneric.value && device.unknown.profiles);
 
 // Controls stay disabled until the values were read from the keyboard (not the built-in defaults),
 // on read-only boards, and while the USB restart after a polling-rate change is in progress.
@@ -68,6 +70,11 @@ function confirmPollingRate() {
 }
 
 const lightingDetails = computed(() => {
+  if (isGeneric.value) {
+    const areas = settings.lightingAreas;
+    if (!areas?.shapes.length) return t('mkb.common.unknown');
+    return areas.shapes.map((s) => (s.rows === 1 ? t('mkb.light.strip', { n: s.cols }) : `${s.rows}×${s.cols}`)).join(', ');
+  }
   const strip = settings.lightingAreas?.areas.find((a) => a.leds !== undefined)?.leds ?? 38;
   return `${t('settings.lightingAreaKeys')}, ${t('settings.lightingAreaStrip', { leds: strip })}`;
 });
@@ -80,7 +87,7 @@ const shakeModel = computed({
 
 <template>
   <PageLayout :title="t('page.settings')">
-    <p v-if="!device.boardAllowed" class="settings-warn" role="note">{{ t('settings.readOnly') }}</p>
+    <p v-if="!device.boardAllowed && !isGeneric" class="settings-warn" role="note">{{ t('settings.readOnly') }}</p>
 
     <!-- Appearance: app preference only, always available (no device access) -->
     <div class="settings-appearance">
@@ -112,7 +119,7 @@ const shakeModel = computed({
 
     <div v-else class="settings-grid">
       <!-- System mode -->
-      <Card :title="t('settings.systemMode')" :subtitle="t('settings.systemModeDesc')">
+      <Card v-if="!isGeneric || settings.answered.systemMode" :title="t('settings.systemMode')" :subtitle="t('settings.systemModeDesc')" data-setting="systemMode">
         <div>
           <Segmented
             :model-value="settings.systemMode"
@@ -125,7 +132,7 @@ const shakeModel = computed({
       </Card>
 
       <!-- Polling rate -->
-      <Card :title="t('settings.pollingRate')" :subtitle="t('settings.pollingRateDesc')">
+      <Card v-if="!isGeneric || settings.answered.pollingRate" :title="t('settings.pollingRate')" :subtitle="t('settings.pollingRateDesc')" data-setting="pollingRate">
         <div>
           <div class="settings-rate">
             <Segmented
@@ -147,7 +154,7 @@ const shakeModel = computed({
       </Card>
 
       <!-- RGB Sleep -->
-      <Card :title="t('settings.rgbSleep')" :subtitle="t('settings.rgbSleepDesc')">
+      <Card v-if="!isGeneric || settings.answered.rgbSleep" :title="t('settings.rgbSleep')" :subtitle="t('settings.rgbSleepDesc')" data-setting="rgbSleep">
         <div class="settings-sleep">
           <div class="settings-sleep__presets">
             <Button
@@ -179,7 +186,7 @@ const shakeModel = computed({
       </Card>
 
       <!-- Shake optimization -->
-      <Card :title="t('settings.shakeOptimization')" :subtitle="t('settings.shakeOptimizationDesc')">
+      <Card v-if="!isGeneric || settings.answered.shakeOptimization" :title="t('settings.shakeOptimization')" :subtitle="t('settings.shakeOptimizationDesc')" data-setting="shakeOptimization">
         <div class="settings-shake">
           <Switch v-model="shakeModel" :label="t('settings.shakeOptimization')" :disabled="locked" />
           <span class="settings-shake__state">{{ settings.shakeOptimization ? t('settings.shakeOptimizationOn') : t('settings.shakeOptimizationOff') }}</span>
@@ -191,8 +198,9 @@ const shakeModel = computed({
         <template #actions>
           <Button to="/profiles" size="sm" variant="secondary" :icon="IconArrowRight">{{ t('settings.manageProfiles') }}</Button>
         </template>
+        <p v-if="profilesUnknown" class="settings-note">{{ t('mkb.common.unknown') }}</p>
         <!-- read only (DESIGN H §3.7): renaming stays on the Profiles page; a Pro name keeps its trailing space -->
-        <ol class="pn" :aria-label="t('settings.profileNames')">
+        <ol v-else class="pn" :aria-label="t('settings.profileNames')">
           <li v-for="(n, i) in device.profileNames" :key="i" class="pn__row" :class="{ 'pn__row--on': i === device.activeProfile }">
             <span class="pn__n num" aria-hidden="true">{{ i + 1 }}</span><span class="pn__name" :title="n">{{ n }}</span>
             <span v-if="i === device.activeProfile" class="pn__on">{{ t('pf.active') }}</span>
@@ -218,17 +226,17 @@ const shakeModel = computed({
               {{ device.version ? `${device.version.main}.${device.version.sub}.${device.version.hardware}.${device.version.software}` : '—' }}
             </dd>
           </div>
-          <div class="settings-info-item">
+          <div class="settings-info-item" data-setting-info="rtPrecision">
             <dt class="micro">{{ t('settings.rtPrecision') }}</dt>
-            <dd class="num">{{ device.rtPrecision }} mm</dd>
+            <dd class="num">{{ isGeneric && device.unknown.rtPrecision ? t('mkb.common.unknown') : `${device.rtPrecision} mm` }}</dd>
           </div>
-          <div class="settings-info-item">
+          <div v-if="!isGeneric || settings.answered.macroSpace" class="settings-info-item" data-setting-info="macroSpace">
             <dt class="micro">{{ t('settings.macroCapacity') }}</dt>
             <dd class="num">
               {{ t('settings.macroCapacityVal', { count: settings.macroSpace.count, capacity: settings.macroSpace.capacity, max: settings.macroSpace.capacity - settings.macroSpace.count }) }}
             </dd>
           </div>
-          <div class="settings-info-item">
+          <div v-if="!isGeneric || settings.answered.lightingAreas" class="settings-info-item" data-setting-info="lightingAreas">
             <dt class="micro">{{ t('settings.lightingAreas') }}</dt>
             <dd class="num">
               {{ t('settings.lightingAreasVal', { count: settings.lightingAreas?.count ?? 0, details: lightingDetails }) }}
@@ -323,7 +331,7 @@ const shakeModel = computed({
 }
 .settings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
   gap: var(--s-4);
   max-width: 1200px;
   margin: 0 auto;

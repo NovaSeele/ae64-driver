@@ -29,13 +29,17 @@ const demoModel = computed<DemoSeed | null>({
   get: () => device.demoSeed ?? device.model,
   set: (m) => { if (m) void device.switchDemoModel(m); },
 });
-const name = computed(() => device.modelName ?? device.transport?.productName ?? 'AE64');
+const isGeneric = computed(() => device.support === 'generic');
+const name = computed(() => device.displayName);
+const genericSub = computed(() => (isGeneric.value && device.info
+  ? t('mkb.name.cardSub', { board: device.info.boardIdHex.toUpperCase(), fw: device.info.firmware })
+  : null));
 const statusText = computed(() => {
   if (device.status === 'connected') return device.demo ? t('device.demo') : t('device.connected');
   if (device.status === 'connecting') return t('device.connecting');
   return t('device.disconnected');
 });
-const cardTitle = computed(() => (props.compact ? `${name.value} · ${fwStatus.value ?? statusText.value}` : undefined));
+const cardTitle = computed(() => (props.compact ? `${name.value} · ${fwStatus.value ?? genericSub.value ?? statusText.value}` : undefined));
 /** A firmware session or rescue mode (N-FW3): the card says so instead of the app's latency and version. */
 const fwStatus = computed(() => (firmware.active ? t(firmware.rescue ? 'fw.cardRescue' : 'fw.cardUpdating') : null));
 </script>
@@ -47,6 +51,7 @@ const fwStatus = computed(() => (firmware.active ? t(firmware.rescue ? 'fw.cardR
       <div class="dc__id">
         <div class="dc__name">{{ name }}</div>
         <div v-if="fwStatus" class="dc__status">{{ fwStatus }}</div>
+        <div v-else-if="genericSub" class="dc__status" data-testid="device-card-generic-sub">{{ genericSub }}</div>
         <div v-else class="dc__status">
           {{ statusText }}
           <template v-if="device.connected">
@@ -57,12 +62,12 @@ const fwStatus = computed(() => (firmware.active ? t(firmware.rescue ? 'fw.cardR
       <IconButton v-if="device.connected && !compact" :icon="IconArrowsExchange" :label="t('device.changeKeyboard')" size="sm" :disabled="locked" :title="calibratingTitle ?? t('device.changeKeyboard')" @click="device.changeKeyboard()" />
       <IconButton v-if="device.connected && !compact" :icon="IconPlugConnectedX" :label="t('device.disconnect')" size="sm" :disabled="locked" :title="calibratingTitle ?? t('device.disconnect')" @click="device.disconnect({ user: true })" />
     </div>
-    <Segmented v-if="device.connected && device.demo && !compact" v-model="demoModel" :options="demoModels" :label="t('device.demoModel')" size="sm" :disabled="locked" :title="calibratingTitle" />
+    <Segmented v-if="device.connected && device.demo && !isGeneric && !compact" v-model="demoModel" :options="demoModels" :label="t('device.demoModel')" size="sm" :disabled="locked" :title="calibratingTitle" />
     <div v-if="device.staleCalibration && !compact" class="dc__stale" role="alert" data-test="stale-calibration">
       <p>{{ t('calibration.leftStopFailedShort') }}</p>
       <Button size="sm" @click="device.retryLeftCalibration()">{{ t('calibration.leftRetry') }}</Button>
     </div>
-    <dl v-if="device.info && !compact && !fwStatus" class="dc__meta">
+    <dl v-if="device.info && !compact && !fwStatus && !isGeneric" class="dc__meta">
       <div><dt class="micro">{{ t('device.firmware') }}</dt><dd class="num">{{ device.info.firmware }}</dd></div>
       <div><dt class="micro">{{ t('device.board') }}</dt><dd class="num">{{ device.info.boardIdHex.toUpperCase() }}</dd></div>
     </dl>

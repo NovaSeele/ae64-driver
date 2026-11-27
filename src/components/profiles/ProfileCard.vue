@@ -174,7 +174,7 @@ function onKey(e: KeyboardEvent) {
         />
       </div>
       <div class="pfc__body">
-        <p v-if="active && read === 'loading'" class="pfc__none num" role="status">{{ t('perf.loading', { n: loadedCount }) }}</p>
+        <p v-if="active && read === 'loading'" class="pfc__none num" role="status">{{ t('perf.loading', { n: loadedCount, total: device.keys.length }) }}</p>
         <p v-else-if="active && read === 'error'" class="pfc__none pfc__bad">{{ t('perf.loadFailed') }}</p>
         <template v-else-if="values">
           <dl class="pfc__stats">

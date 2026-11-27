@@ -2,12 +2,14 @@
 import { createRouter, createWebHashHistory } from 'vue-router';
 import type { Router, RouteRecordRaw } from 'vue-router';
 import type { Component } from 'vue';
+import { getActivePinia } from 'pinia';
 import {
   IconAdjustmentsHorizontal, IconBulb, IconCpu, IconCursorText, IconDeviceGamepad2, IconKeyboard, IconLayoutDashboard,
   IconListDetails, IconSettings, IconStack2, IconStethoscope,
 } from '@tabler/icons-vue';
 import type { MessageKey } from './i18n/vi';
 import OverviewPage from './pages/OverviewPage.vue';
+import { useDeviceStore } from './stores/device';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -98,12 +100,23 @@ export const routes: RouteRecordRaw[] = [
 /**
  * The URL always names the Performance tab, normalised here rather than replaced in the page (review E, P2-b): the page
  * never renders without a valid tab, and a sidebar click to /performance while on ?tab=switch is the current location
- * ("duplicated": no new history entry).
+ * ("duplicated": no new history entry). On a generic board (DESIGN MKB §9.2), /gamepad redirects to /overview and
+ * Calibration is hidden (redirects to Travel).
  */
 export function installPerfTabGuard(r: Router): void {
   r.beforeEach((to) => {
-    if (to.path === '/performance' && !asPerfTab(to.query.tab)) {
-      return { path: to.path, query: { ...to.query, tab: storedTab() ?? 'travel' }, hash: to.hash };
+    const generic = Boolean(getActivePinia() && useDeviceStore().support === 'generic');
+    if (generic && to.path === '/gamepad') return { path: '/overview' };
+    if (to.path === '/performance') {
+      const requested = asPerfTab(to.query.tab);
+      if (generic && requested === 'calibration') {
+        return { path: to.path, query: { ...to.query, tab: 'travel' }, hash: to.hash };
+      }
+      if (!requested) {
+        const stored = storedTab();
+        const tab = generic && stored === 'calibration' ? 'travel' : (stored ?? 'travel');
+        return { path: to.path, query: { ...to.query, tab }, hash: to.hash };
+      }
     }
   });
 }

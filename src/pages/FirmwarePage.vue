@@ -30,6 +30,8 @@ type StepState = 'todo' | 'now' | 'done' | 'fail';
 const device = useDeviceStore();
 const fw = useFirmwareStore();
 const perf = usePerformanceStore();
+/** Generic keyboard connected: notice only, no controls and no manifest request (DESIGN MKB §9.2). Disconnected stays unchanged. */
+const isGeneric = computed(() => device.connected && device.support === 'generic');
 
 const board = computed(() => fw.deviceBoard);
 /** A board the app has no firmware for: view only. */
@@ -117,10 +119,10 @@ const firmware = computed(() => (inBoot.value ? '—' : device.info?.firmware ??
 const bootVersion = computed(() => (fw.bootVersion && fw.bootVersion !== '0.0.0.0' ? fw.bootVersion : '—'));
 
 // ---- step 1's online source (DESIGN OFU §3): the list on opening; on an AE64 Pro, whether it runs XInput (once per connection)
-onMounted(() => fw.openPage());
+onMounted(() => { if (!isGeneric.value) fw.openPage(); });
 onBeforeUnmount(() => fw.leavePage());
 watch(() => [device.connection, device.connected, device.info?.runMode, fw.active, fw.rescue] as const, () => {
-  if (!fw.active && !fw.rescue && fw.kind === null) void fw.readKind();
+  if (!isGeneric.value && !fw.active && !fw.rescue && fw.kind === null) void fw.readKind();
 });
 
 // ---- the desktop app: closing the window while a session runs asks first (DESIGN FW §3.4)
@@ -128,7 +130,7 @@ const closeAsk = ref(false);
 const onCloseBlocked = (): void => { closeAsk.value = fw.active; };
 onMounted(() => window.addEventListener(CLOSE_BLOCKED_EVENT, onCloseBlocked));
 // W-11: another window running a firmware session or rescue mode: this page offers no write.
-onMounted(() => { if (!fw.active) void fw.checkOtherWindow(); });
+onMounted(() => { if (!isGeneric.value && !fw.active) void fw.checkOtherWindow(); });
 onBeforeUnmount(() => window.removeEventListener(CLOSE_BLOCKED_EVENT, onCloseBlocked));
 watch(() => fw.active, (on) => { if (!on) closeAsk.value = false; });
 function closeAnyway(): void {
@@ -139,7 +141,10 @@ function closeAnyway(): void {
 
 <template>
   <PageLayout :title="t('page.firmware')">
-    <section class="fw">
+    <Card v-if="isGeneric" data-testid="firmware-generic-only">
+      <p class="fw-generic">{{ t('mkb.page.firmwareOnlyAe64') }}</p>
+    </Card>
+    <section v-else class="fw">
       <div class="fw__main">
         <div class="fw-head">
           <div>
@@ -229,6 +234,7 @@ function closeAnyway(): void {
 
 <style scoped>
 .fw { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--s-4); align-items: start; width: 100%; max-width: 1200px; margin: 0 auto; }
+.fw-generic { margin: 0; padding: var(--s-4) 0; color: var(--fg-2); font-size: var(--fs-body); }
 .fw__main, .fw__side { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; }
 /* one column: page head first, then the two side cards side by side (read before step 1), then the steps */
 @media (max-width: 1100px) {

@@ -70,13 +70,27 @@ const DRAG_THRESHOLD = 5;
 const sel = useSelectionStore();
 const device = useDeviceStore();
 const flashStore = useFlashStore();
+const isGeneric = computed(() => device.support === 'generic');
 const root = ref<HTMLElement | null>(null);
 const plate = ref<HTMLElement | null>(null);
 const width = ref(0);
 const bounds = computed(() => layoutBounds(props.keys));
-const unit = computed(() => Math.max(24, Math.min(MAX_UNIT, width.value / bounds.value.width)));
+const unit = computed(() => {
+  if (!bounds.value.width) return MAX_UNIT;
+  const minU = isGeneric.value && width.value > 0 ? 12 : 24;
+  return Math.max(minU, Math.min(MAX_UNIT, width.value / bounds.value.width));
+});
 const box = ref<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
 const focusId = ref<number | null>(null);
+
+/** Combines caller's flag (e.g. uncalibrated) with generic unknown-width ratio note (DESIGN MKB §8.3). */
+function keyFlag(k: PhysicalKey): { label: string } | undefined {
+  const base = props.flag?.(k);
+  const unknown = k.unknownRatio !== undefined ? t('mkb.layout.unknownSize', { code: k.unknownRatio }) : null;
+  if (base && unknown) return { label: `${base.label} · ${unknown}` };
+  if (unknown) return { label: unknown };
+  return base;
+}
 
 let ro: ResizeObserver | null = null;
 let start: { x: number; y: number; id: number | null; mods: SelectMode } | null = null;
@@ -252,7 +266,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
     class="kb"
     :class="{ 'kb--selectable': selectable, 'kb--pick': !selectable && !!pick }"
     role="group"
-    :aria-label="t('keyboard.label', { model: device.modelName ?? 'AE64' })"
+    :aria-label="t('keyboard.label', { model: device.displayName })"
     :aria-describedby="describedby"
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
@@ -260,7 +274,8 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
     @pointercancel="cancelDrag"
     @lostpointercapture="cancelDrag"
   >
-    <div ref="plate" class="kb__plate" :style="{ '--u': `${unit}px`, width: `${bounds.width * unit}px`, height: `${bounds.height * unit}px` }">
+    <p v-if="isGeneric && !keys.length" class="kb__empty" role="status" data-testid="kb-empty">{{ t('mkb.layout.empty') }}</p>
+    <div v-else ref="plate" class="kb__plate" :style="{ '--u': `${unit}px`, width: `${bounds.width * unit}px`, height: `${bounds.height * unit}px` }">
       <button
         v-for="k in keys"
         :key="k.id"
@@ -269,8 +284,8 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
         :data-key="k.id"
         :tabindex="k.id === tabStop ? 0 : -1"
         :aria-pressed="selectable ? isSelected(k.id) : undefined"
-        :aria-label="`${legend ? legend(k) : k.name}${subText(k) ? ` · ${subText(k)}` : ''}${badge?.(k) || badgeIcon?.(k) ? ` · ${badgeTitle?.(k) ?? badge?.(k)}` : ''}${status?.(k) ? ` · ${status(k)}` : ''}${flag?.(k) ? ` · ${flag(k)!.label}` : ''}`"
-        :title="flag?.(k) ? `${legend ? legend(k) : k.name} · ${flag(k)!.label}` : undefined"
+        :aria-label="`${legend ? legend(k) : k.name}${subText(k) ? ` · ${subText(k)}` : ''}${badge?.(k) || badgeIcon?.(k) ? ` · ${badgeTitle?.(k) ?? badge?.(k)}` : ''}${status?.(k) ? ` · ${status(k)}` : ''}${keyFlag(k) ? ` · ${keyFlag(k)!.label}` : ''}`"
+        :title="keyFlag(k) ? `${legend ? legend(k) : k.name} · ${keyFlag(k)!.label}` : undefined"
         :style="{ left: `${k.x * unit}px`, top: `${k.y * unit}px`, width: `${k.w * unit}px`, height: `${unit}px` }"
         @keydown="onKeyDown($event, k)"
         @focus="focusId = k.id"
@@ -294,7 +309,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
           :selected="(selectable && isSelected(k.id)) || !!marked?.(k)"
           :flashing="flashStore.isFlashing(k.id)"
           :loading="loading"
-          :flagged="!!flag?.(k)"
+          :flagged="!!keyFlag(k)"
         ><template v-if="$slots.cap" #default><slot name="cap" :key="k" /></template></Keycap>
       </button>
       <div
@@ -308,6 +323,7 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
         }"
       />
     </div>
+    <p v-if="isGeneric && device.unknown.layoutOverlap" class="kb__note" role="note" data-testid="kb-overlap">{{ t('mkb.layout.overlap') }}</p>
   </div>
 </template>
 
@@ -317,13 +333,27 @@ const tabStop = computed(() => focusId.value ?? sel.focused ?? props.keys[0]?.id
   width: 100%;
   padding: 16px;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
   border-radius: var(--r-panel);
   background: var(--bg-1);
   border: 1px solid var(--line-1);
   box-shadow: var(--shadow-case), inset 0 1px 0 var(--line-1);
   user-select: none;
   touch-action: none;
+}
+.kb__empty {
+  margin: var(--s-5) 0;
+  color: var(--fg-2);
+  font-size: var(--fs-body);
+  text-align: center;
+}
+.kb__note {
+  margin: 0;
+  color: var(--warn);
+  font-size: var(--fs-label);
+  text-align: center;
 }
 .kb__plate { position: relative; flex: none; }
 .kb__key {

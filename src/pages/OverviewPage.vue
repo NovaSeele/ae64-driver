@@ -37,6 +37,8 @@ const perf = usePerformanceStore();
 const settings = useSettingsStore();
 const sel = useSelectionStore();
 const router = useRouter();
+const isGeneric = computed(() => device.support === 'generic');
+const profilesUnknown = computed(() => isGeneric.value && device.unknown.profiles);
 
 /** Part G (the Profiles page) is in the app: the header button, the Profile tile link and the 8th shortcut. */
 const hasProfiles = router.hasRoute('profiles');
@@ -99,8 +101,8 @@ function fill(k: PhysicalKey): number | undefined {
   const p = perf.values[k.id];
   return p ? actFill(p) : undefined;
 }
-const uncalFlag = (k: PhysicalKey) => uncalFlagFor(perf.needsCal, k.id);
-const shows = computed(() => actuationLegend(device.keys.map((k) => perf.values[k.id]).filter(Boolean), perf.needsCal.length, true));
+const uncalFlag = (k: PhysicalKey) => (isGeneric.value ? undefined : uncalFlagFor(perf.needsCal, k.id));
+const shows = computed(() => actuationLegend(device.keys.map((k) => perf.values[k.id]).filter(Boolean), isGeneric.value ? 0 : perf.needsCal.length, true));
 const plain = computed(() => legendSentence(shows.value));
 /** "… profile {name}. …" with the name (user data) in its own span. */
 const keyboardSub = computed(() => {
@@ -127,7 +129,7 @@ const SHORTCUTS = computed(() => {
     { to: PROFILES, icon: IconStack2, tone: 'var(--f-profiles)', name: 'page.profiles', desc: 'ov.dProfiles' },
     { to: '/settings', icon: IconSettings, tone: 'var(--f-settings)', name: 'page.settings', desc: 'ov.dSettings' },
   ];
-  return hasProfiles ? all : all.filter((s) => s.to !== PROFILES);
+  return all.filter((s) => (hasProfiles || s.to !== PROFILES) && (!isGeneric.value || s.to !== CALIBRATION));
 });
 
 // ----- device line (§3.9)
@@ -137,7 +139,29 @@ const protocolText = computed(() => {
   return v ? `${v.main}.${v.sub}.${v.hardware}.${v.software}` : '—';
 });
 /** Only once read: before that the store holds its default (8000 Hz), which may not be the keyboard's. */
-const pollingText = computed(() => (settings.loaded ? `${POLLING_RATE_HZ[settings.pollingRate] ?? settings.pollingRate} Hz` : '—'));
+const pollingText = computed(() => (settings.loaded && (!isGeneric.value || settings.answered.pollingRate)
+  ? `${POLLING_RATE_HZ[settings.pollingRate] ?? settings.pollingRate} Hz`
+  : '—'));
+/** Features from `01 03` rendered as text on generic boards (DESIGN MKB §9.2). */
+const featuresText = computed(() => {
+  if (device.unknown.features || !device.features) return t('mkb.common.noAnswer');
+  const f = device.features;
+  const parts: string[] = [];
+  if (f.axis.magnetic) parts.push('Magnetic');
+  if (f.axis.magnetic3D) parts.push('3D Magnetic');
+  if (f.axis.mechanical) parts.push('Mechanical');
+  if (f.axis.optical) parts.push('Optical');
+  if (f.axis.inductive) parts.push('Inductive');
+  if (f.connection.usb) parts.push('USB');
+  if (f.connection.usb3) parts.push('USB 3');
+  if (f.connection.wireless24) parts.push('2.4G');
+  if (f.connection.bluetooth) parts.push('Bluetooth');
+  if (f.basic.rgb) parts.push('RGB');
+  if (f.basic.knob) parts.push('Knob');
+  for (const [k, on] of Object.entries(f.extended)) if (on) parts.push(k);
+  return parts.length ? parts.join(' · ') : t('mkb.common.unknown');
+});
+const hasNoKeys = computed(() => isGeneric.value && !device.keys.length);
 </script>
 
 <template>
@@ -146,7 +170,7 @@ const pollingText = computed(() => (settings.loaded ? `${POLLING_RATE_HZ[setting
       <section class="ovh" aria-labelledby="ov-model">
         <span class="ovh__icon" aria-hidden="true"><IconKeyboard :size="22" stroke-width="1.75" /></span>
         <div class="ovh__id">
-          <h2 id="ov-model" class="ovh__name">{{ device.modelName }}</h2>
+          <h2 id="ov-model" class="ovh__name">{{ isGeneric ? device.displayName : device.modelName }}</h2>
           <p class="ovh__meta">
             <span class="ovh__dot" aria-hidden="true" />
             <span>{{ device.demo ? t('device.demo') : t('device.connected') }}</span>
@@ -160,7 +184,7 @@ const pollingText = computed(() => (settings.loaded ? `${POLLING_RATE_HZ[setting
         </div>
       </section>
 
-      <Card v-if="loaded && swCheckCount" class="ovchk" aria-labelledby="ov-sw-check">
+      <Card v-if="loaded && swCheckCount && !isGeneric" class="ovchk" aria-labelledby="ov-sw-check">
         <IconAlertTriangle class="ovchk__ico" :size="18" stroke-width="1.75" aria-hidden="true" />
         <div class="ovchk__body">
           <h2 id="ov-sw-check" class="ovchk__title">{{ t('ov.swCheck', { n: swCheckCount }) }}</h2>
@@ -182,13 +206,14 @@ const pollingText = computed(() => (settings.loaded ? `${POLLING_RATE_HZ[setting
         <li>
           <StatTile :to="hasProfiles ? PROFILES : undefined" :icon="IconStack2" :label="t('ov.statProfile')">
             <template #value>
-              <span class="ovs__value">
+              <span v-if="profilesUnknown" class="ovs__value ovs__value--wait">{{ t('mkb.common.unknown') }}</span>
+              <span v-else class="ovs__value">
                 <span class="ovs__n num" aria-hidden="true">{{ device.activeProfile + 1 }}</span>
                 <span class="ovs__text" :title="device.activeProfileName">{{ device.activeProfileName }}</span>
               </span>
             </template>
             <template #sub>
-              <span class="ovs__sub">{{ t('ov.profileOf', { n: device.activeProfile + 1, count: device.profileCount }) }}</span>
+              <span class="ovs__sub">{{ profilesUnknown ? t('mkb.common.unknown') : t('ov.profileOf', { n: device.activeProfile + 1, count: device.profileCount }) }}</span>
             </template>
           </StatTile>
         </li>
@@ -199,7 +224,7 @@ const pollingText = computed(() => (settings.loaded ? `${POLLING_RATE_HZ[setting
               <span v-else class="ovs__value ovs__value--wait">—</span>
             </template>
             <template #sub>
-              <span class="ovs__sub">{{ actValue ? actSub : loaded ? t('ov.notRead') : waitText }}</span>
+              <span class="ovs__sub">{{ actValue ? actSub : (loaded || hasNoKeys) ? t('ov.notRead') : waitText }}</span>
             </template>
           </StatTile>
         </li>
@@ -214,11 +239,11 @@ const pollingText = computed(() => (settings.loaded ? `${POLLING_RATE_HZ[setting
             </template>
             <template #sub>
               <span v-if="loaded" class="ovs__bar" aria-hidden="true"><i :style="{ width: rtWidth }" /></span>
-              <span v-else class="ovs__sub">{{ waitText }}</span>
+              <span v-else class="ovs__sub">{{ hasNoKeys ? t('ov.notRead') : waitText }}</span>
             </template>
           </StatTile>
         </li>
-        <li>
+        <li v-if="!isGeneric">
           <StatTile :to="CALIBRATION" :icon="IconTarget" :label="t('swp.tabCalibration')">
             <template #value>
               <span v-if="loaded" class="ovs__value">
@@ -239,7 +264,7 @@ const pollingText = computed(() => (settings.loaded ? `${POLLING_RATE_HZ[setting
         <div class="ovk__head">
           <div class="ovk__titles">
             <h2 id="ov-kb-title" class="ovk__title">{{ t('ov.keyboard') }}</h2>
-            <p class="ovk__sub">{{ keyboardSub.before }}<span class="ovk__name">{{ device.activeProfileName }}</span>{{ keyboardSub.after }}</p>
+            <p class="ovk__sub">{{ keyboardSub.before }}<span class="ovk__name">{{ profilesUnknown ? t('mkb.common.unknown') : device.activeProfileName }}</span>{{ keyboardSub.after }}</p>
           </div>
           <Button size="sm" :to="TRAVEL" :icon="IconPencil">{{ t('ov.editKeys') }}</Button>
         </div>
@@ -261,8 +286,8 @@ const pollingText = computed(() => (settings.loaded ? `${POLLING_RATE_HZ[setting
             describedby="ov-kb-hint"
             :style="{ '--metric': 'var(--m-actuation)' }"
           />
-          <p v-if="!loaded" class="ovk__loading num">{{ t('perf.loading', { n: perf.loadedCount }) }}</p>
-          <p v-else class="ovk__shows" :title="plain">
+          <p v-if="!loaded && !hasNoKeys" class="ovk__loading num">{{ t('perf.loading', { n: perf.loadedCount, total: device.keys.length }) }}</p>
+          <p v-else-if="loaded" class="ovk__shows" :title="plain">
             <span class="sr-only">{{ plain }}</span>
             <SelectionLegend :items="shows" />
           </p>
@@ -291,6 +316,7 @@ const pollingText = computed(() => (settings.loaded ? `${POLLING_RATE_HZ[setting
           <div><dt>{{ t('device.board') }}</dt><dd class="num">{{ boardText }}</dd></div>
           <div><dt>{{ t('ov.protocol') }}</dt><dd class="num">{{ protocolText }}</dd></div>
           <div><dt>{{ t('settings.pollingRate') }}</dt><dd class="num" data-ov="polling">{{ pollingText }}</dd></div>
+          <div v-if="isGeneric" data-ov="features"><dt>{{ t('mkb.overview.features') }}</dt><dd>{{ featuresText }}</dd></div>
         </dl>
         <RouterLink class="ovd__more" to="/diagnostics">{{ t('page.diagnostics') }}<IconArrowRight :size="15" stroke-width="1.75" aria-hidden="true" /></RouterLink>
       </section>

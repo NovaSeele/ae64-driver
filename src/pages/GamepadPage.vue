@@ -3,6 +3,7 @@
 // the keycaps, outputs / details / sticks / live test. AE64 Max, the factory Pro firmware, a failed INFO and a newer
 // protocol get a card instead (nothing is sent to an AE64 Max). Every edit goes through stores/gamepad (history + sync).
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import PageLayout from '../components/shell/PageLayout.vue';
 import type { LegendItem } from '../components/keyboard/SelectionBar.vue';
 import KeyboardView from '../components/keyboard/KeyboardView.vue';
@@ -32,11 +33,17 @@ const sel = useSelectionStore();
 const live = useLiveStore();
 const perf = usePerformanceStore();
 const actions = useGamepadActions();
+const router = useRouter();
+const isGeneric = computed(() => device.support === 'generic');
 
 // ------------------------------------------------------------------ loading
 
-watch(() => [device.connected, gp.support] as const, ([connected, support]) => {
-  if (connected && support === 'unknown') void gp.load();
+watch(isGeneric, (g) => {
+  if (g) void router.replace('/overview');
+}, { immediate: true });
+
+watch(() => [device.connected, isGeneric.value, gp.support] as const, ([connected, generic, support]) => {
+  if (connected && !generic && support === 'unknown') void gp.load();
 }, { immediate: true });
 // Mode, output type and assignments are per onboard profile: the store reads them again after a profile change.
 
@@ -181,7 +188,7 @@ function startReading(): void {
   if (liveAllKeys === null) liveAllKeys = live.allKeys;
   live.allKeys = true;
   live.start();
-  if (device.demo && device.transport?.kind === 'mock' && !detachDemo) detachDemo = attachDemoPress(device.transport as MockTransport, { spareControls: true });
+  if (device.demo && !isGeneric.value && device.transport?.kind === 'mock' && !detachDemo) detachDemo = attachDemoPress(device.transport as MockTransport, { spareControls: true });
   if (!raf) raf = requestAnimationFrame(sample);
 }
 function stopReading(): void {

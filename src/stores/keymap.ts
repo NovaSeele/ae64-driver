@@ -2,7 +2,7 @@
 // Follows the per-key page pattern: load all 4 layers → edit through history + sync (SAVE_GROUP.LAYOUT) → verify by read-back.
 import { defineStore } from 'pinia';
 import { computed, ref, shallowRef, watch } from 'vue';
-import { FIRMWARE_ROWS, LAYER_COUNT, SAVE_GROUP, keycodeLabel } from '../protocol';
+import { LAYER_COUNT, SAVE_GROUP, keycodeLabel } from '../protocol';
 import { BLOCKED_KEYCODES, isWritableKeycode } from '../protocol/safety';
 import { isFnSwitch } from '../protocol/keycodes';
 import type { Ae64Transport, PhysicalKey } from '../protocol';
@@ -109,10 +109,10 @@ export const useKeymapStore = defineStore('keymap', () => {
     return device.keys[id];
   }
 
-  /** Sequentially load 4 layers × 5 rows for the active profile. */
+  /** Sequentially load 4 layers × active rows for the active profile. */
   function load(force = false): Promise<void> {
     if (loadPromise) return force ? loadPromise.then(() => load(true)) : loadPromise;
-    if (!force && loadedProfile.value === device.activeProfile && Object.keys(values.value[0] || {}).length) {
+    if (!force && loadedProfile.value === device.activeProfile && (Object.keys(values.value[0] || {}).length || !device.keys.length)) {
       return Promise.resolve();
     }
     const gen = device.connection;
@@ -128,7 +128,7 @@ export const useKeymapStore = defineStore('keymap', () => {
         const next: Record<number, Record<number, number>> = { 0: {}, 1: {}, 2: {}, 3: {} };
         await device.withTransport(async (t) => {
           for (let layer = 0; layer < LAYER_COUNT; layer++) {
-            for (const row of FIRMWARE_ROWS) {
+            for (const row of device.rows) {
               const rowCodes = await t.getKeymapRow(layer, row);
               if (gen !== device.connection) return;
               // A read carries no profile number: it reads the keyboard's active profile. Switched mid-read: drop it all.
@@ -326,7 +326,7 @@ export const useKeymapStore = defineStore('keymap', () => {
     const fnBlocked: number[] = [];
     await device.withTransport(async (t) => {
       const sys = await t.getSystemMode();
-      for (const row of FIRMWARE_ROWS) {
+      for (const row of device.rows) {
         const rowCodes = await t.getDefaultKeymapRow(sys, layer, row);
         for (const key of device.keys) {
           if (key.row === row) {

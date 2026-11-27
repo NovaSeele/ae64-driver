@@ -33,8 +33,29 @@ const device = useDeviceStore();
 const perf = usePerformanceStore();
 const sel = useSelectionStore();
 const router = useRouter();
+const isGeneric = computed(() => device.support === 'generic');
 const capViewId = useId();
 const switchCardRef = ref<InstanceType<typeof SwitchCard> | null>(null);
+
+/** Generic read-only switch record for the focused / first selected / first loaded key (DESIGN MKB §11). */
+const genericRecord = computed(() => {
+  if (!isGeneric.value) return null;
+  const id = (sel.focused !== null && sel.selected.has(sel.focused) && perf.values[sel.focused])
+    ? sel.focused
+    : sel.ids.find((x) => perf.values[x]) ?? loaded.value[0];
+  if (id === undefined) return null;
+  const p = perf.values[id];
+  const key = device.keys[id];
+  if (!p || !key) return null;
+  return {
+    keyLabel: device.legend(key),
+    text: t('mkb.switch.current', {
+      id: p.axisV2Id.toString(16).toUpperCase().padStart(4, '0'),
+      range: formatMm(p.axisRangeMax / 1000, 3),
+      coef: p.axisCoefficient,
+    }),
+  };
+});
 
 /** "Hiệu chuẩn ngay": the Calibration tab of this page (DESIGN E §3.1). */
 const recalibrate = () => void router.push({ query: { tab: 'calibration' } });
@@ -315,6 +336,28 @@ const verifyMm = computed(() => (perf.verify ? mm(perf.verify.rangeUm) : ''));
 
 <template>
   <div class="swtab">
+    <template v-if="isGeneric">
+      <TabKeyboard>
+        <KeyboardView
+          :keys="device.keys"
+          :legend="device.legend"
+          :sublabel="travelSublabel"
+          :sublabel-aria="travelAria"
+          :loading="perf.loading"
+          selectable
+        />
+      </TabKeyboard>
+      <Card v-if="perf.loadError" :title="t('perf.loadFailed')" :subtitle="perf.loadError" data-test="switch-load-error">
+        <div><Button :icon="IconRefresh" :loading="perf.loading" @click="perf.load(true)">{{ t('perf.reload') }}</Button></div>
+      </Card>
+      <Card v-else :title="t('swp.tabSwitch')" data-testid="switch-generic-readonly">
+        <p v-if="genericRecord" class="swp__generic-rec num" data-testid="switch-generic-record">
+          <strong>{{ genericRecord.keyLabel }}</strong> · {{ genericRecord.text }}
+        </p>
+        <p class="swp__generic-note" data-testid="switch-generic-note">{{ t('mkb.switch.catalogAe64Only') }}</p>
+      </Card>
+    </template>
+    <template v-else>
     <TabKeyboard :shows="shows" :shows-alt="showsAlt">
       <KeyboardView
         :keys="device.keys"
@@ -412,6 +455,7 @@ const verifyMm = computed(() => (perf.verify ? mm(perf.verify.rangeUm) : ''));
         <SwitchCard ref="switchCardRef" :ids="ids" />
       </div>
     </div>
+    </template>
   </div>
 </template>
 
@@ -477,4 +521,6 @@ const verifyMm = computed(() => (perf.verify ? mm(perf.verify.rangeUm) : ''));
 .swp__verify-text { flex: 1; min-width: 0; }
 .swp__verify-x { width: 24px; height: 24px; margin: -3px -3px 0 0; }
 .swp__hint { margin: var(--s-3) 0 0; font-size: var(--fs-label); color: var(--fg-3); }
+.swp__generic-rec { margin: 0 0 var(--s-2); font-size: var(--fs-body); color: var(--fg-1); }
+.swp__generic-note { margin: 0; font-size: var(--fs-label); color: var(--fg-3); }
 </style>

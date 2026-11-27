@@ -1,7 +1,6 @@
-// Key selection shared by every per-key page (ids are PhysicalKey.id, 0..63).
+// Key selection shared by every per-key page (ids are PhysicalKey.id).
 import { defineStore } from 'pinia';
 import { computed, ref, shallowRef, watch } from 'vue';
-import { PHYSICAL_KEYS } from '../protocol';
 import { keyGroups } from '../data/keyGroups';
 import { useDeviceStore } from './device';
 
@@ -9,14 +8,14 @@ export type SelectMode = 'replace' | 'toggle' | 'range';
 /** Quick-select buttons: replace the selection with the group, or add the group to it (Ctrl/⌘/Shift). */
 export type GroupMode = 'replace' | 'add';
 
-const ALL_IDS = PHYSICAL_KEYS.map((k) => k.id);
-
 export const useSelectionStore = defineStore('selection', () => {
   const selected = shallowRef<Set<number>>(new Set());
   const focused = ref<number | null>(null);
   const device = useDeviceStore();
   // Another keyboard (or the demo) was connected: the selection was of the old one.
   watch(() => device.connection, () => { selected.value = new Set(); focused.value = null; });
+  /** Every key id of the connected keyboard in layout order (DESIGN MKB §8.8: not hardcoded to PHYSICAL_KEYS). */
+  const allIds = computed(() => device.keys.map((k) => k.id));
   /** Letters / digits / modifiers / WASD by what each key does on the Main layer (DESIGN B §3.1); recomputed when it changes. */
   const groups = computed(() => keyGroups(device.keys, device.layer0));
   const ids = computed(() => [...selected.value].sort((a, b) => a - b));
@@ -39,7 +38,7 @@ export const useSelectionStore = defineStore('selection', () => {
     } else {
       const anchor = focused.value ?? id;
       const [lo, hi] = anchor < id ? [anchor, id] : [id, anchor];
-      set([...selected.value, ...ALL_IDS.filter((k) => k >= lo && k <= hi)]);
+      set([...selected.value, ...allIds.value.filter((k) => k >= lo && k <= hi)]);
     }
     focused.value = id;
   }
@@ -56,8 +55,8 @@ export const useSelectionStore = defineStore('selection', () => {
   }
 
   function clear(): void { set([]); }
-  function all(): void { set(ALL_IDS); }
-  function invert(): void { set(ALL_IDS.filter((id) => !selected.value.has(id))); }
+  function all(): void { set(allIds.value); }
+  function invert(): void { set(allIds.value.filter((id) => !selected.value.has(id))); }
   /** replace: exactly the group · add: the union with the selection. An empty group changes nothing (a replace with []
    *  would quietly turn Performance into "all 64 keys"). The first id anchors the next Shift-click. */
   function group(list: readonly number[], mode: GroupMode = 'replace'): void {

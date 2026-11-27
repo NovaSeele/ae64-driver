@@ -27,6 +27,8 @@ const cal = useCalibrationStore();
 const toast = useToast();
 const route = useRoute();
 const router = useRouter();
+const isGeneric = computed(() => device.support === 'generic');
+const profilesUnknown = computed(() => isGeneric.value && device.unknown.profiles);
 
 // The default tab ships with the page (the first page is in the main bundle, as before); the others are their own chunks.
 const TAB_COMPONENT: Record<PerfTab, Component> = {
@@ -38,10 +40,16 @@ const TAB_COMPONENT: Record<PerfTab, Component> = {
 };
 const KEPT = ['TravelTab', 'AdvancedTab', 'SwitchTab'];
 
-/** The open tab. The router's beforeEach always puts a valid ?tab= on /performance; the fallbacks are for safety. */
-const tab = computed<PerfTab>(() => asPerfTab(route.query.tab) ?? storedTab() ?? 'travel');
+/** The open tab. The router's beforeEach always puts a valid ?tab= on /performance; Calibration is hidden on generic (DESIGN MKB §9.2). */
+const tab = computed<PerfTab>(() => {
+  const picked = asPerfTab(route.query.tab) ?? storedTab() ?? 'travel';
+  return isGeneric.value && picked === 'calibration' ? 'travel' : picked;
+});
 // Opened through a link or an old bookmark also counts as the last-used tab.
 watch(tab, saveTab, { immediate: true });
+watch(() => [isGeneric.value, route.query.tab] as const, ([g, q]) => {
+  if (g && q === 'calibration') void router.replace({ query: { ...route.query, tab: 'travel' } });
+}, { immediate: true });
 // A session, or the transport still refusing writes after a failed stop (W-12, reader A): the other tabs stay locked.
 const calBusy = computed(() => cal.holdsWindow);
 
@@ -53,9 +61,10 @@ const TABS: { id: PerfTab; title: MessageKey; sub: MessageKey; icon: Component; 
   { id: 'calibration', title: 'swp.tabCalibration', sub: 'swp.tabCalibrationSub', icon: IconTarget, tone: 'var(--f-calibration)', scope: 'board' },
   { id: 'test', title: 'ptab.test', sub: 'ptab.testSub', icon: IconActivity, tone: 'var(--f-live)', scope: 'read' },
 ];
-const profileName = computed(() => device.profileNames[device.activeProfile] ?? '');
+const visibleTabs = computed(() => (isGeneric.value ? TABS.filter((x) => x.id !== 'calibration') : TABS));
+const profileName = computed(() => (profilesUnknown.value ? t('mkb.common.unknown') : device.profileNames[device.activeProfile] ?? ''));
 const scopeText = (s: Scope) => (s === 'profile' ? t('ptab.scopeProfile', { name: profileName.value }) : s === 'board' ? t('ptab.scopeBoard') : t('ptab.scopeRead'));
-const tabItems = computed(() => TABS.map((x) => ({
+const tabItems = computed(() => visibleTabs.value.map((x) => ({
   id: x.id, title: t(x.title), sub: t(x.sub), icon: x.icon, tone: x.tone, scope: scopeText(x.scope),
   disabled: calBusy.value && x.id !== 'calibration', hint: calBusy.value ? t('ptab.locked') : undefined,
 })));
@@ -114,7 +123,7 @@ onBeforeUnmount(offGate);
             <span class="ph__cell">
               <span class="ph__scope">
                 <template v-if="current.scope === 'profile'">
-                  <span class="ph__n num" aria-hidden="true">{{ device.activeProfile + 1 }}</span>
+                  <span v-if="!profilesUnknown" class="ph__n num" aria-hidden="true">{{ device.activeProfile + 1 }}</span>
                   <span>{{ scopeParts[0] }}<span class="ph__name" :title="profileName">{{ profileName }}</span>{{ scopeParts[1] }}</span>
                 </template>
                 <template v-else>

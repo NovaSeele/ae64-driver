@@ -158,7 +158,7 @@ const nameOf = (i: number | null) => (i === null ? '' : props.profiles[i]?.name 
       </p>
     </template>
 
-    <p v-if="read === 'loading'" class="cmp__empty num" role="status">{{ t('perf.loading', { n: loadedCount }) }}</p>
+    <p v-if="read === 'loading'" class="cmp__empty num" role="status">{{ t('perf.loading', { n: loadedCount, total: device.keys.length }) }}</p>
     <div v-else-if="read === 'error'" class="cmp__empty">
       <b>{{ t('perf.loadFailed') }}</b>
       <Button variant="secondary" size="sm" class="cmp__reload" @click="emit('reload')">{{ t('perf.reload') }}</Button>

@@ -58,6 +58,7 @@ const history = useHistoryStore();
 const userPresets = useUserPresetsStore();
 const router = useRouter();
 const toast = useToast();
+const isGeneric = computed(() => device.support === 'generic');
 defineOptions({ name: 'TravelTab' });
 /** The page toolbar's slot for the open tab's view tools (PerformancePage); none = shown in place. */
 const toolsEl = inject(PTAB_TOOLS, ref(null));
@@ -282,7 +283,7 @@ function legendFor(m: Metric): LegendItem[] | undefined {
   if (perf.loading || perf.loadError) return undefined;
   const recs = device.keys.map((k) => perf.values[k.id]).filter(Boolean);
   if (!recs.length) return undefined;
-  if (m === 'actuation') return actuationLegend(recs, perf.needsCal.length);
+  if (m === 'actuation') return actuationLegend(recs, isGeneric.value ? 0 : perf.needsCal.length);
   const known = recs.filter((p) => isKnownMode(p.mode));
   const items: LegendItem[] = [];
   if (m === 'rt') {
@@ -294,13 +295,13 @@ function legendFor(m: Metric): LegendItem[] | undefined {
     items.push({ glyph: '↓', tone: 'var(--m-deadzone)', text: t('perf.showsDzBottom') });
   }
   if (known.length < recs.length) items.push({ sample: 'lock', label: t('perf.showsLockedGlyph'), text: t('perf.showsLocked'), tone: METRIC_TONE[m] });
-  if (perf.needsCal.length) items.push({ sample: 'flag', label: t('sel.flaggedGlyph'), text: t('sel.flagged') });
+  if (!isGeneric.value && perf.needsCal.length) items.push({ sample: 'flag', label: t('sel.flaggedGlyph'), text: t('sel.flagged') });
   return items;
 }
 const shows = computed(() => legendFor(metric.value));
 /** The other chips' legends: the bar keeps one row count across chips. */
 const showsAlt = computed(() => METRICS.filter((m) => m.id !== metric.value).map((m) => legendFor(m.id)).filter((l): l is LegendItem[] => !!l));
-const uncalFlag = (k: PhysicalKey) => uncalFlagFor(perf.needsCal, k.id);
+const uncalFlag = (k: PhysicalKey) => (isGeneric.value ? undefined : uncalFlagFor(perf.needsCal, k.id));
 function badgeTitle(k: PhysicalKey): string | undefined {
   const p = perf.values[k.id];
   if (!p) return undefined;
@@ -715,7 +716,7 @@ const modeOptions = computed(() => [
         </template>
       </TabKeyboard>
 
-      <p v-if="ro" class="ro-note" role="note">
+      <p v-if="ro && !isGeneric" class="ro-note" role="note">
         <IconLock :size="16" stroke-width="1.75" aria-hidden="true" /><span>{{ t('perf.readOnly') }}</span>
       </p>
 
@@ -732,7 +733,7 @@ const modeOptions = computed(() => [
 
       <!-- loading skeleton -->
       <div v-else-if="perf.loading" class="grid" :style="{ '--cols': colCount }" aria-busy="true">
-        <p class="loading num">{{ t('perf.loading', { n: perf.loadedCount }) }}</p>
+        <p class="loading num">{{ t('perf.loading', { n: perf.loadedCount, total: device.keys.length }) }}</p>
         <div v-for="i in 3" :key="i" class="skel-card">
           <div class="skeleton" style="width: 40%; height: 14px" />
           <div class="skeleton" style="height: 120px" />
@@ -742,7 +743,10 @@ const modeOptions = computed(() => [
 
       <!-- editors: row 1 is the column grid (its height is held); saved presets sit in their own row below -->
       <div v-else-if="hasKeys" class="editors">
-        <div v-if="decimals === 3" ref="fstEl" class="fst">
+        <p v-if="isGeneric && device.unknown.rtPrecision" class="fst__desc" data-testid="travel-precision-unknown">
+          {{ t('settings.rtPrecision') }}: {{ t('mkb.common.unknown') }}
+        </p>
+        <div v-else-if="decimals === 3" ref="fstEl" class="fst">
           <Switch v-model="fineStep" :label="t('perf.fineStep')" :describedby="fineStepDescId" />
           <span :id="fineStepDescId" class="fst__desc num">{{ fineStep ? t('perf.fineStepOn') : t('perf.fineStepOff') }}</span>
           <InfoTip :text="t('perf.fineStepTip')" />
@@ -987,13 +991,13 @@ const modeOptions = computed(() => [
                 <span class="preset__name">{{ u.name }}</span>
                 <span class="preset__desc num">{{ userPresetMeta(u) }}</span>
               </button>
-              <button type="button" class="preset-x" :aria-label="t('perf.presetDelete', { name: u.name })" :title="t('perf.presetDelete', { name: u.name })" @click="removeUserPreset(u)">
+              <button type="button" class="preset-x" :aria-label="t('perf.presetDelete', { name: u.name })" :title="t('perf.presetDelete', { name: u.name })" :disabled="isGeneric" @click="removeUserPreset(u)">
                 <IconX :size="14" stroke-width="2" aria-hidden="true" />
               </button>
             </div>
           </div>
           <div ref="saveFoot" class="presets__save">
-            <Button variant="secondary" size="sm" :disabled="!!saveBlocked" :aria-describedby="saveBlocked ? 'perf-save-why' : undefined" @click="openSave">
+            <Button variant="secondary" size="sm" :disabled="isGeneric || !!saveBlocked" :aria-describedby="saveBlocked ? 'perf-save-why' : undefined" @click="openSave">
               {{ t('perf.presetSaveCurrent') }}
             </Button>
             <p v-if="saveBlocked" id="perf-save-why" class="hint">{{ saveBlocked }}</p>

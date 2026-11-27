@@ -56,6 +56,7 @@ const ICONS: Record<string, Component> = {
 
 const draft = ref<WritableAssignment | null>(null);
 const editing = ref<Assignment | null>(null);
+const isGeneric = computed(() => device.support === 'generic');
 /** A board outside the write allow-list (WHOLE P3): the tab says so and opens no editor, as Keymap and Lighting do. */
 const ro = computed(() => !device.boardAllowed);
 const pairSlot = ref<0 | 1>(0);
@@ -162,8 +163,12 @@ onBeforeUnmount(() => {
 // ----- labels
 const keyName = (id: number) => (device.keys[id] ? device.legend(device.keys[id]) : '?');
 const code = (c: number) => (c ? keycodeLabel(c).label : '—');
-const shortOf = (a: Assignment) => (a.type === 'READONLY' ? a.record.type : t(`advanced.short${a.type}`));
-const titleOf = (a: Assignment) => (a.type === 'READONLY' ? a.record.type : t(`advanced.type${a.type}`));
+const shortOf = (a: Assignment) => (a.type === 'READONLY'
+  ? (isGeneric.value && a.record.type === 'UNKNOWN' ? t('mkb.common.unknown') : a.record.type)
+  : t(`advanced.short${a.type}`));
+const titleOf = (a: Assignment) => (a.type === 'READONLY'
+  ? (isGeneric.value && a.record.type === 'UNKNOWN' ? t('mkb.common.unknown') : a.record.type)
+  : t(`advanced.type${a.type}`));
 const SOCD_NAMES: MessageKey[] = ['advanced.socdLast', 'advanced.socdA', 'advanced.socdB', 'advanced.socdNeutral'];
 
 function readOnlyDetail(r: AdvancedRecord): string {
@@ -172,7 +177,7 @@ function readOnlyDetail(r: AdvancedRecord): string {
     case 'TGL': return t('advanced.tglDetail', { key: code(r.keycode), time: r.time });
     case 'END': return t('advanced.endDetail', { press: code(r.keycodes[0]), release: code(r.keycodes[1]), delay: r.delay });
     case 'SOCD': case 'RS': return t('advanced.orphanDetail');
-    default: return t('advanced.unknownDetail', { mode: r.mode });
+    default: return isGeneric.value ? t('mkb.common.unknown') : t('advanced.unknownDetail', { mode: r.mode });
   }
 }
 function detailOf(a: Assignment): string {
@@ -504,12 +509,12 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
       <template v-if="summary" #detail>
         <span class="sum">
           <span class="sum__text" :title="summary.text">{{ summary.text }}</span>
-          <Button v-if="!summary.ro" size="sm" variant="ghost" :disabled="ro" :aria-label="t('advanced.editEntry', { type: shortOf(summary.a), keys: keysOf(summary.a) })" @click="edit(summary.a)">{{ t('advanced.edit') }}</Button>
+          <Button v-if="!summary.ro && !isGeneric" size="sm" variant="ghost" :disabled="ro" :aria-label="t('advanced.editEntry', { type: shortOf(summary.a), keys: keysOf(summary.a) })" @click="edit(summary.a)">{{ t('advanced.edit') }}</Button>
         </span>
       </template>
     </TabKeyboard>
 
-    <p v-if="ro" class="ro-note" role="note">
+    <p v-if="ro && !isGeneric" class="ro-note" role="note">
       <IconLock :size="16" stroke-width="1.75" aria-hidden="true" /><span>{{ t('advanced.boardReadOnly') }}</span>
     </p>
 
@@ -574,8 +579,8 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
     </Card>
 
     <!-- overview -->
-    <div v-else class="cols">
-      <Card :title="t('advanced.types')" :subtitle="t('advanced.typesHint')">
+    <div v-else class="cols" :class="{ 'cols--single': isGeneric }">
+      <Card v-if="!isGeneric" :title="t('advanced.types')" :subtitle="t('advanced.typesHint')">
         <div class="types">
           <button v-for="x in TYPES" :key="x.type" type="button" class="type" :data-type="x.type" :style="kindStyle(x.type)" :disabled="ro" @click="start(x.type)">
             <span class="type__icon"><component :is="x.icon" :size="20" stroke-width="1.6" /></span>
@@ -592,7 +597,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
       </Card>
 
       <Card ref="cfgCard" :title="t('advanced.configured')" :subtitle="adv.assignments.length ? t('advanced.configuredCount', { n: adv.assignments.length }) : undefined">
-        <div v-if="addFor !== null" class="addkey">
+        <div v-if="addFor !== null && !isGeneric" class="addkey">
           <p class="addkey__text">{{ t('advanced.addForKey', { key: keyName(addFor) }) }}</p>
           <div class="addkey__btns">
             <button v-for="x in TYPES" :key="x.type" type="button" class="chip" :data-add="x.type" :style="kindStyle(x.type)" :disabled="ro || !hostOk(x.type, addFor)" :title="hostOk(x.type, addFor) ? undefined : t('advanced.hostIneligible', { type: t(`advanced.type${x.type}`) })" :aria-describedby="hostOk(x.type, addFor) ? undefined : 'addkey-why'" :aria-label="t('advanced.addTypeForKey', { type: t(`advanced.short${x.type}`), key: keyName(addFor) })" @click="start(x.type, { fromKey: true })">+ {{ t(`advanced.short${x.type}`) }}</button>
@@ -603,7 +608,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
         <div v-if="!adv.assignments.length" class="empty">
           <IconTimeline :size="28" stroke-width="1.4" aria-hidden="true" />
           <p>{{ t('advanced.none') }}</p>
-          <p class="muted">{{ t('advanced.noneHint') }}</p>
+          <p v-if="!isGeneric" class="muted">{{ t('advanced.noneHint') }}</p>
         </div>
         <ul v-else class="list">
           <li v-for="a in adv.assignments" :key="`${a.type}:${a.keys.join(',')}`" class="item" :data-item="`${a.type === 'READONLY' ? a.record.type : a.type}:${[...a.keys].sort((x, y) => x - y).join(',')}`" :class="{ 'item--hl': highlighted.has(a) }" :style="kindStyle(a.type === 'READONLY' ? a.record.type : a.type)">
@@ -616,11 +621,11 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
               </span>
               <span class="item__detail">{{ detailOf(a) }}</span>
             </button>
-            <IconButton v-if="a.type !== 'READONLY'" :icon="IconPencil" :label="t('advanced.editRow', { keys: keysOf(a), type: shortOf(a) })" size="sm" :disabled="ro" @click="edit(a)" />
-            <IconButton :icon="IconTrash" :label="t('advanced.deleteRow', { keys: keysOf(a), type: shortOf(a) })" size="sm" :disabled="ro" @click="confirmDel = a" />
+            <IconButton v-if="!isGeneric && a.type !== 'READONLY'" :icon="IconPencil" :label="t('advanced.editRow', { keys: keysOf(a), type: shortOf(a) })" size="sm" :disabled="ro" @click="edit(a)" />
+            <IconButton v-if="!isGeneric" :icon="IconTrash" :label="t('advanced.deleteRow', { keys: keysOf(a), type: shortOf(a) })" size="sm" :disabled="ro" @click="confirmDel = a" />
           </li>
         </ul>
-        <div v-if="adv.assignments.length" class="addslot"><IconArrowLeft :size="16" stroke-width="1.6" aria-hidden="true" />{{ t('advanced.noneHint') }}</div>
+        <div v-if="adv.assignments.length && !isGeneric" class="addslot"><IconArrowLeft :size="16" stroke-width="1.6" aria-hidden="true" />{{ t('advanced.noneHint') }}</div>
         </div>
       </Card>
     </div>
@@ -648,6 +653,7 @@ const pair = computed({ get: () => draft.value as SocdAssignment | RsAssignment,
 /* = PageLayout's gap between its keyboard block and the panels, where this tab used to live */
 .advtab { display: flex; flex-direction: column; gap: var(--s-5); min-width: 0; }
 .cols { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: var(--s-4); }
+.cols--single { grid-template-columns: 1fr; }
 @media (max-width: 1000px) { .cols { grid-template-columns: 1fr; } }
 .loading { color: var(--fg-3); }
 .skel-card {

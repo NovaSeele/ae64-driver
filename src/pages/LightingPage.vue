@@ -47,19 +47,30 @@ const sel = useSelectionStore();
 const sync = useSyncStore();
 const lighting = useLightingStore();
 
+const isGeneric = computed(() => device.support === 'generic');
+const boardForEffects = computed(() => (isGeneric.value ? undefined : device.info?.boardIdHex));
+
 type TabId = 'keys' | 'strip';
 const activeTab = ref<TabId>('keys');
 /** Firmware lighting area of the active tab: 0 = keys, 1 = edge strip. */
 const area = computed<0 | 1>(() => (activeTab.value === 'keys' ? 0 : 1));
 
-const tabItems = computed(() => [
-  { id: 'keys' as const, title: t('lighting.tabKeys'), sub: t('lighting.tabKeysSub'), icon: IconKeyboard },
-  { id: 'strip' as const, title: t('lighting.tabStrip'), sub: t('lighting.tabStripSub'), icon: IconBorderOuter },
-]);
+const hasArea0 = computed(() => (!isGeneric.value ? true : lighting.area0Available || lighting.area0Unsupported));
+const hasArea1 = computed(() => (!isGeneric.value ? true : lighting.area1Available || lighting.area1Unsupported));
+
+const tabItems = computed(() => {
+  const all = [
+    { id: 'keys' as const, title: t('lighting.tabKeys'), sub: t('lighting.tabKeysSub'), icon: IconKeyboard },
+    { id: 'strip' as const, title: t('lighting.tabStrip'), sub: t('lighting.tabStripSub'), icon: IconBorderOuter },
+  ];
+  if (!isGeneric.value) return all;
+  return all.filter((it) => (it.id === 'keys' ? hasArea0.value : hasArea1.value));
+});
 
 /** ←/→ move and activate, Home/End jump (the tab pair is a plain tablist). */
 function onTabKey(e: KeyboardEvent) {
   const items = tabItems.value;
+  if (items.length <= 1) return;
   let next: (typeof items)[number] | undefined;
   if (e.key === 'Home') next = items[0];
   else if (e.key === 'End') next = items[items.length - 1];
@@ -76,6 +87,30 @@ function onTabKey(e: KeyboardEvent) {
 const ready = computed(() => !lighting.loading && lighting.loadedProfile === device.activeProfile);
 const readOnly = computed(() => !device.boardAllowed);
 const locked = computed(() => !ready.value || readOnly.value);
+
+const activeAreaUnsupported = computed(() => (isGeneric.value
+  ? (area.value === 0 ? lighting.area0Unsupported : lighting.area1Unsupported)
+  : false));
+const activeAreaAvailable = computed(() => (!isGeneric.value
+  ? true
+  : (area.value === 0 ? lighting.area0Available : lighting.area1Available)));
+const showKeyboard = computed(() => !isGeneric.value
+  || (hasArea0.value && !lighting.area0Unsupported && lighting.area0Shape?.rows !== 1));
+
+/** Generic 1D strip areas (rows === 1) shown as one text line with LED count from `02 08 00` (DESIGN MKB §10.2–§10.3). */
+const genericStripLines = computed<{ id: number; cols: number }[]>(() => {
+  if (!isGeneric.value || !ready.value) return [];
+  const out: { id: number; cols: number }[] = [];
+  if (lighting.area0Available && lighting.area0Shape?.rows === 1) out.push({ id: 0, cols: lighting.area0Shape.cols });
+  if (lighting.area1Available && lighting.area1Shape?.rows === 1) out.push({ id: 1, cols: lighting.area1Shape.cols });
+  return out;
+});
+
+watch([isGeneric, ready, hasArea0, hasArea1], ([generic, isReady, a0, a1]) => {
+  if (!generic || !isReady) return;
+  if (activeTab.value === 'keys' && !a0 && a1) activeTab.value = 'strip';
+  else if (activeTab.value === 'strip' && !a1 && a0) activeTab.value = 'keys';
+}, { immediate: true });
 
 const base = computed(() => (area.value === 0 ? lighting.area0Base : lighting.area1Base));
 const palette = computed(() => (area.value === 0 ? lighting.area0Palette : lighting.area1Palette));
@@ -95,7 +130,7 @@ let offProfile: (() => void) | null = null;
 
 onMounted(() => {
   void lighting.load();
-  lighting.startLivePolling();
+  if (!isGeneric.value) lighting.startLivePolling();
   offProfile = device.onProfileChanged(() => {
     void lighting.load(true);
   });
@@ -143,7 +178,7 @@ onBeforeUnmount(() => {
 const tabVisible = ref(typeof document === 'undefined' || !document.hidden);
 function onVisibility() { tabVisible.value = !document.hidden; }
 document.addEventListener('visibilitychange', onVisibility);
-const livePaint = computed(() => ready.value && lighting.livePreview && !lighting.liveError && lighting.liveHasFrame && tabVisible.value);
+const livePaint = computed(() => !isGeneric.value && ready.value && lighting.livePreview && !lighting.liveError && lighting.liveHasFrame && tabVisible.value);
 
 // "Xem thử" (FXP §7): while a tile is rested on or focused, the previewed area of the big keyboard plays that effect from
 // the pattern module (src/data/ledPatterns.ts) instead of its live or saved colours. Display only: the live read loop keeps
@@ -151,7 +186,7 @@ const livePaint = computed(() => ready.value && lighting.livePreview && !lightin
 interface Preview { area: 0 | 1; n: number; known: boolean }
 /** The tile shown: a known effect plays on the board; an unknown one only gets the "no preview" cue. */
 const preview = ref<Preview | null>(null);
-const playing = computed(() => (ready.value && preview.value?.known ? preview.value : null));
+const playing = computed(() => (!isGeneric.value && ready.value && preview.value?.known ? preview.value : null));
 /** The halves painted outside Vue: everything while live frames show; else only the area being previewed. */
 const paintKeys = computed(() => livePaint.value || playing.value?.area === 0);
 const paintStrip = computed(() => livePaint.value || playing.value?.area === 1);
@@ -447,16 +482,27 @@ const directionOptions = computed(() => [
   { value: 1, label: `← ${t('lighting.directionBackward')}` },
 ]);
 
-/** UI effect number and, when the board's name for it is sure, " · name" (display only). */
+/** UI effect number and, when the board's name for it is sure, " · name" (display only; AE64 names never used on generic). */
 const effectLabel = (n: number) => {
-  const name = effectName(device.info?.boardIdHex, area.value, n, locale.value);
+  if (isGeneric.value) return t('mkb.light.effect', { n });
+  const name = effectName(boardForEffects.value, area.value, n, locale.value);
   return name ? `${n} · ${name}` : String(n);
 };
-const effectBtnLabel = (n: number) => t('lighting.effectN', { n: effectLabel(n) });
+const effectReadout = computed(() => {
+  const mode = base.value.mode;
+  if (isGeneric.value) {
+    return mode >= 0 && mode < modeCount.value ? t('mkb.light.effect', { n: mode + 1 }) : t('mkb.common.unknown');
+  }
+  return effectLabel(mode + 1);
+});
+const effectBtnLabel = (n: number) => (isGeneric.value
+  ? t('mkb.light.effect', { n })
+  : t('lighting.effectN', { n: effectLabel(n) }));
 const effectBtnTitle = (n: number) => {
+  if (isGeneric.value) return t('mkb.light.effect', { n });
   // today's format "Hiệu ứng N · Tên — gợi ý"; an unknown effect says it has no preview (FXP §8)
-  if (!effectKnown(device.info?.boardIdHex, area.value, n)) return `${effectBtnLabel(n)} — ${t('lighting.fx.noPreview')}`;
-  const hint = effectHint(device.info?.boardIdHex, area.value, n, locale.value);
+  if (!effectKnown(boardForEffects.value, area.value, n)) return `${effectBtnLabel(n)} — ${t('lighting.fx.noPreview')}`;
+  const hint = effectHint(boardForEffects.value, area.value, n, locale.value);
   return hint ? `${effectBtnLabel(n)} — ${hint}` : effectBtnLabel(n);
 };
 
@@ -468,6 +514,7 @@ function onEffect(index: number) {
 // ------------------------------------------------------------------ Effect buttons: three views (FXP §3, §4)
 const uid = useId();
 const fxView = ref<FxView>(readFxView());
+const activeFxView = computed<FxView>(() => (isGeneric.value ? 'off' : fxView.value));
 const fxViewOptions = computed(() => [
   { value: 'off' as const, label: t('lighting.fx.viewOff') },
   { value: 'lite' as const, label: t('lighting.fx.viewLite') },
@@ -478,12 +525,15 @@ watch(fxView, (v) => { writeFxView(v); previewCtl.end(); });
 
 const fxTiles = computed(() => Array.from({ length: modeCount.value }, (_, i) => {
   const n = i + 1;
-  const known = effectKnown(device.info?.boardIdHex, area.value, n);
+  if (isGeneric.value) {
+    return { n, known: false, on: base.value.mode === i, name: t('mkb.light.effect', { n }), icon: '' };
+  }
+  const known = effectKnown(boardForEffects.value, area.value, n);
   return {
     n,
     known,
     on: base.value.mode === i,
-    name: effectName(device.info?.boardIdHex, area.value, n, locale.value) ?? t('lighting.fx.unknown'),
+    name: effectName(boardForEffects.value, area.value, n, locale.value) ?? t('lighting.fx.unknown'),
     icon: effectIcon(area.value, n, known),
   };
 }));
@@ -491,12 +541,12 @@ const fxTiles = computed(() => Array.from({ length: modeCount.value }, (_, i) =>
 // ------------------------------------------------------------------ "Xem thử": when it starts and ends (FXP §7)
 /** The effects hint says only what works now (FXP v2.1 H1): the "try it" words only where a preview can start (the same
  *  gate as `allowed` below), the Tắt words in Tắt, and nothing while the effects are locked. */
-const fxHint = computed(() => (tuneLocked.value ? null : fxView.value === 'off' ? t('lighting.fx.gridHintOff') : t('lighting.fx.gridHint')));
+const fxHint = computed(() => (isGeneric.value || tuneLocked.value ? null : fxView.value === 'off' ? t('lighting.fx.gridHintOff') : t('lighting.fx.gridHint')));
 const gridEl = ref<HTMLElement | null>(null);
 const previewCtl = new PreviewControl({
-  allowed: (n) => fxView.value !== 'off' && !tuneLocked.value && base.value.mode !== n - 1 && n <= modeCount.value,
+  allowed: (n) => !isGeneric.value && fxView.value !== 'off' && !tuneLocked.value && base.value.mode !== n - 1 && n <= modeCount.value,
   show: (n) => {
-    preview.value = n === null ? null : { area: area.value, n, known: effectKnown(device.info?.boardIdHex, area.value, n) };
+    preview.value = n === null || isGeneric.value ? null : { area: area.value, n, known: effectKnown(boardForEffects.value, area.value, n) };
   },
 });
 // a tab change, the area off or locked, or the chosen effect becoming the previewed one: the preview ends
@@ -547,6 +597,10 @@ const gridOnScreen = ref(true);
 let gridObserver: IntersectionObserver | null = null;
 let gridResize: ResizeObserver | null = null;
 function syncTiles() {
+  if (isGeneric.value) {
+    tiles.setTiles([]);
+    return;
+  }
   const el = gridEl.value;
   tiles.setTiles(el ? [...el.querySelectorAll<HTMLCanvasElement>('canvas[data-mode]')].map((canvas) => ({
     canvas, mode: Number(canvas.dataset.mode), known: canvas.dataset.known === '1',
@@ -567,7 +621,7 @@ watch(gridEl, (el) => {
     gridResize.observe(el);
   }
 }, { flush: 'post' });
-watch([gridEl, fxView, area, fxTiles], syncTiles, { flush: 'post' });
+watch([isGeneric, gridEl, fxView, area, fxTiles], syncTiles, { flush: 'post' });
 const tileParams = computed<TileParams>(() => {
   const b = base.value;
   const light = resolvedTheme.value.includes('light');
@@ -584,8 +638,8 @@ const tileParams = computed<TileParams>(() => {
   };
 });
 watch(tileParams, (p) => tiles.setParams(p), { immediate: true });
-watch([fxView, gridOnScreen, tabVisible, reducedMotion], () => tiles.setGate({
-  detail: fxView.value === 'detail', onScreen: gridOnScreen.value, tabVisible: tabVisible.value, reduced: reducedMotion.value,
+watch([isGeneric, fxView, gridOnScreen, tabVisible, reducedMotion], () => tiles.setGate({
+  detail: !isGeneric.value && fxView.value === 'detail', onScreen: gridOnScreen.value, tabVisible: tabVisible.value, reduced: reducedMotion.value,
 }), { immediate: true });
 
 // ------------------------------------------------------------------ Brightness / speed
@@ -731,7 +785,7 @@ function legendFor(source: Source): LegendItem[] | undefined {
   if (device.keys.some((k) => keyBadge(k))) items.push({ glyph: '●', tone: GLOW_BADGE_TONE, text: t('lighting.showsOwn') });
   return items;
 }
-const source = computed<Source>(() => (liveState.value !== 'live' ? 'lighting.showsSaved' : device.demo ? 'lighting.showsSim' : 'lighting.showsLive'));
+const source = computed<Source>(() => (isGeneric.value || liveState.value !== 'live' ? 'lighting.showsSaved' : device.demo ? 'lighting.showsSim' : 'lighting.showsLive'));
 const shows = computed(() => legendFor(source.value));
 /** Turning live preview on or off (or a read error) switches the source: the bar keeps one row count across them. */
 const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'lighting.showsSaved'] as const)
@@ -740,10 +794,10 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
 
 <template>
   <PageLayout :title="t('page.lighting')">
-    <div class="wb">
+    <div class="wb" :class="{ 'wb--generic': isGeneric }">
       <!-- toolbar -->
       <div class="wb__bar">
-        <div class="tabs" role="tablist" :aria-label="t('lighting.tabsLabel')" @keydown="onTabKey">
+        <div v-if="tabItems.length" class="tabs" role="tablist" :aria-label="t('lighting.tabsLabel')" @keydown="onTabKey">
           <button
             v-for="it in tabItems"
             :key="it.id"
@@ -761,12 +815,12 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
           </button>
         </div>
         <span v-for="it in tabItems" :id="`lighting-tab-sub-${it.id}`" :key="it.id" class="sr-only">{{ it.sub }}</span>
-        <div class="wb__group">
+        <div v-if="!isGeneric || (activeAreaAvailable && !activeAreaUnsupported)" class="wb__group">
           <span class="wb__label">{{ t('lighting.powerTitle') }}</span>
           <Segmented v-model="openModel" :options="openOptions" :label="t('lighting.powerTitle')" :disabled="locked" />
           <InfoTip :text="t(area === 0 ? 'lighting.powerHintKeys' : 'lighting.powerHintStrip')" />
         </div>
-        <div class="wb__group wb__live">
+        <div v-if="!isGeneric" class="wb__group wb__live">
           <span class="lighting-live-badge" :class="playing ? 'lighting-live-badge--try' : `lighting-live-badge--${liveState}`" data-testid="live-chip">
             <span class="lighting-live-badge__dot" />
             {{ playing ? t('lighting.liveBadge.try') : liveState === 'error' ? t('lighting.liveError') : liveState === 'live' ? t(device.demo ? 'lighting.simStatus' : 'lighting.liveStatus') : t('lighting.pausedStatus') }}
@@ -776,10 +830,10 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
         </div>
       </div>
 
-      <p v-if="readOnly" class="lighting-notice" role="status">{{ t('lighting.readOnly') }}</p>
+      <p v-if="readOnly && !isGeneric" class="lighting-notice" role="status">{{ t('lighting.readOnly') }}</p>
 
-      <!-- keyboard (keys are only selectable on the keys tab) with the edge strip as a ring on its frame -->
-      <div ref="boardEl" class="wb__board">
+      <!-- keyboard (keys are only selectable on the keys tab) with the edge strip as a ring on its frame (AE64 only) -->
+      <div v-if="showKeyboard" ref="boardEl" class="wb__board">
         <KeyboardView
           :keys="device.keys"
           :legend="device.legend"
@@ -790,6 +844,7 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
           :loading="!ready"
         />
         <div
+          v-if="!isGeneric"
           ref="ringEl"
           class="ring ring--band"
           :class="{ 'ring--on': activeTab === 'strip' && ready, 'ring--live': paintStrip }"
@@ -827,8 +882,14 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
         </div>
       </div>
 
+      <div v-if="isGeneric && ready && genericStripLines.length" class="lighting-meta-list">
+        <p v-for="s in genericStripLines" :key="s.id" class="lighting-meta-line" data-testid="generic-strip-line">
+          {{ t('mkb.light.strip', { n: s.cols }) }}
+        </p>
+      </div>
+
       <!-- selection bar; a preview covers it in place with its cue, so nothing moves -->
-      <div class="legend" :class="{ 'legend--try': previewCue }">
+      <div v-if="!isGeneric || (activeTab === 'keys' && showKeyboard)" class="legend" :class="{ 'legend--try': previewCue }">
       <SelectionBar v-if="activeTab === 'keys'" :shows="shows" :shows-alt="showsAlt" />
       <div v-else class="sb">
         <span class="sb__count" :class="{ 'sb__count--on': stripSelection.size > 0 }" aria-live="polite">
@@ -860,8 +921,13 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
         <div v-for="n in 4" :key="n" class="skeleton lighting-skeleton" />
       </div>
 
+      <!-- unsupported generic area (rows > 6 or cols > 21) -->
+      <p v-else-if="isGeneric && activeAreaUnsupported" class="lighting-unsupported" data-testid="generic-area-unsupported">
+        {{ t('mkb.common.unsupported') }}
+      </p>
+
       <!-- editor dock -->
-      <section v-else class="dock" :aria-label="t('lighting.effectsTitle')">
+      <section v-else-if="!isGeneric || activeAreaAvailable" class="dock" :aria-label="t('lighting.effectsTitle')">
         <p v-if="!powered" class="dock__off" role="status">{{ t('lighting.powerOffHint') }}</p>
         <!-- a. Effects: a full-width first row, its buttons drawn in the chosen view (FXP §2–§4) -->
         <!-- the hint is the group's description: a plain div's description is never read when a tile gets focus -->
@@ -869,8 +935,8 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
           <div class="col__head fx__head">
             <h3 :id="`${uid}-fx-title`" class="col__title">{{ t('lighting.effectsShort') }}</h3>
             <InfoTip class="col__tip" :text="t('lighting.effectsDesc')" placement="top" />
-            <span class="col__readout" data-testid="effect-readout" :title="effectBtnLabel(base.mode + 1)">{{ effectLabel(base.mode + 1) }}</span>
-            <div class="fx__view">
+            <span class="col__readout" data-testid="effect-readout" :title="isGeneric ? effectReadout : effectBtnLabel(base.mode + 1)">{{ effectReadout }}</span>
+            <div v-if="!isGeneric" class="fx__view">
               <span :id="`${uid}-fx-view`" class="fx__viewlabel">{{ t('lighting.fx.view') }}</span>
               <Segmented v-model="fxView" :options="fxViewOptions" :label="t('lighting.fx.view')" :labelledby="`${uid}-fx-view`" size="sm" data-testid="fx-view" />
               <InfoTip :text="t('lighting.fx.viewTip')" placement="top" />
@@ -880,7 +946,7 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
             <div
               ref="gridEl"
               class="fx__grid"
-              :class="[`fx__grid--${fxView}`, `fx__grid--a${area}`]"
+              :class="[`fx__grid--${activeFxView}`, `fx__grid--a${area}`]"
               :style="{ '--n': modeCount }"
               @pointerover="onGridOver"
               @pointerleave="onGridLeave"
@@ -892,9 +958,9 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
                 :key="`${area}-${tile.n}`"
                 type="button"
                 class="effect-btn"
-                :class="[`effect-btn--${fxView}`, {
+                :class="[`effect-btn--${activeFxView}`, {
                   'effect-btn--active': tile.on,
-                  'effect-btn--unknown': !tile.known,
+                  'effect-btn--unknown': !isGeneric && !tile.known,
                   'effect-btn--try': preview?.n === tile.n,
                 }]"
                 :data-n="tile.n"
@@ -903,8 +969,8 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
                 :aria-pressed="tile.on"
                 @click="onEffect(tile.n - 1)"
               >
-                <span v-if="fxView === 'off'" class="num">{{ tile.n }}</span>
-                <template v-else-if="fxView === 'lite'">
+                <span v-if="activeFxView === 'off'" class="num">{{ tile.n }}</span>
+                <template v-else-if="activeFxView === 'lite'">
                   <!-- eslint-disable-next-line vue/no-v-html -- our own static glyphs (effectIcons.ts), no user text -->
                   <svg class="effect-btn__icon" viewBox="0 0 20 20" aria-hidden="true" v-html="tile.icon" />
                   <span class="effect-btn__n num">{{ tile.n }}</span>
@@ -956,7 +1022,7 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
               </div>
               <div class="field-inline">
                 <span class="field-label">{{ t('lighting.directionShort') }}</span>
-                <Segmented v-model="directionModel" :options="directionOptions" :label="t('lighting.direction')" />
+                <Segmented v-model="directionModel" :options="directionOptions" :label="t('lighting.direction')" :disabled="tuneLocked" />
               </div>
             </fieldset>
           </div>
@@ -1026,10 +1092,13 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
           </div>
 
           <!-- d. Per-key / per-LED colours -->
-          <div class="col col--own">
+          <div v-if="!(isGeneric && activeTab === 'strip')" class="col col--own">
             <div class="col__head">
               <h3 class="col__title">{{ activeTab === 'keys' ? t('lighting.perKeyTitle') : t('lighting.stripCustomTitle') }}</h3>
-              <InfoTip :text="activeTab === 'keys' ? `${t('lighting.perKeyDesc')} ${t('lighting.spaceNote')}` : t('lighting.stripCustomDesc')" placement="top" />
+              <InfoTip
+                :text="activeTab === 'keys' ? (isGeneric ? t('lighting.perKeyDesc') : `${t('lighting.perKeyDesc')} ${t('lighting.spaceNote')}`) : t('lighting.stripCustomDesc')"
+                placement="top"
+              />
             </div>
             <fieldset class="col__body" :disabled="locked">
               <button
@@ -1083,6 +1152,15 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
           </div>
         </div>
       </section>
+
+      <div v-if="isGeneric && ready && (lighting.extraAreas.length || lighting.areasTruncated)" class="lighting-extra" data-testid="generic-extra-areas">
+        <p v-for="ea in lighting.extraAreas" :key="ea.id" class="lighting-meta-line" :data-testid="`generic-extra-area-${ea.id}`">
+          {{ t('mkb.light.extraArea', { n: ea.id, m: ea.modes }) }}
+        </p>
+        <p v-if="lighting.areasTruncated" class="lighting-meta-line lighting-meta-line--muted" data-testid="generic-areas-truncated">
+          … {{ t('mkb.common.unknown') }}
+        </p>
+      </div>
     </div>
 
     <Dialog
@@ -1520,4 +1598,38 @@ const showsAlt = computed(() => (['lighting.showsLive', 'lighting.showsSim', 'li
   font-weight: 500;
 }
 .col .own-actions__all:disabled { color: var(--fg-3); }
+
+.lighting-meta-list,
+.lighting-extra {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--s-2) var(--s-3);
+  background: var(--panel);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-card);
+}
+.lighting-meta-line {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--fg-2);
+}
+.lighting-meta-line--muted { color: var(--fg-3); }
+.lighting-unsupported {
+  margin: 0;
+  padding: var(--s-4);
+  background: var(--panel);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-card);
+  color: var(--fg-2);
+  font-size: var(--fs-body);
+}
+.wb--generic .fx__grid--off {
+  grid-template-columns: repeat(auto-fill, minmax(36px, 48px));
+}
+@container (max-width: 680px) {
+  .wb--generic .dock__cols { grid-template-columns: 1fr; }
+  .wb--generic .col { padding: var(--s-3) 0 0; border-left: 0; border-top: 1px solid var(--line-1); }
+  .wb--generic .col:first-child { padding-top: 0; border-top: 0; }
+}
 </style>

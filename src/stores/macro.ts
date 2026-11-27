@@ -132,6 +132,7 @@ export const useMacroStore = defineStore('macro', () => {
 
   /** Macros are device-wide (not per profile): read once per connection unless forced. */
   function load(force = false): Promise<void> {
+    if (device.support === 'generic') return Promise.resolve(); // DESIGN MKB §9.2: no 07 xx or 02 0E reads on generic
     if (loadPromise) return force ? loadPromise.then(() => load(true)) : loadPromise;
     if (!force && loaded.value && loadedFor === device.transport) return Promise.resolve();
     const gen = device.connection;

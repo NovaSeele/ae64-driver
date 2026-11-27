@@ -13,8 +13,12 @@ import { t } from '../../i18n/vi';
 const compact = defineModel<boolean>('compact', { default: false });
 const device = useDeviceStore();
 const firmware = useFirmwareStore();
-/** A labs page (Firmware) only while its switch is on, or while it runs (rescue mode with the switch off). */
-const groups = computed(() => NAV.map((g) => ({ ...g, items: g.items.filter((it) => !it.labs || firmware.enabled || firmware.active) })));
+const isGeneric = computed(() => device.support === 'generic');
+/** A labs page (Firmware) only while its switch is on, or while it runs (rescue mode with the switch off). Gamepad is hidden on generic (DESIGN MKB §9.2). */
+const groups = computed(() => NAV.map((g) => ({
+  ...g,
+  items: g.items.filter((it) => (!it.labs || firmware.enabled || firmware.active) && !(isGeneric.value && it.path === '/gamepad')),
+})));
 /** Locked to the firmware page while it runs (DESIGN FW §3.4); otherwise every page needs a keyboard. */
 const off = (it: NavItem): boolean => (firmware.active ? it.path !== '/firmware' : !device.connected);
 </script>
@@ -22,7 +26,7 @@ const off = (it: NavItem): boolean => (firmware.active ? it.path !== '/firmware'
 <template>
   <aside class="side" :class="{ 'side--compact': compact }">
     <DeviceCard :compact="compact" />
-    <ProfileSelect v-if="device.connected && device.profileNames.length" :compact="compact" />
+    <ProfileSelect v-if="device.connected && (device.profileNames.length || (isGeneric && device.unknown.profiles))" :compact="compact" />
     <nav class="side__nav" data-shellnav :aria-label="t('nav.configure')">
       <div v-for="g in groups" :key="g.group" class="side__group">
         <div class="micro side__label">{{ t(g.group) }}</div>

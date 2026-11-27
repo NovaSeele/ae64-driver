@@ -40,10 +40,12 @@ const drafts = reactive(new Map<number, MacroDraft>());
 const saving = ref(false);
 const confirmClear = ref(false);
 const confirmClearList = ref(false);
+const isGeneric = computed(() => device.support === 'generic');
 const readOnly = computed(() => !device.boardAllowed);
 
 let offProfile: (() => void) | null = null;
 onMounted(() => {
+  if (isGeneric.value) return; // DESIGN MKB §9.2: notice only, no 07 xx or 02 0E read on generic
   void macro.load().then(restoreCarried, () => undefined);
   void keymap.load(); // "Đang gán" looks at every layer
   // The Fn layers are per profile: read the new one's (layer 0 comes with the switch itself).
@@ -355,7 +357,11 @@ async function discard() {
 
 <template>
   <PageLayout :title="t('page.macro')">
-    <Card v-if="macro.loadError" :title="t('macro.loadFailed')" :subtitle="macro.loadError">
+    <Card v-if="isGeneric" data-testid="macro-unsupported">
+      <p class="none">{{ t('mkb.page.macroUnsupported') }}</p>
+    </Card>
+
+    <Card v-else-if="macro.loadError" :title="t('macro.loadFailed')" :subtitle="macro.loadError">
       <div><Button :icon="IconRefresh" @click="macro.load(true)">{{ t('macro.reload') }}</Button></div>
     </Card>
 

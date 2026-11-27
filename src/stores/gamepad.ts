@@ -231,7 +231,7 @@ export const useGamepadStore = defineStore('gamepad', () => {
    * changes `support`, `info` or the draft, and never reads the block. A timeout or any error: 'unknown'.
    */
   function firmwareKind(force = false): Promise<'stock' | 'agp1' | 'unknown'> {
-    if (!device.connected || device.info?.runMode !== 0) return Promise.resolve('unknown');
+    if (!device.connected || device.support === 'generic' || device.info?.runMode !== 0) return Promise.resolve('unknown');
     if (device.model !== 'pro') return Promise.resolve('stock');
     const held = kindOfSupport() ?? (force ? null : kindRead);
     if (held) return Promise.resolve(held);
@@ -256,7 +256,7 @@ export const useGamepadStore = defineStore('gamepad', () => {
   function load(force = false): Promise<void> {
     if (loadPromise) return force ? loadPromise.then(() => load(true)) : loadPromise;
     if (!force && support.value !== 'unknown' && support.value !== 'error') return Promise.resolve();
-    if (!device.connected) return Promise.resolve();
+    if (!device.connected || device.support === 'generic') return Promise.resolve();
     if (device.model !== 'pro') {
       support.value = 'max';
       return Promise.resolve();

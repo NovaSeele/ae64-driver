@@ -183,7 +183,7 @@ export const base = {
   'perf.tryNow': 'Thử ngay',
   'perf.tryNowHint': 'Mở Đo hành trình cho phím đang chọn',
   'perf.mixed': 'Nhiều',
-  'perf.loading': 'Đang đọc cài đặt từ {n}/64 phím…',
+  'perf.loading': 'Đang đọc cài đặt từ {n}/{total} phím…',
   'perf.loadFailed': 'Không đọc được cài đặt hành trình.',
   'perf.reload': 'Đọc lại',
   'perf.readOnly': 'Bảng mạch không nằm trong danh sách được phép ghi — chỉ xem, không thể sửa hành trình.',
@@ -316,6 +316,7 @@ export const base = {
   'mkb.export.openGithub': 'Mở GitHub Issues',
   'mkb.export.what': 'xuất thông tin bàn phím',
   'mkb.export.support': 'Mức hỗ trợ',
+  'mkb.overview.features': 'Tính năng',
 } as const;
 
 export const vi = {
