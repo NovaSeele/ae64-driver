@@ -30,4 +30,10 @@ defineProps<{ title?: string; subtitle?: string }>();
 .card__title { font-size: var(--fs-card); font-weight: 600; }
 .card__sub { margin-top: 2px; color: var(--fg-3); font-size: var(--fs-label); }
 .card__actions { display: flex; gap: var(--s-2); align-items: center; }
+
+@media (max-width: 899px) {
+  .shell--generic .card__head { flex-wrap: wrap; }
+  .shell--generic .card__head > div { min-width: 0; max-width: 100%; }
+  .shell--generic .card__actions { flex-wrap: wrap; max-width: 100%; }
+}
 </style>

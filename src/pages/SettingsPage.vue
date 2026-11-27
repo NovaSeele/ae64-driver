@@ -375,4 +375,9 @@ const shakeModel = computed({
   font-size: var(--fs-body);
   font-weight: 500;
 }
+
+@media (max-width: 899px) {
+  .shell--generic .settings-rate { flex-wrap: wrap; }
+  .shell--generic .settings-rate :deep(.seg) { flex-wrap: wrap; max-width: 100%; }
+}
 </style>

@@ -994,4 +994,18 @@ function onTypeKey(e: KeyboardEvent) {
 .typetest__box::placeholder {
   color: var(--fg-4);
 }
+
+@media (max-width: 899px) {
+  .shell--generic .kbfoot { flex-wrap: wrap; }
+  .shell--generic .kbfoot .sw,
+  .shell--generic .klock .sw { flex: 0 1 auto; max-width: 100%; }
+  .shell--generic .kbfoot :deep(.sw),
+  .shell--generic .kbfoot :deep(.sw__label),
+  .shell--generic .klock :deep(.sw),
+  .shell--generic .klock :deep(.sw__label) { white-space: normal; max-width: 100%; }
+  .shell--generic .klock { flex-wrap: wrap; min-width: 0; max-width: 100%; }
+  .shell--generic .klock__text { flex: 1 1 180px; min-width: 0; }
+  .shell--generic .checkrow > *,
+  .shell--generic .grid > * { min-width: 0; max-width: 100%; }
+}
 </style>

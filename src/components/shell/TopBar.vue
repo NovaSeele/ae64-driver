@@ -155,7 +155,7 @@ const savedTip = computed(() => (sync.lastProblem ? t('sync.lastProblem', { msg:
 }
 .pill__retry:hover { background: color-mix(in srgb, var(--danger) 22%, transparent); }
 @media (max-width: 899px) {
-  :global(.shell--generic) .top { padding: 0 var(--s-4); gap: var(--s-2); }
-  :global(.shell--generic) .top__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .shell--generic .top { padding: 0 var(--s-4); gap: var(--s-2); }
+  .shell--generic .top__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 </style>

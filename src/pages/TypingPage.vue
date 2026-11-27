@@ -406,4 +406,9 @@ const progress = computed(() => {
 .tt-acts { display: flex; flex-wrap: wrap; gap: var(--s-2); align-items: center; }
 
 @media (prefers-reduced-motion: reduce) { .tt-text__in { transition: none; } }
+
+@media (max-width: 899px) {
+  .shell--generic .tt-status { flex-wrap: wrap; }
+  .shell--generic .tt-mode { margin-left: 0; }
+}
 </style>

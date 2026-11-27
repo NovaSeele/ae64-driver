@@ -430,4 +430,8 @@ const hasNoKeys = computed(() => isGeneric.value && !device.keys.length);
 .ovd__list dd { margin: 0; color: var(--fg-1); }
 .ovd__more { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-weight: 500; border-radius: 4px; }
 .ovd__more:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+@media (max-width: 899px) {
+  .shell--generic .ovh__actions { flex: 1 1 auto; min-width: 0; max-width: 100%; margin-left: 0; }
+}
 </style>

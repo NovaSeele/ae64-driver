@@ -775,4 +775,9 @@ async function doRestore() {
   line-height: 1.5;
   color: var(--fg-1);
 }
+
+@media (max-width: 899px) {
+  .shell--generic .diag-log-toolbar { flex-wrap: wrap; }
+  .shell--generic .diag-log-search { min-width: 0; max-width: 100%; }
+}
 </style>
