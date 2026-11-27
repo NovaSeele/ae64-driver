@@ -317,6 +317,7 @@ export const base = {
   'mkb.export.what': 'xuất thông tin bàn phím',
   'mkb.export.support': 'Mức hỗ trợ',
   'mkb.overview.features': 'Tính năng',
+  'mkb.overview.keyboardSub': 'Actuation từng phím của profile {name}.',
 } as const;
 
 export const vi = {

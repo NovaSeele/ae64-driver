@@ -104,12 +104,15 @@ function fill(k: PhysicalKey): number | undefined {
 const uncalFlag = (k: PhysicalKey) => (isGeneric.value ? undefined : uncalFlagFor(perf.needsCal, k.id));
 const shows = computed(() => actuationLegend(device.keys.map((k) => perf.values[k.id]).filter(Boolean), isGeneric.value ? 0 : perf.needsCal.length, true));
 const plain = computed(() => legendSentence(shows.value));
-/** "… profile {name}. …" with the name (user data) in its own span. */
+/** "… profile {name}. …" with the name (user data) in its own span; on generic, drop the "Click a key to edit it." sentence. */
 const keyboardSub = computed(() => {
   const MARK = '\u0000';
-  const [before, after = ''] = t('ov.keyboardSub', { name: MARK }).split(MARK);
+  const [before, after = ''] = t(isGeneric.value ? 'mkb.overview.keyboardSub' : 'ov.keyboardSub', { name: MARK }).split(MARK);
   return { before, after };
 });
+const genericSub = computed(() => (isGeneric.value && device.info
+  ? t('mkb.name.cardSub', { board: device.info.boardIdHex.toUpperCase(), fw: device.info.firmware })
+  : null));
 
 /** Opens the key in the Travel tab, alone in the selection (DESIGN F §3.5). Back returns here. */
 function openKey(k: PhysicalKey): void {
@@ -173,14 +176,17 @@ const hasNoKeys = computed(() => isGeneric.value && !device.keys.length);
           <h2 id="ov-model" class="ovh__name">{{ isGeneric ? device.displayName : device.modelName }}</h2>
           <p class="ovh__meta">
             <span class="ovh__dot" aria-hidden="true" />
-            <span>{{ device.demo ? t('device.demo') : t('device.connected') }}</span>
-            <span class="ovh__sep" aria-hidden="true">·</span>
-            <span>{{ t('device.firmware') }} <span class="num">{{ device.info?.firmware ?? '—' }}</span></span>
+            <span v-if="genericSub">{{ genericSub }}</span>
+            <template v-else>
+              <span>{{ device.demo ? t('device.demo') : t('device.connected') }}</span>
+              <span class="ovh__sep" aria-hidden="true">·</span>
+              <span>{{ t('device.firmware') }} <span class="num">{{ device.info?.firmware ?? '—' }}</span></span>
+            </template>
           </p>
         </div>
         <div class="ovh__actions">
           <Button v-if="hasProfiles" :to="PROFILES" :icon="IconStack2">{{ t('page.profiles') }}</Button>
-          <Button variant="primary" to="/performance" :icon="IconAdjustmentsHorizontal">{{ t('ov.tune') }}</Button>
+          <Button variant="primary" to="/performance" :icon="IconAdjustmentsHorizontal">{{ isGeneric ? t('page.performance') : t('ov.tune') }}</Button>
         </div>
       </section>
 
@@ -266,7 +272,7 @@ const hasNoKeys = computed(() => isGeneric.value && !device.keys.length);
             <h2 id="ov-kb-title" class="ovk__title">{{ t('ov.keyboard') }}</h2>
             <p class="ovk__sub">{{ keyboardSub.before }}<span class="ovk__name">{{ profilesUnknown ? t('mkb.common.unknown') : device.activeProfileName }}</span>{{ keyboardSub.after }}</p>
           </div>
-          <Button size="sm" :to="TRAVEL" :icon="IconPencil">{{ t('ov.editKeys') }}</Button>
+          <Button v-if="!isGeneric" size="sm" :to="TRAVEL" :icon="IconPencil">{{ t('ov.editKeys') }}</Button>
         </div>
         <Card v-if="perf.loadError" :title="t('perf.loadFailed')" :subtitle="perf.loadError">
           <div><Button :icon="IconRefresh" @click="perf.load(true)">{{ t('perf.reload') }}</Button></div>

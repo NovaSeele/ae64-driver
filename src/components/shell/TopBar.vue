@@ -16,6 +16,7 @@ const route = useRoute();
 const history = useHistoryStore();
 const sync = useSyncStore();
 const device = useDeviceStore();
+const isGeneric = computed(() => device.support === 'generic');
 const calibration = useCalibrationStore();
 const calibrating = computed(() => calibration.phase !== 'idle' || device.calibrationLocked());
 const firmware = useFirmwareStore();
@@ -46,7 +47,7 @@ const savedTip = computed(() => (sync.lastProblem ? t('sync.lastProblem', { msg:
       <span v-if="nav" class="tile" :style="{ '--f': nav.tone }"><component :is="nav.icon" :size="18" stroke-width="1.5" aria-hidden="true" /></span>
       <h2 class="top__title">{{ title }}</h2>
     </div>
-    <div class="top__right">
+    <div v-if="!isGeneric" class="top__right">
       <!-- Always wrapped (disabled when not saved): the live region is never re-created, so "Saved" is still announced. -->
       <Tooltip :text="savedTip" placement="bottom" :disabled="!saved || !!fwPill">
         <div
@@ -153,4 +154,8 @@ const savedTip = computed(() => (sync.lastProblem ? t('sync.lastProblem', { msg:
   color: var(--danger);
 }
 .pill__retry:hover { background: color-mix(in srgb, var(--danger) 22%, transparent); }
+@media (max-width: 899px) {
+  :global(.shell--generic) .top { padding: 0 var(--s-4); gap: var(--s-2); }
+  :global(.shell--generic) .top__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
 </style>

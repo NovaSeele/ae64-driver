@@ -314,6 +314,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'mkb.export.what': 'keyboard info export',
   'mkb.export.support': 'Support level',
   'mkb.overview.features': 'Features',
+  'mkb.overview.keyboardSub': 'Actuation per key in profile {name}.',
 };
 
 export const en = {
