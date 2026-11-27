@@ -858,5 +858,49 @@ describe('update quiet checks', () => {
       expect(region2.text()).toBe('');
       w2.unmount();
     });
+
+    it('(q) unmount clears the pending announcement (kills UX2)', async () => {
+      vi.useFakeTimers();
+      setLocale('vi');
+      vi.stubGlobal('fetch', mockRelease('99.0.0+20261127120000'));
+
+      // Case 1: unmount while hidden removes the exact pending visibilitychange listener
+      const addSpy = vi.spyOn(document, 'addEventListener');
+      const removeSpy = vi.spyOn(document, 'removeEventListener');
+      setVisibility('hidden');
+      const store1 = useUpdateStore();
+      const w1 = mount(SidebarFooter, { attachTo: document.body });
+
+      await store1.checkQuietly();
+      await flushPromises();
+      expect(store1.state).toBe('available');
+      expect(store1.foundQuietly).toBe(true);
+      const visAdds = addSpy.mock.calls.filter(([ev]) => ev === 'visibilitychange');
+      expect(visAdds).toHaveLength(1);
+      const listener = visAdds[0][1];
+      expect(typeof listener).toBe('function');
+
+      w1.unmount();
+      expect(removeSpy).toHaveBeenCalledWith('visibilitychange', listener);
+
+      setVisibility('visible');
+      expect(() => document.dispatchEvent(new Event('visibilitychange'))).not.toThrow();
+
+      // Case 2: unmount within 10 s clears the pending clear timer
+      setActivePinia(createPinia());
+      const store2 = useUpdateStore();
+      const w2 = mount(SidebarFooter, { attachTo: document.body });
+      const region2 = w2.find('.side-foot > .sr-only[role="status"]');
+      const timersBefore = vi.getTimerCount();
+
+      await store2.checkQuietly();
+      await flushPromises();
+      expect(region2.text()).toBe(viDict['nav.updateFoundSr']);
+      expect(vi.getTimerCount()).toBe(timersBefore + 1);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      w2.unmount();
+      expect(vi.getTimerCount()).toBe(timersBefore);
+    });
   });
 });
