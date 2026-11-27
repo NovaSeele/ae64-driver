@@ -16,7 +16,7 @@ import { typingEn } from './en/typing';
 
 const baseEn: Record<keyof typeof base, string> = {
   'app.name': 'AE64 Control',
-  'app.tagline': 'Local-first driver for the Everglide AE64 family (Max, Pro)',
+  'app.tagline': 'Local-first driver for the Everglide AE64 family (Max, Pro); also views other keyboards on the same platform',
 
   // navigation
   'nav.configure': 'Configure',
@@ -74,7 +74,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'device.busyWith': 'Running {what}: switch profiles once it is done.',
   'device.busy': 'The app is busy with the keyboard: try again once it is done.',
   'connect.title': 'Connect keyboard',
-  'connect.subtitle': 'Plug in your AE64 Max or AE64 Pro via USB and click connect.',
+  'connect.subtitle': 'Plug in your AE64 Max, AE64 Pro or another keyboard on the same platform via USB and click connect.',
   'connect.button': 'Connect keyboard',
   'connect.demo': 'Demo mode',
   'connect.demoHint': 'Try with a simulated keyboard, no hardware required.',
@@ -219,7 +219,7 @@ const baseEn: Record<keyof typeof base, string> = {
 
   // help
   'help.title': 'AE64 Control',
-  'help.body': 'Driver for the Everglide AE64 family (AE64 Max, AE64 Pro). Connects via WebHID. Changes are saved automatically to the keyboard and support undo/redo (Ctrl+Z / Ctrl+Y).',
+  'help.body': 'Driver for the Everglide AE64 family (AE64 Max, AE64 Pro). Connects via WebHID. Changes are saved automatically to the keyboard and support undo/redo (Ctrl+Z / Ctrl+Y). Other keyboards on the same platform open in view mode: layout, travel, keymap and lighting are read and Key test works, but nothing is written to the keyboard.',
   'help.shortcuts': 'Shortcuts',
   'help.shortcutUndo': 'Undo / Redo',
   'help.shortcutSelect': 'Deselect keys',
@@ -264,7 +264,7 @@ const baseEn: Record<keyof typeof base, string> = {
   'error.boardNotAllowed': 'Board not in write allowlist (AE64 family only: Max 0030000D / Pro 0030000A).',
   'error.firmwareBlocked': 'Firmware command (family 08) blocked in this application.',
   'error.hidLength': 'HID packet exceeds {max} bytes.',
-  'error.noAe64Selected': 'No AE64 keyboard selected.',
+  'error.noAe64Selected': 'No keyboard selected.',
   'error.protocolUnknown': '{name} does not answer in a protocol AE64 Control understands. Nothing more was sent; disconnected.',
   'error.protocolVersion': '{name} uses protocol {version}, which is not supported yet. Disconnected.',
   'error.bootOther': '{name} is in firmware update mode. AE64 Control only updates AE64 firmware; use the keyboard maker\'s tool.',
@@ -285,6 +285,32 @@ const baseEn: Record<keyof typeof base, string> = {
   'key.groupMouse': 'Mouse',
   'key.groupLighting': 'Lighting',
   'key.groupSpecial': 'Special',
+
+  // multi-keyboard view mode (MKB-V)
+  'mkb.refuse.copy': 'Copy device info',
+  'mkb.name.fallback': 'Keyboard {vid}:{pid}',
+  'mkb.name.cardSub': 'View mode · board {board} · firmware {fw}',
+  'mkb.layout.unknownSize': 'Size unknown (code {code})',
+  'mkb.layout.overlap': 'The layout overlaps in places and may be wrong',
+  'mkb.layout.empty': 'Could not read this keyboard\'s layout.',
+  'mkb.banner.title': 'View mode',
+  'mkb.banner.body': '{name} has not been verified with AE64 Control. The app only reads; nothing is written to the keyboard.',
+  'mkb.banner.why': 'Why?',
+  'mkb.banner.announce': 'View mode: {name}',
+  'mkb.common.unknown': 'unknown',
+  'mkb.common.noAnswer': 'no response',
+  'mkb.common.unsupported': 'unsupported',
+  'mkb.page.macroUnsupported': 'Macros are not supported for this keyboard yet.',
+  'mkb.page.firmwareOnlyAe64': 'Firmware updates are for the AE64 only. Use the keyboard maker\'s tool.',
+  'mkb.light.extraArea': 'Area {n}: {m|# mode|# modes}',
+  'mkb.light.effect': 'Effect {n}',
+  'mkb.light.strip': 'Light strip: {n} LEDs (positions unknown)',
+  'mkb.switch.current': 'Current switch: ID 0x{id} · max travel {range} mm · coefficient {coef}',
+  'mkb.switch.catalogAe64Only': 'The switch catalog is for the AE64 only.',
+  'mkb.export.button': 'Export keyboard info',
+  'mkb.export.exporting': 'Exporting keyboard info…',
+  'mkb.export.savedDialog': 'Saved {file}. Want to help support this keyboard? Send the file through GitHub Issues (attach it yourself). The issue and the attached file are public.',
+  'mkb.export.openGithub': 'Open GitHub Issues',
 };
 
 export const en = {

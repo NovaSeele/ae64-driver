@@ -1,6 +1,6 @@
 {
   "name": "AE64 Control",
-  "description": "Local-first driver for the Everglide AE64 family (Max, Pro)",
+  "description": "Local-first driver for the Everglide AE64 family (Max, Pro); also views other keyboards on the same platform",
   "short_name": "AE64",
   "start_url": "/",
   "display": "standalone",

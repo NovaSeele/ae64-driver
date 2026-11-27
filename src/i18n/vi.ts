@@ -19,7 +19,7 @@ import { en } from './en';
 
 export const base = {
   'app.name': 'AE64 Control',
-  'app.tagline': 'Driver cục bộ cho dòng phím Everglide AE64 (Max, Pro)',
+  'app.tagline': 'Driver cục bộ cho dòng phím Everglide AE64 (Max, Pro); xem được cả các bàn phím cùng nền tảng',
 
   // navigation
   'nav.configure': 'Cấu hình',
@@ -77,7 +77,7 @@ export const base = {
   'device.busyWith': 'Đang chạy {what}, đổi profile sau khi xong.',
   'device.busy': 'Đang có việc với bàn phím, thử lại sau khi xong.',
   'connect.title': 'Kết nối bàn phím',
-  'connect.subtitle': 'Cắm AE64 Max hoặc AE64 Pro bằng cáp USB rồi bấm kết nối.',
+  'connect.subtitle': 'Cắm AE64 Max, AE64 Pro, hoặc bàn phím cùng nền tảng bằng cáp USB rồi bấm kết nối.',
   'connect.button': 'Kết nối bàn phím',
   'connect.demo': 'Chế độ demo',
   'connect.demoHint': 'Dùng thử với bàn phím giả lập, không cần thiết bị.',
@@ -222,7 +222,7 @@ export const base = {
 
   // help
   'help.title': 'AE64 Control',
-  'help.body': 'Driver cho dòng phím Everglide AE64 (AE64 Max, AE64 Pro). Kết nối qua WebHID. Mọi thay đổi được ghi tự động vào phím và có thể hoàn tác (Ctrl+Z / Ctrl+Y).',
+  'help.body': 'Driver cho dòng phím Everglide AE64 (AE64 Max, AE64 Pro). Kết nối qua WebHID. Mọi thay đổi được ghi tự động vào phím và có thể hoàn tác (Ctrl+Z / Ctrl+Y). Các bàn phím khác cùng nền tảng mở ở chế độ xem: đọc được sơ đồ phím, hành trình, keymap và đèn, kiểm tra phím, nhưng không ghi gì vào phím.',
   'help.shortcuts': 'Phím tắt',
   'help.shortcutUndo': 'Hoàn tác / Làm lại',
   'help.shortcutSelect': 'Bỏ chọn phím',
@@ -267,7 +267,7 @@ export const base = {
   'error.boardNotAllowed': 'Bảng mạch này không nằm trong danh sách được phép ghi (chỉ dòng AE64: Max 0030000D / Pro 0030000A).',
   'error.firmwareBlocked': 'Lệnh firmware (family 08) bị chặn trong ứng dụng này.',
   'error.hidLength': 'Gói HID vượt quá {max} byte.',
-  'error.noAe64Selected': 'Chưa chọn bàn phím AE64.',
+  'error.noAe64Selected': 'Chưa chọn bàn phím nào.',
   'error.protocolUnknown': '{name} không trả lời theo giao thức mà AE64 Control hiểu. Không gửi gì thêm; đã ngắt kết nối.',
   'error.protocolVersion': '{name} dùng giao thức {version}, chưa được hỗ trợ. Đã ngắt kết nối.',
   'error.bootOther': '{name} đang ở chế độ nạp firmware. AE64 Control chỉ nạp firmware cho AE64; hãy dùng công cụ của hãng bàn phím.',
@@ -288,6 +288,32 @@ export const base = {
   'key.groupMouse': 'Chuột',
   'key.groupLighting': 'Đèn',
   'key.groupSpecial': 'Đặc biệt',
+
+  // multi-keyboard view mode (MKB-V)
+  'mkb.refuse.copy': 'Sao chép thông tin thiết bị',
+  'mkb.name.fallback': 'Bàn phím {vid}:{pid}',
+  'mkb.name.cardSub': 'Chế độ xem · bảng mạch {board} · firmware {fw}',
+  'mkb.layout.unknownSize': 'Kích thước chưa rõ (mã {code})',
+  'mkb.layout.overlap': 'Sơ đồ phím có chỗ chồng nhau, có thể chưa đúng',
+  'mkb.layout.empty': 'Không đọc được sơ đồ phím của bàn phím này.',
+  'mkb.banner.title': 'Chế độ xem',
+  'mkb.banner.body': '{name} chưa được kiểm chứng với AE64 Control. Ứng dụng chỉ đọc, không ghi gì vào bàn phím.',
+  'mkb.banner.why': 'Vì sao?',
+  'mkb.banner.announce': 'Chế độ xem: {name}',
+  'mkb.common.unknown': 'không rõ',
+  'mkb.common.noAnswer': 'không trả lời',
+  'mkb.common.unsupported': 'không hỗ trợ',
+  'mkb.page.macroUnsupported': 'Macro chưa hỗ trợ cho bàn phím này.',
+  'mkb.page.firmwareOnlyAe64': 'Cập nhật firmware chỉ dành cho AE64. Hãy dùng công cụ của hãng bàn phím.',
+  'mkb.light.extraArea': 'Vùng {n}: {m} chế độ',
+  'mkb.light.effect': 'Hiệu ứng {n}',
+  'mkb.light.strip': 'Dải đèn: {n} LED (vị trí chưa rõ)',
+  'mkb.switch.current': 'Switch hiện tại: ID 0x{id} · hành trình tối đa {range} mm · hệ số {coef}',
+  'mkb.switch.catalogAe64Only': 'Danh mục switch chỉ có cho AE64.',
+  'mkb.export.button': 'Xuất thông tin bàn phím',
+  'mkb.export.exporting': 'Đang xuất thông tin bàn phím…',
+  'mkb.export.savedDialog': 'Đã lưu {file}. Muốn giúp hỗ trợ bàn phím này? Gửi file qua GitHub Issues (đính kèm thủ công). Issue và file đính kèm sẽ công khai.',
+  'mkb.export.openGithub': 'Mở GitHub Issues',
 } as const;
 
 export const vi = {
