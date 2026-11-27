@@ -89,7 +89,15 @@ onMounted(() => {
     if (narrowMql.matches) collapsed.value = true;
     narrowMql.addEventListener('change', onNarrow);
   }
-  void device.tryAutoReconnect();
+  if (import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('mock')) {
+    void import('./protocol/mockGeneric').then(({ devMockNameFromSearch }) => {
+      const mock = devMockNameFromSearch();
+      if (mock) void device.connectGenericMock(mock);
+      else void device.tryAutoReconnect();
+    });
+  } else {
+    void device.tryAutoReconnect();
+  }
   // The wallpaper (DESIGN J §5.7): read from IndexedDB after the first page is painted, never before.
   void startWallpaper();
 });

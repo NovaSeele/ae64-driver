@@ -2,12 +2,20 @@
 import { defineStore } from 'pinia';
 import { computed, markRaw, ref, shallowRef } from 'vue';
 import {
-  ALLOWED_BOARDS, FIRMWARE_ROWS, NoDeviceSelectedError, PHYSICAL_KEYS, VENDOR_ID, connectHid, createMockTransport, keycodeLabel, keysFromLayoutStyles,
-  isAe64, modelName as modelLabel, modelOf, reconnectGrantedHid, rememberDevice, webHidAvailable,
+  FIRMWARE_ROWS, GENERIC_ROWS, NoDeviceSelectedError, PHYSICAL_KEYS, TransportTimeoutError, VENDOR_ID,
+  buildGenericLayout, classify, connectHid, createMockTransport, genericDisplayName, hasReceiverCollection,
+  isAe64, keycodeLabel, keysFromLayoutStyles, matchesPlatform, modelName as modelLabel, modelOf,
+  reconnectGrantedHid, rememberDevice, webHidAvailable,
 } from '../protocol';
 import { isDemoSeed, type DemoSeed } from '../protocol/mock';
-import type { Ae64Transport, DeviceInfo, FeatureBitmap, PacketLogEntry, PhysicalKey, ProtocolVersion } from '../protocol';
+import type {
+  Ae64Transport, DeviceInfo, FeatureBitmap, PacketLogEntry, PhysicalKey, ProtocolVersion,
+  RefusalReason, SupportLevel, TransportIdentity,
+} from '../protocol';
+import type { LayoutStyleEntry } from '../protocol/codec';
+import type { GenericMockName, GenericMockOptions } from '../protocol/mockGeneric';
 import { t as tr } from '../i18n/vi';
+import { locale } from '../i18n/locale';
 import { useToast } from '../components/ui/toast';
 import { useCalibrationStore } from './calibration';
 import { useHistoryStore } from './history';
@@ -20,6 +28,36 @@ import { clearCalibrationFlag, readCalibrationFlag } from '../data/calibrationFl
 import { leaveTakenOver } from '../composables/leaveGate';
 
 export type DeviceStatus = 'idle' | 'connecting' | 'connected' | 'error';
+
+/** USB facts of the last refused non-AE64 connect (DESIGN MKB §5.4: "Sao chép thông tin thiết bị"). */
+export interface ConnectRefusal {
+  reason: RefusalReason;
+  identity: TransportIdentity;
+  version?: ProtocolVersion;
+}
+
+/** Per-feature unknown / note flags collected during a generic connect (DESIGN MKB §5.2, §8). */
+export interface GenericUnknown {
+  features: boolean;
+  profiles: boolean;
+  rtPrecision: boolean;
+  missingLayoutRows: number[];
+  layoutPadding: number[];
+  layoutOverlap: boolean;
+}
+
+const emptyUnknown = (): GenericUnknown => ({
+  features: false,
+  profiles: false,
+  rtPrecision: false,
+  missingLayoutRows: [],
+  layoutPadding: [],
+  layoutOverlap: false,
+});
+
+/** Consecutive read timeouts that close a generic connection after the gates (DESIGN MKB §5.2). */
+const GENERIC_TIMEOUT_LIMIT = 3;
+const TIMEOUT_LIMIT_EXCEEDED = Symbol('genericTimeoutLimit');
 
 const PACKET_LOG_SIZE = 200;
 const LATENCY_REFRESH_MS = 250;
@@ -69,6 +107,14 @@ export const useDeviceStore = defineStore('device', () => {
   const info = ref<DeviceInfo | null>(null);
   const version = ref<ProtocolVersion | null>(null);
   const features = ref<FeatureBitmap | null>(null);
+  /** Connection support level (DESIGN MKB §3.2–§3.3); mirrors `transport.support`. */
+  const support = ref<SupportLevel | undefined>(undefined);
+  /** Firmware rows active on this connection: FIRMWARE_ROWS (1–5) on AE64 kinds; sorted present rows (0–5) on generic (DESIGN MKB §8.7). */
+  const rows = ref<readonly number[]>([...FIRMWARE_ROWS]);
+  /** Last refused non-AE64 connect (§5.4), kept while `status === 'error'` so the error panel can copy USB facts. */
+  const refusal = ref<ConnectRefusal | null>(null);
+  /** Per-feature unknown / layout notes from generic init (§5.2, §8). */
+  const unknown = ref<GenericUnknown>(emptyUnknown());
   const boardAllowed = ref(false);
   const demo = ref(false);
   /** W-11: the last real connection was refused because the keyboard is open in another tab or window of the app. */
@@ -103,9 +149,25 @@ export const useDeviceStore = defineStore('device', () => {
   const exclusiveCount = ref(0);
   const exclusiveActive = computed(() => exclusiveCount.value > 0);
   const connected = computed(() => status.value === 'connected');
-  /** Max or Pro: from the board ID in 01 02, until it is read from the transport's USB product ID. */
-  const model = computed(() => modelOf({ boardIdHex: info.value?.boardIdHex, productId: transport.value?.productId }));
+  /** Max or Pro (AE64 kinds only, DESIGN MKB §3.4): from the board ID in 01 02, until it is read from the transport's USB product ID. */
+  const model = computed(() => {
+    if (support.value === 'ae64' || support.value === 'ae64-unlisted') {
+      return modelOf({ boardIdHex: info.value?.boardIdHex, productId: transport.value?.productId });
+    }
+    if (support.value === undefined && transport.value && isAe64(transport.value.identity)) {
+      return modelOf({ boardIdHex: info.value?.boardIdHex, productId: transport.value?.productId });
+    }
+    return null;
+  });
   const modelName = computed(() => (model.value ? modelLabel(model.value) : null));
+  /** Shown name (DESIGN MKB §7): AE64 kinds keep DeviceCard's expression; generic uses the public name table / raw productName / VID:PID. */
+  const displayName = computed(() => {
+    const t = transport.value;
+    if (support.value === 'generic' || (t && !isAe64(t.identity))) {
+      return t ? genericDisplayName(t.identity, info.value?.boardIdHex, locale.value) : 'AE64';
+    }
+    return modelName.value ?? t?.productName ?? 'AE64';
+  });
   const hidAvailable = webHidAvailable();
 
   /** Fixed-size ring of the newest packets, written without touching reactive state. */
@@ -129,12 +191,47 @@ export const useDeviceStore = defineStore('device', () => {
    * count of the current one (reset() zeroes it while that job may still be unwinding).
    */
   let session = 0;
+  /** Consecutive read timeouts on a generic connection after G4 (resets on any answered read). */
+  let consecutiveTimeouts = 0;
+  let lastStatsRequests = 0;
+  let lastStatsTimeouts = 0;
+  let pendingTimeoutClose: { t: Ae64Transport; promise: Promise<void> } | null = null;
 
   const activeProfileName = computed(() => profileNames.value[activeProfile.value] ?? `Profile ${activeProfile.value + 1}`);
 
   function legend(key: PhysicalKey): string {
     const code = layer0.value[key.id];
-    return code === undefined ? key.name : keycodeLabel(code).label;
+    if (code === undefined) return key.name;
+    if (support.value === 'generic') {
+      if (code === 0) return key.name;
+      const lbl = keycodeLabel(code);
+      return lbl.group === 'unknown' ? key.name : lbl.label;
+    }
+    return keycodeLabel(code).label;
+  }
+
+  function resetTimeoutTracker(t?: Ae64Transport | null): void {
+    consecutiveTimeouts = 0;
+    lastStatsRequests = t?.stats.requests ?? 0;
+    lastStatsTimeouts = t?.stats.timeouts ?? 0;
+  }
+
+  /** Closes a generic connection after GENERIC_TIMEOUT_LIMIT timeouts in a row (DESIGN MKB §5.2). */
+  function closeAfterTimeouts(t: Ae64Transport): Promise<void> {
+    if (pendingTimeoutClose?.t === t) return pendingTimeoutClose.promise;
+    const identity = t.identity;
+    const board = info.value?.boardIdHex;
+    const ver = version.value;
+    const name = genericDisplayName(identity, board, locale.value);
+    reset();
+    status.value = 'error';
+    error.value = tr('error.protocolUnknown', { name });
+    refusal.value = { reason: 'protocol', identity, ...(ver ? { version: ver } : {}) };
+    const promise = t.close().catch(() => undefined).finally(() => {
+      if (pendingTimeoutClose?.t === t) pendingTimeoutClose = null;
+    });
+    pendingTimeoutClose = { t, promise };
+    return promise;
   }
 
   /** `what`: for an exclusive job, its name in "Running {what}" (a profile switch refused meanwhile). */
@@ -142,12 +239,21 @@ export const useDeviceStore = defineStore('device', () => {
     const t = transport.value;
     if (!t || status.value !== 'connected') throw new Error(tr('error.notConnected'));
     const mine = session;
+    const beforeTo = t.stats.timeouts;
     if (opts.exclusive) exclusiveCount.value++;
     const what = opts.exclusive ? opts.what : undefined;
     if (what) busyWith.push(what);
     try {
+      // An answered read resets the generic timeout count in trackGenericIn; a call that sent nothing is not a read.
       return await fn(t);
+    } catch (err) {
+      if (mine === session && transport.value === t && t.support === 'generic' && err instanceof TransportTimeoutError && t.stats.timeouts === beforeTo) {
+        consecutiveTimeouts++;
+        if (consecutiveTimeouts >= GENERIC_TIMEOUT_LIMIT) await closeAfterTimeouts(t);
+      }
+      throw err;
     } finally {
+      if (pendingTimeoutClose?.t === t) await pendingTimeoutClose.promise;
       if (opts.exclusive && mine === session) exclusiveCount.value = Math.max(0, exclusiveCount.value - 1);
       if (what && mine === session) {
         const i = busyWith.lastIndexOf(what);
@@ -172,9 +278,9 @@ export const useDeviceStore = defineStore('device', () => {
   }
 
   async function readLayer0(t: Ae64Transport): Promise<void> {
-    const rows = new Map<number, number[]>();
-    for (const row of FIRMWARE_ROWS) rows.set(row, await t.getKeymapRow(0, row));
-    layer0.value = keys.value.map((k) => rows.get(k.row)?.[k.col] ?? 0);
+    const map = new Map<number, number[]>();
+    for (const row of rows.value) map.set(row, await t.getKeymapRow(0, row));
+    layer0.value = keys.value.map((k) => map.get(k.row)?.[k.col] ?? 0);
   }
 
   async function refreshLayer0(): Promise<void> {
@@ -189,8 +295,25 @@ export const useDeviceStore = defineStore('device', () => {
     profileNames.value = names;
   }
 
+  /** Updates the generic 3-consecutive-timeout counter on every `in` packet, including grouped poll replies. */
+  function trackGenericIn(): void {
+    const cur = transport.value;
+    if (!cur || cur.support !== 'generic') return;
+    if (cur.stats.requests > lastStatsRequests) {
+      lastStatsRequests = cur.stats.requests;
+      consecutiveTimeouts = 0;
+    } else if (cur.stats.timeouts > lastStatsTimeouts) {
+      lastStatsTimeouts = cur.stats.timeouts;
+      consecutiveTimeouts++;
+      if (consecutiveTimeouts >= GENERIC_TIMEOUT_LIMIT && status.value === 'connected') {
+        void closeAfterTimeouts(cur);
+      }
+    }
+  }
+
   /** `bytes` is the transport's buffer: nothing is allocated for a grouped poll, a stored row gets its own copy. */
   function handlePacket(dir: 'out' | 'in', bytes: Uint8Array, note?: string): void {
+    if (dir === 'in') trackGenericIn();
     packetsDirty = true;
     const t = Date.now();
     const kind = pollKind(bytes);
@@ -264,21 +387,200 @@ export const useDeviceStore = defineStore('device', () => {
     info.value = null;
     version.value = null;
     features.value = null;
+    support.value = undefined;
+    rows.value = [...FIRMWARE_ROWS];
+    refusal.value = null;
+    unknown.value = emptyUnknown();
     boardAllowed.value = false;
     demo.value = false;
     demoSeed.value = null;
     staleCalibration.value = false;
+    keys.value = PHYSICAL_KEYS.map((k) => ({ ...k }));
+    profileCount.value = 0;
+    activeProfile.value = 0;
+    rtPrecision.value = 0.001;
     layer0.value = [];
     profileNames.value = [];
     exclusiveCount.value = 0;
+    resetTimeoutTracker();
     const lost = useSyncStore().reset();
     useHistoryStore().clear();
     return lost;
   }
 
+  /** Clean refusal of a non-AE64 device (DESIGN MKB §5.1, §5.3, §5.4): close, record USB facts, no unhandled throw. */
+  async function refuse(t: Ae64Transport, reason: RefusalReason, msg: string, ver?: ProtocolVersion): Promise<void> {
+    const identity = t.identity;
+    reset();
+    await t.close().catch(() => undefined);
+    status.value = 'error';
+    error.value = msg;
+    refusal.value = { reason, identity, ...(ver ? { version: ver } : {}) };
+  }
+
+  /** Gates G0–G4 and read-only view-mode init for a non-AE64 identity (DESIGN MKB §5.1–§5.3). */
+  async function initGeneric(t: Ae64Transport, isDemo: boolean): Promise<void> {
+    demoSeed.value = null;
+    const identityName = genericDisplayName(t.identity, null, locale.value);
+    // G0: wireless receiver collection — refuse before sending any command.
+    if (hasReceiverCollection(t.identity)) {
+      await refuse(t, 'receiver', tr('error.receiver'));
+      return;
+    }
+    // G1: `01 02` must answer and match.
+    let first: DeviceInfo;
+    try {
+      first = await t.getDeviceInfo();
+    } catch (err) {
+      if (err instanceof TransportTimeoutError) {
+        await refuse(t, 'protocol', tr('error.protocolUnknown', { name: identityName }));
+        return;
+      }
+      throw err;
+    }
+    const boardName = genericDisplayName(t.identity, first.boardIdHex, locale.value);
+    // G2 & §5.3 (S1): run mode 255 goes to rescue ONLY when classify returns 'rescue' (1CA6 + AE64/0/FFFFFFFF board).
+    if (first.runMode !== 0) {
+      const modeCls = classify(t.identity, first);
+      if (modeCls.ok && modeCls.support === 'rescue') {
+        await handOver(t, first, isDemo);
+        return;
+      }
+      if (!modeCls.ok && modeCls.reason === 'bootOther') {
+        await refuse(t, 'bootOther', tr('error.bootOther', { name: boardName }));
+        return;
+      }
+      await refuse(t, 'mode', tr('fw.rescue.unknownMode', { mode: first.runMode }));
+      return;
+    }
+    // G3: board 0 / FFFFFFFF refused before sending `01 01`.
+    const preVer = classify(t.identity, first, null);
+    if (!preVer.ok && preVer.reason === 'protocol') {
+      await refuse(t, 'protocol', tr('error.protocolUnknown', { name: identityName }));
+      return;
+    }
+    // G4: `01 01` with main === 1 (v2 dialect).
+    let ver: ProtocolVersion;
+    try {
+      ver = await t.getProtocolVersion();
+    } catch (err) {
+      if (err instanceof TransportTimeoutError) {
+        await refuse(t, 'protocol', tr('error.protocolUnknown', { name: boardName }));
+        return;
+      }
+      throw err;
+    }
+    const cls = classify(t.identity, first, ver);
+    if (!cls.ok || cls.support !== 'generic') {
+      await refuse(t, 'version', tr('error.protocolVersion', { name: boardName, version: `${ver.main}.${ver.sub}` }), ver);
+      return;
+    }
+
+    t.setSupport('generic');
+    support.value = t.support;
+    info.value = first;
+    version.value = ver;
+    boardAllowed.value = t instanceof BaseTransport ? t.boardAllowed : false;
+    resetTimeoutTracker(t);
+
+    const tryRead = async <T>(fn: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> => {
+      const beforeTo = t.stats.timeouts;
+      try {
+        const value = await fn();
+        consecutiveTimeouts = 0;
+        lastStatsRequests = t.stats.requests;
+        return { ok: true, value };
+      } catch (err) {
+        if (err instanceof TransportTimeoutError) {
+          if (t.stats.timeouts === beforeTo) consecutiveTimeouts++;
+          if (consecutiveTimeouts >= GENERIC_TIMEOUT_LIMIT) throw TIMEOUT_LIMIT_EXCEEDED;
+          return { ok: false };
+        }
+        throw err;
+      }
+    };
+
+    const unk = emptyUnknown();
+    let activeAnswered = false;
+    try {
+      // §5.2 exact order: 1. 01 03
+      const feat = await tryRead(() => t.getFeatures());
+      if (feat.ok) features.value = feat.value;
+      else { features.value = null; unk.features = true; }
+
+      // 2. Profiles (R10): 02 03 00; only if 1–4: 02 03 01 then 02 03 03 p.
+      const pCount = await tryRead(() => t.getProfileCount());
+      if (pCount.ok && pCount.value >= 1 && pCount.value <= 4) {
+        profileCount.value = pCount.value;
+        const active = await tryRead(() => t.getActiveProfile());
+        if (active.ok) {
+          activeProfile.value = active.value;
+          activeAnswered = true;
+        } else {
+          unk.profiles = true;
+        }
+        const names: string[] = [];
+        for (let p = 0; p < pCount.value; p++) {
+          const nameRes = await tryRead(() => t.getProfileName(p));
+          names.push(nameRes.ok ? (nameRes.value || `Profile ${p + 1}`) : `Profile ${p + 1}`);
+        }
+        profileNames.value = names;
+      } else {
+        profileCount.value = 0;
+        activeProfile.value = 0;
+        profileNames.value = [];
+        unk.profiles = true;
+      }
+
+      // 3. 02 0C 00 (RT precision): no answer / 0 -> unknown, never the AE64 `|| 0.001` fallback (S4).
+      const prec = await tryRead(() => t.getRtPrecision());
+      if (prec.ok && prec.value > 0) {
+        rtPrecision.value = prec.value;
+      } else {
+        rtPrecision.value = 0;
+        unk.rtPrecision = true;
+      }
+
+      // 4. 03 05 r for r = 0..5 -> generic layout builder (never PHYSICAL_KEYS).
+      const styles: (LayoutStyleEntry[] | null)[] = [];
+      for (const r of GENERIC_ROWS) {
+        const rowStyle = await tryRead(() => t.getLayoutStyle(r));
+        styles.push(rowStyle.ok ? rowStyle.value : null);
+      }
+      const layout = buildGenericLayout(styles);
+      keys.value = layout.keys;
+      rows.value = layout.rows;
+      unk.missingLayoutRows = layout.missingRows;
+      unk.layoutPadding = layout.layoutPadding;
+      unk.layoutOverlap = layout.hasOverlap;
+
+      // 5. 03 01 0 r for every row with at least one key.
+      const l0Map = new Map<number, number[]>();
+      for (const r of layout.rows) {
+        const rowCodes = await tryRead(() => t.getKeymapRow(0, r));
+        if (rowCodes.ok) l0Map.set(r, rowCodes.value);
+      }
+      layer0.value = layout.keys.map((k) => l0Map.get(k.row)?.[k.col] ?? 0);
+    } catch (err) {
+      if (err === TIMEOUT_LIMIT_EXCEEDED) {
+        await refuse(t, 'protocol', tr('error.protocolUnknown', { name: boardName }), ver);
+        return;
+      }
+      throw err;
+    }
+
+    unknown.value = unk;
+    latencyMs.value = t.stats.lastLatencyMs;
+    status.value = 'connected';
+    // Poll only when 02 03 01 answered at init (R13): otherwise it would time out every 2 s and close after 3.
+    if (activeAnswered) watchKeyboardProfile(t);
+    if (!isDemo) rememberDevice(t.identity.vendorId, t.identity.productId);
+  }
+
   async function init(t: Ae64Transport, isDemo: boolean): Promise<void> {
     disarmReplug();
     otherTab.value = false;
+    refusal.value = null;
     // Another keyboard replaces an open one: drop its queue, history and transport before anything of the new one is read.
     const prev = transport.value;
     if (prev && prev !== t) {
@@ -299,19 +601,24 @@ export const useDeviceStore = defineStore('device', () => {
       statsTick.value++;
     }, LATENCY_REFRESH_MS);
     try {
+      if (!isAe64(t.identity)) {
+        await initGeneric(t, isDemo);
+        return;
+      }
       // `01 02` first (DESIGN FW §3.3): a keyboard not running its app gets nothing else.
       const first = await t.getDeviceInfo();
-      if (first.runMode !== 0 || (t as { probeOnly?: boolean }).probeOnly) {
+      if (first.runMode !== 0) {
         await handOver(t, first, isDemo);
         return;
       }
+      support.value = t.support;
       info.value = first;
       // W-12: this app put this keyboard into calibration and no stop was answered (a reload, a crash, a closed tab): `02 06 01`
       // before anything else is written, nothing committed. A flag naming another keyboard is left alone.
       const left = readCalibrationFlag();
       if (left && first.serialHex && left.serial === first.serialHex) await stopLeftCalibration(t, true);
       version.value = await t.getProtocolVersion();
-      boardAllowed.value = ALLOWED_BOARDS.includes(info.value.boardIdHex);
+      boardAllowed.value = t instanceof BaseTransport ? t.boardAllowed : false;
       features.value = await t.getFeatures();
       await readProfiles(t);
       rtPrecision.value = (await t.getRtPrecision()) || 0.001;
@@ -322,6 +629,7 @@ export const useDeviceStore = defineStore('device', () => {
       } catch {
         keys.value = PHYSICAL_KEYS.map((k) => ({ ...k }));
       }
+      rows.value = [...FIRMWARE_ROWS];
       await readLayer0(t);
       latencyMs.value = t.stats.lastLatencyMs;
       status.value = 'connected';
@@ -410,12 +718,15 @@ export const useDeviceStore = defineStore('device', () => {
   }
 
   /** The keyboard that was unplugged while connected; set only for a lost real connection, until it is replugged or anything else connects. */
+  let replugVendorId: number | null = null;
   let replugProductId: number | null = null;
+  let replugAe64 = true;
   let replugListener: ((e: HIDConnectionEvent) => void) | null = null;
 
   function disarmReplug(): void {
     if (replugListener && webHidAvailable()) navigator.hid.removeEventListener('connect', replugListener);
     replugListener = null;
+    replugVendorId = null;
     replugProductId = null;
   }
 
@@ -424,15 +735,20 @@ export const useDeviceStore = defineStore('device', () => {
     return state === 'applying' || state === 'reconnecting';
   }
 
-  /** One 'connect' listener per lost connection: the same model plugged back in reconnects through tryAutoReconnect. */
-  function armReplug(productId: number): void {
+  /** One 'connect' listener per lost connection: the same model plugged back in reconnects through tryAutoReconnect (DESIGN MKB §4). */
+  function armReplug(vendorId: number, productId: number, ae64: boolean): void {
     disarmReplug();
     if (!webHidAvailable() || usbRestarting()) return;
-    rememberDevice(VENDOR_ID, productId); // reconnectGrantedHid prefers the lost keyboard
+    rememberDevice(vendorId, productId); // reconnectGrantedHid prefers the lost keyboard
+    replugVendorId = vendorId;
     replugProductId = productId;
+    replugAe64 = ae64;
     const listener = (e: HIDConnectionEvent): void => {
       if (transport.value || status.value === 'connecting' || usbRestarting()) return;
-      if (!isAe64(e.device) || e.device.vendorId !== VENDOR_ID || e.device.productId !== replugProductId) return;
+      const matched = replugAe64
+        ? isAe64(e.device) && e.device.vendorId === VENDOR_ID && e.device.productId === replugProductId
+        : matchesPlatform(e.device) && e.device.vendorId === replugVendorId && e.device.productId === replugProductId;
+      if (!matched) return;
       void tryAutoReconnect();
     };
     replugListener = listener;
@@ -446,13 +762,16 @@ export const useDeviceStore = defineStore('device', () => {
       detach = [];
       return;
     }
-    const lostProductId = demo.value ? undefined : transport.value?.productId;
+    const lostTransport = demo.value ? null : transport.value;
+    const lostVendorId = lostTransport?.identity.vendorId;
+    const lostProductId = lostTransport?.productId;
+    const lostAe64 = lostTransport ? isAe64(lostTransport.identity) : true;
     // W-14: a polling-rate change restarts the keyboard's USB interface, which may beat the reply to `02 05 02`: that is the
     // restart the page already shows, not a lost keyboard.
     const restarting = usbRestarting();
     const lost = reset();
     status.value = 'idle';
-    if (lostProductId !== undefined) armReplug(lostProductId);
+    if (lostVendorId !== undefined && lostProductId !== undefined) armReplug(lostVendorId, lostProductId, lostAe64);
     if (restarting && lost === 0) return;
     useToast().show(lost > 0 ? tr('device.unsavedLost', { n: lost }) : tr('device.lost'), 'error');
   }
@@ -462,6 +781,7 @@ export const useDeviceStore = defineStore('device', () => {
     disarmReplug();
     status.value = 'connecting';
     error.value = null;
+    refusal.value = null;
     otherTab.value = false;
     let t: Ae64Transport;
     try {
@@ -486,6 +806,13 @@ export const useDeviceStore = defineStore('device', () => {
     writeDemoModel(model);
   }
 
+  /** Dev/test-only generic mock keyboard (DESIGN MKB §15); runs through `init` so the classifier decides. */
+  async function connectGenericMock(name: GenericMockName, opts?: GenericMockOptions): Promise<void> {
+    if (!import.meta.env.DEV) return;
+    const { createGenericMock } = await import('../protocol/mockGeneric');
+    await init(createGenericMock(name, opts), true);
+  }
+
   async function tryAutoReconnect(): Promise<boolean> {
     if (!hidAvailable || transport.value || useFirmwareStore().active) return false;
     try {
@@ -497,7 +824,7 @@ export const useDeviceStore = defineStore('device', () => {
         return false;
       }
       await init(t, false);
-      return true;
+      return isAe64(t.identity) ? true : connected.value || useFirmwareStore().rescue;
     } catch (err) {
       if (err instanceof TabLockedError) {
         lockedByOtherTab(err);
@@ -691,9 +1018,9 @@ export const useDeviceStore = defineStore('device', () => {
   }
 
   return {
-    transport, status, error, info, version, features, boardAllowed, demo, otherTab, retryOtherTab, staleCalibration, retryLeftCalibration, demoSeed, keys, profileCount, activeProfile,
-    profileNames, rtPrecision, layer0, latencyMs, connection, packetSeq, statsTick, exclusiveActive, connected, hidAvailable, model, modelName, packetEntries, activeProfileName,
-    legend, withTransport, calibrationLocked, watchPackets, onProfileChanged, refreshLayer0, connect, connectDemo,
+    transport, status, error, info, version, features, support, rows, refusal, unknown, boardAllowed, demo, otherTab, retryOtherTab, staleCalibration, retryLeftCalibration, demoSeed, keys, profileCount, activeProfile,
+    profileNames, rtPrecision, layer0, latencyMs, connection, packetSeq, statsTick, exclusiveActive, connected, hidAvailable, model, modelName, displayName, packetEntries, activeProfileName,
+    legend, withTransport, calibrationLocked, watchPackets, onProfileChanged, refreshLayer0, connect, connectDemo, connectGenericMock,
     tryAutoReconnect, disconnect, changeKeyboard, switchDemoModel, switchProfile, renameProfile, holdExclusive, adoptFromFirmware,
     profileChangedOnKeyboard, checkKeyboardProfile,
   };

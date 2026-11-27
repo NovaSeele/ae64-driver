@@ -848,21 +848,79 @@ describe('FW-TEST-1. real WebHID: HidTransport and HidFwPort on a fake navigator
     expect(r.bus.violations).toEqual([]);
   });
 
-  it('5. an unknown 1CA6 product in its app: 01 02 only, then refused (Connect and auto-reconnect)', async () => {
+  it('5a. an unknown 1CA6 product in its app connects in generic view mode with exact §5.1+§5.2 frames (Connect and auto-reconnect)', async () => {
+    const expectedFrames = [
+      '01 02', '01 01', '01 03',
+      '02 03 00', '02 03 01', '02 03 03 00', '02 03 03 01', '02 03 03 02', '02 03 03 03',
+      '02 0c 00',
+      '03 05 00', '03 05 01', '03 05 02', '03 05 03', '03 05 04', '03 05 05',
+      '03 01 00 01', '03 01 00 02', '03 01 00 03', '03 01 00 04', '03 01 00 05',
+    ];
+    const frameTag = (f: Uint8Array): string => {
+      const len = f[0] === 0x01 ? 2 : f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x03 ? 4 : f[0] === 0x03 && f[1] === 0x01 ? 4 : 3;
+      return Array.from(f.slice(0, len), (b) => b.toString(16).padStart(2, '0')).join(' ');
+    };
     for (const how of ['connect', 'reconnect'] as const) {
       const c = await bare(false);
       const odd = new FakeHidDevice(c.hid, new MockTransport({ seed: 'pro' }), { productId: 0x3999, productName: 'AE64 ?' });
       c.hid.strays.push(odd);
       c.hid.next = () => [odd];
       if (how === 'connect') await c.device.connect();
-      else await c.device.tryAutoReconnect();
-      expect(sends(odd)).toEqual(['1 2']);
+      else expect(await c.device.tryAutoReconnect()).toBe(true);
+      const captured = odd.sends.slice();
+      expect(c.device.connected).toBe(true);
+      expect(c.device.support).toBe('generic');
+      expect(c.device.boardAllowed).toBe(false);
+      expect(c.fw.rescue).toBe(false);
+      expect(captured.map(frameTag)).toEqual(expectedFrames);
+      expect(captured.some((f) => f[0] === 0x08 || f[0] === 0x10)).toBe(false);
+      await c.device.disconnect({ flush: false });
+      removeFakeHid();
+    }
+  });
+
+  it('5b. an unknown 1CA6 product with protocol 2.0: 01 02 and 01 01 only, error.protocolVersion, closed', async () => {
+    for (const how of ['connect', 'reconnect'] as const) {
+      const c = await bare(false);
+      const inner = new MockTransport({ seed: 'pro' });
+      const orig = inner.handle.bind(inner);
+      inner.handle = (req: number[]) => {
+        if (req[0] === 0x01 && req[1] === 0x01) {
+          const out = new Uint8Array(64);
+          out.set([0x01, 0x01, 2, 0, 0, 0]);
+          return out;
+        }
+        return orig(req);
+      };
+      const odd = new FakeHidDevice(c.hid, inner, { productId: 0x3999, productName: 'AE64 ?' });
+      c.hid.strays.push(odd);
+      c.hid.next = () => [odd];
+      if (how === 'connect') await c.device.connect();
+      else expect(await c.device.tryAutoReconnect()).toBe(false);
+      expect(sends(odd)).toEqual(['1 2', '1 1']);
       expect(c.device.connected).toBe(false);
-      expect(c.device.error).toBe(tr('error.noAe64Selected'));
+      expect(c.device.error).toBe(tr('error.protocolVersion', { name: 'AE64 ?', version: '2.0' }));
       expect(odd.opened).toBe(false);
       expect(c.fw.rescue).toBe(false);
       removeFakeHid();
     }
+  });
+
+  it('5c. the same identity on VID 046D: not in the chooser, never opened', async () => {
+    const c = await bare(false);
+    const other = new FakeHidDevice(c.hid, new MockTransport({ seed: 'pro' }), { vendorId: 0x046d, productId: 0x3999, productName: 'AE64 ?' });
+    c.hid.strays.push(other);
+    c.hid.next = () => [other];
+    await c.device.connect();
+    expect(c.hid.requests[0].filters.some((f) => f.vendorId === 0x046d)).toBe(false);
+    expect(other.opens).toBe(0);
+    expect(other.sends).toEqual([]);
+    expect(c.device.connected).toBe(false);
+    expect(c.fw.rescue).toBe(false);
+    expect(await c.device.tryAutoReconnect()).toBe(false);
+    expect(other.opens).toBe(0);
+    expect(other.sends).toEqual([]);
+    removeFakeHid();
   });
 
   it('6. a full write through HidFwPort + HidTransport: permission through the chooser, 2121 packets, back in its app, init on the new connection', async () => {
@@ -1135,13 +1193,40 @@ describe('FW-TEST-3. guards the review mutants found untested', { timeout: 60_00
     expect(s.bus.violations).toEqual([]);
   });
 
-  it('Sf: rescue on a bootloader of board 0030000B (neither Pro nor Max): no write even with a file for that board and the risk box', async () => {
+  it('Sf-a: non-AE64 1CA6 bootloader of board 0030000B is refused with error.bootOther (01 02 only, closed, no rescue)', async () => {
     const s = await demo('pro');
     s.fw.setEnabled(true);
     s.bus.replugAsBootloader();
     await run(1000);
     for (const d of await s.bus.list()) if (d instanceof MockBootloader) s.bus.unplug(d);
     const boot = new MockBootloader(s.bus, new Array(12).fill(0), 'boot-other', OTHER_BOOT_BOARD);
+    s.bus.plug(boot);
+    const openRescue = vi.spyOn(s.fw, 'openRescue');
+    const closeSpy = vi.spyOn(boot, 'close');
+    const p = s.device.adoptFromFirmware(boot, true);
+    await run(500);
+    await p;
+    expect(s.device.status).toBe('error');
+    expect(s.device.error).toBe(tr('error.bootOther', { name: boot.productName }));
+    expect(s.fw.rescue).toBe(false);
+    expect(openRescue).not.toHaveBeenCalled();
+    expect(cmds(s.bus, 'boot-other')).toEqual(['01 02']);
+    expect(closeSpy).toHaveBeenCalledOnce();
+    expect(sent08(s.bus)).toEqual([]);
+  });
+
+  it('Sf-b: isAe64 bootloader identity (1CA6:300A) of board 0030000B opens rescue but refuses to write even with matching file and risk box', async () => {
+    class Ae64IdentityBootloader extends MockBootloader {
+      override get identity() {
+        return { ...super.identity, productId: 0x300a };
+      }
+    }
+    const s = await demo('pro');
+    s.fw.setEnabled(true);
+    s.bus.replugAsBootloader();
+    await run(1000);
+    for (const d of await s.bus.list()) if (d instanceof MockBootloader) s.bus.unplug(d);
+    const boot = new Ae64IdentityBootloader(s.bus, new Array(12).fill(0), 'boot-other', OTHER_BOOT_BOARD);
     s.bus.plug(boot);
     const p = s.device.adoptFromFirmware(boot, true);
     await run(500);
