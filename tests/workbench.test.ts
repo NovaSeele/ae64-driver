@@ -19,6 +19,7 @@ import type { UserPreset } from '../src/stores/userPresets';
 import { useToast } from '../src/components/ui/toast';
 import ToastHost from '../src/components/ui/Toast.vue';
 import { t } from '../src/i18n/vi';
+import { isProfilePoll } from './helpers/profilePoll';
 
 const id = (n: string) => PHYSICAL_KEYS.find((k) => k.name === n)!.id;
 const WASD = ['W', 'A', 'S', 'D'].map(id);
@@ -50,7 +51,7 @@ async function setup(select: number[] = [], opts: { realKeyboard?: boolean; mode
   const orig = target.exchange.bind(mock);
   // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
   vi.spyOn(target, 'exchange').mockImplementation((f: Uint8Array) => {
-    if (!(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)) exchange(f);
+    if (!isProfilePoll(f)) exchange(f);
     return orig(f);
   });
   return { device, mock, perf, setPerf, exchange, history: useHistoryStore(), sync: useSyncStore() };

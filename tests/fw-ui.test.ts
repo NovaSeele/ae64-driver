@@ -83,8 +83,15 @@ describe('init: 01 02 before 01 01, the rest unchanged', () => {
       .mockImplementation(function (this: unknown, d: string, b: Uint8Array) {
         if (d === 'out') out.push([...b.subarray(0, 3)].map((x) => x.toString(16).padStart(2, '0')).join(' '));
       });
-    await useDeviceStore().connectDemo(seed);
-    expect(out).toEqual([OLD_INIT[1], OLD_INIT[0], ...OLD_INIT.slice(2)]);
+    const device = useDeviceStore();
+    try {
+      await device.connectDemo(seed);
+      expect(out.slice(0, OLD_INIT.length)).toEqual([OLD_INIT[1], OLD_INIT[0], ...OLD_INIT.slice(2)]);
+      // After init completes, watchKeyboardProfile starts polling active profile (02 03 01) every PROFILE_POLL_MS.
+      expect(out.slice(OLD_INIT.length).every((f) => f === '02 03 01')).toBe(true);
+    } finally {
+      await device.disconnect({ flush: false });
+    }
   });
 });
 

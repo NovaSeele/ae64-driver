@@ -20,6 +20,7 @@ import { useFlashStore } from '../src/stores/flash';
 import { stripRing } from '../src/protocol/ledLayout';
 import LightingPage from '../src/pages/LightingPage.vue';
 import { resolvedTheme, setTheme, themeChoice } from '../src/theme';
+import { isProfilePoll } from './helpers/profilePoll';
 
 vi.setConfig({ testTimeout: 30000 });
 
@@ -63,7 +64,7 @@ async function demo(model: 'max' | 'pro' = 'max') {
   const out: Pkt[] = [];
   // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
   mock.onPacketRaw((dir, bytes) => {
-    if (dir === 'out' && !(bytes[0] === 0x02 && bytes[1] === 0x03 && bytes[2] === 0x01)) {
+    if (dir === 'out' && !isProfilePoll(bytes)) {
       out.push({ t: performance.now(), bytes: Array.from(bytes.slice(0, 4)) });
     }
   });

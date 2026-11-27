@@ -11,6 +11,7 @@ import { keyMatrixIndices, useLightingStore } from '../src/stores/lighting';
 import LightingPage from '../src/pages/LightingPage.vue';
 import Slider from '../src/components/ui/Slider.vue';
 import ColorPicker from '../src/components/ui/ColorPicker.vue';
+import { isProfilePoll } from './helpers/profilePoll';
 
 async function setup() {
   setActivePinia(createPinia());
@@ -494,7 +495,7 @@ describe('lighting page', () => {
     await page.findAll('[role="tab"]')[0].trigger('click');
     await flushPromises();
     // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
-    const frames = spy.mock.calls.filter(([f]) => !(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01));
+    const frames = spy.mock.calls.filter(([f]) => !isProfilePoll(f));
     expect(frames).toHaveLength(0);
     page.unmount();
   });

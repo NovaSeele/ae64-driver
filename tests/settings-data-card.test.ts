@@ -20,6 +20,7 @@ import { useToast } from '../src/components/ui/toast';
 import { setTheme } from '../src/theme';
 import { setLocale } from '../src/i18n/locale';
 import { t } from '../src/i18n/vi';
+import { isProfilePoll } from './helpers/profilePoll';
 
 let wrapper: VueWrapper | null = null;
 const preset = (id: string, name: string) => ({
@@ -60,7 +61,7 @@ async function page(opts: { model?: 'max' | 'pro'; before?: () => void } = {}) {
   const out: string[] = [];
   // Ignore live-travel reads (04 03) and the PROFILE_POLL_MS poll of watchKeyboardProfile (02 03 01).
   mock.onPacket((e) => {
-    if (e.dir === 'out' && !(e.bytes[0] === 4 && e.bytes[1] === 3) && !(e.bytes[0] === 2 && e.bytes[1] === 3 && e.bytes[2] === 1)) {
+    if (e.dir === 'out' && !(e.bytes[0] === 4 && e.bytes[1] === 3) && !isProfilePoll(e.bytes)) {
       out.push([...e.bytes.slice(0, 3)].map((b) => b.toString(16).padStart(2, '0')).join(' '));
     }
   });

@@ -14,6 +14,7 @@ import { useUserPresetsStore } from '../src/stores/userPresets';
 import type { UserPreset } from '../src/stores/userPresets';
 import { useToast } from '../src/components/ui/toast';
 import { t } from '../src/i18n/vi';
+import { isProfilePoll } from './helpers/profilePoll';
 
 const ALL = PHYSICAL_KEYS.map((k) => k.id);
 const STORAGE_KEY = 'ae64.perf.userPresets';
@@ -40,7 +41,7 @@ async function setup() {
   const orig = target.exchange.bind(device.transport);
   // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
   vi.spyOn(target, 'exchange').mockImplementation((f: Uint8Array) => {
-    if (!(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)) exchange(f);
+    if (!isProfilePoll(f)) exchange(f);
     return orig(f);
   });
   return { perf, exchange, history: useHistoryStore() };

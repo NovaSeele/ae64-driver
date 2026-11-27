@@ -14,9 +14,12 @@ import { useHistoryStore } from '../src/stores/history';
 import { usePerformanceStore } from '../src/stores/performance';
 import { t as tr } from '../src/i18n/vi';
 
+let activeDevice: ReturnType<typeof useDeviceStore> | null = null;
+
 async function setup(seed: DemoSeed = 'pro-xinput', opts: { load?: boolean } = {}) {
   setActivePinia(createPinia());
   const device = useDeviceStore();
+  activeDevice = device;
   await device.connectDemo(seed);
   const t = device.transport as MockTransport;
   const frames: number[][] = [];
@@ -30,7 +33,12 @@ const agp = (frames: number[][]) => frames.filter((f) => f[0] === 0x10).map((f) 
 const block = (cfg: GamepadConfig) => Array.from(encodeConfig(cfg));
 
 beforeEach(() => vi.useRealTimers());
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+afterEach(async () => {
+  vi.useRealTimers();
+  await activeDevice?.disconnect({ flush: false });
+  activeDevice = null;
+  vi.restoreAllMocks();
+});
 
 describe('load', () => {
   it('an AE64 Max: support "max", not a single family-0x10 frame', async () => {
@@ -316,6 +324,8 @@ describe('Xbox USB device switch', () => {
 
   describe('real keyboard path (re-enumeration)', () => {
     async function real() {
+      // Fake setInterval before connectDemo so watchKeyboardProfile's PROFILE_POLL_MS interval stays under fake timers.
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
       const s = await setup();
       s.device.demo = false;
       return s;
@@ -329,7 +339,7 @@ describe('Xbox USB device switch', () => {
         s.device.demo = false;
         return true;
       });
-      vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+      vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearInterval', 'Date'] });
       const p = s.gp.setXboxDevice(false);
       await vi.advanceTimersByTimeAsync(2000);
       expect(await p).toBe(true);
@@ -344,7 +354,7 @@ describe('Xbox USB device switch', () => {
         s.device.info = { ...s.device.info!, serial: '123412341234', serialHex: '010203040102030401020304' };
         return true;
       });
-      vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+      vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearInterval', 'Date'] });
       const p = s.gp.setXboxDevice(false);
       await vi.advanceTimersByTimeAsync(2000);
       expect(await p).toBe(false);
@@ -358,7 +368,7 @@ describe('Xbox USB device switch', () => {
         s.device.info = { ...s.device.info!, serial: before.serial, serialHex: 'aa'.repeat(12) };
         return true;
       });
-      vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+      vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearInterval', 'Date'] });
       const p = s.gp.setXboxDevice(false);
       await vi.advanceTimersByTimeAsync(2000);
       expect(await p).toBe(false);
@@ -371,7 +381,7 @@ describe('Xbox USB device switch', () => {
         s.device.demo = false;
         return true;
       });
-      vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+      vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearInterval', 'Date'] });
       const p = s.gp.setXboxDevice(false);
       await vi.advanceTimersByTimeAsync(2000);
       expect(await p).toBe(false);
@@ -380,7 +390,7 @@ describe('Xbox USB device switch', () => {
     it('no reconnection within the timeout', async () => {
       const s = await real();
       vi.spyOn(s.device, 'tryAutoReconnect').mockResolvedValue(false);
-      vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+      vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearInterval', 'Date'] });
       const p = s.gp.setXboxDevice(false);
       await vi.advanceTimersByTimeAsync(17_000);
       expect(await p).toBe(false);

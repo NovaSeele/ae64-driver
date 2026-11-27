@@ -6,6 +6,7 @@ import { flushPromises, type VueWrapper } from '@vue/test-utils';
 import { MockTransport, PHYSICAL_KEYS } from '../src/protocol';
 import type { DemoSeed } from '../src/protocol/mock';
 import { mountPerformance } from './mountPerformance';
+import { isProfilePoll } from './helpers/profilePoll';
 import { useDeviceStore } from '../src/stores/device';
 import { useSelectionStore } from '../src/stores/selection';
 import { usePerformanceStore } from '../src/stores/performance';
@@ -69,9 +70,7 @@ function spyExchange(mock: MockTransport) {
   const target = mock as unknown as { exchange: (frame: Uint8Array, timeoutMs?: number) => Promise<Uint8Array> };
   const orig = target.exchange.bind(mock);
   const spy = vi.spyOn(target, 'exchange').mockImplementation((frame: Uint8Array, timeoutMs?: number) => {
-    if (!(frame[0] === 0x02 && frame[1] === 0x03 && frame[2] === 0x01)) {
-      frames.push(Array.from(frame));
-    }
+    if (!isProfilePoll(frame)) frames.push(Array.from(frame));
     return orig(frame, timeoutMs);
   });
   return { frames, spy, clear: () => { frames.length = 0; } };
@@ -501,12 +500,12 @@ describe('FST test 16 (replaces test 9): minimums follow the board, limits and N
   });
 
   it('0-HID recorder ignores the periodic active-profile poll (02 03 01) while still counting other frames', async () => {
-    const { device, mock } = await setup();
+    const { mock } = await setup();
     const ex = spyExchange(mock);
     ex.clear();
     ex.spy.mockClear();
 
-    await device.checkKeyboardProfile();
+    await mock.getActiveProfile();
     expect(ex.frames).toHaveLength(0);
     expect(ex.spy.mock.calls.some(([f]) => f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)).toBe(true);
 

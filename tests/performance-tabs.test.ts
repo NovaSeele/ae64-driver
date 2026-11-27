@@ -33,6 +33,7 @@ import { watch } from 'vue';
 import { locale } from '../src/i18n/locale';
 import { t } from '../src/i18n/vi';
 import type { MessageKey } from '../src/i18n/vi';
+import { isProfilePoll } from './helpers/profilePoll';
 
 vi.setConfig({ testTimeout: 30000 });
 
@@ -89,7 +90,7 @@ const called = (spies: ReturnType<typeof spyWrites>) => spies.filter(([, s]) => 
 const spyExchange = (mock: MockTransport) => vi.spyOn(mock as unknown as { exchange: (f: Uint8Array) => Promise<unknown> }, 'exchange');
 /** The command bytes of each frame sent, e.g. "05 03", ignoring the PROFILE_POLL_MS poll of watchKeyboardProfile (02 03 01). */
 const sent = (spy: ReturnType<typeof spyExchange>) => spy.mock.calls
-  .filter(([f]) => !(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01))
+  .filter(([f]) => !isProfilePoll(f))
   .map(([f]) => [...f.slice(0, 2)].map((b) => b.toString(16).padStart(2, '0')).join(' '));
 /** Entries the router writes to its history. */
 function spyHistory() {

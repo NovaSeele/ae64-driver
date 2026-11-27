@@ -13,6 +13,7 @@ import { useSelectionStore } from '../src/stores/selection';
 import type { PhysicalKey } from '../src/protocol';
 import { locale } from '../src/i18n/locale';
 import { t } from '../src/i18n/vi';
+import { isProfilePoll } from './helpers/profilePoll';
 
 let frames: FrameRequestCallback[] = [];
 let device: ReturnType<typeof useDeviceStore>;
@@ -370,7 +371,7 @@ describe('key check on the live page', () => {
     const orig = tr.exchange.bind(tr);
     const frames: string[] = [];
     tr.exchange = (f: Uint8Array) => {
-      if (!(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)) {
+      if (!isProfilePoll(f)) {
         frames.push(Array.from(f.slice(0, 2), (x) => x.toString(16).padStart(2, '0')).join(' '));
       }
       return orig(f);

@@ -25,6 +25,7 @@ import { en } from '../src/i18n/en';
 import InfoTip from '../src/components/ui/InfoTip.vue';
 import { parseImport, storedSettings } from '../src/data/appSettings';
 import LightingPage from '../src/pages/LightingPage.vue';
+import { isProfilePoll } from './helpers/profilePoll';
 
 vi.setConfig({ testTimeout: 30000 });
 
@@ -72,7 +73,7 @@ async function mountPage(o: MountOpts = {}) {
   const out: number[][] = [];
   // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
   mock.onPacketRaw((dir, bytes) => {
-    if (dir === 'out' && !(bytes[0] === 0x02 && bytes[1] === 0x03 && bytes[2] === 0x01)) out.push(Array.from(bytes));
+    if (dir === 'out' && !isProfilePoll(bytes)) out.push(Array.from(bytes));
   });
   return { device, mock, lighting, sync: useSyncStore(), driver, out };
 }

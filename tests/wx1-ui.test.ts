@@ -38,6 +38,7 @@ afterEach(() => {
   w?.unmount();
   w = null;
   document.body.innerHTML = '';
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   useToast().items.value = [];
@@ -233,6 +234,8 @@ describe('W-09: the sidebar profile list while another exclusive job runs', () =
 
 describe('N-WX1-1: the packet log names each poll row', () => {
   it('a run of active-profile reads is not called live-travel packets', async () => {
+    // Pause watchKeyboardProfile's PROFILE_POLL_MS interval so only the 3 explicit reads (6 packets) land in the log.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     setActivePinia(createPinia());
     const device = useDeviceStore();
     await device.connectDemo('max');

@@ -21,12 +21,14 @@ async function connectMock(): Promise<MockTransport> {
   return device.transport as MockTransport;
 }
 
-/** Read one key's performance record from another profile, then switch back (mock only). */
-async function perfIn(mock: MockTransport, profile: number, back: number) {
-  await mock.setActiveProfile(profile);
-  const p = await mock.getPerformance(Q);
-  await mock.setActiveProfile(back);
-  return p;
+/** Read Q's performance record from `profile` directly from the mock's stored state without switching its active profile. */
+function perfIn(mock: MockTransport, profile: number) {
+  const m = mock as unknown as {
+    profiles: { perf: Map<string, number[]> }[];
+    decodePerfRecord: (rec: number[], pos: string) => { normalPress: number };
+  };
+  const pos = `${Q.row}:${Q.col}`;
+  return m.decodePerfRecord(m.profiles[profile].perf.get(pos)!, pos);
 }
 
 beforeEach(() => setActivePinia(createPinia()));
@@ -158,7 +160,7 @@ describe('R5 profile switch never carries an unsaved edit into another profile',
     const perf = usePerformanceStore();
     const sync = useSyncStore();
     await perf.load(true);
-    const p1Before = await perfIn(mock, 1, 0);
+    const p1Before = perfIn(mock, 1);
 
     const orig = mock.setPerformance.bind(mock);
     let fail = true;
@@ -176,7 +178,7 @@ describe('R5 profile switch never carries an unsaved edit into another profile',
     await sync.retry();
     expect(device.activeProfile).toBe(1);
     expect((await mock.getPerformance(Q)).normalPress).toBeCloseTo(p1Before.normalPress);
-    expect((await perfIn(mock, 0, 1)).normalPress).toBeCloseTo(0.4);
+    expect(perfIn(mock, 0).normalPress).toBeCloseTo(0.4);
   });
 
   it('a persistent failure refuses the switch, and the edit is never written to another profile', async () => {
@@ -185,7 +187,7 @@ describe('R5 profile switch never carries an unsaved edit into another profile',
     const perf = usePerformanceStore();
     const sync = useSyncStore();
     await perf.load(true);
-    const p1Before = await perfIn(mock, 1, 0);
+    const p1Before = perfIn(mock, 1);
     const write = vi.spyOn(mock, 'setPerformance').mockRejectedValue(new Error('USB hiccup'));
 
     perf.apply([Q.id], () => ({ normalPress: 0.4 }), 'test');

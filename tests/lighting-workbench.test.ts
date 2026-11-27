@@ -14,6 +14,7 @@ import { useSelectionStore } from '../src/stores/selection';
 import { useSyncStore } from '../src/stores/sync';
 import LightingPage from '../src/pages/LightingPage.vue';
 import ColorPicker from '../src/components/ui/ColorPicker.vue';
+import { isProfilePoll } from './helpers/profilePoll';
 
 // Each case loads a demo keyboard in real time (the 5 s default flakes under a loaded full-suite run).
 vi.setConfig({ testTimeout: 30000 });
@@ -64,7 +65,7 @@ function spyExchange(mock: MockTransport) {
   const orig = target.exchange.bind(mock);
   // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
   vi.spyOn(target, 'exchange').mockImplementation((f: Uint8Array) => {
-    if (!(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)) seen(f);
+    if (!isProfilePoll(f)) seen(f);
     return orig(f);
   });
   return seen;

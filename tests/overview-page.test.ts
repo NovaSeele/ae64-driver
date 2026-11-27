@@ -16,6 +16,7 @@ import type { Performance, PhysicalKey } from '../src/protocol';
 import type { DemoSeed } from '../src/protocol/mock';
 import { NAV, installPerfTabGuard, routes, saveTab } from '../src/router';
 import { mountAt } from './mountPerformance';
+import { isProfilePoll } from './helpers/profilePoll';
 import { useDeviceStore } from '../src/stores/device';
 import { rangeMm, usePerformanceStore } from '../src/stores/performance';
 import { useSettingsStore } from '../src/stores/settings';
@@ -87,7 +88,6 @@ function spyWrites(mock: MockTransport) {
 const called = (spies: ReturnType<typeof spyWrites>) => spies.filter(([, s]) => s.mock.calls.length).map(([n]) => n);
 const spyExchange = (mock: MockTransport) => vi.spyOn(mock as unknown as { exchange: (f: Uint8Array) => Promise<unknown> }, 'exchange');
 // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
-const isProfilePoll = (f: Uint8Array) => f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01;
 const sent = (spy: ReturnType<typeof spyExchange>) => spy.mock.calls
   .filter(([f]) => !isProfilePoll(f))
   .map(([f]) => [...f.slice(0, 2)].map((b) => b.toString(16).padStart(2, '0')).join(' '));
@@ -349,11 +349,11 @@ describe('Overview: reads (DESIGN F §3.10)', () => {
   });
 
   it('sent(ex) ignores the periodic active-profile poll (02 03 01) while still counting other frames', async () => {
-    const { device, mock } = await mountOv();
+    const { mock } = await mountOv();
     const ex = spyExchange(mock);
     ex.mockClear();
 
-    await device.checkKeyboardProfile();
+    await mock.getActiveProfile();
     expect(sent(ex)).toEqual([]);
     expect(ex.mock.calls.some(([f]) => f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)).toBe(true);
 

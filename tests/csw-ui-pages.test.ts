@@ -28,6 +28,7 @@ import { useToast } from '../src/components/ui/toast';
 import { clearTuningSnapshots } from '../src/stores/tuning';
 import { locale } from '../src/i18n/locale';
 import { t } from '../src/i18n/vi';
+import { isProfilePoll } from './helpers/profilePoll';
 
 vi.mock('../src/components/live/demoPress', async (orig) => ({ ...(await orig<object>()), attachDemoPress: () => () => {} }));
 vi.setConfig({ testTimeout: 30000 });
@@ -65,7 +66,7 @@ const spyExchange = (mock: MockTransport) => vi.spyOn(mock as unknown as { excha
 const cmdOf = (f: Uint8Array) => `${f[0].toString(16).padStart(2, '0')} ${f[1].toString(16).padStart(2, '0')}`;
 // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
 const cmdsOf = (spy: ReturnType<typeof spyExchange>) => spy.mock.calls
-  .filter(([f]) => !(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01))
+  .filter(([f]) => !isProfilePoll(f))
   .map(([f]) => cmdOf(f));
 
 function setProfilePerfBytes(mock: MockTransport, profile: number, k: PhysicalKey, byteOffset: number, valueUm: number) {

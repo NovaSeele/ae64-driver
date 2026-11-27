@@ -26,6 +26,7 @@ import { kib, num, shaShort } from '../src/components/firmware/fwText';
 import { locale } from '../src/i18n/locale';
 import { t as tr } from '../src/i18n/vi';
 import { CRC, FAKE, fileOf, makeFw, run } from './fw-helpers';
+import { isProfilePoll } from './helpers/profilePoll';
 
 // FW_DIRECT and FW_DESKTOP are one constant per build (FW_DIRECT on in both from r134, FW_DESKTOP only in the desktop app): switched here per test
 const flags = vi.hoisted(() => ({ direct: true, desktop: false }));
@@ -95,7 +96,7 @@ afterEach(() => {
 function recordOut(t: MockTransport): number[][] {
   const frames: number[][] = [];
   t.onPacketRaw((dir, b) => {
-    if (dir === 'out' && !(b[0] === 0x02 && b[1] === 0x03 && b[2] === 0x01)) frames.push(Array.from(b));
+    if (dir === 'out' && !isProfilePoll(b)) frames.push(Array.from(b));
   });
   return frames;
 }

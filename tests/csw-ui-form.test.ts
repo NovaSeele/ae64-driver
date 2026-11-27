@@ -14,6 +14,7 @@ import { GENERIC_CLASSES, GENERIC_START, GENERIC_UID, coefFromTravel } from '../
 import { READY_SWITCHES } from '../src/data/readySwitches';
 import { locale } from '../src/i18n/locale';
 import { t } from '../src/i18n/vi';
+import { isProfilePoll } from './helpers/profilePoll';
 
 const W = PHYSICAL_KEYS.find((k) => k.name === 'W')!;
 const A = PHYSICAL_KEYS.find((k) => k.name === 'A')!;
@@ -30,7 +31,7 @@ function spyExchange(mock: MockTransport) {
   const orig = target.exchange.bind(mock);
   // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
   vi.spyOn(target, 'exchange').mockImplementation((f: Uint8Array) => {
-    if (!(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)) seen(f);
+    if (!isProfilePoll(f)) seen(f);
     return orig(f);
   });
   return seen;

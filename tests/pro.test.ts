@@ -17,6 +17,7 @@ import SwitchCard from '../src/components/performance/SwitchCard.vue';
 import { PHYSICAL_KEYS } from '../src/protocol';
 import { findSwitch, isCatalogTriple, switchCatalogFor } from '../src/protocol/switches';
 import { switchName } from '../src/data/switchDisplay';
+import { isProfilePoll } from './helpers/profilePoll';
 
 // Backups are thousands of exchanges: answer them on the next microtask (same replies, as in diagnostics.test.ts).
 vi.mock('../src/protocol', async (importOriginal) => {
@@ -256,7 +257,7 @@ describe('changing keyboard', () => {
     const out: number[][] = [];
     // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
     pro.onPacket((e) => {
-      if (e.dir === 'out' && !(e.bytes[0] === 0x02 && e.bytes[1] === 0x03 && e.bytes[2] === 0x01)) out.push(e.bytes);
+      if (e.dir === 'out' && !isProfilePoll(e.bytes)) out.push(e.bytes);
     });
 
     expect(device.model).toBe('pro');

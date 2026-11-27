@@ -35,6 +35,7 @@ import { CRC, fileOf, makeFw } from './fw-helpers';
 import { installFakeHid, removeFakeHid } from './fw-hid';
 import type { FakeHidDevice } from './fw-hid';
 import { installLocks, removeLocks } from './fake-locks';
+import { isProfilePoll } from './helpers/profilePoll';
 
 const FLAG_KEY = 'ae64.calibrating';
 let wrappers: VueWrapper[] = [];
@@ -47,10 +48,7 @@ function outFrames(): (() => string[]) & { mark(): void } {
   const spy = vi.spyOn(BaseTransport.prototype as unknown as { log: (d: string, b: Uint8Array) => void }, 'log');
   let from = spy.mock.calls.length;
   const list = () => spy.mock.calls.slice(from)
-    .filter((c) => {
-      const b = c[1] as Uint8Array;
-      return c[0] === 'out' && !(b[0] === 0x02 && b[1] === 0x03 && b[2] === 0x01);
-    })
+    .filter((c) => c[0] === 'out' && !isProfilePoll(c[1] as Uint8Array))
     .map((c) => [...(c[1] as Uint8Array).slice(0, 3)].map((x) => x.toString(16).padStart(2, '0')).join(' '));
   return Object.assign(list, { mark: () => { from = spy.mock.calls.length; } });
 }

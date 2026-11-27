@@ -14,6 +14,7 @@ import { useToast } from '../src/components/ui/toast';
 import { setLocale } from '../src/i18n/locale';
 import { setTheme } from '../src/theme';
 import { t } from '../src/i18n/vi';
+import { isProfilePoll } from './helpers/profilePoll';
 
 let wrapper: VueWrapper | null = null;
 const nav = navigator as unknown as Record<string, unknown>;
@@ -109,7 +110,7 @@ describe('item 9: the text block', () => {
 function recordOut(mock: MockTransport): string[] {
   const out: string[] = [];
   mock.onPacket((e) => {
-    if (e.dir === 'out' && !(e.bytes[0] === 4 && e.bytes[1] === 3) && !(e.bytes[0] === 2 && e.bytes[1] === 3 && e.bytes[2] === 1)) {
+    if (e.dir === 'out' && !(e.bytes[0] === 4 && e.bytes[1] === 3) && !isProfilePoll(e.bytes)) {
       out.push([...e.bytes.slice(0, 3)].map((b) => b.toString(16).padStart(2, '0')).join(' '));
     }
   });

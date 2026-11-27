@@ -30,6 +30,7 @@ import { useLightingStore } from '../src/stores/lighting';
 import { useSyncStore } from '../src/stores/sync';
 import { locale } from '../src/i18n/locale';
 import { t as tr } from '../src/i18n/vi';
+import { isProfilePoll } from './helpers/profilePoll';
 
 vi.setConfig({ testTimeout: 30000 });
 
@@ -181,7 +182,7 @@ describe('SelectionBar quick-select buttons', () => {
     const target = mock as unknown as { exchange: (f: Uint8Array) => Promise<unknown> };
     const orig = target.exchange.bind(mock);
     vi.spyOn(target, 'exchange').mockImplementation((f: Uint8Array) => {
-      if (!(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01)) exchange(f);
+      if (!isProfilePoll(f)) exchange(f);
       return orig(f);
     });
     w = mount(SelectionBar, { attachTo: document.body });

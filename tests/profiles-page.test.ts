@@ -25,6 +25,7 @@ import { profilesEn } from '../src/i18n/en/profiles';
 import { vi as viDict, t } from '../src/i18n/vi';
 import { en as enDict } from '../src/i18n/en';
 import { locale } from '../src/i18n/locale';
+import { isProfilePoll } from './helpers/profilePoll';
 
 vi.setConfig({ testTimeout: 30000 });
 
@@ -77,7 +78,7 @@ const checked = (w: VueWrapper, n: 0 | 1) => Number(seg(w, n).find('[aria-checke
 const spyExchange = (mock: MockTransport) => vi.spyOn(mock as unknown as { exchange: (f: Uint8Array) => Promise<unknown> }, 'exchange');
 // Ignore the periodic active-profile read (02 03 01) sent by watchKeyboardProfile every PROFILE_POLL_MS.
 const sent = (spy: ReturnType<typeof spyExchange>) => spy.mock.calls
-  .filter(([f]) => !(f[0] === 0x02 && f[1] === 0x03 && f[2] === 0x01))
+  .filter(([f]) => !isProfilePoll(f))
   .map(([f]) => [...f.slice(0, 3)].map((b) => b.toString(16).padStart(2, '0')).join(' '));
 const keyId = (name: string) => PHYSICAL_KEYS.find((k) => k.name === name)!.id;
 /** Type into an input the way a browser does (an `input` event; `composing` = an IME is still composing). */
