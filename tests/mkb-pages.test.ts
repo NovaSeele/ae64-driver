@@ -11,7 +11,7 @@ import { RouterView, createMemoryHistory, createRouter } from 'vue-router';
 import type { Router } from 'vue-router';
 import { GenericMockTransport } from '../src/protocol';
 import type { GenericMockName } from '../src/protocol';
-import { checkFrame } from '../src/protocol/safety';
+import { checkFrame, isWriteCommand } from '../src/protocol/safety';
 import { installPerfTabGuard, routes } from '../src/router';
 import { setLocale } from '../src/i18n/locale';
 import { t } from '../src/i18n/vi';
@@ -53,6 +53,32 @@ function makeRouter(): Router {
   return r;
 }
 
+const FAKE_TIMERS = ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] as const;
+
+async function settle<T>(promise: Promise<T>, stepMs = 50, maxSteps = 2000): Promise<T> {
+  let done = false;
+  let val!: T;
+  let err: unknown;
+  let failed = false;
+  promise.then(
+    (v) => { done = true; val = v; },
+    (e) => { done = true; failed = true; err = e; },
+  );
+  for (let i = 0; i < maxSteps && !done; i++) {
+    await vi.advanceTimersByTimeAsync(stepMs);
+  }
+  if (!done) throw new Error('settle: timed out');
+  if (failed) throw err;
+  return val;
+}
+
+async function advanceUntil(pred: () => boolean, stepMs = 50, maxSteps = 2000): Promise<void> {
+  for (let i = 0; i < maxSteps && !pred(); i++) {
+    await vi.advanceTimersByTimeAsync(stepMs);
+  }
+  if (!pred()) throw new Error('advanceUntil: condition not met');
+}
+
 function spyExchange(transport: GenericMockTransport) {
   const frames: Uint8Array[] = [];
   const target = transport as unknown as { exchange: (f: Uint8Array, timeoutMs?: number) => Promise<Uint8Array> };
@@ -62,6 +88,42 @@ function spyExchange(transport: GenericMockTransport) {
     return orig(f, timeoutMs);
   });
   return frames;
+}
+
+function spyWriteAttempts(transport: GenericMockTransport): number[][] {
+  const attempts: number[][] = [];
+  const client = transport as unknown as {
+    request: (payload: number[], timeoutMs?: number) => Promise<Uint8Array>;
+    write: (payload: number[]) => Promise<Uint8Array>;
+  };
+  const origRequest = client.request.bind(transport);
+  const origWrite = client.write.bind(transport);
+  vi.spyOn(client, 'request').mockImplementation((payload: number[], timeoutMs?: number) => {
+    if (isWriteCommand(payload)) attempts.push([...payload]);
+    return origRequest(payload, timeoutMs);
+  });
+  vi.spyOn(client, 'write').mockImplementation((payload: number[]) => {
+    if (isWriteCommand(payload)) attempts.push([...payload]);
+    return origWrite(payload);
+  });
+  return attempts;
+}
+
+function withReplyOverride(
+  transport: GenericMockTransport,
+  override: (req: readonly number[]) => number[] | null | undefined,
+): void {
+  const host = transport as unknown as {
+    spec: { overrideReply?: (req: readonly number[]) => number[] | null | undefined };
+  };
+  const prev = host.spec.overrideReply;
+  host.spec = {
+    ...host.spec,
+    overrideReply: (req) => {
+      const res = override(req);
+      return res !== undefined ? res : prev?.(req);
+    },
+  };
 }
 
 function assertAllReadOnly(frames: Uint8Array[]): void {
@@ -100,13 +162,15 @@ afterEach(async () => {
   await useDeviceStore().disconnect({ flush: false }).catch(() => undefined);
   await flushPromises();
   document.body.innerHTML = '';
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe('S3 UI: zero write commands across every generic page (kills M6)', () => {
   it('disables write controls and sends 0 write frames when interacting with every page on g60', async () => {
-    const { device, frames } = await connectGeneric('g60');
+    const { device, transport, frames } = await connectGeneric('g60');
+    const writeAttempts = spyWriteAttempts(transport);
     const router = makeRouter();
     const sync = useSyncStore();
 
@@ -140,12 +204,24 @@ describe('S3 UI: zero write commands across every generic page (kills M6)', () =
     perfW.unmount();
     mounted.pop();
 
-    // 2. KeymapPage: verify reset/clear controls disabled, click enabled buttons
+    // 2. KeymapPage: select a key, verify fieldset, quick buttons and restore-default button are disabled
+    useSelectionStore().select(0, 'replace');
     const kmW = await mountWithRouter(KeymapPage, '/keymap');
     await vi.waitFor(() => expect(useKeymapStore().loading).toBe(false), { timeout: 10000, interval: 5 });
     await flushPromises();
+    const kmFieldset = kmW.find('fieldset.km-fieldset');
+    expect(kmFieldset.exists()).toBe(true);
+    expect((kmFieldset.element as HTMLFieldSetElement).disabled).toBe(true);
+    const kmQuickBtns = kmW.findAll('fieldset.km-fieldset .km-quick button');
+    expect(kmQuickBtns).toHaveLength(2);
+    for (const btn of kmQuickBtns) {
+      expect((btn.element as HTMLButtonElement).disabled).toBe(true);
+    }
+    const kmRestoreBtn = kmW.find('button.kaside__restore');
+    expect(kmRestoreBtn.exists()).toBe(true);
+    expect((kmRestoreBtn.element as HTMLButtonElement).disabled).toBe(true);
     for (const btn of kmW.findAll('button')) {
-      if (!(btn.element as HTMLButtonElement).disabled) await btn.trigger('click');
+      if (!(btn.element as HTMLButtonElement).matches(':disabled')) await btn.trigger('click');
     }
     await sync.flush();
     await flushPromises();
@@ -185,12 +261,17 @@ describe('S3 UI: zero write commands across every generic page (kills M6)', () =
     psW.unmount();
     mounted.splice(-2);
 
-    // 5. SettingsPage: all device controls disabled
+    // 5. SettingsPage: all device controls inside [data-setting] cards disabled; click any not disabled
     const setW = await mountWithRouter(SettingsPage, '/settings');
     await vi.waitFor(() => expect(useSettingsStore().loading).toBe(false), { timeout: 10000, interval: 5 });
     await flushPromises();
-    for (const seg of setW.findAll('.sg__card button[role="radio"], .sg__card button[role="switch"]')) {
+    const settingControls = setW.findAll('[data-setting] button[role="radio"], [data-setting] button[role="switch"]');
+    expect(settingControls.length).toBeGreaterThan(0);
+    for (const seg of settingControls) {
       expect((seg.element as HTMLButtonElement).disabled).toBe(true);
+    }
+    for (const btn of setW.findAll('[data-setting] button')) {
+      if (!(btn.element as HTMLButtonElement).disabled) await btn.trigger('click');
     }
     await sync.flush();
     await flushPromises();
@@ -210,6 +291,7 @@ describe('S3 UI: zero write commands across every generic page (kills M6)', () =
     mounted.splice(-3);
 
     expect(device.support).toBe('generic');
+    expect(writeAttempts).toEqual([]);
     expect(frames.length).toBeGreaterThan(0);
     assertAllReadOnly(frames);
   });
@@ -443,20 +525,17 @@ describe('S9 Per-page rules (DESIGN MKB §9.2, §7, §8, §11)', () => {
   });
 
   it('Settings: shows answered device settings read-only, hides unanswered ones, shows unknown rtPrecision on gmiss', async () => {
+    vi.useFakeTimers({ toFake: [...FAKE_TIMERS] });
     const device = useDeviceStore();
-    await device.connectGenericMock('gmiss', { latencyMs: 0 });
+    await settle(device.connectGenericMock('gmiss', { latencyMs: 0 }));
+    expect(device.status).toBe('connected');
     const transport = device.transport as GenericMockTransport;
-    // Drop 02 05 00/01 (pollingRate) and 02 0D 01 (rgbSleep) so those two cards must be hidden
-    const target = transport as unknown as { exchange: (f: Uint8Array, timeoutMs?: number) => Promise<Uint8Array> };
-    const orig = target.exchange.bind(transport);
-    vi.spyOn(target, 'exchange').mockImplementation((f: Uint8Array, timeoutMs?: number) => {
-      if (
-        (f[0] === 0x02 && f[1] === 0x05 && (f[2] === 0x00 || f[2] === 0x01))
-        || (f[0] === 0x02 && f[1] === 0x0d && f[2] === 0x01)
-      ) {
-        return Promise.reject(new Error('timeout'));
-      }
-      return orig(f, timeoutMs);
+    const timeoutsBefore = transport.stats.timeouts;
+    // Settings read order: 02 04 01 (ok) -> 02 05 00 (ok) -> 02 05 01 (miss 1) -> 02 0D 01 (miss 2)
+    // -> 02 10 01 (ok, resets counter) -> 02 0E 00 (ok) -> 02 08 00 (ok). At most 2 real timeouts in a row.
+    withReplyOverride(transport, ([f, op, a]) => {
+      if ((f === 0x02 && op === 0x05 && a === 0x01) || (f === 0x02 && op === 0x0d && a === 0x01)) return null;
+      return undefined;
     });
 
     const router = makeRouter();
@@ -464,13 +543,12 @@ describe('S9 Per-page rules (DESIGN MKB §9.2, §7, §8, §11)', () => {
     await router.isReady();
     const w = mount(SettingsPage, { global: { plugins: [router, pinia] }, attachTo: document.body });
     mounted.push(w);
-    await vi.waitFor(() => {
-      expect(useSettingsStore().loading).toBe(false);
-      expect(useSettingsStore().loaded).toBe(true);
-    }, { timeout: 10000, interval: 5 });
+    await advanceUntil(() => !useSettingsStore().loading && useSettingsStore().loaded);
     await flushPromises();
 
     const s = useSettingsStore();
+    expect(device.status).toBe('connected');
+    expect(transport.stats.timeouts - timeoutsBefore).toBe(2);
     expect(s.answered.systemMode).toBe(true);
     expect(s.answered.pollingRate).toBe(false);
     expect(s.answered.rgbSleep).toBe(false);
@@ -480,6 +558,49 @@ describe('S9 Per-page rules (DESIGN MKB §9.2, §7, §8, §11)', () => {
     expect(w.text()).not.toContain(t('settings.rgbSleep'));
     expect(w.text()).toContain(t('settings.shakeOptimization'));
     expect(w.text()).toContain(t('mkb.common.unknown'));
+  });
+
+  it('Settings: 3 consecutive real timeouts while loading closes generic connection with error.protocolUnknown and sends no frame after the 3rd miss', async () => {
+    vi.useFakeTimers({ toFake: [...FAKE_TIMERS] });
+    const device = useDeviceStore();
+    // Use gmiss (no periodic profile poll) so only Settings reads run on the wire.
+    await settle(device.connectGenericMock('gmiss', { latencyMs: 0 }));
+    expect(device.status).toBe('connected');
+    const expectedName = device.displayName;
+    const transport = device.transport as GenericMockTransport;
+    const frames = spyExchange(transport);
+    // Drop 02 05 00, 02 05 01, 02 0D 01 (3 consecutive reads after 02 04 01).
+    withReplyOverride(transport, ([f, op, a]) => {
+      if (
+        (f === 0x02 && op === 0x05 && (a === 0x00 || a === 0x01))
+        || (f === 0x02 && op === 0x0d && a === 0x01)
+      ) return null;
+      return undefined;
+    });
+
+    const router = makeRouter();
+    await router.push('/settings');
+    await router.isReady();
+    const w = mount(SettingsPage, { global: { plugins: [router, pinia] }, attachTo: document.body });
+    mounted.push(w);
+    await advanceUntil(() => !useSettingsStore().loading);
+    await flushPromises();
+
+    expect(device.status).toBe('error');
+    expect(device.connected).toBe(false);
+    expect(device.error).toBe(t('error.protocolUnknown', { name: expectedName }));
+    expect(device.refusal?.reason).toBe('protocol');
+    expect(frames.map((f) => [f[0], f[1], f[2]])).toEqual([
+      [0x02, 0x04, 0x01],
+      [0x02, 0x05, 0x00],
+      [0x02, 0x05, 0x01],
+      [0x02, 0x0d, 0x01],
+    ]);
+
+    // Confirm no stray frames are sent after the 3rd miss.
+    await vi.advanceTimersByTimeAsync(5000);
+    await flushPromises();
+    expect(frames).toHaveLength(4);
   });
 
   it('Key test & rows on g75: polls row 0 and sees row-0 key press (kills M20); keymap loads all 6 rows; selection selects 81 keys', async () => {
@@ -510,6 +631,27 @@ describe('S9 Per-page rules (DESIGN MKB §9.2, §7, §8, §11)', () => {
     }, { timeout: 2500, interval: 10 });
     live.stop();
     expect(frames.some((f) => f[0] === 0x04 && f[1] === 0x03 && f[3] === 0)).toBe(true);
+  });
+
+  it('Key test on g75: records travel and pressed state for key 80 beyond the 64-key buffer', async () => {
+    const { device, transport } = await connectGeneric('g75');
+    expect(device.keys).toHaveLength(81);
+    const lastKey = device.keys[device.keys.length - 1];
+    expect(lastKey.id).toBe(80);
+
+    transport.simulatePressPos(lastKey.row, lastKey.col, 2.0);
+    const live = useLiveStore();
+    live.focusId = device.keys[0].id;
+    live.allKeys = true;
+    live.start();
+    await vi.waitFor(() => {
+      expect(live.data.travel[lastKey.id]).toBeGreaterThan(1.5);
+      expect(live.data.status[lastKey.id]).toBeGreaterThan(0);
+    }, { timeout: 5000, interval: 10 });
+    live.stop();
+
+    expect(live.data.peakMm[lastKey.id]).toBeGreaterThan(1.5);
+    expect(live.data.pressedIds.has(lastKey.id)).toBe(true);
   });
 
   it('Gamepad: hidden in Sidebar even on gspoofPro (0030000A), /gamepad redirects to /overview, 0 10 xx frames', async () => {

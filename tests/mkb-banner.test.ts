@@ -11,11 +11,14 @@ import { nextTick } from 'vue';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import type { Router } from 'vue-router';
 import App from '../src/App.vue';
+import { MockTransport, PRODUCT_ID_MAX, VENDOR_ID } from '../src/protocol';
+import type { MockFwBus } from '../src/protocol/mockFirmware';
 import { installPerfTabGuard, routes } from '../src/router';
 import { useDeviceStore } from '../src/stores/device';
 import { useToast } from '../src/components/ui/toast';
 import { setLocale } from '../src/i18n/locale';
 import { t } from '../src/i18n/vi';
+import { FakeHidDevice, installFakeHid, removeFakeHid } from './fw-hid';
 
 vi.setConfig({ testTimeout: 30000 });
 
@@ -58,6 +61,7 @@ afterEach(async () => {
   while (mounted.length) mounted.pop()!.unmount();
   await useDeviceStore().disconnect({ flush: false }).catch(() => undefined);
   await flushPromises();
+  removeFakeHid();
   document.body.innerHTML = '';
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -183,5 +187,37 @@ describe('ViewModeBanner (DESIGN MKB §9.1)', () => {
     const notAllowed = t('device.notAllowed');
     const badCalls = showSpy.mock.calls.filter(([msg]) => msg === notAllowed);
     expect(badCalls).toHaveLength(0);
+  });
+
+  it('renders no visible banner and announces nothing for ae64-unlisted', async () => {
+    const { w, device } = await mountApp('/overview');
+    const app = new MockTransport({ seed: 'max' });
+    const bus = app.fwMock as MockFwBus;
+    bus.unplug(app);
+    const hid = installFakeHid(bus);
+    const unlisted = new MockTransport({ seed: 'max', latencyMs: 0 });
+    const origHandle = unlisted.handle.bind(unlisted);
+    unlisted.handle = (req: number[]) => {
+      const r = origHandle(req);
+      if (req[0] === 0x01 && req[1] === 0x02) {
+        r[4] = 0x00; r[5] = 0x30; r[6] = 0x00; r[7] = 0x99; // unlisted board 00300099 on AE64 Max PID
+      }
+      return r;
+    };
+    const dev = new FakeHidDevice(hid, unlisted, { vendorId: VENDOR_ID, productId: PRODUCT_ID_MAX, productName: 'AE64 Unlisted' });
+    hid.strays.push(dev);
+    hid.next = () => [dev];
+
+    await device.connect();
+    await flushPromises();
+
+    expect(device.connected).toBe(true);
+    expect(device.support).toBe('ae64-unlisted');
+    expect(device.boardAllowed).toBe(false);
+    expect(w.find('[data-testid="view-mode-banner"]').exists()).toBe(false);
+    const liveRegion = w.find('[data-testid="view-mode-announce"]');
+    expect(liveRegion.exists()).toBe(true);
+    expect(liveRegion.attributes('role')).toBe('status');
+    expect(liveRegion.text()).toBe('');
   });
 });
