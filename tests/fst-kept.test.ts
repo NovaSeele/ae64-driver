@@ -367,4 +367,54 @@ describe('FST test 25: .kept live region stability, × outside status, empty cla
     expect(document.activeElement).not.toBe(document.body);
     expect(grid.contains(document.activeElement)).toBe(true);
   });
+
+  it('25b: clearing notices while focus is in .grid (exact write or load) does not steal focus (MB2)', async () => {
+    const { perf, sel } = await boot('clampRt01');
+    sel.selectMany([Q.id]);
+    ({ w } = await mountPerformance('travel', {}, { stubs: { KeyboardView: true } }));
+    await flushPromises();
+
+    // Show a notice on Max
+    perf.apply([Q.id], () => ({ rtPress: 0.001 }), 'rt');
+    await flush();
+    expect(perf.keptNotices).toHaveLength(1);
+
+    // Focus a control inside .grid (e.g. Actuation number field's input)
+    const gridInput = document.body.querySelector<HTMLInputElement>('.grid input:not(:disabled)')!;
+    expect(gridInput).not.toBeNull();
+    gridInput.focus();
+    expect(document.activeElement).toBe(gridInput);
+
+    // a) Clear via exact write of that field on Q -> focus stays on gridInput
+    perf.apply([Q.id], () => ({ rtPress: 0.3 }), 'rt');
+    await flush();
+    expect(perf.keptNotices).toEqual([]);
+    expect(document.activeElement).toBe(gridInput);
+
+    // b) Show a notice again: clearKeptNotices() while gridInput has focus keeps focus on gridInput,
+    // and perf.load(true) (which unmounts .editors while loading) keeps focus on a persistent control outside .editors
+    perf.apply([Q.id], () => ({ rtPress: 0.001 }), 'rt');
+    await flush();
+    expect(perf.keptNotices).toHaveLength(1);
+
+    gridInput.focus();
+    expect(document.activeElement).toBe(gridInput);
+    perf.clearKeptNotices();
+    await flushPromises();
+    expect(perf.keptNotices).toEqual([]);
+    expect(document.activeElement).toBe(gridInput);
+
+    perf.apply([Q.id], () => ({ rtPress: 0.001 }), 'rt');
+    await flush();
+    expect(perf.keptNotices).toHaveLength(1);
+    const tabBtn = document.body.querySelector<HTMLElement>('#ptab-travel')!;
+    expect(tabBtn).not.toBeNull();
+    tabBtn.focus();
+    expect(document.activeElement).toBe(tabBtn);
+
+    await perf.load(true);
+    await flushPromises();
+    expect(perf.keptNotices).toEqual([]);
+    expect(document.activeElement).toBe(tabBtn);
+  });
 });

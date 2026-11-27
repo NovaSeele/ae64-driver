@@ -86,7 +86,7 @@ describe('update', () => {
       expect(resolveBuildVersion('', '0.3.0', fixedDate)).toBe(buildVersionString('0.3.0', fixedDate));
       expect(resolveBuildVersion('0.3.0+20261126203409', '0.3.0', fixedDate)).toBe('0.3.0+20261126203409');
 
-      for (const bad of ['r141', '0.3.0', '0.2.0+20261126203409', '0.3.0+2026112620340']) {
+      for (const bad of ['r141', '0.3.0', '0.2.0+20261126203409', '0.3.0+2026112620340', '0.3.0+202611262034090', '0.3.0+20261126203409x']) {
         expect(() => resolveBuildVersion(bad, '0.3.0', fixedDate)).toThrow();
         try {
           resolveBuildVersion(bad, '0.3.0', fixedDate);
