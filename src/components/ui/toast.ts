@@ -21,7 +21,7 @@ function dismiss(id: number): void {
   const tm = timers.get(id);
   if (tm?.handle) clearTimeout(tm.handle);
   timers.delete(id);
-  items.value = items.value.filter((x) => x.id !== id);
+  if (items.value.some((x) => x.id === id)) items.value = items.value.filter((x) => x.id !== id);
 }
 
 function run(id: number, tm: Timer): void {

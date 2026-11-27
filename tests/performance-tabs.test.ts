@@ -108,11 +108,14 @@ beforeEach(() => {
   });
   if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 });
+const clearToasts = () => { for (const x of useToast().items.value) useToast().dismiss(x.id); };
+
 afterEach(async () => {
   useCalibrationStore().phase = 'idle'; // unmounting a running session would cancel it
   await useSyncStore().flush();
   w?.unmount();
   w = null;
+  clearToasts();
   document.body.innerHTML = '';
   localStorage.clear();
   vi.restoreAllMocks();
@@ -756,7 +759,7 @@ describe('Performance tabs: refused while calibrating, with a toast (DESIGN L §
     await at('/performance?tab=calibration');
     useCalibrationStore().phase = phase;
     await settle();
-    useToast().items.value = [];
+    clearToasts();
   }
 
   it('P1. running: a push to another tab stays on Calibration with one "warn" toast ptab.locked', async () => {
@@ -806,12 +809,32 @@ describe('Performance tabs: refused while calibrating, with a toast (DESIGN L §
     expect(router.currentRoute.value.query).toEqual({ tab: 'calibration' });
     useCalibrationStore().phase = 'running';
     await settle();
-    useToast().items.value = [];
+    clearToasts();
     let shown = 0; // show() replaces a toast of the same text, so count each time one is put up
     const stop = watch(useToast().items, (now) => { if (now.at(-1)?.text === t('ptab.locked')) shown++; }, { flush: 'sync' });
     router.back();
     await vi.waitFor(() => expect(ptab().length).toBe(1));
     await new Promise((r) => setTimeout(r, 50));
+    await settle();
+    expect(router.currentRoute.value.query).toEqual({ tab: 'calibration' });
+    expect(ptab()).toEqual([{ text: t('ptab.locked'), kind: 'warn' }]);
+    stop();
+    expect(shown).toBe(1);
+  });
+
+  it('P6b. running, Back while an expired toast timer from an earlier test fires during the wait: still watched once', async () => {
+    await at('/performance?tab=test');
+    await click('calibration');
+    useCalibrationStore().phase = 'running';
+    await settle();
+    // Force an earlier toast's timer to expire mid-wait after items.value was cleared (the race with P1–P3 under load).
+    useToast().show(t('ptab.locked'), 'warn', 20);
+    useToast().items.value = [];
+    let shown = 0;
+    const stop = watch(useToast().items, (now) => { if (now.at(-1)?.text === t('ptab.locked')) shown++; }, { flush: 'sync' });
+    router.back();
+    await vi.waitFor(() => expect(ptab().length).toBe(1));
+    await new Promise((r) => setTimeout(r, 60));
     await settle();
     expect(router.currentRoute.value.query).toEqual({ tab: 'calibration' });
     expect(ptab()).toEqual([{ text: t('ptab.locked'), kind: 'warn' }]);
@@ -830,7 +853,7 @@ describe('Performance tabs: refused while calibrating, with a toast (DESIGN L §
     useSelectionStore().selectMany([keyId('W')]);
     await settle();
     expect(useHistoryStore().suspended).toBe(true); // dirty
-    useToast().items.value = [];
+    clearToasts();
     await click('switch');
     expect(dialogs()).toBe(1);
     expect(ptab()).toEqual([]);
