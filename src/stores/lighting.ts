@@ -712,7 +712,7 @@ export const useLightingStore = defineStore('lighting', () => {
     if (tabHidden()) return later(HIDDEN_POLL_MS); // nobody sees the frames and they keep the HID bus busy
     if (!canRead()) return later(PAUSED_POLL_MS);
     const wait = nextFrameAt - now();
-    if (wait > 1) return later(wait);
+    if (wait > 0) return later(Math.ceil(wait));
     void readLiveFrame();
   }
 
@@ -729,20 +729,30 @@ export const useLightingStore = defineStore('lighting', () => {
   async function readLiveFrame(): Promise<void> {
     reading = true;
     const startedAt = rafCount;
-    nextFrameAt = now() + FRAME_MS;
     ensureRaf();
     let whole = false;
     let failed = false;
     try {
       // One request per packet, checked in between: a write that became pending stops the frame at the packet in flight.
+      // Anchor nextFrameAt once the first packet is answered on the bus, so a queued request ahead of this frame cannot
+      // shorten the bus gap to the next frame below FRAME_MS.
       whole = await device.withTransport(async (t) => {
+        let first = true;
+        const readPage = async (area: number, p: number) => {
+          const recs = await t.readLedMatrix(area, [p]);
+          if (first) {
+            first = false;
+            nextFrameAt = now() + FRAME_MS;
+          }
+          return recs;
+        };
         for (const p of livePages.value) {
           if (!canRead()) return false;
-          copyRecords(scratchKeys, await t.readLedMatrix(0, [p]), p, LED_MATRIX_TOTAL);
+          copyRecords(scratchKeys, await readPage(0, p), p, LED_MATRIX_TOTAL);
         }
         for (const p of STRIP_PAGES) {
           if (!canRead()) return false;
-          copyRecords(scratchStrip, await t.readLedMatrix(1, [p]), p, LED_STRIP_COUNT);
+          copyRecords(scratchStrip, await readPage(1, p), p, LED_STRIP_COUNT);
         }
         return true;
       }, { exclusive: false });
@@ -765,7 +775,7 @@ export const useLightingStore = defineStore('lighting', () => {
     if (!liveHasFrame.value) liveHasFrame.value = true;
     if (rafCount > startedAt) {
       // a display frame has passed since this one started: the next starts on its own task, 14 ms after this one did
-      later(Math.max(0, nextFrameAt - now()));
+      later(Math.max(0, Math.ceil(nextFrameAt - now())));
     } else {
       waitingForRaf = true;
       ensureRaf();

@@ -141,6 +141,55 @@ describe('LED60 read loop', () => {
     expect(Math.min(...gaps)).toBeGreaterThanOrEqual(11);
   });
 
+  it('a queued request ahead of a frame (e.g. a slow 02 03 01 profile poll) does not shorten the bus gap to the next frame below 14 ms', async () => {
+    // 200 Hz display so rAF does not mask a short bus gap after a queued request delays a frame's first packet
+    let queue: FrameRequestCallback[] = [];
+    let vsync = performance.now() + 5;
+    let running = true;
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => {
+      if (!running) return;
+      const t = performance.now();
+      if (t >= vsync) {
+        vsync = t + 5;
+        const due = queue;
+        queue = [];
+        for (const cb of due) cb(t);
+      }
+      ch.port2.postMessage(0);
+    };
+    ch.port2.postMessage(0);
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { queue.push(cb); return 1; });
+    vi.stubGlobal('cancelAnimationFrame', () => { queue = []; });
+    const { device, mock, lighting, out } = await demo();
+    // Non-LED commands (02 03 01) use latencyMs while 05 03 stays on fastLedReplies.
+    (mock as unknown as { latencyMs: number }).latencyMs = 22;
+    const first = expectedPages(device.keys)[0];
+    let pollsInjected = 0;
+    let endsSeen = 0;
+    const pendingPolls: Promise<unknown>[] = [];
+    const offHook = mock.onPacketRaw((dir, bytes) => {
+      if (dir === 'in' && bytes[0] === 0x05 && bytes[1] === 0x03 && bytes[2] === 1 && bytes[3] === 2) {
+        endsSeen++;
+        // Inject a slow 02 03 01 right after every 2nd frame finishes, so the next live frame queues behind it.
+        if (endsSeen % 2 === 0 && pollsInjected < 3) {
+          pollsInjected++;
+          pendingPolls.push(mock.getActiveProfile().catch(() => undefined));
+        }
+      }
+    });
+    lighting.startLivePolling();
+    stop = () => { offHook(); lighting.stopLivePolling(); running = false; ch.port1.close(); vi.unstubAllGlobals(); };
+    await vi.waitFor(() => expect(pollsInjected).toBe(3), { timeout: 5000 });
+    await vi.waitFor(() => expect(lighting.liveFrame.seq).toBeGreaterThanOrEqual(8), { timeout: 5000 });
+    lighting.stopLivePolling();
+    await Promise.all(pendingPolls);
+    const starts = out.filter((p) => p.bytes[2] === 0 && p.bytes[3] === first).map((p) => p.t);
+    expect(starts.length).toBeGreaterThanOrEqual(8);
+    const gaps = starts.slice(1).map((t, i) => t - starts[i]);
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(14);
+  });
+
   for (const model of ['max', 'pro'] as const) {
     it(`${model}: a frame reads only the area-0 packets that hold a key's LED and the 3 strip packets; nothing is written`, async () => {
       const { device, lighting, out } = await demo(model);
