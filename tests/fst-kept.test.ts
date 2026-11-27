@@ -143,6 +143,14 @@ describe('FST test 22: M8 accepted floor raise, perf.kept line, clearing, and ne
     await flushPromises();
     transport.clearFrames();
 
+    // Before any notice: role="status" exists inside .kept and is empty
+    const keptWrap = () => document.body.querySelector<HTMLElement>('.kept');
+    const statusNode = () => document.body.querySelector<HTMLElement>('.kept [role="status"]');
+    const closeBtnEl = () => document.body.querySelector<HTMLButtonElement>(`.kept button[aria-label="${t('perf.keptHide')}"]`);
+    const statusEl = statusNode();
+    expect(statusEl).not.toBeNull();
+    expect(statusEl!.textContent).toBe('');
+
     // Write rtPress = 0.001 on Q -> board stores 0.01: 1 write, 1 read, no retry, saved
     perf.apply([Q.id], () => ({ rtPress: 0.001 }), 'rt');
     await flush();
@@ -154,23 +162,23 @@ describe('FST test 22: M8 accepted floor raise, perf.kept line, clearing, and ne
     expect(perf.values[Q.id].rtPress).toBe(0.01);
     expect(perf.keptNotices).toEqual([{ field: 'rtPress', wanted: 0.001, got: 0.01, ids: [Q.id] }]);
 
-    // TravelTab renders .kept[role="status"] with field name, 0.01, 0.001, and count 1
-    const keptEl = () => document.body.querySelector<HTMLElement>('.kept[role="status"]');
-    expect(keptEl()).not.toBeNull();
-    expect(keptEl()!.textContent).toContain(t('perf.kept', { field: t('perf.rtPress'), got: '0.01', wanted: '0.001', n: 1 }));
+    // Same role="status" DOM node now holds the notice text
+    expect(statusNode()).toBe(statusEl);
+    expect(statusEl!.textContent).toBe(t('perf.kept', { field: t('perf.rtPress'), got: '0.01', wanted: '0.001', n: 1 }));
 
     // Same wanted/got on W merges W into ids (2 keys)
     perf.apply([W.id], () => ({ rtPress: 0.001 }), 'rt');
     await flush();
     expect(perf.keptNotices).toEqual([{ field: 'rtPress', wanted: 0.001, got: 0.01, ids: [Q.id, W.id].sort((a, b) => a - b) }]);
-    expect(keptEl()!.textContent).toContain(t('perf.kept', { field: t('perf.rtPress'), got: '0.01', wanted: '0.001', n: 2 }));
+    expect(statusEl!.textContent).toContain(t('perf.kept', { field: t('perf.rtPress'), got: '0.01', wanted: '0.001', n: 2 }));
 
-    // Clicking × button clears the notice
-    const closeBtn = keptEl()!.querySelector<HTMLButtonElement>(`button[aria-label="${t('perf.keptHide')}"]`)!;
-    closeBtn.click();
+    // Clicking × button clears the notice while keeping the status element
+    closeBtnEl()!.click();
     await flushPromises();
     expect(perf.keptNotices).toEqual([]);
-    expect(keptEl()).toBeNull();
+    expect(closeBtnEl()).toBeNull();
+    expect(statusEl!.textContent).toBe('');
+    expect(keptWrap()!.classList.contains('kept--empty')).toBe(true);
 
     // Re-trigger on Q and W, then an exact write on Q clears only Q; exact write on W clears the entry
     perf.apply([Q.id, W.id], () => ({ rtPress: 0.001 }), 'rt');
@@ -191,7 +199,8 @@ describe('FST test 22: M8 accepted floor raise, perf.kept line, clearing, and ne
     device.rtPrecision = 0.01;
     await flushPromises();
     expect(document.body.querySelector('.fst')).toBeNull();
-    expect(keptEl()).not.toBeNull();
+    expect(statusEl!.textContent).not.toBe('');
+    expect(closeBtnEl()).not.toBeNull();
 
     await perf.load(true);
     expect(perf.keptNotices).toEqual([]);
@@ -300,5 +309,62 @@ describe('FST test 23: M8 rejects non-floor mismatches as "Not saved" (N9)', () 
 
     expect(sync.state).toBe('error');
     expect(perf.keptNotices).toEqual([]);
+  });
+});
+
+describe('FST test 25: .kept live region stability, × outside status, empty class, and focus handoff (N12)', () => {
+  it('keeps role="status" always mounted, × outside it, .kept--empty when clear, and hands focus on after × (Max and Pro)', async () => {
+    const { device, perf, sel } = await boot('clampRt01');
+    sel.selectMany([Q.id]);
+    ({ w } = await mountPerformance('travel', {}, { stubs: { KeyboardView: true } }));
+    await flushPromises();
+
+    const kept = document.body.querySelector<HTMLElement>('.kept')!;
+    const statusEl = kept.querySelector<HTMLElement>('[role="status"]')!;
+    expect(kept).not.toBeNull();
+    expect(statusEl).not.toBeNull();
+    expect(statusEl.textContent).toBe('');
+    expect(kept.classList.contains('kept--empty')).toBe(true);
+
+    // Trigger a kept notice on Max
+    perf.apply([Q.id], () => ({ rtPress: 0.001 }), 'rt');
+    await flush();
+
+    expect(kept.classList.contains('kept--empty')).toBe(false);
+    expect(statusEl.textContent).toBe(t('perf.kept', { field: t('perf.rtPress'), got: '0.01', wanted: '0.001', n: 1 }));
+    const closeBtn = kept.querySelector<HTMLButtonElement>(`button[aria-label="${t('perf.keptHide')}"]`)!;
+    expect(closeBtn).not.toBeNull();
+    expect(statusEl.contains(closeBtn)).toBe(false);
+
+    // Focus × and activate with keyboard (Enter + click) -> focus moves to FST switch on Max
+    closeBtn.focus();
+    expect(document.activeElement).toBe(closeBtn);
+    closeBtn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    closeBtn.click();
+    await flushPromises();
+
+    expect(perf.keptNotices).toEqual([]);
+    expect(kept.classList.contains('kept--empty')).toBe(true);
+    const fstSwitch = document.body.querySelector<HTMLElement>('.fst [role="switch"]');
+    expect(fstSwitch).not.toBeNull();
+    expect(document.activeElement).toBe(fstSwitch);
+    expect(document.activeElement).not.toBe(document.body);
+
+    // Pro (rtPrecision = 0.01, no .fst row): focus moves to a control inside .grid, never body
+    perf.apply([Q.id], () => ({ rtPress: 0.001 }), 'rt');
+    await flush();
+    device.rtPrecision = 0.01;
+    await flushPromises();
+    expect(document.body.querySelector('.fst')).toBeNull();
+    const proCloseBtn = kept.querySelector<HTMLButtonElement>(`button[aria-label="${t('perf.keptHide')}"]`)!;
+    proCloseBtn.focus();
+    expect(document.activeElement).toBe(proCloseBtn);
+    proCloseBtn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    proCloseBtn.click();
+    await flushPromises();
+
+    const grid = document.body.querySelector<HTMLElement>('.grid')!;
+    expect(document.activeElement).not.toBe(document.body);
+    expect(grid.contains(document.activeElement)).toBe(true);
   });
 });

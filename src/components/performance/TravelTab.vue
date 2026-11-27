@@ -222,6 +222,19 @@ onBeforeUnmount(() => {
   dismissUndoToast();
 });
 
+const fstEl = ref<HTMLElement | null>(null);
+const keptEl = ref<HTMLElement | null>(null);
+const KEPT_FOCUSABLE = 'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"]):not(:disabled)';
+watch(() => perf.keptNotices.length, async (len, prev) => {
+  if (len > 0 || !prev) return;
+  const activeEl = document.activeElement;
+  if (!activeEl || !keptEl.value?.contains(activeEl)) return;
+  await nextTick();
+  const target = fstEl.value?.querySelector<HTMLElement>('[role="switch"]')
+    ?? gridEl.value?.querySelector<HTMLElement>(KEPT_FOCUSABLE);
+  target?.focus();
+});
+
 const decimals = computed(() => capDecimals(device.rtPrecision));
 const minMm = computed(() => perfMinMm(device.rtPrecision));
 const stepMm = computed(() => (decimals.value === 3 && fineStep.value ? 0.001 : 0.01));
@@ -729,14 +742,14 @@ const modeOptions = computed(() => [
 
       <!-- editors: row 1 is the column grid (its height is held); saved presets sit in their own row below -->
       <div v-else-if="hasKeys" class="editors">
-        <div v-if="decimals === 3" class="fst">
+        <div v-if="decimals === 3" ref="fstEl" class="fst">
           <Switch v-model="fineStep" :label="t('perf.fineStep')" :describedby="fineStepDescId" />
           <span :id="fineStepDescId" class="fst__desc num">{{ fineStep ? t('perf.fineStepOn') : t('perf.fineStepOff') }}</span>
           <InfoTip :text="t('perf.fineStepTip')" />
         </div>
-        <div v-if="perf.keptNotices.length" class="kept" role="status">
-          <span class="kept__text num">{{ perf.keptNotices.map(keptText).join(' · ') }}</span>
-          <IconButton :icon="IconX" size="sm" :label="t('perf.keptHide')" @click="perf.clearKeptNotices()" />
+        <div ref="keptEl" class="kept" :class="{ 'kept--empty': !perf.keptNotices.length }">
+          <p class="kept__text num" role="status">{{ perf.keptNotices.map(keptText).join(' · ') }}</p>
+          <IconButton v-if="perf.keptNotices.length" :icon="IconX" size="sm" :label="t('perf.keptHide')" @click="perf.clearKeptNotices()" />
         </div>
       <div
         ref="gridEl"
@@ -1051,7 +1064,8 @@ const modeOptions = computed(() => [
 .fst { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--s-3); row-gap: var(--s-1); }
 .fst__desc { font-size: var(--fs-label); color: var(--fg-2); }
 .kept { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-label); color: var(--fg-2); }
-.kept__text { flex: 1 1 auto; min-width: 0; }
+.kept--empty { margin-top: calc(-1 * var(--s-4)); }
+.kept__text { flex: 1 1 auto; min-width: 0; margin: 0; }
 .saved { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: var(--s-4); }
 .saved__card { grid-column: var(--cols, 3); }
 .pcol { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; }
