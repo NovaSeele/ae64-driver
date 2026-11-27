@@ -320,6 +320,67 @@ describe('TO1 Timeouts after the gates (DESIGN MKB §5.2, §9.2, §16.2)', () =>
     expect(device.connected).toBe(true);
   });
 
+  // Test 4b (kills MT4d)
+  it('4b. Key test: misses spread between answers never stop the live poll; 3 in a row do (kills MT4d)', async () => {
+    vi.useFakeTimers({ toFake: [...FAKE_TIMERS] });
+    let liveReads = 0;
+    let missedReads = 0;
+    let answeredReads = 0;
+    const device = useDeviceStore();
+    await settle(device.connectGenericMock('gmiss', {
+      latencyMs: 10,
+      overrideReply: ([f, op]) => {
+        if (f === 0x04 && op === 0x03) {
+          liveReads++;
+          if (liveReads % 2 === 1) {
+            missedReads++;
+            return null;
+          }
+          answeredReads++;
+        }
+        return undefined;
+      },
+    }));
+    expect(device.status).toBe('connected');
+    await settle(usePerformanceStore().load());
+
+    const out = captureOut();
+    const { w } = await mountPerformance('test', {}, { plugins: [pinia] });
+    mounted.push(w);
+
+    // (a) Alternate miss/answer until at least 4 misses and the following 4th answer is in flight.
+    await advanceUntil(() => missedReads >= 4 && answeredReads >= 4, 5);
+    await flushPromises();
+
+    const live = useLiveStore();
+    expect(missedReads).toBeGreaterThanOrEqual(4);
+    expect(answeredReads).toBeGreaterThanOrEqual(3);
+    expect(live.running).toBe(true);
+    expect(live.noAnswer).toBe(false);
+    expect(w.find('[data-testid="live-no-answer"]').exists()).toBe(false);
+    expect(device.connected).toBe(true);
+    expect(out.frames.filter((f) => f[0] === 0x01 && f[1] === 0x02)).toHaveLength(0);
+
+    // (b) Switch so every 04 03 misses: 3 consecutive misses stop the poll.
+    const switchIdx = out.frames.length;
+    (device.transport as GenericMockTransport).setReplyOverride(([f, op]) => (
+      f === 0x04 && op === 0x03 ? null : undefined
+    ));
+
+    await advanceUntil(() => !live.running);
+    await flushPromises();
+
+    expect(out.frames.slice(switchIdx).filter((f) => f[0] === 0x04 && f[1] === 0x03)).toHaveLength(3);
+    expect(live.noAnswer).toBe(true);
+    expect(w.find('[data-testid="live-no-answer"]').text()).toContain(tr('mkb.common.noAnswer'));
+    expect(device.connected).toBe(true);
+
+    // Advance another 10 s: no further 04 03 frames.
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flushPromises();
+    expect(out.frames.slice(switchIdx).filter((f) => f[0] === 0x04 && f[1] === 0x03)).toHaveLength(3);
+  });
+
   // Test 5 (kills MT5)
   it('5. gsilent: closed during init after 3 misses with no extra 01 02 (S6 unchanged)', async () => {
     vi.useFakeTimers({ toFake: [...FAKE_TIMERS] });
